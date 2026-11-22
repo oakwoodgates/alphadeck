@@ -17,6 +17,11 @@ description: >-
   is pruned once it is both old and outside the newest labeled set (`docs/CRON_SIDECAR.md`, "Backups"). Copy a
   point you need longer off the box.
 - Never restore while a nightly pass is running. Never print the ops token or the database password.
+- A dump taken before the running images' newest migrations needs the matching older images: retag them and
+  start them with `up -d --no-build` before any newer backend boots against the restored database, because the
+  boot migrates it (`docs/OPERATIONS.md`, "Migrations and restore").
+- A dump restored into dev or a fork carries every user's Slack webhook: clear them before anything there can
+  notify (the `fork` skill).
 
 ## Steps
 
@@ -63,4 +68,5 @@ description: >-
 - A dump fails, or `psql` stops on an error during the replay.
 
 ## Model
-`docs/CRON_SIDECAR.md` ("Backups"): schedule, retention, format and password handling.
+`docs/CRON_SIDECAR.md` ("Backups"): schedule, retention, format and password handling. The stacks and the
+restore rule: `docs/OPERATIONS.md`.

@@ -32,18 +32,18 @@ alphadeck/
 ├── CLAUDE.md                       # agent working agreements + invariants + the live vocabulary/commands
 ├── README.md                       # what it is, the stack table, v1 scope
 ├── docker-compose.yml              # full stack: Postgres + backend + SPA/nginx; + the `cron` sidecar (M2; ON by default, `--scale cron=0` to skip)
-├── docker-compose.dev.yml          # the DEV override: base + `-p alphadeck_dev` (namespaced project · cron OFF · ports +1) — DEV_PROD.md
+├── docker-compose.dev.yml          # the DEV override: base + `-p alphadeck_dev` (namespaced project · cron OFF · ports +1) — OPERATIONS.md
 ├── .env.example                    # env template → copy to .env (gitignored): ANTHROPIC_API_KEY, UA, MASSIVE_API_KEY, ...
 ├── .github/workflows/ci.yml        # CI: backend ruff/black/pytest + openapi-diff · frontend tsc/build/vitest + types-diff
 ├── infra/docker-compose.yml        # DB-only slice for the local backend dev loop (shares the pgdata volume)
-├── scripts/refresh-dev.sh          # ops: the ONE-WAY prod→dev data refresh (pg_dump READ; never writes prod) — DEV_PROD.md
+├── scripts/refresh-dev.sh          # ops: the ONE-WAY prod→dev data refresh (pg_dump READ; never writes prod) — OPERATIONS.md
 ├── scripts/ensure-venv.sh · .ps1   # tooling: provision THIS checkout's backend/.venv with `-e ".[dev,replay,mcp]"` (per worktree, idempotent; `make venv`) + ensure-venv-probe.py, the readiness probe both twins run
 ├── docs/                           # THE CANON — read STAGE_MODEL.md first (the frame), then by stage
 │   ├── STAGE_MODEL.md · PROJECT_OVERVIEW.md · ROADMAP.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
 │   ├── DISCOVERY.md · WORKBENCH.md · WORKBENCH_EXTRACTION.md · WORKBENCH_SCORING.md   # the front half, in stage order
 │   ├── BOARD.md (the MONITOR surface) · CALL_LOGIC.md (the brain) · FEED_LOOP.md (the rhythm) · ADMIN.md (the ops surface)   # the back half
 │   ├── SCOREBOARD.md · DISPLAY_SIGNALS.md   # SCORE (the forward record) · the read-only tape indicators
-│   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · TENANT_SCOPES.md · REPLAY.md · DEV_PROD.md   # + the local dev/prod split
+│   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · TENANT_SCOPES.md · REPLAY.md · OPERATIONS.md   # + the local dev/prod split
 │   ├── RECALIBRATION.md · archive/POSTMORTEM_CRON_FREEZE_2026-07.md   # the tuning agenda · the ~11-day cache-freeze postmortem
 │   └── mockups/ · PROJECT_LAYOUT.md (this file)   # the visual targets · the file map
 ├── frontend/                       # React + Vite + Tailwind + TanStack Query (SPA)
@@ -201,7 +201,7 @@ alphadeck/
 
 - `.env` — the real secrets (`ANTHROPIC_API_KEY`, `ALPHADECK_USER_AGENT`, `MASSIVE_API_KEY`, …). Copy from
   `.env.example`. Docker Compose injects it into the backend container; the local dev loop reads the same names
-  from the shell. `.env.dev` is the dev-stack twin (also gitignored) — see `DEV_PROD.md`.
+  from the shell. `.env.dev` is the dev-stack twin (also gitignored) — see `OPERATIONS.md`.
 - `backend/.venv/` — the project venv (stdlib venv + pip; `scripts/ensure-venv.ps1` / `.sh` provisions it PER CHECKOUT with
   the `dev` + `replay` extras and writes `.alphadeck-venv-stamp` inside it for the idempotent no-op; the image pins
   Python 3.11, `requires-python >=3.11`).
@@ -241,7 +241,7 @@ alphadeck/
   open-market + issuer-self screens, Scoreboard record-provenance + maturity, the **DB-snapshot button + nightly
   backup**, and the per-worktree test-DB fix; the **"dark"-name Retrieval slices** (honest current shares +
   IFRS cash/runway from the 20-F/40-F annual filings, FLAG-only, + the statement-source seam + the ADS ratio —
-  #222–#226); the local **dev/prod Docker split** + the `/health` boot-visibility guard (#232, `DEV_PROD.md`);
+  #222–#226); the local **dev/prod Docker split** + the `/health` boot-visibility guard (#232, `OPERATIONS.md`);
   the **ETF sleeve** (the instrument-kind foundation + a `fund` safe-exposure member with N-PORT holdings /
   basket overlap + fund internals — #233–#236) and its **net-flow** display signal (the shares-outstanding
   sampler → `etf_flow`, Massive.com-primary + backfill — #237); and the per-name **origin chip** (derive-on-read

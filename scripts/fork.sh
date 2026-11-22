@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fork.sh — fork lifecycle: init | up | down | refresh | destroy. Full model: docs/FORKS.md.
+# fork.sh — fork lifecycle: init | up | down | refresh | destroy. Full model: docs/OPERATIONS.md §Forks.
 #
 # A FORK is an isolated experiment stack: its own worktree + branch, its own Postgres/DB/volumes/ports
 # (namespaced by the Compose project alphadeck_<name>), cron OFF, seeded ONE-WAY from prod by
@@ -18,7 +18,7 @@
 #       dev semantics); `destroy` is the one that deletes them.
 #   scripts/fork.sh refresh --reset [--fresh] [--no-cache] [--dry-run]
 #       From the fork worktree root: re-seed from prod. RESET-ONLY this pass — --reset is REQUIRED and
-#       WIPES the fork's own theses (the app-preserving data mode is deferred; docs/FORKS.md).
+#       WIPES the fork's own theses (the app-preserving data mode is deferred; docs/OPERATIONS.md §Forks).
 #   scripts/fork.sh destroy --yes
 #       From the fork worktree root: `down -v` — removes the fork's containers AND volumes
 #       (alphadeck_<name>_pgdata / _appdata). Without --yes: prints what would be destroyed and exits

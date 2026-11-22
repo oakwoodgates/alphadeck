@@ -42,7 +42,7 @@ services:
     # The long build form (not the `./backend` shorthand) so GIT_SHA can ride in: the Dockerfile turns it
     # into ENV ALPHADECK_IMAGE_SHA, which is stamped as `calls.code_sha` on every row this container writes
     # (F1 / migration 0044). UNSET is fine and means UNKNOWN — the row gets NULL, never a fabricated sha —
-    # so a plain `docker compose up --build` still works; `docs/DEPLOY.md` prefixes the rebuild with
+    # so a plain `docker compose up --build` still works; `scripts/deploy.sh` prefixes the rebuild with
     # `GIT_SHA=$(git rev-parse HEAD)`. The dev/sig/fork overlays add their own `build.args` (PIP_EXTRAS);
     # Compose merges args key-by-key, so both survive.
     build:
@@ -104,8 +104,8 @@ services:
       # -> the flags post to SLACK_WEBHOOK_URL; neither -> one log line per flag. Every reader of that channel must
       # be a steward (a flag's note is private to its user and the steward).
       ALPHADECK_STEWARD_SLACK_WEBHOOK_URL: ${ALPHADECK_STEWARD_SLACK_WEBHOOK_URL:-}
-      # The login door (docs/AUTH.md). The session cookie's `Secure` flag: true by default (prod is reached over
-      # TLS after the server move); the dev overlay sets "false" (dev is plain http on localhost). Fallback `true`
+      # The login door (docs/AUTH.md). The session cookie's `Secure` flag: true by default (a stack reached
+      # beyond localhost needs TLS); the dev overlay sets "false" (dev is plain http on localhost). Fallback `true`
       # (NOT empty: an empty value can't parse as a bool).
       ALPHADECK_COOKIE_SECURE: ${ALPHADECK_COOKIE_SECURE:-true}
       # The SYSTEM token: the one bearer credential the cron's dashboard warm-up sends. It can only GET
@@ -114,7 +114,7 @@ services:
       ALPHADECK_SYSTEM_TOKEN: ${ALPHADECK_SYSTEM_TOKEN:-}
       # The app's PUBLIC origin (docs/AGENT_TOOLS.md §Hosted endpoint). Set = the agent tools server answers at
       # <origin>/mcp with each user's own token; empty (the default) = no /mcp, nothing changes. https unless
-      # the host is loopback. Prod keeps it UNSET until the server move (docs/DEPLOY.md).
+      # the host is loopback. Set it only behind TLS (docs/SECURITY.md §TLS).
       ALPHADECK_PUBLIC_ORIGIN: ${ALPHADECK_PUBLIC_ORIGIN:-}
       # The boot seed (pipeline.seed, run by the image CMD on every start) writes the demo cards into the founding
       # workspace only when this is true. Off by default (prod); the dev overlay turns it on. Fallback `false`.
@@ -152,7 +152,7 @@ services:
       # when a pass still marked `running` can no longer be alive ("the last pass did not finish"). The
       # fallback mirrors the sidecar's and the code default (Settings.cron_run_timeout_s).
       ALPHADECK_CRON_RUN_TIMEOUT_S: ${ALPHADECK_CRON_RUN_TIMEOUT_S:-5400}
-      # Security hardening (docs/DEPLOY.md §Connections, docs/AUTH.md): the request and job connection timeouts,
+      # Security hardening (docs/OPERATIONS.md §Connections, docs/AUTH.md): the request and job connection timeouts,
       # the background-job caps, the uvicorn in-flight bound, the login throttle and the daily allowance. Listed
       # here so a value in `.env` reaches the container (compose passes an explicit list, no env_file). Numeric
       # fallbacks that MUST EQUAL the Settings defaults (the uvicorn one: the Dockerfile's build-arg default);
@@ -232,7 +232,7 @@ services:
   cron:
     # Same long build form + GIT_SHA as backend above. This one MATTERS MOST: the cron sidecar is what
     # writes the nightly call-of-record, so its image sha is the `code_sha` on the rows that ARE the record.
-    # Its own image, its own rebuild (`--no-deps cron` — the cron caveat in docs/DEPLOY.md), so it needs the
+    # Its own image, its own rebuild (`--no-deps cron` — docs/OPERATIONS.md §What a deploy changes), so it needs the
     # arg declared here too rather than inheriting the backend's.
     #
     # PIP_EXTRAS=replay (editions S5): the cron image bakes the `.[replay]` extra (duckdb + pyarrow), because the

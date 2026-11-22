@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # deploy.sh — take MERGED code live on the PROD stack, with the procedure's guards built in.
 #
-# Wraps docs/DEPLOY.md Flow A, which stays the manual fallback: refuse unless it is safe to deploy, take
+# Wraps the deploy skill's prod steps, whose by-hand form stays the fallback: refuse unless it is safe to deploy, take
 # a labeled backup, rebuild ONLY the named services from the merged main (GIT_SHA is read from the
 # checkout, never taken as an argument), apply the frontend-restart rule, then VERIFY the real artifact.
 #
@@ -70,7 +70,7 @@ WINDOW_TO=2250
 WAIT_S="${DEPLOY_WAIT_S:-240}"
 POLL_S="${DEPLOY_POLL_S:-5}"
 RETRY_S="${DEPLOY_RETRY_S:-1}"
-RECOVERY="see the stack-recovery skill (.claude/skills/stack-recovery/SKILL.md); the manual steps are docs/DEPLOY.md Flow A"
+RECOVERY="see the stack-recovery skill (.claude/skills/stack-recovery/SKILL.md); the by-hand steps are the deploy skill (.claude/skills/deploy/SKILL.md)"
 
 # GIT_SHA is a provenance claim stamped on every call-of-record row: it comes from `git rev-parse HEAD`
 # below and nowhere else, so a stale value exported in the caller's shell must not leak into a build.
@@ -356,7 +356,7 @@ say "local checks"
 if [ -d .git ]; then
   ok "the main checkout (.git is a directory)"
 else
-  refuse "this is a linked worktree (its .git is a file) — deploy runs from the MAIN checkout, never a worktree (docs/DEPLOY.md)"
+  refuse "this is a linked worktree (its .git is a file) — deploy runs from the MAIN checkout, never a worktree (docs/OPERATIONS.md)"
 fi
 
 if [ -f .env ]; then
@@ -582,7 +582,7 @@ for svc in backend cron; do
   fi
 done
 if [ -n "$backend_sha" ] && [ -n "$cron_sha" ] && [ "$backend_sha" != "$cron_sha" ]; then
-  echo "    note: backend and cron run different code (${backend_sha:0:12} vs ${cron_sha:0:12}) — right only if the change is off the nightly pipeline.daily path (docs/DEPLOY.md, the cron caveat)"
+  echo "    note: backend and cron run different code (${backend_sha:0:12} vs ${cron_sha:0:12}) — right only if the change is off the nightly pipeline.daily path (docs/OPERATIONS.md §What a deploy changes)"
 fi
 
 if [ "$recreated_cron" -eq 1 ]; then

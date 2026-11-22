@@ -4,7 +4,7 @@
 # Copies prod's data into the DEV database cheaply and safely: a read-only `pg_dump` of prod (never a
 # writable connection) restored into the dev Postgres (project alphadeck_dev, DB alphadeck_dev, host
 # :5545). This is the anti-truncation guarantee — prod (`alphadeck`, :5544, volume alphadeck_pgdata) is
-# ONLY EVER READ. Full model: docs/DEV_PROD.md.
+# ONLY EVER READ. Full model: docs/OPERATIONS.md §One-way refresh.
 #
 # Agent-legible by contract: non-interactive (no prompts), idempotent (drop-create-restore each run),
 # exit-code-clean (0 = ok, non-zero = fail), greppable (--> progress + a terminal OK:/FAIL: line).
@@ -20,7 +20,7 @@
 #   --dry-run       print the resolved plan and exit; touches NO Docker (safe anywhere, incl. worktrees)
 #   --help          this help
 #
-# PowerShell (no Git Bash) — the restore redirection differs; see docs/DEV_PROD.md for the full sequence:
+# PowerShell (no Git Bash) — the restore redirection differs; the dev-stack skill has the full sequence:
 #   Get-Content <dump>.sql | docker exec -i <dev-pg> psql -U alphadeck -d alphadeck_dev
 #
 # Prereqs for a real run (NOT --dry-run): the DEV stack is up (`make dev-up`), and for --fresh the PROD
@@ -129,7 +129,7 @@ docker exec "$DEV_PG" psql -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 \
   -c "CREATE DATABASE $DEV_DB" || fail "create $DEV_DB failed"
 
 # Restore the plain-SQL pg_dump into the fresh dev DB. `-f -` reads the dump from stdin (bash redirection);
-# the PowerShell form pipes Get-Content instead (see the header + docs/DEV_PROD.md).
+# the PowerShell form pipes Get-Content instead (see the header + the dev-stack skill).
 say "restoring the dump into $DEV_DB"
 docker exec -i "$DEV_PG" psql -U "$PGUSER" -d "$DEV_DB" -v ON_ERROR_STOP=1 -f - < "$dump" \
   || fail "restore into $DEV_DB failed"

@@ -1,4 +1,4 @@
-"""A global cap on the API's background jobs (security hardening PR 2, item 5; docs/DEPLOY.md §Connections).
+"""A global cap on the API's background jobs (security hardening PR 2, item 5; docs/OPERATIONS.md §Connections).
 
 Each running draft job and each running on-promote ingest job holds its own database connection for its whole run,
 so the number running at once, across every thesis, is capped: ``Settings.draft_jobs_max_running`` and

@@ -1,60 +1,81 @@
 ---
 name: fork
 description: >-
-  Create, refresh, or tear down a FORK — an isolated experiment stack (own
-  frontend/backend/Postgres, own theses/signals) seeded one-way from prod, cron
-  OFF, on the slot ladder (808N/800N/554(4+N), N>=3). Trigger on "spin up a fork",
-  "make a fork", "new experiment stack", "refresh the fork", "tear down the fork".
-  Prod is never written.
+  Use when asked to create, start, stop, refresh or destroy a fork: an isolated experiment
+  stack on its own worktree, ports and database, seeded one way from prod. Runs `scripts/fork.sh`,
+  clears copied webhooks and rehearses extraction from the cache.
 ---
 
-# Forks — isolated experiment stacks
+# Fork
 
-Authoritative runbook: `docs/FORKS.md`. This skill is the executable checklist —
-`scripts/fork.sh` wraps the raw compose forms (the doc's raw forms are authoritative).
-STOP on any failed precondition and report it; do NOT guess.
+A fork is a full stack (frontend, backend, Postgres; no cron) in `.claude/worktrees/fork-<name>` on branch
+`fork/<name>`, identified by its `.env.fork`. Slot N gives app 808N, API 800N and Postgres 554(4+N); prod, dev and
+sig hold slots 0 to 2, so forks use 3 to 9.
 
-## Guardrails (never violate)
-- **Prod is never written.** Refresh is a one-way `pg_dump` READ from prod into the
-  fork's own DB. There is no fork->prod path in any script.
-- **`init` runs from the MAIN checkout root**; `up` / `down` / `refresh` / `destroy`
-  run from the FORK's own worktree root. Worktrees never run prod's stack.
-- **Fail-closed identity.** `FORK_NAME` in {empty, prod, dev, sig, test} is refused;
-  names are `[a-z0-9_]+`. A misconfigured `.env.fork` dies before Docker is touched.
-- **Exactly one live SEC fetcher: prod.** A fork's cron rides the `donotstart` profile;
-  `.env.fork` scaffolds `ALPHADECK_USER_AGENT=` EMPTY on purpose (a fork structurally
-  can't live-fetch SEC — `/health` reporting `degraded` UA is expected, not a fault).
-- **`refresh --reset` WIPES the fork's app plane** (its theses/baskets/calls) and
-  re-clones prod's newest dump. Reset-only this pass — if the fork holds work you care
-  about, don't refresh (the seeded data keeps working, it just ages).
+## Guardrails
 
-## Lifecycle (pick per the request)
-1. **Create** (from the MAIN checkout) — makes the worktree + branch, scaffolds
-   `.env.fork`, builds/starts the stack, seeds from prod. Pick a free slot (N>=3):
-   ```
-   scripts/fork.sh init <name> --slot 3
-   ```
-2. **Start / stop** (from the fork worktree) — `down` KEEPS the fork's volumes:
-   ```
-   scripts/fork.sh up
-   scripts/fork.sh down
-   ```
-3. **Re-seed from prod** (from the fork worktree; RESET-ONLY — wipes the fork's app plane):
-   ```
-   scripts/fork.sh refresh --reset
-   ```
-4. **Destroy** (from the fork worktree) — `down -v`; prints the worktree/branch removal
-   to run from the main checkout afterward. Prod/dev/sig untouched:
-   ```
-   scripts/fork.sh destroy --yes
-   ```
+- `init` runs from the main checkout; `up`, `down`, `refresh` and `destroy` run from the fork's worktree.
+- The scripts refuse an empty name, `prod`, `dev`, `sig`, `test` and anything outside `[a-z0-9_]` before any Docker
+  call. Do not edit `.env.fork` to get around that.
+- The fork has no SEC User-Agent by design: `/health` reads degraded and live pulls are skipped. Setting one is the
+  operator's decision.
+- A restored fork holds every prod user's Slack webhook. Clear them right after `init` and after every
+  `refresh --reset` (step 2), and keep `SLACK_WEBHOOK_URL` out of `.env.fork`.
+- `refresh --reset` drops the fork's database: its own cards, decisions and calls are gone.
 
-## New data into a fork
-A fork works within the names PROD already tracks. To work on a new name: add it to a
-prod thesis (or a "Fork watchlist" thesis), let prod's cron fetch it, then
-`fork.sh refresh --reset`. See `docs/FORKS.md` -> "Getting NEW data into a fork".
+## Steps
 
-## Slots
-Slot N -> app 808N / api 800N / pg 554(4+N). Prod/dev/sig hold 0/1/2; forks start at 3
-(first fork 8083/8003/5547). The slot lives in the fork's `.env.fork`. Bring idle forks
-down — each is 3 extra containers; the volumes persist, so the next `up` is quick.
+With `F="-f docker-compose.yml -f docker-compose.fork.yml -p alphadeck_<name> --env-file .env.fork"`:
+
+1. Create, from the main checkout: `scripts/fork.sh init <name> --slot <N>` (pick a free slot; `--branch` or
+   `--from` to start elsewhere). It makes the worktree, scaffolds `.env.fork`, starts the stack and seeds it.
+2. Clear the copied webhooks, from the fork worktree:
+   `docker compose $F exec postgres psql -U alphadeck -d alphadeck_<name> -c "update user_meta set
+   slack_webhook_url = null where slack_webhook_url is not null"`.
+3. Start and stop: `scripts/fork.sh up`, `scripts/fork.sh down` (keeps the volumes).
+4. Re-seed from prod: `scripts/fork.sh refresh --reset`, then step 2 again.
+5. Destroy: `scripts/fork.sh destroy --yes` (`down -v`); it prints the worktree and branch removal to run from the
+   main checkout.
+
+A new name: the fork only has what prod fetched. Add the name to a prod card (a quiet watchlist card serves), let
+the nightly fetch it, then `refresh --reset`.
+
+**Rehearsing background extraction from the cache.** A live run fails every company here (no User-Agent), so run
+it cache-only in the fork's backend, from the fork worktree:
+
+1. `docker compose $F exec backend python -m pipeline.extract_values --no-live`: who would extract, who fails.
+2. `docker compose $F exec backend python -m pipeline.extract_values`: prod's live request count from the copied
+   cache (anything filed after the copy is missing).
+3. `docker compose $F exec backend python -m pipeline.extract_values --apply --no-live --max-names 50`: a first
+   slice.
+4. `docker compose $F exec backend python -m pipeline.extract_values --apply --no-live`: the rest; it resumes.
+
+The rehearsal records attempts; one `done` attempt opens the backfill gate on the fork. That is harmless because
+the fork runs no cron, and the next `refresh --reset` restores prod's own attempt rows.
+
+**The sig stack** works the same way from its own worktree, with `G="-f docker-compose.yml -f
+docker-compose.sig.yml -p alphadeck_sig --env-file .env.sig"` and `.env.sig` copied from `.env.sig.example`:
+`docker compose $G up -d --build`, then `bash scripts/refresh-sig.sh` (copies the cache unless `--no-cache`), then
+clear the webhooks in `alphadeck_sig` as in step 2. Teardown is `docker compose $G down -v`.
+
+## Checks
+
+- `curl http://localhost:800<N>/health` answers, `degraded` for the missing User-Agent.
+- `docker compose $F ps` lists backend, frontend and postgres, and no cron.
+- After step 2, `select count(*) from user_meta where slack_webhook_url is not null` is 0.
+- After a rehearsal: the run summary and `data/extraction_runs/` (per-company time is `seconds / attempted`, which
+  sizes the nightly cap and budget); `platform_extraction_attempt` grouped by `status` and `error` (how many are
+  not cached); the steward's queue on the fork's Admin page.
+
+## Stop and ask when
+
+- The fork holds work the operator may want, and the request is a refresh or a destroy.
+- No slot is free, or a slot's ports are taken.
+- Anything would set a User-Agent, a webhook or `SLACK_WEBHOOK_URL` on the fork.
+
+## Model
+
+[OPERATIONS], "Forks" and "One-way refresh"; extraction: [PLATFORM_EXTRACTION].
+
+[OPERATIONS]: ../../../docs/OPERATIONS.md
+[PLATFORM_EXTRACTION]: ../../../docs/PLATFORM_EXTRACTION.md

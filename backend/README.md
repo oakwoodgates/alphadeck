@@ -31,7 +31,7 @@ the `dev` extra carries pytest + pytest-xdist (`pytest -n 6`) + pytest-timeout (
 
 ## Database
 
-Use the **isolated dev stack** in [`DEV_PROD.md`](../docs/DEV_PROD.md). From the **main checkout root**
+Use the **isolated dev stack** in [`OPERATIONS.md`](../docs/OPERATIONS.md) (steps: the `dev-stack` skill). From the **main checkout root**
 (not `backend/` or a worktree), with the documented `.env.dev` prerequisites in place:
 
 ```powershell
@@ -42,7 +42,7 @@ This is project `alphadeck_dev`: app **8081**, API **8001**, Postgres **5545**, 
 volumes `alphadeck_dev_pgdata` and `alphadeck_dev_appdata`; cron is off. Backend startup applies migrations
 and, with the dev overlay's `ALPHADECK_SEED_ON_BOOT=true`, writes demo cards into the founding workspace
 and their DATA facts into the data tenant. Runtime files go to dev appdata; the backup directory is a shared
-host bind, not part of DB isolation (see `DEV_PROD.md`). A migration is an idempotent write, not a read-only check.
+host bind, not part of DB isolation (see `OPERATIONS.md`). A migration is an idempotent write, not a read-only check.
 
 **Host loop is explicit opt-in.** The unset `DATABASE_URL` default targets database `alphadeck` on
 `localhost:5544`, which is **prod**, not isolated dev.
@@ -109,6 +109,6 @@ Do not rebuild or restart the **prod** stack with raw `docker compose` commands.
 `scripts/deploy.sh` (from the main checkout; `bash scripts/deploy.sh --help`): it takes a labeled backup
 first, refuses inside the nightly window or while a pass is running, rebuilds only the services you name
 and verifies the result; `--hold-cron` deploys with the cron sidecar kept stopped. Steps: the `deploy`
-skill (`.claude/skills/deploy/SKILL.md`); model: [`DEPLOY.md`](../docs/DEPLOY.md).
+skill (`.claude/skills/deploy/SKILL.md`); model: [`OPERATIONS.md`](../docs/OPERATIONS.md).
 
 `app/openapi_export.py` dumps `openapi.json` — the frontend generates its TS types from it (`npm run gen:api`).
