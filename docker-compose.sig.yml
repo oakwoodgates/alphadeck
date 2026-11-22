@@ -15,7 +15,7 @@
 # here are the WORKTREE's OWN dirs, and `.env.sig` lives at the WORKTREE root. Two further sig-only changes
 # vs dev: (1) the backend image bakes the `.[replay]` extra (duckdb+pyarrow) the backtest harness needs
 # (build arg PIP_EXTRAS=replay -> backend/Dockerfile), and (2) the DB / ports / volumes carry the `sig`
-# identity. Cron is OFF (a frozen snapshot = a controlled comparison). Full model: docs/SIGNALS_LAB.md.
+# identity. Cron is OFF (a frozen snapshot = a controlled comparison). Full model: docs/OPERATIONS.md §Forks (the sig stack).
 
 services:
   postgres:
@@ -61,7 +61,7 @@ services:
     # Override the Dockerfile CMD for the edit loop: keep the (idempotent) migrate + seed, then serve with
     # --reload. --reload runs a single process, so it stays compatible with the single-worker invariant. Same
     # as dev.
-    # --limit-concurrency keeps the image's in-flight bound (docs/DEPLOY.md §Connections); `$$` hands the expansion
+    # --limit-concurrency keeps the image's in-flight bound (docs/OPERATIONS.md §Connections); `$$` hands the expansion
     # to the container's shell, so it reads the backend's ALPHADECK_UVICORN_LIMIT_CONCURRENCY like the Dockerfile CMD.
     command: ["sh", "-c", "python -m db.wait && python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --limit-concurrency $${ALPHADECK_UVICORN_LIMIT_CONCURRENCY:-64}"]
 

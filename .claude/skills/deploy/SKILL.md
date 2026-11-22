@@ -1,129 +1,91 @@
 ---
 name: deploy
 description: >-
-  Ship a merged code change to the running PROD stack (or preview an unmerged branch,
-  or uncommitted worktree work, on DEV) by rebuilding the built Docker images — the frontend/backend are baked
-  images, so a change is dormant until rebuilt. Trigger on "deploy", "ship it", "take
-  it live", "push to prod", "rebuild prod", "preview on dev". Touches PROD — back up
-  first; the backend's boot migrates the prod DB.
+  Use when taking merged code live on prod ("deploy", "ship it", "rebuild prod") or previewing a branch or
+  worktree change on dev. Runs `scripts/deploy.sh`, its by-hand fallback, the dev previews and the
+  `/backtest` archive refresh; prod needs the operator's go.
 ---
 
-# Deploy — take code live on the running stack
+# Deploy
 
-Authoritative runbook: `docs/DEPLOY.md`. This touches **PROD** — move carefully: back
-up first, rebuild only the changed service(s), verify the real artifact. STOP and report
-on any failed precondition; do NOT guess.
+`scripts/deploy.sh` takes merged code live on prod; its header is the usage, refusals and exit codes.
 
-## Before touching prod
-- **State the plan and get the operator's go** — which branch/sha, and which service(s):
-  frontend only, or a backend half too? A backend half (new field/endpoint/migration) is
-  dormant on prod until the BACKEND image rebuilds. A change on the nightly `pipeline.daily`
-  path (or `backend/scripts/daily_cron.sh`) needs `cron` too.
-- **Build context = the MAIN checkout**, never a worktree.
+## Guardrails
 
-## Ship to PROD with the wrapper (use this)
-`scripts/deploy.sh` runs the whole flow with its guards built in. Run it from the MAIN checkout:
-```
-git checkout main && git pull --ff-only origin main
-bash scripts/deploy.sh --label pre-deploy-pr123 --dry-run backend cron   # show the plan; changes nothing
-bash scripts/deploy.sh --label pre-deploy-pr123 backend cron             # backup -> build -> restart rule -> verify
-bash scripts/deploy.sh --env-only cron                                   # cron ENV change: recreate, no build, no backup
-```
-- **Refuses (exit 3, nothing changed)** on a worktree or a missing `.env`, a dirty tree, a branch
-  other than `main`, or `HEAD != origin/main` after a fetch. It also refuses inside **22:20–22:50
-  America/New_York** (the 22:30 pass; New York time whatever the host TZ), and while a pass is in flight
-  (`/admin/status` `cron.status == running`, or an `unfinished_run` inside its timeout) or the
-  call-of-record lock is held. A bad invocation (unknown service, no `--label` on a build) exits 2.
-  **Report a refusal to the operator; never work around it.**
-- **Then:** a labeled backup (`--label`, required for a build), then
-  `GIT_SHA=$(git rev-parse HEAD) … up -d --build --no-deps <services>`. If the backend was rebuilt
-  without the frontend, it runs `docker restart alphadeck-frontend-1`.
-- **Its `/admin/status` probes send a steward's token:** `ALPHADECK_OPS_TOKEN` from `.env`
-  (`scripts/deploy.sh:192-206`; step 4 below shows how to read it). With none set the status
-  answers 401 and the wrapper refuses.
-- **Exit 0 only if every check passes:** the backend is `healthy`; `:8080/api/health` returns 200;
-  `ALPHADECK_IMAGE_SHA` in each rebuilt backend/cron container equals the built sha; the cron is
-  running and printed its boot lines; `/admin/status` shows no new `cron.alarms` line and no quiet → loud
-  `cron.status`. A verification failure exits 5 and a failed step exits 4; both point to the
-  `stack-recovery` skill.
-- A frontend change still needs a live look: open the control in the Browser pane.
+- Prod is the operator's. State the sha and the services and get the go: `frontend` for a frontend change,
+  `backend` for any backend half (a route, a field, a migration), and `cron` too for a change on the nightly path,
+  in a cron job or in `backend/scripts/daily_cron.sh`.
+- Run from Git Bash in the main checkout (`bash` typed in PowerShell is WSL). The build context is the main
+  checkout, never a worktree.
+- The backend's boot migrates prod, so the backup comes first; the script takes it. Never `docker compose down -v`
+  and never `DROP DATABASE alphadeck` on prod.
+- Never deploy `cron` while a hand editions cut runs (`editions.run cut`): the script does not check the editions
+  lock, and recreating the cron kills the cut ([EDITIONS], "Cutting by hand").
+- Report a refusal (exit 3) as it stands; never work around it.
+- `GIT_SHA` is only the sha just read from the checkout being built: a wrong one is a false provenance claim.
 
-## Ship to PROD by hand (the fallback)
-For when the wrapper cannot run. Apply its guards yourself: never between 22:20 and 22:50
-America/New_York, and never while `/admin/status` reads `cron.status: running`.
-1. **Back up prod first:**
-   ```
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend python -m pipeline.backup --label pre-deploy
-   ```
-2. Fast-forward the main checkout (it can be behind by more than your PR):
-   ```
-   git checkout main && git pull --ff-only origin main
-   ```
-3. Rebuild only the changed service(s) — `--no-deps` spares postgres + cron. Prefix any
-   backend/cron rebuild with `GIT_SHA=$(git rev-parse HEAD)`:
-   ```
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps frontend   # FE change
-   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps frontend backend
-   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps cron   # cron-path change
-   ```
-   `GIT_SHA` is stamped into the image and recorded as `calls.code_sha` on every call-of-record row
-   (F1 / migration 0044), so the record names the code that produced a call. OPTIONAL: unset means
-   UNKNOWN and the column gets `NULL` — never a wrong value — so a forgotten prefix costs legibility
-   and nothing else. **Never pass a sha you did not just read from the checkout you are building.**
-   (A backend (re)start runs `db.migrate`, which applies any pending migration to the prod DB, then
-   `pipeline.seed`, which does nothing on prod — see Guardrails. ~20-40s, brief API blip.)
-   **After a backend rebuild, restart the frontend too** — a recreated backend gets a NEW
-   Docker-network IP, and the frontend nginx cached the old one, so every `/api` call 502s
-   until nginx re-resolves. (A rebuild that already includes `frontend` recreates it, so no
-   extra restart is needed; a backend-ONLY rebuild needs this.)
-   ```
-   docker restart alphadeck-frontend-1
-   ```
-   A cron ENV-only change keeps the image: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --no-build cron`.
-4. **Verify the REAL artifact**, not just the build:
-   ```
-   docker inspect --format '{{.State.Health.Status}}' alphadeck-backend-1   # healthy
-   curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/<endpoint>  # new field
-   curl -o /dev/null -w '%{http_code}' http://localhost:8080/api/health     # the /api PROXY — MUST be 200 (open: no token)
-   docker exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA             # the sha you built (and alphadeck-cron-1)
-   docker logs --tail 20 alphadeck-cron-1                                   # the cron's boot lines
-   curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/admin/status  # cron.status + cron.alarms: nothing new
-   ```
-   Every route except `/health` needs a sign-in and `/admin/*` a steward, so a bare curl answers 401.
-   `$TOKEN` is the prod ops token, `ALPHADECK_OPS_TOKEN` in `.env`. Read it as one line, the way the
-   wrapper does, and never print it (from the main checkout):
-   ```
-   TOKEN=$(sed -n 's/^[[:space:]]*ALPHADECK_OPS_TOKEN=//p' .env | tail -n 1 | tr -d "\r\"'")
-   ```
-   Nothing there yet: the operator mints one once
-   (`docker exec -it alphadeck-backend-1 python -m pipeline.users token create --email <admin> --name ops`)
-   and adds `ALPHADECK_OPS_TOKEN=<token>` to `.env`.
-   **Verify the `/api` PROXY (`:8080/api/health`), not just the backend directly (`:8000`)** — a
-   backend rebuild can leave the frontend's nginx pointing at the old backend IP (502) even while
-   `:8000/health` is 200. For a frontend change, open the live control in the Browser pane. Prod app
-   :8080 / api :8000. (If the proxy 502s / the SPA 000s, see the `stack-recovery` skill.)
+## Steps
 
-## Preview on DEV (unmerged branch)
-Detach the main checkout to the sha, rebuild the dev service, restore main — full form in
-`docs/DEPLOY.md` Flow B. Dev app :8081 / api :8001. A curl against dev needs a dev token: dev is its
-own database, so mint one in the dev backend
-(`docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec backend python -m pipeline.users token create --email <dev user> --name dev`;
-it prints once).
+1. `git checkout main && git pull --ff-only origin main`.
+2. Show the plan: `bash scripts/deploy.sh --label pre-deploy-<topic> --dry-run <services>`; it touches no Docker
+   and no endpoint.
+3. Ship: the same without `--dry-run`. A cron env-only change: `bash scripts/deploy.sh --env-only cron`. A data
+   change that must land before the nightly runs new code: stop the cron, then `--hold-cron frontend backend`,
+   once the old code has recorded the last expected night.
+4. A frontend change: open the changed control on `http://localhost:8080`.
 
-## Preview on DEV (UNCOMMITTED work in a worktree)
-No sha yet — the loop is build -> look -> then decide whether to commit. Build dev from the
-worktree with `--project-directory <worktree>` + `--env-file <MAIN>/.env.dev` (absolute), which
-is what keeps it inside the worktree rule rather than around it — full form in `docs/DEPLOY.md`
-Flow C. **Rebuild dev from the main checkout afterwards**, or dev serves code that is in no
-commit.
+**By hand,** only when the wrapper cannot run. Apply its guards yourself: not 22:20 to 22:50 New York time, not
+while `/admin/status` reads `cron.status: running`. With `P="docker compose -f docker-compose.yml -f
+docker-compose.prod.yml"`:
 
-## Guardrails (never violate)
-- **A deploy rebuilds IMAGES; it never restores or re-ingests data — but the backend's boot writes to
-  the prod DB.** The image starts with `db.wait && db.migrate && pipeline.seed`
-  (`backend/Dockerfile:82`), so every backend (re)start applies any pending migration to prod; that
-  is why the pre-deploy backup comes first. `pipeline.seed` writes only when `ALPHADECK_SEED_ON_BOOT`
-  is true (`backend/pipeline/seed.py:807-809`): the default is false (`docker-compose.yml:121`) and
-  only the dev overlay sets it (`docker-compose.dev.yml:35`), so on prod it does nothing unless
-  `.env` turns it on. Never `docker compose down -v` against prod; never `DROP DATABASE alphadeck`.
-- **`--no-deps`** — never rebuild postgres/cron as a side effect of shipping FE/BE.
-- Prefer the targeted `--no-deps <service>` over a full `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build`.
+1. `$P exec -T backend python -m pipeline.backup --label pre-deploy-<topic>`.
+2. `GIT_SHA=$(git rev-parse HEAD) $P up -d --build --no-deps <services>` (`--no-build cron` for an env-only change;
+   `docker restart` does not apply env).
+3. After a backend rebuild without `frontend`: `docker restart alphadeck-frontend-1` (nginx keeps the old backend
+   address).
+
+**Preview on dev.** Dev is app 8081, API 8001; a curl there needs a token minted in the dev backend.
+
+- A sha: `git checkout <sha>`, then `docker compose -f docker-compose.yml -f docker-compose.dev.yml -p
+  alphadeck_dev --env-file .env.dev up -d --build --no-deps frontend`, then `git checkout main`. The dev backend
+  is mounted, so it serves the sha's code only while the checkout stays detached.
+- Uncommitted worktree work: `docker compose -f <wt>/docker-compose.yml -f <wt>/docker-compose.dev.yml
+  --project-directory <wt> --env-file <main>/.env.dev -p alphadeck_dev up -d --build --no-deps frontend backend`.
+  The main checkout's env file means no stack runs from the worktree. Rebuild dev from the main checkout
+  afterwards, or dev serves code that is in no commit.
+
+**The `/backtest` archive.** From the main checkout with prod up:
+
+1. `PYTHONPATH=backend backend/.venv/Scripts/python scripts/archive_backtest_prod.py` (read-only on the source;
+   fails on a keeper-count or mirror-hash mismatch).
+2. `$P up -d --no-deps backend` picks up the bind; rebuild `frontend` only if the page code changed.
+3. To promote a pass, add it to the keeper constants in the script, update its run-count guard, and repeat.
+
+## Checks
+
+The script exits 0 only when all of these pass; by hand, run each.
+
+- `docker inspect --format '{{.State.Health.Status}}' alphadeck-backend-1` prints `healthy`.
+- `curl -o /dev/null -w '%{http_code}' http://localhost:8080/api/health` prints 200: the proxy, not only `:8000`.
+- `docker exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA` (and `alphadeck-cron-1`) prints the built sha.
+- `docker logs --tail 20 alphadeck-cron-1` shows the boot lines.
+- `curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/admin/status`: no new `cron.alarms` line and no
+  louder `cron.status`. `$TOKEN` is `ALPHADECK_OPS_TOKEN`, read without printing it:
+  `TOKEN=$(sed -n 's/^[[:space:]]*ALPHADECK_OPS_TOKEN=//p' .env | tail -n 1 | tr -d "\r\"'")`. None yet: the
+  operator mints one with `pipeline.users token create` in the backend and adds it.
+- After a cron env change, `printenv TZ ALPHADECK_MARKET_TZ ALPHADECK_CRON_AT` prints the same values in
+  `alphadeck-cron-1` and `alphadeck-backend-1`.
+
+## Stop and ask when
+
+- The script refuses, or exits 4 or 5: report it, then the `stack-recovery` skill.
+- A hand editions cut, a repair CLI or a restore is running.
+- Undoing the deploy needs a dump taken before its migrations: start the older images first (the
+  `backup-restore` skill).
+
+## Model
+
+The model is [OPERATIONS]: the stacks, what a deploy changes, the refusals and settings.
+
+[OPERATIONS]: ../../../docs/OPERATIONS.md
+[EDITIONS]: ../../../docs/EDITIONS.md

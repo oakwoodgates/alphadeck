@@ -1,4 +1,4 @@
-"""Timeouts on request and job connections (security hardening PR 2, item 3; docs/DEPLOY.md §Connections).
+"""Timeouts on request and job connections (security hardening PR 2, item 3; docs/OPERATIONS.md §Connections).
 
 ``db.session.connect_request`` (every API request through ``app.db_conn.get_conn``, and the OAuth provider) opens its
 connection with ``connect_timeout`` and the session's ``statement_timeout``, ``lock_timeout`` and

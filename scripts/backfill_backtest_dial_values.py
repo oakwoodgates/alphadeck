@@ -13,7 +13,7 @@ no `dial_values` yet, so a second run is a no-op and a baseline run (no dial mov
 
 FROZEN PROD ARCHIVE: the prod stack serves data/backtest_prod, a byte-for-byte copy whose index.json holds
 its rows VERBATIM (archive_backtest_prod.py copies them). So prod picks the values up by backfilling the
-SOURCE store first, then re-running archive_backtest_prod.py, then a backend redeploy — see docs/DEPLOY.md.
+SOURCE store first, then re-running archive_backtest_prod.py, then a backend redeploy — see the deploy skill.
 
 DO NOT execute this against real data as part of this change — it is only unit-tested against a tmp store.
 The operator runs it deliberately (and, on the prod source, after a backup).

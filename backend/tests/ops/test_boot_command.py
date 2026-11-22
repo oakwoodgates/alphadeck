@@ -40,7 +40,7 @@ def test_boot_command_waits_before_migrate() -> None:
 
 
 def test_the_api_bounds_its_in_flight_requests() -> None:
-    """Security hardening PR 2 (docs/DEPLOY.md §Connections): the API's uvicorn runs ONE worker (the in-process job
+    """Security hardening PR 2 (docs/OPERATIONS.md §Connections): the API's uvicorn runs ONE worker (the in-process job
     registries) with ``--limit-concurrency`` from ``ALPHADECK_UVICORN_LIMIT_CONCURRENCY`` (default 64), so in-flight
     requests, and with them request connections, stay below Postgres's connection limit."""
     text = (_REPO / "backend" / "Dockerfile").read_text(encoding="utf-8")
