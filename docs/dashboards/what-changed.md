@@ -1,118 +1,49 @@
 # What Changed
 
-> Slug `what-changed` · status `experimental` · a **"now" view** (`asofAware: false`) with its own "since"
-> selector. The operator signed off this plan before the build. The rules every dashboard follows:
-> `docs/DASHBOARDS.md`.
-
-**Label:** What Changed. **Description:** "What moved on your cards since last night: states, keys, names,
-triggers and clocks."
+`what-changed` · a "now" view with its own `since` selector · rules: [DASHBOARDS](../DASHBOARDS.md)
 
 ## What it shows
 
-"What should I look at now": a night-over-night diff of every live card's **recorded call** (the `calls`
-log, which the nightly appends to only when a card changes). It reads only that small log, the live cards
-(`thesis_repo.list_all`; archived cards are left out) and the master's tickers. Display only: it never feeds
-a call, never writes to the database and never calls the LLM.
+What moved on each live card between two recorded nights, one line per change, grouped by kind or by card. The
+change kinds: a state moved (either direction), a key's `turned` flipped, a member newly armed, no longer armed or
+new on watch, a trigger newly fired, no longer firing or re-dated, a new risk signal, a clock coming due
+(`arm_until` within `ENTRY_WINDOW_DAYS` of the countdown origin, `exit_by` reached in the window), and a new card.
+A quiet night reads "No changes since" the baseline date.
 
-### Which two cards are compared, per live card
+## Who counts
 
-- **The now card:** the recorded card in effect at the **newest night** in the log. T = the max `asof` in
-  `calls` across the live cards.
-- **The baseline card:** the card in effect at the baseline date.
-  - "In effect at D" = the row with the greatest `(asof, seq)` where `asof <= D`. The log only appends on
-    change, so the last row on or before D is what stood that night.
-  - A night with several rows uses the highest `seq`.
-- **The "since" selector:**
-  - **Last night** (default): the baseline is the previous recorded night, the greatest `asof < T` across
-    the log.
-  - **Last 7 days:** the baseline is T − 7 calendar days.
-  - **Since a date:** a date picker.
-- **Special cases:**
-  - A card with no baseline row (created inside the window) shows as one "New card" line.
-  - A card whose now row is reconstructed (`reconstructed = true`) carries a quiet "reconstructed" tag.
-  - Archived cards are left out (start from `repositories.thesis_repo.list_all`).
+- Live cards of the caller's workspace (`thesis_repo.list_all(workspace=...)`); archived cards are out.
+- Only what the recorded card lists: armed and watch members, triggers, risk signals. Context and Bench never vote,
+  so they never reach those lists, and nothing is re-judged.
+- A live card with no recorded call is counted on the work line, never dropped. A name with no master ticker keeps
+  its line. A card whose newest row is reconstructed carries a tag.
 
-### What counts as a change
+## Data and code
 
-Comparing the two `CallCard`s (`calls.card`, parsed with `domain.call.CallCard.model_validate`):
+| Piece | Where |
+|---|---|
+| Compute | `backend/dashboards/what_changed.py` (`what_changed`, `baseline_date`; pure) |
+| Route | `GET /dashboards/what-changed?since=` (`last_night`, `7d` or a date; a date outside the record is 422) |
+| Shared readers | none (the `calls` log, `master.tickers_for`) |
+| Cache key | none: a few SELECTs on the log |
+| Frontend | `frontend/src/dashboards/what-changed/` |
+| Tests | `test_what_changed.py`, frontend `__tests__/` |
 
-1. **Column moves:** `state` changed, both directions, e.g. "Warming → Armed", "Armed → Warming".
-2. **Keys turned:** `key_conviction.turned` or `key_confirmation.turned` flipped. Shows the key's own
-   `label`, both on and off.
-3. **Names:**
-   - On `armed_members`: a member newly armed or no longer armed.
-   - On `watch_members`: a new member on watch.
-   - Members are matched by `security_id`.
-4. **Triggers:** in `triggers_fired`, newly fired or no longer firing. In `risk_signals`, new ones.
-   - Identity = `(kind, security_id, event_date)`, for triggers and risk signals alike. The label is not
-     part of it: labels carry numbers that move every night (a breakdown's close and 200-day base, a
-     breakout's volume ratio), so a continuing signal would otherwise read as new every night.
-   - Shows the label, the kind and the ticker: the now card's label for a new signal, the baseline card's
-     for one no longer firing.
-   - Two signals with the same identity on one card count as one (the first in list order, with its
-     label).
-   - A fired trigger that only moved its event date (exactly one gone and exactly one new with the same
-     `kind` and `security_id` on a card, e.g. a breakout re-dating to the newest bar on each new 8-day high)
-     is one quiet "re-dated Oct 27 → Oct 28" line (`trigger_redated`, the now card's label, `previous_on` =
-     the old date), never "no longer firing" + "fired"; any other count stays separate lines, and risk
-     signals are never re-dated.
-   - Wording is neutral: "no longer firing", never "expired" or "failed".
-5. **Clocks (on the now card only, as of T):**
-   - `arm_until` within the next 3 calendar days of the **countdown origin** ("entry window closes in N days",
-     "closes today" on the origin day). F2 (`DASHBOARDS.md` rule 2): the origin is the action day, the session after
-     the current night, because this page is always a live view; an entry window that ended on the night is passed
-     and not listed
-   - `exit_by` on or before T and inside the window ("exit-by reached")
+## As-of behavior
 
-   Calendar days, matching the Decision Queue's "act within Nd". The `exit_by` check is a span of the record
-   (after the baseline night, on or before T) and stays on T.
+No as-of. The newest night is the latest `asof` in `calls` across the live cards; a card's call in effect at a night
+is its row with the greatest `(asof, seq)` on or before it. Clock lines count from `countdown_origin` (the action
+day); an entry window already ended is not listed.
 
-- Tickers come from `securities.master.tickers_for(conn, ids)`.
-- Every item is ONE line. Clicking it calls `onSelectThesis(thesisId, ticker)`, or `onSelectThesis(thesisId)`
-  for a card-level item.
+## Rules not visible in code
 
-### Layout
-
-- **Group by kind (default):** column moves, keys turned, names, triggers, clocks, new cards, each a section
-  with its count. A toggle switches to **group by card**: each card's changes together, cards sorted by name.
-- **A quiet night:** "No changes since <baseline date>." A calm page means nothing moved.
-- **The quiet "show the work" line:** the two nights compared ("Oct 27 → Oct 28"), the live cards, the cards
-  with a change, and the rule "the log records only on change, so a card with no new row is unchanged".
-
-## The plan's choices (rule 4)
-
-- **Loudness:** quiet throughout. Dense one-line items in the muted grays, like the nightly's
-  `TRANSITIONS:` block; the only color is a state word, in its Board column's own color. Nothing notifies.
-- **Which names count:** every name the recorded card itself lists (armed, watch, triggers, risk signals).
-  The dashboard re-judges nothing: Context and Bench names never vote, so they never reach those lists.
-- **How groups combine:** none; each line is one change on one card.
-- **Thin data:** a name with no master ticker keeps its line (ticker "—", opened by its `security_id`); a
-  live card with no recorded call yet is counted on the quiet line, never dropped.
-- **Cache:** none. The `calls` log is small (994 rows on prod); a request is four SELECTs (the span, the
-  previous night, and one `DISTINCT ON` read per night) plus one ticker read.
-
-## Where it lives
-
-- Compute (pure): `backend/dashboards/what_changed.py`: `what_changed(...)` holds every diff rule and
-  `baseline_date(...)` the "since" rule.
-- Router: `backend/app/routers/dashboards/what_changed.py`, `GET /dashboards/what-changed?since=`
-  (`last_night` | `7d` | `YYYY-MM-DD`), its reads and wire models in the same module.
-- Tests: `backend/tests/dashboards/test_what_changed.py`; `frontend/src/dashboards/what-changed/__tests__/`.
-- Frontend: `frontend/src/dashboards/what-changed/` (`WhatChanged.tsx`, `useWhatChanged.ts`,
-  `what-changed.css`).
+- A trigger's identity is kind, security and event date, never the label. Why: labels carry numbers that move every
+  night, so a continuing signal would read as new.
+- A fired trigger that only moved its date (exactly one gone and one new for a kind and security) is one
+  "re-dated" line. Why: a breakout re-dates on every new high. Risk signals are never re-dated.
 
 ## Known limits
 
-- **"Since you last looked" isn't possible:** there is no login, no app state in the browser, and dashboards
-  can't write. So "since last night" is the default.
-- **A night the nightly didn't run looks the same as a quiet night.**
-- **It compares two nights, not the path between them** (an addition at build time). Over "Last 7 days" a
-  card that went Warming → Armed → Warming shows no column move.
-- **"Now" only.** Because it is a "now" view, the checklist's past-as-of test does not apply: the endpoint
-  takes no as-of. The baseline reads are cut at the baseline night (`asof <= D`), so a later row never
-  reaches the baseline card.
-
-## Later (out of scope now)
-
-Price events (new crosses, breadth surges, cross clusters), which come after the Rotation Map's price read
-lands.
+- No "since you last looked": dashboards write nothing (rule 1), so no per-user last-visit mark exists.
+- A night the nightly did not run reads like a quiet night.
+- It compares two nights, not the path between: Warming, Armed, Warming over a week shows no column move.
