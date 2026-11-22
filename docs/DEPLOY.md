@@ -103,7 +103,7 @@ bash scripts/deploy.sh --label pre-v2-cutover --hold-cron backend frontend  # bu
   `docker exec -it alphadeck-backend-1 python -m pipeline.users token create --email <admin> --name ops`,
   then put it in `.env` as `ALPHADECK_OPS_TOKEN=<token>`. A 401 stops that probe at once and refuses with ONE
   line naming that command (never a silent pass). `/health` and `/api/health` stay open and send nothing.
-- **The workspaces deploy (auth PR 2) has its own order** ([`docs/AUTH.md`](AUTH.md) "The first deploy"): back up,
+- **The workspaces deploy (auth PR 2) has its own order** (`git show 8094406a:docs/AUTH.md`, "The first deploy"): back up,
   deploy (migration 0078 moves the operator's rows into the founding workspace on boot), then
   `python -m pipeline.users create --email <operator> --super-admin --founding`, `token create --name ops`, `.env`,
   verify (`/admin/status` shows `data_tenant_theses: 0`). Redeploy `cron` as well as `backend`: the warm-up now walks
