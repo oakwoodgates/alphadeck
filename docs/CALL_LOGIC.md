@@ -271,7 +271,7 @@ appearing, or the vendor re-scaling a bar so the step moves a session).
   staged onboarding job — before it, a joiner's splits older than S4's 30/60-day look-back were never listed;
   `INGEST.md` §Cold names). What the SEC side reads changed the same day — the restatement screen on
   6-Ks and charter 8-Ks, and the targeted wide-form reader for a split with no agreeing filing
-  (`DATA_SOURCES.md` §SEC split filings); the confirm rule (two sources agreeing exactly) is unchanged.
+  (`FILINGS.md` §Split filings); the confirm rule (two sources agreeing exactly) is unchanged.
 - **Released.** After three sessions the hold lifts on its own. A step that NO list row of any status sits near
   then goes to the operator: the Admin Splits panel lists it as a "split-shaped jump with no split listed — is
   this real?" (the step's two bars and the bars after it; `pipeline.split_jumps`, the hold's own read on the
@@ -440,7 +440,7 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   owner* of another company's stock (Honeywell buying Garrett Motion, Novartis selling Aileron) — is screened (keep-and-screen;
   the 147 such rows on prod are kept, not deleted). Every input is gated on its own `recorded_at` (the link,
   each decision): a replay pinned before them reads the original exactly as stored (#1). Examples on prod
-  (MEASURED 2026-10-17, see `docs/DATA_SOURCES.md` §Form 4/A): FLS's cancelled $164k director buy stops being a CORE
+  (MEASURED 2026-10-17, see `docs/FILINGS.md` §Form 4/A): FLS's cancelled $164k director buy stops being a CORE
   trigger (pending void); ATCH's five `A`→`P` recodes restore a missed CORE (5 insiders, $162,524); ARBE's
   50→50,000-share fix adds a FLIP; TDG's triplicated sells count once.
   **Joint reports — one trade several persons reported, counted ONCE (operator-approved 2026-10-21).** After the

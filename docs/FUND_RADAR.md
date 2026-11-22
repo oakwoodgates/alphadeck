@@ -1,6 +1,6 @@
 # The fund launch radar
 
-The "Coming" face of the ETF radar (`DATA_SOURCES.md` §"Notes on the ETF radar's three faces"): catch new fund
+The "Coming" face of the ETF radar (the others: which funds express a theme, and holdings and flows): catch new fund
 filings on EDGAR the night they go public, follow each fund from filing to listing, and show which cards each one
 fits. **Display only** (Kind B: context). It never feeds a call: `SignalKind.ETF_LAUNCH` stays reserved and
 nothing emits it (`CALL_LOGIC.md` §taxonomy), and the radar's modules never import `calls/` (a test proves it).

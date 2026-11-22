@@ -1,927 +1,278 @@
-# DATA_SOURCES.md
+# Data sources
 
-> Repo path: `docs/DATA_SOURCES.md`. Consolidates where Alpha Deck's data comes from, free vs. paid,
-> and which capability each source powers. Posture: **bootstrap on free sources; pay case-by-case for the
-> right thing.** Cadence is EOD (nightly batch + on-demand pulls) — no streaming/intraday in v1.
+Where Alpha Deck's data comes from and the rules every fetch keeps: vendors, EDGAR etiquette and the shared
+SEC budget, cache freshness, when a filing became public, prices, the company list, USASpending and
+Massive.com. The machine does most fetching (the nightly pass, onboarding, weekly jobs); the Workbench, a
+steward's Admin action and a CLI use the same clients. Cadence is end of day; there is no intraday tape. Read
+this before you add a vendor call, a fetch client or a cache. What each SEC filing family stores is in
+[FILINGS](FILINGS.md); the ingest legs are in [INGEST](INGEST.md).
 
----
+## Code
 
-## Free baseline (v1 runs entirely on these)
+| Piece | Module |
+|---|---|
+| SEC client: cache, freshness, error-body guard | `ingest/edgar/client.py` (`EdgarClient`) |
+| The global SEC request budget | `ingest/sec_budget.py`, table `sec_request_budget` |
+| The companyfacts filing gate | `ingest/edgar/companyfacts_gate.py` |
+| When a filing became public | `ingest/edgar/acceptance.py`; `ingest/shares.py` (`count_publication`) |
+| Prices: source seam, Yahoo fetch, request gate | `ingest/prices/source.py`, `ingest/prices/eod_loader.py`, `ingest/http.py` |
+| Company list, fund tickers, successor CIK | `securities/sec_tickers.py`, `securities/master_refresh.py`, `pipeline/populate_master.py`, `securities/fund_tickers.py`, `pipeline/successor_cik.py` |
+| USASpending (DOE awards) | `ingest/doe/` |
+| Massive.com | `ingest/funds/polygon.py`, `ingest/polygon_splits.py` |
 
-| Source | What it gives | Powers |
+## Sources
+
+| Source | What it gives | Read by |
 |---|---|---|
-| **SEC EDGAR** — submissions API, **full-text search (EFTS)**, daily index/RSS | 8-Ks, Form 4 + Form 4/A (insider; amendments resolved at read — §Form 4/A), 10-K/Q, S-1/S-3 (offerings), 13D/G, 13F | filing intelligence, insider-conviction, dilution clock, language-diff, first-footprint, **the EDGAR-first name-discovery universe** (`DISCOVERY.md`) |
-| **EDGAR — XBRL financial datasets + 10-Q/10-K filing text** | structured financials (cash, burn, shares) + the filing passages | dilution clock, fundamentals (§2.2 revenue + the Band 03 S4 shares-outstanding series: three companyfacts share concepts stored `_xbrl`-keyed for the `share_creep` risk detector), **the Workbench scoring-fact extractor** (10-Q/10-K → candidate purity / shares / burn facts) |
-| **EDGAR — N-1A / 485 registrations** | new fund/ETF registrations & launches | **ETF radar** (built display-only context; `etf_launch` is reserved, not emitted — `FUND_RADAR.md`, `CALL_LOGIC.md`) |
-| **SEC `company_tickers_exchange.json`** (one file: ticker → CIK → name → exchange) | the full US filer universe | **the company list** (`populate_master`, weekly in the cron sidecar) — seeds and keeps current the security master so the extract → ratify → score loop runs on any name; a rename updates the company's row in place |
-| **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, record date, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source; a catalyst counts from **the date the award was recorded** |
-| **Public ETF holdings** (issuer/fund daily holdings files) | constituents, weights, expense ratio, AUM | **ETF radar** (universe seed + holdings/flows); pure-play scoring |
-| **Massive.com reference API** (free tier with `MASSIVE_API_KEY`, via the legacy host `api.polygon.io`) | ETF shares outstanding **by date** (exact counts + real history; 5 req/min) | **ETF net flow** — the primary `fact_fund_shares` source when keyed (`ingest/funds/polygon.py`; the issuer/aggregator scrapers are the keyless fallback) + the historical backfill (`pipeline.backfill_fund_shares`); and the **split reference** (`/v3/reference/splits`, whole market by date — no ticker sent) — the second source the split list confirms against (`ingest/polygon_splits.py`, `pipeline.backfill_splits`; it shares the fund leg's 5/min pacer) |
-| **FINRA short interest** (bi-monthly; PLANNED, not built) | SI %, days-to-cover | squeeze radar (context tier) |
-| **OpenFIGI** (free API) | CIK ↔ ticker ↔ CUSIP ↔ FIGI mapping | security master / entity resolution |
-| **Free EOD price/fundamentals** (e.g. Stooq/Tiingo-free tier/equivalent) | daily OHLCV, splits/dividends, market cap | momentum-health, laggard scanner, liquidity/float, corporate actions |
-| **On-chain / crypto data** (free, rich) | TVL, holders, flows for crypto-adjacent themes | emergence detector *for crypto-adjacent themes only* |
+| SEC submissions JSON (`data.sec.gov`) | A company's filing list: forms, dates, acceptance times, 8-K items | Every filing leg, the filing index, the companyfacts gate |
+| SEC filing documents (`Archives`) | Form 4 and 4/A XML, 13D/G covers, split filings, 10-Q and 10-K text, filing headers | Filing legs, the extractor, the acceptance rule |
+| SEC companyfacts (XBRL) | Reported financials and cover share counts | Fundamentals, platform values |
+| SEC full-text search (EFTS) | Filings that mention a term | Discovery, term mentions |
+| SEC daily index | Every filing of a day | The SPAC radar, the fund launch radar |
+| SEC ticker files | `company_tickers_exchange.json` (companies), `company_tickers_mf.json` (funds) | The company list, fund resolution, the successor-CIK scan |
+| SEC browse-edgar feed | N-PORT filings of one fund series | ETF holdings |
+| Yahoo chart API | End-of-day bars, symbol search | The price leg, benchmarks, the rename probe |
+| Massive.com | Fund shares outstanding by date; the market's split reference | ETF net flow, the split list |
+| Issuer and aggregator fund pages | Fund shares outstanding (fallback) | ETF net flow |
+| Nasdaq Trader symbol directory | Listed ETF symbols | The fund launch radar (`radar/funds.py`) |
+| OpenFIGI | Ticker to identifier mapping | `securities/master.resolve` |
+| USASpending | DOE awards and their terms | The DOE catalyst feed |
 
-ETF **flows** (inflows/outflows) can be **derived for free** from daily shares-outstanding × NAV deltas
-before paying a vendor. The built ETF net-flow display is context only, never a call, sizing or execution input;
-promoting flows to a trigger would require a separate operator-approved rule.
+Free sources come first. A paid source is added only when a signal's quality depends on it and the free proxy
+is shown inadequate; vendors considered and not used are on [ROADMAP](ROADMAP.md).
 
-## Paid, case-by-case (later, only when a module needs it)
+## EDGAR etiquette
 
-| Source | Unlocks | Note |
+SEC's fair-access rules are a correctness requirement here, not a courtesy: a blocked client loses filings
+silently. Every SEC request goes through `EdgarClient` or one of the two ticker-file fetches
+(`securities/sec_tickers.py`, `securities/fund_tickers.py`), and all of them keep these rules.
+
+- **Declared User-Agent.** `ALPHADECK_USER_AGENT` names the operator and a contact. A live fetch without it
+  raises; `/health` reports it missing.
+- **Cache-first, live by opt-in.** A client reaches the network only when built with `allow_live`; tests keep
+  it off, so a cache miss raises `CacheMiss` and the suite never touches SEC.
+- **One budget for every process.** SEC's ceiling is per egress IP, which a per-process limiter cannot hold.
+  `ingest/sec_budget.py` keeps one Postgres row (`sec_request_budget`, migration 0058) holding the next free
+  slot; each live request reserves its slot with one atomic upsert and sleeps until it, so any two SEC requests
+  are at least one interval apart whichever process sent them. The rate is `sec_global_rate_per_sec`, under
+  SEC's ceiling with headroom; each client also keeps a local cap, `edgar_rate_per_sec`. A static split per
+  process or a file lock cannot cover a host-side CLI; Postgres is shared by every writer already.
+- **Fair share by lane.** A recurring client (below) takes the recurring lane, anything else the interactive
+  lane. Each lane holds at most `LANE_DEPTH` reservations not yet due, so two busy lanes alternate and each gets
+  half the budget whatever its thread count; a lane alone gets all of it.
+- **A 429 or 503 pauses everyone.** `polite_get` retries with jittered backoff, and the client's `on_throttle`
+  pushes the shared slot out, so every process backs off together.
+- **Fail-safe toward politeness.** If Postgres is unreachable, the request still goes behind a process-local
+  limiter at half the global rate, counted as `sec_budget_fallback` on the pass meter; the database is retried
+  after `FALLBACK_RETRY_S`. A budget fault never fails a fetch.
+- **Forks never go live to SEC.**
+
+## Cache freshness
+
+`EdgarClient.get_text` decides freshness from the cache key's class, never from a per-call flag. The default is
+to refresh; only a key class proven immutable is exempt, so a new mutable endpoint is safe without any caller
+remembering anything. A cache that once served every key forever froze Form 4 discovery for about 11 days, and
+the discovery universe and the extractor's share counts the same way; each looked fine when tested, because a
+new key always fetches fresh.
+
+| Key class | Rule | Why |
 |---|---|---|
-| **Borrow fee / utilization** (daily) | the *real* squeeze signal (leads FINRA SI) | the squeeze radar's upgrade path |
-| **Options / gamma** (e.g. ORATS-class) | gamma overlay, dealer positioning | gamma squeezes; options expression |
-| **Premium fundamentals** | cleaner/deeper financials, estimates | quality-of-life, not required for v1 |
-| **ETF flow data** | precise creation/redemption flows | only if the derived flows prove insufficient |
-
-Decision rule: a paid source is justified only when a module's *signal quality* materially depends on it
-and the free proxy is demonstrably inadequate. Default to free + derive.
-
-## EDGAR etiquette (a correctness requirement, not a courtesy)
-
-- Declared **User-Agent** with contact (config/env, not hardcoded).
-- Respect the documented **rate limit** — and it is a GLOBAL limit (X2, 2026-10-21). SEC's fair-access
-  ceiling is 10 requests/second per egress IP, so the budget is held ONCE for every process, in Postgres
-  (`ingest/sec_budget.py`, table `sec_request_budget`, migration 0058): every live SEC request (the nightly's
-  fetch-ahead workers, the Workbench discovery fan-out, an on-promote ingest, a CLI, the one-GET ticker
-  universes) reserves its own slot with ONE atomic upsert (`next_slot := GREATEST(next_slot, now()) + 1/rate`)
-  and sleeps until it. The row lock orders concurrent reservations, so **any two SEC requests are at least
-  `1/rate` apart whichever process sent them** — the cap holds by construction. `sec_global_rate_per_sec` =
-  **8.5** (at most 9 request starts in any closed one-second window: headroom under 10). Before X2 each
-  `EdgarClient` ran its own in-process 8/s, so the cron and a Workbench discovery together could exceed 10/s;
-  the per-client 8/s (`edgar_rate_per_sec`) stays as a second, local cap.
-  - **Why Postgres, not a static split:** a split (cron 5/s + backend 4/s) guarantees nothing once a third
-    process talks to SEC (a CLI, the Admin "Run daily now" child, a second web worker) and idles half the budget
-    at 22:30; a file lock on `/data` does not reach a host-side CLI. Postgres is where every writer already
-    meets (W1's company locks live there too). Cost: one ~1 ms round trip per SEC request, on a dedicated
-    per-process session (`alphadeck-sec-budget`), never a writer's connection.
-  - **The fair share:** each process LANE — `recurring` (a recurring-dial client: the nightly, the radar, the
-    shell sweep, the successor scan) or `interactive` (everything else) — may hold at most 2 reservations that
-    are not yet due. With both lanes busy they alternate, so each gets half the budget whatever its thread
-    count (MEASURED in the suite: an 8-thread lane vs a 2-thread lane split 0.50 / 0.50; without the depth
-    cap the 2-thread lane got 0.20–0.22); a lane alone gets all of it; a newcomer waits at most ~0.24 s.
-  - **A 429 / 503 pauses everyone:** `polite_get`'s `on_throttle` pushes the global `next_slot` out by the
-    (jittered) backoff, so every process backs off together.
-  - **Fail-safe toward politeness:** if Postgres cannot be reached, the request is still sent, behind a
-    process-local limiter at HALF the rate, logged once per outage and counted (`sec_budget_fallback` on the
-    pass meter); the database is re-tried after 30 s.
-  - **Residual (accepted):** the budget is per DATABASE. Dev (`alphadeck_dev`) and prod share this host's IP
-    but not a database, so a dev discovery during the prod nightly can still push the IP past 10/s — keep live
-    SEC work on dev out of the 22:20–23:00 window until the VPS move (X10) gives prod its own IP. Forks never
-    go live to SEC.
-- **Cache-first** on disk (`data/edgar_cache/`); the test transport raises on cache miss so tests never hit the network.
-- Live pulls are explicit opt-in (env flag) and write only to the cache.
-- **Cache freshness is KEY-CLASSED, not permanent.** The cache is heterogeneous: a **filing document**
-  (`forms/<accession>/<doc>`) is immutable — an accession never changes — and is cached **forever**; every
-  other prefix is **mutable** and refreshes on a **12h TTL** when live (`submissions/*` = the filing index,
-  `companyfacts/*` = XBRL financials, `efts/*` = full-text-search pages). The policy lives on the cache-key
-  prefix in `EdgarClient.get_text` (default-refresh; only immutables opt out), so no caller threads a flag —
-  the next mutable endpoint is safe-by-default. **Why it exists:** a permanent cache silently froze THREE legs
-  the same way — Form 4 discovery (the daily cron couldn't see a filing newer than the cache; ~11 days stale),
-  the discovery universe (`efts` same terms → same keys → a name that starts matching next month is invisible),
-  and the extract's share counts (`companyfacts` → a stale count feeds the auto-applied market cap). Each "works
-  when you test it" because a *new* key/name fetches fresh. The TTL (< the daily cron period) makes the nightly
-  run always see an expired index. Offline (`allow_live=False`: tests, `--no-live`) a stale hit is still served
-  — better stale than a `CacheMiss`; the TTL only forces a refetch when a live pull is permitted. The #125
-  rebuild-survival win holds: a re-draft **within** 12h is still free; only a draft a day later re-enumerates,
-  which is correct — the universe drifted.
-- **The 12h TTL is the INTERACTIVE default; every RECURRING caller builds its client with the RECURRING TTL
-  (five minutes — `RECURRING_CACHE_TTL_S`).** The 12h clock starts when *that* company's key was last fetched,
-  so any daytime read warmed it for up to 12h and the nightly pass served the warm file — blind to everything
-  filed after the daytime fetch (a narrower, silent version of the same freeze; "run the daytime pass before
-  10:30" is no rule, because the stamp is per COMPANY and a pass takes up to an hour). So the recurring
-  constructors — `pipeline/daily.py`'s per-thesis client, `radar/spac.py`, `radar/shell_sweep.py` — pass
-  `cache_ttl_s=RECURRING_CACHE_TTL_S`. This is the per-CLIENT dial (the parallel of `force_refresh=True` for
-  prices), **not** a per-call flag: no caller threads anything, and the key-classed policy above is untouched,
-  so immutable `forms/*` still cache forever and the cost is one index fetch per company per pass.
-  **Five minutes, not zero — MEASURED, not stylistic.** Within ONE pass the three filing legs (`_form4_leg` /
-  `_form8k_leg` / `_schedule13_leg`) each read the SAME `submissions/CIK<10>.json` key milliseconds apart, and
-  `_is_stale` is `now - mtime > ttl` — so at zero a file written milliseconds ago is already stale and those
-  three reads cost **3 live fetches instead of 1** (≈1,500 SEC requests a night on a 500-name universe, for no
-  freshness gain — and EDGAR politeness is a correctness requirement here, not a courtesy). Five minutes keeps
-  the same-pass re-reads free *and* still closes the gap across passes: EDGAR accepts filings 06:00–22:00 ET,
-  so nothing can be filed in the five minutes before a 22:30 pass, and no daytime warmth survives five minutes
-  (measured: a 20-minute-old key refetches). Accepted residual: a second pass started *within* five minutes of
-  another reads the first's cache for the companies it reached last. The Workbench and a standalone
-  `python -m pipeline.ingest_thesis` keep the 12h TTL (interactive paths). Offline (`allow_live=False`) the dial
-  is inert — a stale hit is still served, so the suite and `--no-live` are unaffected.
-- **A FINISHED day's dated index is immutable too (K1, 2026-10-17).** A `daily-index/` (or `full-index/`)
-  key that names a `YYYYMMDD` date — `daily-index/master.20261015.idx`, the SPAC radar's spine — is cached
-  forever once the date is strictly before TODAY IN MARKET TIME (not UTC: at 22:30 ET the UTC date has
-  already rolled over while tonight's index still grows) AND the cached copy was written at or after
-  06:00 ET on the following day. The second half matters: the radar caches today's index at ~22:45 ET
-  while it is still growing, and freezing that copy when the date turned past would drop every filing
-  indexed later, so an in-day copy is refreshed once more under the TTL and only that later copy is frozen.
-  Today's and future dates, undated keys (the quarterly `full-index/.../master.idx`) and impossible dates
-  stay mutable. Key-classed in `EdgarClient._is_stale`, like `forms/`, for every client.
-- **`companyfacts/*` is FILING-GATED on a recurring client (Q17, 2026-10-17).** This reverses the earlier
-  choice that "`ingest_fundamentals` keeps the 12h TTL deliberately (a quarterly series)". That choice saved
-  nothing: by 22:30 the 12h clock had always expired, so the nightly fundamentals leg re-pulled every basket
-  name's companyfacts (MEASURED 2026-10-17: 680 documents, 1.18 GB) to pick up the ~38 a night that had filed
-  anything. A third key class now sits between immutable and plain-mutable: on a client built with the
-  recurring dial (`EdgarClient.recurring` — the dial is the marker, no second knob), a cached companyfacts is
-  re-pulled only when **(a)** it is not cached, **(b)** the company's cached `submissions/CIK<10>.json` lists a
-  filing ACCEPTED since the companyfacts was fetched (less a 24 h grace for SEC's XBRL processing and clock
-  skew) whose form is in the measured XBRL form set, or **(c)** a 6.5-day backstop has passed. The rule, the
-  form set (every distinct `form` on any fact in prod's 688 cached companyfacts files, plus an `/A` for every
-  base form) and its counts live in `ingest/edgar/companyfacts_gate.py`. The gate reads the index **from disk**
-  (no fetch, no `live_fetches` count), so it adds no SEC request; a missing or unreadable index, or a
-  qualifying row with no date, counts as due. **X8:** a companyfacts 404 writes `<key>.404` and a recurring
-  client re-asks on the same gate rather than nightly (a known absence prints as one quiet count). An
-  INTERACTIVE client keeps the plain 12h TTL for companyfacts and ignores the 404 marker — the Workbench's
-  freshness is unchanged. **Same-night, by placement:** the refresh runs PER THESIS inside the nightly
-  loop — right after that thesis's `ingest_thesis` re-pulled its members' submissions indexes at the
-  five-minute recurring TTL, and before its call is assembled — so the gate reads TONIGHT's index and a quarter
-  filed today reaches tonight's call, as the old nightly re-pull did (MEASURED: a 10-Q/A accepted 17:02 ET was
-  in that night's companyfacts). One pass-wide memory keeps it to one pull per company per pass, however many
-  theses (or share classes) hold it. A fundamentals fault is rolled back where it runs and never costs a
-  thesis its record. Anything the index cannot show (a company whose index stopped refreshing, a form that
-  starts carrying facts later) is re-pulled by the backstop within 6.5 days. Simulated on prod's real filing
-  cadence (45 weekday passes, 2026-08-18 → 2026-10-16): ~178 pulls a pass instead of 680 (about 26%), ~0.29 GB
-  instead of 1.18 GB. (The 24 h grace means a name pulled the night of its filing is pulled once more the next
-  night; that second pull is most of the difference from the ~151 a one-pass-late placement would cost.)
-  The gate reads the cached files' own clocks (the companyfacts copy's fetch time, the index's acceptance
-  times), never `fact_fundamentals.recorded_at` — so the stamp change below does not touch it.
-- **An error reply is never cached, never counted, never served (2026-10-23).** SEC can answer with a
-  success status but an ERROR BODY instead of the document — MEASURED on prod from EFTS:
-  `{"errorType": "ConnectionError", "errorMessage": "getaddrinfo EBUSY ...", ...}` (817 bytes, no `hits`).
-  `polite_get` only retries a non-2xx, so that body used to be written to the cache like any document, served
-  for the rest of its TTL (forever, on an immutable key), and read downstream as an empty one (eight EFTS pages
-  on 2026-10-23: three seeds reported "empty", five deep pages silently lost — `DISCOVERY.md` §2). Now
-  `EdgarClient.get_text` checks every body, fresh or cached, before returning it: **(a)** a generic guard for
-  EVERY key rejects a body whose top level is a JSON object carrying `errorType` (no real SEC document has
-  one — checked against every SEC fixture in the repo; it parses only a body that starts with `{` and contains
-  `"errorType"`), and **(b)** a caller may pass `validate=` (`get_json`'s receives the parsed document; EFTS
-  passes its page check). A rejected body raises `InvalidBody` (a `ValueError`; EFTS's is `EftsErrorBody`):
-  a FRESH one is not written to the cache and does not count in `live_completed` (it was an attempt, not
-  EDGAR data reaching the pass — the O5 freeze detector must not read it as a healthy fetch), and any
-  companyfacts 404 marker is left as it was; a CACHED one is a miss — re-fetched when live (even on an
-  immutable or in-TTL key) and raised when not live (never served, never a silent `CacheMiss`). The
-  key-classed TTL, the immutable `forms/*`, the `companyfacts/*` filing gate and the 404 negative cache are
-  otherwise unchanged. One older submissions page answered this way is a counted failed page
-  (`submissions._tolerable_page_error`), like an HTTP error after the retries.
-- **The fundamentals' stamp (migration 0057, 2026-10-21).** `fact_fundamentals` rows carry `valid_from =` the
-  filing's PUBLIC date — companyfacts' `filed`, or since F7 (2026-11) for a REVENUE row the market-time date of
-  its trusted SEC acceptance (`accepted`, read request-free from the cached submissions index; §Filings dated by
-  their acceptance) — what every detector and every history read dates by — and, since
-  0057, `recorded_at =` the database instant the ingest stored them (`ingest.fundamentals.store_quarters`, one
-  `db_now` per batch): honest bookkeeping, never backdated, never the history gate. Before 0057 the ingest
-  backdated `recorded_at` to `filed 00:00 UTC` (MEASURED on prod 2026-10-21: all 120,876 rows, a median ~6.2
-  years before the row was actually written, because companyfacts hands over a name's whole history in one
-  pull). Those rows are kept as written; under the public clock the old stamp is moot. Detail:
-  `INGEST.md` §The price write path.
-- **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
-  backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
-  caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and
-  each Workbench draft re-enumerated EFTS fully live — a politeness cost, and run-to-run index drift at the
-  hit-cap boundary of mega-terms (three same-day drafts each re-fetched ~87 pages and saw slightly different
-  universes as the live index moved). Cache etiquette only works if the cache survives the deploy loop.
-
-## Long-outage data bounds — what a resumed feed cannot recover on its own  `[KNOWN; no code closes them yet]`
-
-The freshness rules above make a pass SEE the current window — `force_refresh=True` on prices, the key-classed
-TTL on EDGAR — but neither WIDENS the window a pull reads. Every incremental leg resumes the same way: re-read a
-bounded window, append what is not yet stored. So an outage longer than that window (the stack down for months;
-the cron sidecar dead while the app stayed up) leaves a hole the first pass back neither fills nor reports.
-Two bounds are known today, stated as facts about current behavior — nothing in the code closes either yet:
-
-- **Prices — a fixed two-year window.** The member-name pull is `YahooPriceSource(range_=DEFAULT_RANGE)` with
-  `DEFAULT_RANGE = "2y"` (`ingest/prices/source.py`; `fetch_eod`'s own bare default is `"1y"`, reached only
-  by direct callers such as the symbol resolver's probe; benchmarks pull `5y` through
-  `pipeline.ingest_benchmarks --range`). `ingest_bars_for_security` appends the bars newer than the tape edge
-  (`latest_bar_date`) and runs the re-version / hole-fill compare over the overlap, so an outage SHORTER than
-  the window self-heals on the first pass back — the whole missed tail is inside the pull. An outage LONGER
-  than the window does not: the bars between the old tape edge and the window's left edge (two years before
-  the resume date) are never requested, and the tape resumes with a permanent hole that the tape-recency
-  monitor (§When the SYMBOL drifts, below) cannot see — it judges the EDGE, which is fresh again. The repair
-  is a manual wider re-pull: `pipeline.ingest_thesis` has no range knob, so it is a hand-run
-  `YahooPriceSource(range_="5y")` (or `"max"`) through `ingest_bars_for_security`, whose overlap pass then
-  hole-fills. The recovered bars carry the re-pull's `recorded_at`, so a replay pinned inside the gap still
-  does not see them — honest: the system did not have them then.
-- **EDGAR filings — `filings.recent` only.** Every filing leg that enumerates from a company's submissions
-  JSON — Form 4 (`form4_filings`), the 8-K item tape, the 13D/G tape, `pipeline.backfill_accepted` — reads
-  `filings.recent` (`ingest/edgar/submissions.py`, `filings_of` and its sibling readers) and never the older
-  `filings.files[]` chunks. SEC bounds `recent` at roughly the **1,000 most-recent filings of ALL form
-  types** (its documentation reads "at least one year or 1,000, whichever is more" — plan on the 1,000). For
-  a light filer that is many years of history — the "≥ 1 year / 1,000" depth the tape sections below quote —
-  but the window is a filing COUNT, so its span in time is set by cadence, not the calendar: a heavy filer
-  (a structured-note 424B issuer, an issuer with many reporting insiders) can cycle it in months. The walk is
-  incremental on accession (`existing_accessions` skips what is stored), so a filing that scrolled out of
-  `recent` during an outage of months is never enumerated — a **permanent-loss** bound, silent by
-  construction (nothing counts what `recent` no longer lists), and unlike prices there is no wider window to
-  ask for today. The fix is paging the older `filings.files[]` chunks — the deferred `--deep` walk
-  `backfill_accepted` already names — a known, not-yet-built follow-up.
-
-## USASpending (DOE awards) — the automated catalyst feed `[BUILT, #37]`
-
-The first **automated** catalyst-conviction source (`ingest/doe/`). It discovers DOE awards for a hand-curated
-set of nuclear-basket entities and emits catalyst facts deterministically (grade + horizon from the structured
-terms — invariant #3, never model-sourced). Grade rule = customer-vs-sponsor (`docs/CATALYST_CONVICTION.md`).
-
-**Entity resolution is a curated allowlist, keyed on exact `recipient_id` — never fuzzy.** This is the
-load-bearing decision; the spike found three reasons it has to be:
-
-1. **API quirk — the `recipient_id` filter is silently ignored.** Passing `recipient_id` to
-   `spending_by_award` does **not** filter; it returns *all* DOE awards by size. So we can't ask the API for
-   "this recipient's awards" directly.
-2. **Trap — fuzzy over-match.** `recipient_search_text="Centrus"` also returns **NAC INTERNATIONAL INC.**
-   (unrelated). Text search is a wide net, not a resolver.
-3. **Trap — the polluted homonym.** `recipient_search_text="Oklo"` surfaces **OKLO TECHNOLOGIES, INC.** — a
-   *different* recipient_id carrying **$48B of national-lab management contracts** (Sandia/LANL/ORNL `DEAC…`).
-   The real awardee is **OKLO INC.** Fuzzy-matching "Oklo" onto it would pin $48B of M&O contracts to a
-   pre-revenue ticker, silently.
-
-**So: fuzzy search is only a discovery NET; the ticker is assigned solely by exact membership in the curated
-table** (`ingest/doe/entities.py`), keyed on `recipient_id`. It's an **allowlist, not a denylist** — an
-unknown recipient is *dropped* (unresolved), never guessed. Subsidiary → parent → ticker is encoded by giving
-each recipient_id its own row: `AMERICAN CENTRIFUGE OPERATING, LLC` + `CENTRUS ENERGY CORP.` both → `LEU`;
-`OKLO INC.` → `OKLO`. Both traps have **rejection tests** pointed at them
-(`tests/ingest/test_doe_feed.py::test_resolver_is_exact_not_fuzzy` asserts NAC / OKLO TECHNOLOGIES / unknown
-all resolve to `None`).
-
-**Pipeline:** discover (search net, one award-type group per call — the API 422s on mixed groups) → resolve
-exactly by recipient_id → fetch award detail → derive grade + base-period-of-performance horizon → emit a
-`fact_catalyst`. Expired awards are emitted too (real, provenanced) but liveness keeps them off the card.
-
-**Which date the catalyst counts from: the date the award was recorded** (the detail's `date_signed`,
-which is the award's FIRST ACTION DATE in the federal record, not the day the agreement was signed; rule
-log `2026-11-catalysts-dated-by-record-date`, one home in `ingest/doe/feed.py::_event_date`). That date
-is the fact's `valid_from`, the day the detector fires and the day the public clock treats the catalyst
-as public (#1). It is NOT `period_of_performance.start_date`: a work period can start before the public
-could know of the award. MEASURED on the six committed payloads (2026-11-11): three were recorded after
-their start (2026-02-09 → recorded 2026-05-18, 98 days; 2012-06-01 → 2012-11-30; 2010-03-23 →
-2010-12-21) and the three contracts were recorded the day the work starts. A record date earlier than
-the start also counts from the record date. No readable record date → the work period's start; neither
-date → the award is skipped. When the two dates differ the label says both. The horizon (`horizon_end`)
-is the work period's end either way. Rows stored before the rule are re-dated by
-`python -m pipeline.repair_catalyst_dates` (dry-run by default; it re-parses these committed payloads,
-never the network).
-
-**KNOWN LIMITATION: the record date is late by design, and it is not proven that it can never come too
-early.** An award can be executed, and even announced, before it is recorded. For the one award checked
-against public sources (DENE0009589, 2026-11-11): the agreement was executed in February 2026 (the
-company's 10-Q filed 2026-11-06 says so; the record's work period starts 2026-02-09), it was announced
-publicly on 2026-03-17, and DOE recorded it on 2026-05-18
-(USAspending transactions API: one transaction, "New Award", action date 2026-05-18). So the old date,
-the work period's start, was 36 days BEFORE the public knew, and the record date is 62 days AFTER. The
-catalyst now counts 62 days after the public announcement, because this source does not carry the
-announcement date at all. That lateness is by design. The other direction is NOT proven: one award was
-checked, and a record can appear on USAspending some days after its action date (not measured), so for
-an award nobody announced, the record date may be a few days before the public could see it.
-
-**Etiquette** (mirrors EDGAR): cache-first on disk (`data/doe_cache/`; committed fixtures in
-`backend/seed_data/doe/`), live pulls explicit opt-in, a rate-limit gate, the test transport raises on a
-cache miss so the suite never hits the network.
-
-## SEC company_tickers + filing extraction — the Workbench fact loop  `[BUILT, #55–#58]`
-
-Two SEC capabilities feed the Workbench's per-name scoring facts (`docs/WORKBENCH_EXTRACTION.md`):
-
-- **The universe (`company_tickers_exchange.json`).** One SEC file (~10k rows, `{fields, data}` shape:
-  `cik` / `name` / `ticker` / **`exchange`** — the PER-INSTRUMENT venue, Nasdaq/NYSE/CBOE/OTC/None).
-  `pipeline.populate_master` (the broadener) loads it into `security_master` — **(cik, ticker)-keyed,
-  idempotent, additive, per-tenant** — so the operator can resolve *any* US filer, not just the seed. **Keyed
-  on `(cik, ticker)`, NOT cik-alone:** dual-class issuers share one CIK (GOOGL/GOOG, BRK-A/B), so cik-alone
-  keying would collapse them into a single row — a permanent systematic gap; the ticker in the key keeps both
-  pickable. *(Switched from the plain `company_tickers.json` in the canonical-primary slice: the exchange
-  variant carries the per-instrument venue the canonical rank needs — ASML=Nasdaq vs ASMLF=OTC.)*
-  **Canonical primary:** each CIK's ONE tradeable instrument is flagged `is_primary` at populate
-  (`sec_tickers.flag_primaries` — instrument class > exchange > F-ordinary demotion > SEC file order).
-  **The file's own per-CIK row order is primary-first only USUALLY** — validated 2026-07-07 against all
-  1,476 multi-row CIKs: 51 violations (OTC foreign-ordinaries, warrants/units, and preferred lines listed
-  first), so file order is the rank's final TIEBREAK, never the rule. Identity only (CIK + ticker + name +
-  exchange + is_primary; `figi` / `cusip` left NULL — nothing in the live path reads them). The master is
-  **mutable identity metadata**: a new (cik, ticker) inserts, a changed name/exchange/is_primary UPDATEs in
-  place (the id stays stable, so the fact FKs don't orphan), unchanged skips. It coexists with
-  `master.resolve()` (the other live writer, ticker-keyed): both set `cik`, so neither duplicates the other's
-  rows (tested both orders) — and post-broadener, `resolve()`'s OpenFIGI calls fall to ~zero (the universe is
-  already loaded).
-  **ONE RECORD PER COMPANY — a rename updates in place (the company-list refresh, 2026-10-24).** The
-  `(cik, ticker)` keying used to INSERT a second row when SEC re-tickered a company (the old row kept its primary
-  flag beside the new one, and the next Workbench Save re-pointed the member to the new, empty row — every fact
-  left behind; MEASURED 2026-10-24: 23 live basket companies re-tickered since the 2026-08-16 load). Now
-  `pipeline.populate_master` (DRY-RUN by default; `--live --apply` writes; weekly in the cron sidecar, Saturday
-  09:00 ET — `CRON_SIDECAR.md` §Schedules) plans against the master first (`securities/master_refresh.py`):
-  a CIK whose current PRIMARY row's ticker SEC no longer lists has that row RENAMED IN PLACE to the file's
-  primary ticker (the id stays; the old -> new pair goes to the append-only `security_ticker_history`, migration
-  0066) — also over an EMPTY same-CIK placeholder row already holding it; other new tickers on the CIK are
-  inserted non-primary; at most one `is_primary` per CIK after a run (a vanished row is demoted, never left
-  beside the primary; primacy moves between listed lines only on structural grounds, never on SEC's file order
-  alone); a re-key onto a ticker ANOTHER CIK holds (ticker
-  reuse after a delisting) is a surfaced CONFLICT, never applied — and so is a new company whose ticker a LIVE
-  basket row of another CIK holds (a possible successor issuer, the T7 case below); a CIK SEC no longer lists is
-  left untouched. The price feed follows a rename only when safe: a renamed row with stored bars and no price
-  symbol is PINNED to its old ticker (`price_symbol`, author `system:rename-pin`, undoable on Admin) until the
-  nightly rename probe splice-verifies the new ticker (>= 20 shared bars at x1.000 → adopted automatically,
-  `system:auto-adopt`, undoable); a row with a price symbol already set is never touched.
-  **The cached file is now REFRESHED, weekly** — the refresh's `--live --apply` replaces
-  `data/sec_cache/company_tickers_exchange.json` (an atomic replace, only after its plan committed), and that
-  copy is also the stale-tape rename guard's second source (`sec_tickers.cached_tickers_for_cik`, cache-only):
-  a stopped tape whose CIK SEC's map lists under another ticker is RENAMED, never CLOSED (the PSKY -> SKYD
-  shape — a Form 25 at the last bar, EDGAR's own list empty).
-  **Funds are not in this file** (PEPT, WGMI, DTCR, …): an ETF is a fund-trust series in SEC's
-  `company_tickers_mf.json`, resolved ON THE FLY at the operator's holdings click (`securities/fund_tickers.py`;
-  the trust CIK is never written into the master — a locked decision, ETF Sleeve Slice 2a) and entered into the
-  master only by the surface-ETF flow (`master.resolve(..., instrument_kind=ETF)`). The weekly refresh replaces
-  that file's cached copy too (one more GET, fail-open), so a fund launched since the last copy resolves; it
-  writes no master row for a fund.
-  **The CIK itself was never revisited — until T7 (2026-10-17).** Nothing above changes a stored CIK, and the
-  populate path's ticker map was cached FOREVER until the weekly refresh (`securities/sec_tickers`, cache-first;
-  prod's copy dated 2026-07-27). A company that re-registers under a SUCCESSOR CIK and keeps its ticker (Rule 12g-3: an 8-K12B
-  on the new CIK, a 15-12G on the old) leaves the member on a dead CIK, and every filing leg goes quiet
-  (MEASURED: UROY 0001711570 → 0002143673, REAX 0001862461 → 0002136387). The nightly successor-CIK detector
-  (`pipeline/successor_cik.py`, `FEED_MONITORS.md` §The monitors) reads the SAME map fresh each night
-  through the polite `EdgarClient` (key `files/company_tickers_exchange.json`, the recurring five-minute TTL)
-  and flags a member whose stored CIK lists no tickers while the map assigns its symbol to another CIK. The
-  re-point is the operator's (Adopt on Admin → `master.set_cik`, in place, with an exact Undo — migration
-  0049); never `populate_master`, which re-keys only a row of the SAME CIK and reports a successor CIK on a
-  basket member's ticker as a conflict (an inserted successor row would block this Adopt, which refuses when
-  another row already holds the new CIK). Serve-time EDGAR links are built from the CURRENT CIK, which is
-  harmless after a re-point: EDGAR resolves a filing index by accession under any CIK path (MEASURED).
-- **Filing extraction (10-Q/10-K).** The three-tier extractor pulls a resolved name's latest 10-Q + 10-K (via
-  the same cache-first `EdgarClient` + declared UA + rate-limit gate) and produces *candidate* scoring facts
-  the operator ratifies — the extractor LOCATES, the operator RATIFIES. Detail in `WORKBENCH_EXTRACTION.md`;
-  the etiquette is the EDGAR etiquette above.
-
-## Free EOD prices — the price-source seam, adjustment, and cache  `[BUILT, M2a/the price-source slice]`
-
-The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-cap figure.
-
-- **Current source: Yahoo's chart API** (`query1.finance.yahoo.com/v8/finance/chart`) — free, no key, but
-  **unofficial / uncontracted** (a swap candidate, hence the seam below). **`quote.close` AND `quote.volume`
-  are already split-adjusted, and Yahoo RE-BASES the entire history on every new split** — verified live on a
-  forward (NVDA 10:1) and a reverse (LCID 1:10): pre-split bars are continuous with post-split (no
-  order-of-magnitude cliff in close or volume). This is a **property of the Yahoo adapter**, not an assumption
-  baked into the system. *(Re-basing-on-split is universal to adjusted feeds — e.g. Tiingo's docs likewise say
-  re-download when `splitFactor != 1`.)*
-- **The stored close is `quote.close` — split-adjusted, NOT dividend-adjusted.** MEASURED on prod
-  2026-10-16: the stored SPY and IWM closes equal the vendor's current `quote.close` on 1,252 of the 1,254
-  overlapping dates each, and `adjclose` on only 20–23 (the dates after the last dividend, where the two
-  coincide). The two mismatches are the intraday-frozen 2026-08-25 / 08-27 closes (below) — no dividend drift.
-- **The vendor's daily bar is not final in-session, and its volume keeps settling after the evening.**
-  Mid-session the "today" bar is the session so far; and even at the 22:30 pull the day's VOLUME is not
-  final — MEASURED on prod 2026-10-16: of the 43 sessions 2026-08-14..10-14, the stored volume differs from
-  the vendor's current one on 38 for SPY and 32 for IWM, always upward (+0.05% to +3.2%, ignoring the two
-  frozen bars), while every stored bar before 08-14 matches exactly; the closes match apart from the two
-  frozen bars. So **no bar is stored before its session settles** (D2, `Settings.price_settle_time` = 18:00
-  market time, `ingest/prices/settle.py` — the evidence for the hour is on the setting), and post-settle
-  revisions are re-versioned by the restatement compare (thesis names: exactly inside the pull's newest 3
-  sessions, and an OLDER bar only when its close moved >= 0.5% or its volume >= 5% — Q11; SPY/IWM: exactly,
-  the newest `Settings.benchmark_restate_window` = 5 sessions). Detail: `INGEST.md` §The price write path
-  (settle guard and restatements).
-- **The benchmark tape's stamp (D1).** The nightly SPY/IWM leg stamps `recorded_at = now` like every other
-  live price bar, and since 2026-10-21 so does the one-shot CLI (`python -m pipeline.ingest_benchmarks`),
-  which used to backdate first versions to their bar date. Before 2026-10-16 the nightly leg backdated too
-  (`recorded_at = D 00:00 UTC`), so the stored pre-D1 bars carry that stamp (2,598 rows on prod, history).
-- **Cache behavior.** Cache-first on disk (`data/price_cache/`) for dev and the `--no-live` path (re-runs
-  reproducible, polite). The **recurring/daily path force-refreshes** (`fetch_eod(force_refresh=True)`): it
-  re-pulls live and overwrites the cache, so the daily cron gets NEW bars instead of a frozen cache hit. A
-  cache MISS always fetches, so a new thesis's first ingest is fresh regardless. The pull itself is a fixed
-  **two-year window** (`YahooPriceSource(range_=DEFAULT_RANGE)`, `DEFAULT_RANGE = "2y"`): the refresh makes a
-  pass see the CURRENT window, never a wider one, so an outage longer than the window leaves a permanent hole
-  (§Long-outage data bounds, above). The cache file is written atomically (temp file + rename,
-  `ingest.write_atomic`), so a concurrent reader never sees a half-written series.
-- **The Yahoo gate (X7, 2026-10-21).** Every Yahoo request — the chart pulls (`fetch_eod`: the price leg, the
-  benchmark leg, the rename probe) and the symbol search — passes ONE process-wide token bucket
-  (`ingest.http.yahoo_limiter`, `Settings.yahoo_rate_per_sec`, default **4.0/s**). Yahoo publishes no limit,
-  so the default is set off what was MEASURED clean: the serial price leg pulled 740 series a night at up to
-  3.3/s sustained (Modern Defense, 2026-10-20: 196 pulls in 58.7 s) with ZERO 429s on every X5-instrumented
-  pass; 4.0 is a modest step above that. A 429 / 503 is retried after a JITTERED exponential backoff (1–1.5x
-  the plain one: never shorter, spread so the pool does not retry in lock-step; a numeric `Retry-After` is
-  honored exactly) and PUSHES THE GATE BACK, so every puller pauses, not only the one that was told. Every
-  refusal is counted per host on the pass meter (`http_429:query1.finance.yahoo.com`, …) and the printed
-  timings line names the 429s when there are any — move the dial on that evidence. Process-local (unlike the
-  SEC budget): Yahoo is not a fair-access correctness requirement, and the nightly is the one process that
-  pulls hundreds of series.
-- **The `PriceSource` seam** (`ingest/prices/source.py`). The source sits behind a `get_bars(ticker, *,
-  allow_live, force_refresh) -> [normalized EOD bars]` interface; `YahooPriceSource` and `StooqPriceSource`
-  are adapters; the ingest path depends on the interface, so swapping the source is changing an **adapter**,
-  not a rewrite. The contract is "a source of EOD bars", not "Yahoo's adjusted bars" — a future raw-prices +
-  corporate-actions adapter isn't boxed out. (Still no `get_splits` on the seam: since S2 the price leg owns
-  the adjustment for every split on Alpha Deck's own list and puts each vendor bar on its scale —
-  `INGEST.md` §The price write path.)
-
-> **RESOLVED — the re-version pass `[BUILT]` (was: mixed-basis bars across a FUTURE split).** Because the
-> adjustment happens *outside* our bitemporal store (in a source that re-bases on a split) and our ingest is
-> incremental (`d > latest_bar_date`), a thesis that lives ACROSS a future split accumulates **old-basis
-> stored bars + new-basis appended bars** → a distorted `volume_breakout` ratio over that window. **Trigger:**
-> a tracked thesis living across a future split. **DECIDED — Option (a), operator pick 2026-07-11:** keep
-> Yahoo and **re-version restated bars** — the daily force-refresh already re-pulls each whole series; an
-> overlap compare appends new versions where fresh ≠ stored (the bitemporal store's native move; as-of reads
-> pick latest `recorded_at`), so the series snaps to the new basis within one cron tick, volume adjustment
-> stays free, and the mixed-basis window is ≤ 1 day. **BUILT:** `ingest_bars_for_security` now runs the
-> overlap compare on every pull (`stored_bars` deduped read → append a new version where fresh ≠ stored
-> beyond float noise, close AND volume; a hole in the overlap backfills through the same pass). Idempotent
-> (COUNT-the-table), replay-honest (a `known_at` before the correction still sees the OLD basis — the
-> bitemporal store's transaction-time guarantee), and loud only on the exception (the daily prints "N bars
-> RE-VERSIONED (restated)" only when nonzero). **AMENDED — Q11, operator decision 2026-10-17:** the vendor
-> also re-serves OLD bars with sub-percent rounding wiggles, and flips some histories between the adjusted and
-> the unadjusted basis from one pull to the next (T4's flaps). So an older bar (before the pull's newest 3
-> sessions) re-versions only beyond 0.5% close / 5% volume (T6), and a pass whose older restated bars ALL go
-> back to values the store held before (a revert) holds them, whole, until a pull on a later night agrees
-> (T5; the pending state is `price_restatement_hold`, migration 0047). A first-time re-base — a genuine split
-> — still lands the same pass. Rule, replay numbers and the residuals: `INGEST.md` §The price write path.
-> Option (b) — a **raw + splits** source owning the adjustment at read time — stays the endgame if a paid
-> data tier arrives; the `PriceSource` seam deliberately doesn't box it out.
-
-> **Canceled with reason — the parser split-adjustment (old M2c).** An earlier plan was to compute our own
-> split factor and adjust the bars at parse. **Verified unnecessary and harmful:** Yahoo already adjusts close
-> + volume (above), so a second adjustment would DOUBLE-adjust (÷ an already-÷10 close). Not built.
-
-### When the SYMBOL drifts: the OTC class, the RENAME class, and the recency monitor
-
-The SEC ticker is canonical for identity, but the vendor may price a name under a **different** symbol — and
-the ingest cannot tell that from "this name had a quiet year". Two classes, one shared repair:
-
-- **The OTC class `[BUILT, #252]`.** An OTC name quotes under a suffixed symbol (a "D" appended after a
-  corporate action, for instance) and the canonical ticker returns a stub history. Fix: the **vendor symbol
-  override** on the security master (`security_master.price_symbol`, migration 0032) — stored only when it
-  DIFFERS from the ticker; `ingest_bars_for_security` fetches `price_symbol or ticker`, and the bars land
-  under the same `security_id`, so the detectors simply start seeing the fuller history (no call-path touch).
-  A verified symbol-search resolver populates it, deliberately **OTC-scoped and thin-history-gated**.
-- **The RENAME class — the silent one `[MONITORED, G5a; repair ratifiable since T2]`.** After a rename the vendor's
-  series for the OLD symbol simply **ENDS**. The ingest appends bars after the latest stored one, so it
-  appends **zero, with no error** — byte-identical to a market holiday. The resolver above cannot reach this
-  case by construction (it is OTC-scoped and gated on thin history, while a renamed name has a long, healthy
-  history that merely stops), so such a tape could sit dead indefinitely while every price-driven signal for
-  that name went dark and nothing said so.
-- **The monitor that makes it visible (G5a).** The nightly pass now records each name's **tape edge** (its
-  latest stored bar date) and flags a tape whose edge is `ALPHADECK_TAPE_STALE_DAYS` (default 5 calendar days;
-  `0` disables) or more behind the run's as-of, or that has no bars at all. The stale set lands on the
-  run-of-record artifact, **newly** stale names page through the health notifier, and the Admin freshness
-  panel lists every currently stale tape with its last-bar date (`ADMIN.md` §stopped feeds). It is a
-  MONITOR: no detector, no call input, and nothing on the CallCard (a day-varying card field would flap the
-  cron's `record_if_changed` idempotency).
-- **The repair stays the operator's, and it is data.** Set `price_symbol` to the vendor's current symbol and
-  the next nightly pass re-pulls the full two-year window, appends the missing tail and hole-fills the
-  overlap (splices measured clean). Teaching the resolver to follow renames **automatically** is deliberately
-  **not built** beyond the company-list refresh's one narrow, undoable path (a renamed name with stored bars is
-  pinned to its old ticker, then adopted only on a splice of at least 20 shared bars at exactly x1.000 — see
-  the company-list refresh in §SEC company_tickers + filing extraction, above): a wrong auto-resolve files
-  ANOTHER company's tape under the member, which is far worse than a visible gap (`INVARIANTS.md` #4/#6) —
-  anything weaker needs the operator's explicit call.
-- **Not every stopped tape is a rename.** A genuine **delisting** (EDGAR Form 25 / 25-NSE / 15-12B /
-  15-12G) also ends the series, and correctly: there is nothing to repair, the name is simply no longer
-  priced. The monitor tells the two apart from EDGAR alone (G5b/T1, `pipeline/tape_health.classify_stop`):
-  **closed** only when a delisting form was filed near the tape's last bar (default window −30 / +45
-  calendar days) **and** EDGAR's current `tickers` is empty or still holds our symbol; **renamed** when EDGAR
-  lists the company under symbols that include neither our `ticker` nor `price_symbol` (a loud repair row
-  naming EDGAR's list — the operator still sets `price_symbol`, nothing adopts it). A form on file at some
-  other time is not a close: a company files these for ANY listed class, and VRME's 2025 warrant 25-NSE
-  once labeled its still-trading common stock "closed". The residual the window cannot catch — a 25-NSE for
-  another class filed within weeks of a stop — is closed by the **Form 25 class check** `[BUILT, Q6
-  2026-10-17]` (`ingest/edgar/form25.py`): for a stale name only, each window Form 25's primary document is
-  read (one immutable `forms/*` fetch, polite client) and one naming warrants / units / rights / notes /
-  preferred stops counting; an unreadable class still counts. See `FEED_MONITORS.md` §Stopped price tapes.
-- **The rename repair is now RATIFIABLE `[BUILT, T2 2026-10-17]` — still never automatic.** Every night a
-  renamed tape's EDGAR-listed symbols are **spliced** against our stored tape (`pipeline/rename_probe.py`):
-  ONE Yahoo fetch per candidate symbol, into a throwaway temp dir (the shared `data/price_cache` is never
-  written by a probe), verified when at least 5 dates are shared and the median close ratio is within 1%.
-  The same company's tape under its new symbol matches ours to float noise (HLLK/SDCO and BRR/SVIA: 30 shared
-  dates, x1.000000); another class does not (BRR's warrants SVIAW: x0.121 — the exact mistake a blind
-  adoption of EDGAR's list would make). The verified symbol is a pending recommendation on the Admin page;
-  the operator's **Adopt** writes `price_symbol` (basis `operator:adopt`) and Undo restores the prior value
-  exactly (`price_symbol_change`, migration 0046). A symbol the operator TYPES (Set — e.g. a never-priced
-  name's TSX listing) is validated the same way first: one vendor fetch, bars must exist.
-- **Never priced** (Q8). A member with no stored bar ever that is neither closed nor renamed (WONDF: a 40-F
-  filer EDGAR lists no symbol for; Yahoo 404s it) is the UNPRICEABLE class — loud until the operator sets a
-  symbol, removes it, or **acknowledges** it ("keep it, unpriced": quiet, revocable).
-- **A vendor 404 is EXPECTED on a closed or acknowledged name** (T3). Yahoo drops a delisted symbol (404),
-  which is exactly right; the price leg records the 404 as a fact (`NameResult.price_not_found`) and the
-  nightly pass excuses it for a name its tape classification calls closed (or the operator acknowledged), so
-  it no longer counts as an ingest error or spoils `ingest_fresh`. The fetch still runs for those names
-  every night — the classification is derived from the tape, and a name that starts trading again is noticed
-  only because its bars can still land.
-- **Some symbols get NO history from Yahoo — only the current bar** `[MARKABLE, 0056 2026-10-21]`. Seen on a
-  preferred share (and the shape a newly listed or re-listed symbol can take): Yahoo's chart for **SCE-PG**
-  returns exactly ONE bar, the current session, under every range (2y, ytd; `firstTradeDate` 2026-07-17 in
-  the payload — MEASURED 2026-10-21), although the same symbol served a year of history on 2026-07-27. The
-  nightly leg still stores that night's bar, so the tape grows one bar per night, but it can never be
-  restated (no overlap to compare), repaired (the named-bar repair reads `no_vendor_bar`) or backfilled (a
-  missed night is a permanent hole — 8 such sessions on SCE-PG between 2026-08-20 and 10-20). Nothing
-  detects this automatically; the operator MARKS it on Admin as a **known feed limitation** (an append-only
-  `price_feed_ack` `limited_history` row with a reason, evidenced by one vendor pull of ≤ 5 bars; Undo-able).
-  The mark only changes wording where the missing history alone would be loud (the bar repair, the name
-  panel note) — it never quiets a stopped tape or excuses a 404. The alternative, a second price source for
-  such names, was considered and not chosen (2026-10-21). See `FEED_MONITORS.md` §Known feed limitations.
-
-### The ETF fund-shares sampler stops the same silent way `[MONITORED, F1; repair is manual]`
-
-An ETF sleeve's shares-outstanding sample (`fact_fund_shares`, the net-flow read's basis) comes from a
-**fallback chain** — Massive.com when `MASSIVE_API_KEY` is set, then the issuer's fund page, then the
-aggregator — whose legs miss independently. It ends without an error in two ways: every leg misses (the fund
-closed or renamed, a source page was redesigned — the chain warns visibly when a *primary* leg errors, so
-that half is at least loud in the run output), or a page's own **stated as-of date freezes** while it keeps
-serving the same count, which the incremental compare correctly skips as an unchanged sample. The leg then
-reports success while the series stands still.
-
-- **Its own threshold, for a measured reason.** The nightly pass records each sleeve's **sample edge** and
-  flags it at `ALPHADECK_FUND_SHARES_STALE_DAYS` (default **7** calendar days; `0` disables this feed
-  independently). Not the price tape's 5: MEASURED on dev, the primary source states the **pull date
-  exactly** (lag 0 across 28 post-backfill samples) while the aggregator fallback stated a **two-day-old**
-  date, so a healthy sleeve's edge sits 0–2 days behind the pass that sampled it. 7 clears that stated lag
-  plus a long weekend plus two failed nights; a dead sampler still surfaces inside a week.
-- **`d` is the SOURCE's own stated as-of date, never an assumed "today"** (migration 0027) — which is
-  exactly why a frozen stated date is a real failure mode rather than a theoretical one.
-- **Only ETF sleeves are judged** (the ingest leg's own gate, shared with the monitor): an equity has no
-  samples, and a `null` edge means *stale* to the rule, so an ungated monitor would report every equity in
-  every basket. A tracked sleeve with no samples at all IS reported — its sampler has never worked.
-- **The repair is the operator's and is NOT `price_symbol`** (that is the price leg's lever): check the fund
-  still trades under that ticker, read the run's fund-shares warnings for a broken source page, and confirm
-  the shares-source key. What goes quiet meanwhile is the sleeve's **display** flow read — never a call
-  input (#4/#6) — while its price and filing feeds keep running.
-
-## Form 4 — the Rule 10b5-1 checkbox `[BUILT — CAPTURE-ONLY]`
-
-`fact_insider_txn.aff_10b5_1` records the filing's **Rule 10b5-1 checkbox** (`<aff10b5One>`). **Nothing reads
-it.** It is captured so the history ACCRUES while the call-logic question stays open for the operator.
-
-**Why it exists.** Insider *selling* is ~95 % of Form 4 flow (one operator thesis: **30,388 sells vs 1,441 open-market
-buys**), and much of it is **autopilot** — pre-scheduled under a 10b5-1 plan adopted months earlier, executing
-whether the insider is euphoric or terrified, so it carries ~no information about their current view. Only a
-**discretionary** sale (chosen now, with everything they know) could. Measured live: **MU had 7 of 13 recent
-filings flagged planned — every one a sale**; NVDA had 1 of 14. Without the flag those are indistinguishable,
-so any sales-derived signal would be dominated by autopilot and be actively misleading.
-
-- **Tri-state; the NULL is load-bearing.** `TRUE` = planned · `FALSE` = discretionary · **`NULL` = UNKNOWN**.
-  Absence must NEVER coerce to `FALSE` — that asserts "this sale was discretionary" about a filing that never
-  said so (inventing a fact, #3). The SEC added the checkbox in the **Dec-2022 amendments** (with cooling-off
-  periods + certifications), so ~everything filed before 2023 has no element at all.
-- **Filing-level, not transaction-level.** The element sits on the ownership document (after
-  `</reportingOwner>`), so it stamps every row from that filing. A filing mixing planned and discretionary
-  trades is ambiguous by construction — we record what the SEC gives us, we don't resolve it.
-- **Not retroactive.** The ingest is incremental (`existing_accessions` skips stored filings), so the flag
-  populates on **newly-ingested filings only**; rows already stored stay `NULL`. Backfilling is a separate
-  decision (the fact tables are append-only — a `no_update` trigger enforces it).
-- **The detectors are unchanged.** `insider_conviction` reads code `P` and never fires on sales;
-  `dilution_clock` remains the only `RISK_SIGNAL`. Whether discretionary selling should feed the counter-case
-  is **unspecified in `CALL_LOGIC.md`** and is the operator's call — a test asserts a buy scores identically
-  whether planned, discretionary, or unknown.
-
-## Form 4 — a transaction date that cannot be true: held, counted from the filing night when on time `[BUILT — 2026-11-12]`
-
-A Form 4 / 4/A row dated before 1934, after its accession's filing year, or — when the acceptance is known —
-after the acceptance's market date and after the filing's last signature date is HELD at ingest
-(`insider_txn_hold`), never stored as a fact. The insider read counts a held Form 4 row of an ON-TIME filing
-(acceptance 0..5 days after its own period of report, `CallConfig.insider_hold_on_time_days`) from the night
-the filing became public, honors a steward's decision (`insider_txn_hold_decision`), lets the filer's own
-applied 4/A win, and leaves a late filing's row out until a steward decides (rule log
-`2026-11-insider-rows-dated-after-filing`; `docs/CALL_LOGIC.md` §6, `docs/INGEST.md`). The acceptance this
-rule judges on is the stored one below, so a wrong stored time would mis-judge a row: the drift repair keeps it
-right. MEASURED examples behind the signature test and the on-time window are the committed fixtures in
-`backend/tests/fixtures/edgar/held/`.
-
-## Form 4 / 4/A — the acceptance clock: SEC's listed time vs the filing's own header `[BUILT — 2026-10-24]`
-
-**Why the stored time matters.** `fact_insider_txn.accepted` (and `insider_amendment` / `insider_amendment_link
-.accepted`) is the PUBLIC instant every history view dates an insider filing by (the editions, the drawer, a
-past-asof recompute, the backtest mirror — `db/public_clock.py`); the live nightly reads the record clock. A
-night ended at midnight ET until F6 (2026-10-31), so a late time across midnight moved the filing to the next
-night; it now ends at EDGAR's next open (06:00 ET the next weekday, `domain.market_time.known_at_for_asof`),
-so a late time before 06:00 stays on its night. An early time on the right date stays harmless; the repair
-below still puts the stored time right.
-
-**The drift (MEASURED on prod 2026-10-24, read-only).** The time comes from the submissions JSON's
-`acceptanceDateTime`. From ~2026-10-23 04:00 ET that list became inconsistent PER FILING: every capture since
-(onboarding loads, the 10-23 nightly) stored 25–45% of accessions at an hour EDGAR is closed (before 06:00 or
-after 22:00 ET), mostly +4 h / +5 h late; captures 10-20..10-22 were clean. It is inconsistent over TIME
-as well: the same RPD filing listed 5 h late on the morning of 10-24 was listed correctly at 20:30 ET that
-night — so no capture can be trusted wholesale, and the rule judges each listed time on its own (a correct
-one is kept, a drifted one replaced). Against SEC's own header
-(`ACCEPTANCE-DATETIME`, ET wall clock, in `<accession>-index-headers.html`): 0000902664-25-005199 was filed
-2025-12-04, its header says 19:00:20 ET, the list now says 00:00:20 ET on 12-05 — a night late. 5,776 stored
-accessions sat a night late (859 of them buys/sells on basket companies since 2025-03-01). An older writer's
-clock also left stored times 4–8 h EARLY.
-
-**The rule** (`ingest/edgar/acceptance.py`, one helper for every leg that stores the time): trust the listed
-time when its ET date is the `filingDate` and its ET time is within 06:00–22:00 inclusive (a Form 3/4/5
-accepted until 22:00 is filed that day); otherwise read the filing's header through the client (the global SEC
-budget; the page is immutable, cached forever under `forms/<accession>/`); header unreadable → the END of the
-filing date in ET (23:59:59) — never early, the right night, and never NULL (a NULL dates the fact at our first
-ingest). The companyfacts gate stays request-free: it takes the earlier of the listed time and that bound. The
-4/A linker's order map keeps only a trusted listed time (else the filing dates order the pair). The nightly
-prints one quiet `acceptance · …` line when any listed time was set aside. Stored rows are repaired by
-`python -m pipeline.backfill_accepted --drift` (dry-run by default; `--execute` after a backup).
-
-## Filings dated by their acceptance — 8-K, 13D/G, revenue (F7) and share counts (F9) `[BUILT — 2026-11]`
-
-**The gap (F7).** `fact_corporate_event`, `fact_activist_stake` and the revenue rows of `fact_fundamentals`
-stored only SEC's `filingDate` as `valid_from`. Regulation S-T 13(a)(2) dates a filing whose submission
-commences after 17:30 ET the NEXT business day, though EDGAR disseminates it that evening; the detectors gate
-`valid_from <= asof`, so the live nightly and every history view counted an evening 8-K a night late (late,
-never early). Rule `2026-11-filings-dated-by-acceptance` (`domain/rule_log.py`) — a declared call-logic change.
-
-**The rule** (`ingest/edgar/acceptance.py` `resolve_public_acceptance`): trust the listed `acceptanceDateTime`
-when the Form 4 test passes (its ET date is the filing date, 06:00–22:00) OR it is the filing-date roll — its
-ET date is the business day BEFORE the filing date and its ET time 17:30–22:00 (no SEC holiday calendar exists,
-so one weekday may sit between the two dates — a holiday — never two, never a weekend acceptance). Otherwise
-the filing's header from the CACHE only (never a request: the 8-K tape stays zero-fetch), held to the same
-test. Otherwise nothing is stored and the filing date stands. A trusted time is stored in `accepted`, the row
-is dated by its MARKET-TIME date, and the public instant is the acceptance (a filing fact's newest acceptance
-on every version; a revenue version's own). The ingest never re-dates a stored row (an 8-K's acceptance is not
-in its compare surface; a revenue filing already stored keeps its stored dating) — the repair does.
-
-**Share counts (F9).** `fact_shares_outstanding` had no filing date: its `valid_from` is the cover date and its
-public instant was the ratification (`recorded_at`). Now each count carries `filing_accession` /
-`filing_accepted`: the EARLIEST filing whose companyfacts cover row states exactly this count on exactly this
-date (`ingest.shares.count_publication` — the cited filing when the citation is right; a later filing's count
-cited under an earlier one gets the later filing's, so it is never early; a cover row dated after its own
-filing never dates a count), its trusted acceptance else the end of its filing date in ET. A count no cover row
-states keeps its ratification instant. The public clock takes the running max over the fact's versions, so a
-version never counts before the one it replaced. The Workbench auto-confirm and the steward's write
-(`platform_values.steward`: approve, correct) stamp it from the cache at write time.
-
-**The repair** — `python -m pipeline.repair_filing_dates` (dry-run by default, read-only, cache only;
-`--apply` under the REPAIR lock, one counted transaction, provenance under `data/repairs/`, a `data_repair`
-journal row; idempotent). An 8-K / 13D/G whose day moves gets one new version (`accepted` + the new
-`valid_from`); a revenue filing gets a TWIN at the acceptance date plus a set-aside of its old-date versions
-(rule family `filings-dated-by-acceptance`; the rows are kept, never deleted; the data-quality reads leave the
-family out) so one
-filing is never read at two dates; a share count gets a restating version carrying its publication.
-
-**MEASURED on the dev copy of prod (2026-10-31, dry run, the dev cache's submissions + companyfacts, no deep
-pages cached).** Rows the repair would move: 8-K 6,690 (of 149,604 stored versions; 128,930 same-day, 10,955
-not in the cached index, 3,029 listed times set aside — mostly the 10-23 drift); 13D/G 2,421 (of 66,618);
-revenue filings 5,129 (of 82,399 revenue versions); share counts 569 published of 997 facts (507 by the cited
-filing's own cover, 62 by ANOTHER filing's — the cited filing's acceptance would have been early for those;
-141 dated by the filing-date bound; 416 not judged — no cached companyfacts; 12 no cover row), each public a
-median 65 days before its ratification. Acceptances 17:30–22:00 ET among the resolved rows: 8-K 22,918, 13D/G
-10,325, revenue 14,978 — most of them on their own filing date (a submission commenced before 17:30 keeps the
-day). The listed times set aside are the 10-23 drift's shapes (22:00–05:59 ET on or after the filing date).
-
-## Form 4/A — amendments, stored as filed and resolved at read `[BUILT — R8-A, R8-B]`
-
-**The gap it closes.** The Form 4 leg matched the form type exactly (`filings_of(subs, "4")`), so a **Form 4/A**
-was never ingested: an amended-away buy kept firing and a corrected one never did. MEASURED 2026-10-17 over two
-years across the 687 member CIKs: **556 4/As against 39,001 Form 4s (1.4%)**, 46 touching a buy.
-
-**What is ingested now.** The same Form 4 leg (`pipeline.ingest_thesis._form4_leg`), from the SAME cached
-submissions document, then walks every `4/A` not yet stored (`ingest.edgar.form4a`): the document is fetched
-through the immutable `forms/` cache (a re-run costs no request), parsed (every reporting owner,
-`dateOfOriginalSubmission`, `periodOfReport`, remarks, footnotes, Table I rows), screened, and stored in
-`insider_amendment` — **never** in `fact_insider_txn` (the natural key carries the accession, so a 4/A's rows
-there would sit beside the original's: a clerical amendment would double-count, a zero-row void would remove
-nothing). An append-only `insider_amendment_link` names the original(s) and the disposition (migration 0050).
-Depth: the submissions `recent` window, the same accepted depth as Form 4.
-
-- **The link cascade** (deterministic; MEASURED on the 553 unique 4/As: 422 linked uniquely by step 1, 18 more
-  by step 2, 4 ambiguous): (1) a stored Form 4 of this security **filed** on `dateOfOriginalSubmission` (the
-  submissions index's `filingDate` — an acceptance after 17:30 ET files the next business day, so the
-  acceptance instant is not a substitute) whose rows belong to one of the amendment's reporting owners;
-  several with IDENTICAL Table I are filing-agent duplicates, several that differ are ambiguous. (2) Else an
-  earlier Form 4 of the same owner sharing transaction dates (a tie is ambiguous). (3) Else unlinked. **The R8
-  linker fix (2026-10-21):** a Form 4 SEC made public AFTER the amendment is never its original (both
-  acceptance instants read from the SAME submissions index — `acceptanceDateTime` — else the filing dates; the
-  stored rows' `accepted` column is not that clock), and an ambiguous set is settled when exactly one candidate
-  holds a row the amendment accounts for by exact shape. Rule, measurement and the re-link of the stored links:
-  `domain/insider_amendments.py` (`sole_match`). **Held rows (2026-11-12, rule `2026-11-amendment-linker-sees-held-rows`):**
-  the cascade reads an original's HELD Form 4 rows (`insider_txn_hold`) as rows of that filing, with no date, so
-  a 4/A correcting only a held row replaces that row alone and a filing whose every row is held is still found
-  (`domain/rule_log.py`).
-- **The dispositions** and what each does to the read are in `CALL_LOGIC.md` §3 (insider) and
-  `domain/insider_amendments.py`: correction, void, duplicates, partial / consolidation / addition /
-  restatement, **field change** (Table I identical but a signal row's owner role / name / 10b5-1 flag moved —
-  migration 0051 adds it to the link's disposition check), ambiguous; inert = clerical, no Table I rows, no
-  stored original. **R8-B (operator decision 2026-10-20, revised 2026-10-21): the filer's own correction is
-  applied by default** — every amendment resolved to a definite original is RESOLVED BY THE SYSTEM, an
-  append-only decision written at ingest in the link's transaction or, for the pre-R8-B backlog, by the nightly
-  sweep (`recorded_at = now`): an `apply` under basis `system:filer-correction` (or `system:no-signal-effect`
-  when it changes no code-`P`/`S` row — the signal code set derived from the detectors,
-  `signals.horizons.insider_signal_codes`), or, for a zero-row 4/A its words do not retract, a `keep`
-  (`system:no-retraction` / `system:held`). Each keeps its exact Undo on Admin. An applied partial /
-  consolidation / addition / restatement / field change replaces only the original rows it ACCOUNTS for (the
-  row match, `domain.insider_amendments.match_rows` — exact shape only: identical, a price / share / date fix,
-  a recode, a same-day sum), and the leftovers of one owner and code are settled by the filer's own words — FIX
-  replaces them, ADD keeps every original and adds; a zero-row 4/A retracts its original only with explicit
-  retraction words AND a single-`P`/`S`-trade original (the phrase lists and the measured outcome:
-  `domain/insider_amendments.py`). A Form 4/A is the filer's legal correction of their own filing — deterministic data,
-  not a model's recommendation — so the operator rules only on what the system cannot resolve: an
-  **ambiguous** link, an **unresolved row match** (its words neither fix nor add), or a **held void**
-  (retraction words against several trades), that touches a `P`/`S` row a live call or an edition page reads
-  (the review line, 2026-10-24: buys on/after the earliest edition night − 210 days, sales on/after it − 120
-  days, or inside today's windows — it replaced the 940-day backtest horizon) — with three verdicts: Use the
-  correction, Keep the original, Add to the original. An older one is listed as "unresolved — historical", the
-  originals standing. An ambiguous one whose every trade matches ONE candidate by shares + price is linked by
-  the system (rule 2b), undoable. MEASURED 2026-10-21 on prod, asof 2026-10-20
-  (2,988 linked pairs — the live leg pulled the full history back to 2003, not the two-year research corpus),
-  after the first sweep: **6 owed** (4 ambiguous, 1 unresolved match, 1 held void), **60 historical**, **1,693
-  resolved by the system**, **1,229 inert**. (R8-A's figures, 2026-10-18, two-year
-  window: 67 owed / 121 applied by the system.)
-- **The other-issuer screen.** A company's own submissions feed lists every ownership filing it is a party to —
-  including the ones it filed as the REPORTING OWNER of another company's stock (147 such rows across 11
-  tickers sat on member tapes on 2026-10-17; 25 of them code `P`). A Form 4 or 4/A whose `issuerCik` is not
-  the member's is no longer stored (a `form4_other_issuer` Q18 skip — known ones counted, never re-printed);
-  the rows already stored are KEPT and screened at read (the ADR keep-and-screen precedent — deleting them is
-  a separate data repair needing the operator's go). The member's CIK set is the master's plus every T7
-  CIK-change re-point, so a successor-CIK adopt never screens the predecessor's own history.
-- **Backfill.** The first nightly pass after deploy ingests every 4/A in the window (~550 document fetches,
-  rate-limited) with `recorded_at = now`, so no past replay moves; its pending items page once. (MEASURED
-  2026-10-20: the live leg walks the whole submissions history — 2,988 linked pairs back to 2003.) R8-B's
-  first nightly sweeps that backlog the same way — one system decision per resolvable amendment, `recorded_at =
-  now` — so no past replay moves either.
-
-## Form 4 — joint reports: one trade, several filers, counted once `[BUILT — 0054; counted once at read]`
-
-**The defect (found 2026-10-21, INFQ "$95.2M across 2 insiders").** `parse_form4` stores each Table I
-transaction ONCE, under the filing's first `<reportingOwner>` — a joint filing's co-owners are not stored, so one
-filing never double-counts (MEASURED: 0 of 146,111 stored (security, accession) pairs carry a second owner). The
-double count is ACROSS filings: everyone with a beneficial interest in a trade held through a fund, a trust or a
-spouse files their OWN Form 4 for it. MEASURED on prod (read-only), cross-filing groups identical on (security,
-date, code, shares, price) with ≥ 2 owners: 15,268 (2,710 code P/S); by the filings' own XML, 2,083 of the P/S
-groups leave the SAME post-trade holding (the same position re-reported) and 627 a different one (separate
-trades); within one filing, identical rows are separate lots (several funds each selling the same lot size).
-
-**The capture (migration 0054).** `fact_insider_txn.direct_indirect` (`'D'`/`'I'`, per transaction —
-`<ownershipNature><directOrIndirectOwnership>`) and `shares_owned_after` (`<sharesOwnedFollowingTransaction>`;
-NULL when the filing reports a value instead). Nullable, progressive (the `aff_10b5_1` / `security_title` shape);
-4/A rows carry both keys through `parse_form4`. A malformed holding costs the row its evidence, never the filing
-its ingest.
-
-**The read (`domain/insider_joint_reports.py`, after the 4/A resolution, both engines).** The rule and its
-measured effect: `CALL_LOGIC.md` §3 ("Joint reports"). Every as-of reader goes through it: the two insider
-detectors, the Cockpit's insider-flow display member (its basis note names the joint reports), the Scoreboard's
-buy/sell ledger overlays (the survivor's name reads "A / B (joint report)"), and the replay mirror. Not collapsed,
-on purpose: per-filing views (the Admin 4/A panel's original-vs-amendment rows, the 4/A linker's stored-row read).
-
-**The history repair (`python -m pipeline.repair_insider_ownership`).** Re-parses the cached filing (no SEC
-request) and appends a NEW version of each candidate row with the evidence — the latest-version Form 4 rows and
-4/A records' rows that share (security, date, code, shares, price) with ANOTHER owner's row in ANOTHER filing (the
-only rows the rule can ever read evidence for), narrowed to the components of filings a P/S reader can reach
-(MEASURED 2026-10-21, prod read-only: 8,437 Form 4 rows + 128 4/A records from 2,650 cached filings, none
-uncached or mismatched, out of 50,635 candidates of every code). NULL-only + idempotent, dry-run by default (read-only connection),
-`--apply` under the call-of-record lock with the appended counts verified. Versions are stamped `now`: a replay
-pinned before the repair still reads the double count the system held (#1). A row it cannot repair (uncached,
-unparseable, a date/code/shares disagreement) stays bare — and a bare row never merges.
-
-## Form 4 — the filer's own words: internal transfers + private purchases `[BUILT — 0055; screened at read]`
-
-**The defect (found 2026-10-21, AMKR).** An internal transfer looks like a buy plus a sale: James J. Kim's
-869,565 AMKR shares "distributed" to his children's Sujoda Investments, LP at $21.85 armed AMKR on a phantom CORE
-buy. The 0054 evidence does not link the two sides (MEASURED: it links 0 of the 3 AMKR transfer pairs — the
-holdings differ); what does is in each filing's own words, which no stored row carried.
-
-**The capture (migration 0055).** Per transaction: `ownership_nature` (`<natureOfOwnership>` — "By Spouse",
-"By Sujoda Investments, LP") and `txn_footnotes` (the text of every footnote the transaction cites, first-reference
-order). Per filing, stamped on each of its rows: `filing_natures` (every INDIRECT ownership nature the filing
-states on its Table I transactions AND holdings — "By James J. Kim 2024 GRAT dtd. 8/5/24"). `text[]` for the two
-arrays (NULL = not captured, `{}` = the filing states none — the `fact_corporate_event.items` precedent, so every
-repair tool that copies a row verbatim keeps working); the mirror decodes them back to lists. 4/A rows carry all
-three keys through `parse_form4`. Nullable, progressive.
-
-**The read.** `domain/insider_internal_transfers.py` (after the joint collapse, both engines) tags a buy and a
-sale between linked filers — the rule and its measured effect: `CALL_LOGIC.md` §3 ("Internal transfers"). Readers:
-the two insider detectors (left out, named), the Cockpit's insider-flow member (set aside on BOTH sides, named in
-the basis — the panel claims open-market flow), the Scoreboard ledgers (`character = internal_transfer`,
-`transfer_with`), the replay mirror. `domain/insider_private_purchases.py` (display only) locates a private-
-purchase passage in a counted buy's `txn_footnotes` for the Event Ledger note — MEASURED over prod's 26,573
-code-P rows: the raw phrases matched 2,730 rows, almost all the weighted-average boilerplate ("purchased in
-multiple transactions at prices ranging from …"); the shipped list (a FROM-party required; "open market",
-public offerings and plan purchases — dividend reinvestment, ESPP — excluded) locates 86 rows on prod's cache,
-every passage read by eye (25 in the last two years, 6 inside the 240-day insider read).
-
-**The history repair (`python -m pipeline.repair_insider_filer_text`).** The 0054 tool's mechanism and rules
-(cached XML, `parse_form4`, verified on date + code + shares, NULL-only, idempotent, dry-run by default,
-`--apply` under the call-of-record lock, count-verified, stamped `now` — #1). WHICH ROWS: every code-P / code-S
-row on a (security, date, shares, price) signature holding a buy and a sale of DIFFERENT owners (the only rows the
-named-holding link reads; a same-owner pair links on identity alone), plus every code-P row whose own footnotes
-the note's phrase list locates; a version also fills the 0054 evidence where the row lacks it (the co-report rule
-reads `direct_indirect`). MEASURED 2026-10-21 (prod read-only, the plan against a local copy of the cron's forms
-cache): 126 transfer candidates (124 Form 4 + 2 rows of 4/A records), 27,122 code-P rows read across 10,613
-filings → WOULD version 203 Form 4 rows (transfer 122, private purchase 86 — 5 both) + 1 4/A record; 255 filings
-referenced by candidate rows are NOT in prod's forms cache (507 of their rows are 4/A records' code-P rows; 2 are
-transfer candidates) — they stay bare: counted, never screened by name, no note.
-
-## 8-K item codes — the corporate-event tape `[BUILT — Band 03 S3; corporate_risk LIVE]`
-
-`fact_corporate_event` stores **every basket member's 8-Ks with their SEC item codes** — parsed from
-the SAME submissions JSON the Form 4 leg already fetches (the `items` array parallels
-`accessionNumber`), so the whole tape costs **zero extra EDGAR fetches** and rides the nightly cron
-as a fourth `ingest_thesis` leg. The item-code taxonomy is the SEC's own deterministic
-classification (#3 — no NLP, no LLM near the fire path); the detector cut (the parked 5.02 trigger;
-the live 3.01/3.02/4.01/4.02/1.03 risks) lives in `CallConfig.corporate_event_items` and is applied on
-READ, so items outside the cut stay stored (#9) and a policy retune needs no re-ingest.
-
-- **Forms ingested** (`domain/edgar_forms.CORPORATE_EVENT_FORMS`, the one list): `8-K`, `8-K/A`, and —
-  since 2026-10-17 (operator decision) — a successor issuer's first report, `8-K12B` / `8-K12G3` /
-  `8-K15D5` and their `/A` amendments. The stored `form` column says which one a row is. The succession
-  reports are STORED but SKIPPED by every event detector, by form: their items describe the
-  reorganization itself (3.01 = the listing transfer, 5.02 = the carried-over officers). Full rule:
-  `docs/CORPORATE_EVENTS.md` §succession reports.
-- **Knowability (F7, rule `2026-11-filings-dated-by-acceptance`):** `valid_from` = the market-time date of
-  SEC's ACCEPTANCE, stored in `accepted` when it is trusted — else `filed`, as before. An 8-K submitted after
-  17:30 ET carries the NEXT business day's `filingDate` (Reg S-T 13(a)(2)) although EDGAR disseminated it that
-  evening, so before F7 both the live nightly and every history view counted it a night late. `filed` stays
-  SEC's filing date. The public instant on history views is the acceptance (`db/public_clock.py`). See
-  §Filings dated by their acceptance below.
-- **`items` may be NULL** — EDGAR hadn't classified the filing yet; stored as NULL (never guessed)
-  and re-versioned append-only when it resolves on a later run.
-- **Depth:** submissions `recent` (≥ 1 year / 1,000 filings), the same accepted depth as Form 4;
-  the deferred cadence-baseline slice may need the paginated older pages.
-- **Detectors:** `corporate_risk` is LIVE (switch flipped ON 2026-08-17); `corporate_catalyst` stays
-  parked (switch OFF, 5.02-only since the 2026-08-20 `1.01` decision). Full family doc:
-  `docs/CORPORATE_EVENTS.md`.
-
-## SEC split filings — the split list's company-side source `[BUILT — S1 / S4; Items 8.01 / 7.01 since 2026-10-23; the restatement screen + the wide-form reader since 2026-10-24]`
-
-The split list (`security_split`, `domain/splits.py`) confirms a split only when two independent
-sources agree; the company's own filing is one of them, Massive.com's split reference the other (the Massive.com row
-above). The filings read (`pipeline/backfill_splits.py` `SPLIT_8K_ITEMS` / `SEC_FORMS`, the nightly's
-`pipeline/detect_splits.py` too): **8-Ks under Item 3.03 / 5.03** (the charter amendment), **8-Ks under Item
-8.01 / 7.01** (since 2026-10-23 — a split with no charter amendment: one paid as a stock dividend, a trust's share
-split, a board-set ratio; the operator's 2026-10-22 review found ENHA, SNEX ×3, ZCSH, ETH, BTC and OFAL missing
-for this reason), **6-Ks** (foreign filers) and **Reg A** forms (1-A / 1-U). Each is fetched ONCE as its full
-submission (`forms/*`, immutable, cached forever) and read by the deterministic extractor
-(`ingest/edgar/split_filing.py` — fixed patterns, the located passage verbatim; its docstring holds every rule).
-
-- **8.01 is the catch-all item**, so an 8-K read only for 8.01 / 7.01 is also screened against its FILING date:
-  a date more than 90 days before it is a past split's (the filing restates it), never this filing's first
-  session. MEASURED 2026-10-23 on prod's basket (688 companies): 852 such 8-Ks in the backfill windows and the
-  nightly's 60-day lookback; 47 mention a split ratio; 37 state one — 32 agree with a listed split, 0 contradict
-  a confirmed one, 5 state no date (never listed alone). The screen keeps AIRE's 8-K/A (a 1-for-25 restated, a
-  2025-12-31 tax-table date) from being listed as a new split.
-- **Cost (MEASURED on the 2026-10-23 dry run of the detect leg):** the first night reads 474 more filings
-  (~871 MB, median 270 KB; each once, ever — the cache is immutable); after that ~7 a night (50 were filed
-  10-16..10-22). No extra request for the item codes — they come from the submissions JSON the 8-K leg already
-  reads.
-- **The restatement screen (2026-10-24) — 6-Ks and charter 8-Ks.** Interim results restate a company's past
-  consolidations, so a 6-K (and a 3.03 / 5.03 8-K) is read through `extract_split_screened`, which only ever
-  REMOVES from the unscreened reading: a reading with a current date (at most 90 days before the filing) stands
-  exactly as read; a past date is dropped and nothing replaces it; a ratio the text dates in the past is a
-  past split's. MEASURED over all 1,139 cached basket 6-Ks: the catch-all screen applied unchanged would have
-  given five a wrong date or ratio (CMND, CPOP, PBM, KXIN, RDY). Over the 1,160 cached basket filings (those
-  6-Ks, 19 8-Ks, 2 Reg A) the whole change alters 31 readings — 28 removals (a past date or a restated ratio set
-  aside, MEDS's among them) and 3 corrections (DFNS's revised ratio, ZNB's two 6-Ks re-dated to 2026-07-27) —
-  and none of the 39 cached filings behind a split auto-confirmed from a 6-K. By
-  construction it never touches a confirmation: a filing in a split's window is filed at most 10 days after it,
-  so this split's own date is never "past". It fixes WSHP's and LGHL's restated old splits (they no longer
-  attach to a later split) and MEDS's mistyped "May 26, 2025" (an 8-K of 2026-05-21: no date, to review).
-- **Reading fixes (2026-10-24):** "with effect from" is a legal cue and a date a MEETING was held on never dates
-  a split (ZNB's 6-K: 1-for-8 effective 2026-07-27, not the EGM's 09-10); a filing that REVISES its ratio and
-  cites the old one "as disclosed" reads the revised one (DFNS's 8-K of 2026-07-16: 1-for-125, not "two
-  ratios"); a filing that abstained because every ratio it states is a past split's is never shown as a later
-  split's evidence.
-- **The targeted wide-form reader (2026-10-24).** A Massive.com split whose window holds no agreeing filing gets ONE
-  more look, in the company's 10-Q / 10-K / 20-F / 40-F (their primary document alone — the full submission is
-  5x to 65x larger, MEASURED), F-6 / F-6 POS / F-6EF, 424B3 / 424B4 and DEF / PRE 14C filed
-  `[first session - 60, + 120]` days, always through the restatement screen (a periodic report restates old
-  splits: MI's 20-F and OFAL's 10-K read a 2024 split as current without it). It is a CONFIRMATION SEARCH: a
-  wide form that agrees exactly confirms the split by S1's rule (DFNS's 10-Q states its 1-for-125 and first
-  session); otherwise the split stays as its window left it and the note names what the wide forms said. Never
-  nightly for every company (MEASURED ~1.7 GB of documents a month that way); over the list's 48 splits lacking
-  agreement it selects 104 filings (LGHL's F-6 POS filings, OPTH's 424B4, HTHIY's F-6, MVNC's DEF 14C, SDCO's
-  10-K among them), a few a month after.
-- **A joining company gets its split history (2026-10-24).** The S1 backfill ran once (2026-10-20) and the
-  nightly looks back only 30 / 60 days, so a company that joined a basket later had no split history — MEASURED:
-  32 splits on 29 such companies missing. `pipeline/split_history.py` (run by the staged onboarding job, outside
-  the nightly window) runs the S1 backfill scoped to every live basket member without a
-  `security_split_history` row (migration 0067), on ONE market-wide Massive.com pull per day (the day's cache).
-  `INGEST.md` §Cold names.
-
-## SC 13D/G — the activist-stake ownership tape `[BUILT — Band 03 S5, INERT]`
-
-`fact_activist_stake` stores **every 13D/G-family schedule filed ABOUT a basket member** (the
-subject), enumerated from the member's OWN submissions JSON — verified live 2026-08-18: EDGAR
-indexes an ownership schedule under both the filer and the subject, so the same document the
-Form 4 / 8-K legs fetch lists the whole tape at **zero extra enumeration fetches** (a fifth
-`ingest_thesis` leg on the nightly cron). The FORM TYPE is the classification (#3): 13D = ">5%
-with intent", 13G = passive; the fire policy (13D-family ORIGINALS only) is applied on READ.
-
-- **The rename trap (#9):** EDGAR renamed the form type at the ~2024-12 structured-XML cutover —
-  `SC 13D` → `SCHEDULE 13D` (measured: the same issuer's tape flips between 2024-11-14 and
-  2025-02-05). The ingest matches ALL EIGHT strings across both eras; an SC-only match silently
-  drops every 2025+ filing. (EFTS's `forms=SC 13D` filter has exactly that gap — one reason the
-  submissions path won.)
-- **Knowability (gold-doc trap #4):** `valid_from` = the filing's PUBLIC date — never the stake CROSSING
-  inside the filing (it predates dissemination by up to 10 days; the structured cover's `dateOfEvent` is
-  deliberately never read for time). Since F7 that is the market-time date of SEC's trusted acceptance
-  (`accepted`), else `filed` — a schedule submitted after the cutoff is dated the next business day by SEC
-  although it appeared that evening. §Filings dated by their acceptance below.
-- **Filer identity (the 0024 capture pattern):** the subject's submissions rows carry no filer, so
-  identity costs one small immutable-cached fetch per filing — structured era: the raw
-  `primary_doc.xml` (`reportingPersonName`/`CIK`, `percentOfClass`); classic-era 13D-family: the
-  SGML `FILED BY` header; classic-era 13G: no fetch (NULL filer by design — those rows never
-  fire). An identity failure stores the row with NULL filer + a loud counter, never a drop (#9).
-- **Depth:** submissions `recent` (≥ 1 year / 1,000 filings) — full history for the measured
-  microcap subjects; the detector's months-scale liveness never needs deeper.
-- **Ships INERT** (`activist_stake_enabled` default OFF) pending the sig-lab pass. Full family
-  doc: `docs/ACTIVIST_STAKE.md`.
-
-## Point-in-time discipline (applies to every source)
-
-Every ingested fact lands with `valid_from` = event/effective time and `recorded_at` = ingest time, into
-the bitemporal store (see `CLAUDE.md`). No source is read in a way that lets a detector see data dated
-after its `asof`. This is what makes the replay harness honest. History is judged on the PUBLIC clock
-(`INVARIANTS.md` §1, operator decision 2026-10-21); `recorded_at` is bookkeeping. Two writers used to backdate
-it and no longer do — the pre-D1 SPY/IWM bars (`recorded_at = D 00:00 UTC`, 2,598 rows) and the pre-0057
-`fact_fundamentals` rows (`recorded_at = filed 00:00 UTC`, 120,876 rows) keep those stamps as written, which
-is moot under the public clock (each sits on its public date already).
-
-## Notes on the ETF radar's three faces
-
-1. **Availability** — map theme → expressing ETFs (curation + holdings-overlap against the theme universe).
-2. **Coming** — watch EDGAR N-1A/485 for new thematic registrations; a fresh launch is emergence context,
-   not a call trigger. **Built as a display-only tape: [`FUND_RADAR.md`](FUND_RADAR.md)**
-   (no `etf_launch` signal is emitted).
-3. **Holdings & flows** — holdings seed the decomposition for free; holdings changes + derived flows are
-   display-only positioning context, never a call, sizing or execution input. Always expose fund internals so a mislabeled/thin/expensive fund is visible.
+| `forms/<accession>/...` | Cached forever | A filed document never changes |
+| A dated `daily-index/` or `full-index/` key | Cached forever once its day is before today in market time and the copy was written at or after 06:00 market time the next day | A finished day's index stops growing; a copy taken while the day was open is refreshed once more |
+| `companyfacts/` on a recurring client | Re-pulled only when uncached, when the cached submissions index shows an XBRL-bearing filing accepted since the copy was fetched (less a grace period), or after a backstop of under a week | It changes only when the company files facts; the gate reads the index from disk, so it costs no request |
+| A companyfacts 404 | A recurring client writes `<key>.404` and re-asks only when the same gate says due; an interactive client ignores it | Some filers have no companyfacts |
+| Everything else (`submissions/`, `efts/`, `files/`, feeds) | Refreshed after the client's TTL | Mutable by default |
+
+**Two TTLs.** The default TTL (`_DEFAULT_CACHE_TTL_S`, 12 hours) is the interactive dial for the Workbench,
+discovery and a standalone CLI. Its clock starts when that company's key was last fetched, so a daytime read would
+leave a company warm and the nightly pass blind to everything filed after it. So every recurring client (the
+nightly pass, onboarding, fundamentals, background extraction, the weekly jobs, the radars, the successor scan
+and the steward's "Extract now" client in `app/deps.py`) is built with `cache_ttl_s=RECURRING_CACHE_TTL_S`, five
+minutes; `git grep RECURRING_CACHE_TTL_S` lists them. The dial is also the marker: `EdgarClient.recurring` is true
+at or below it, which switches on the companyfacts gate, the 404 marker and the recurring budget lane. A daytime
+"Run daily now" therefore never blinds the nightly pass.
+
+**Five minutes, not zero.** Within one pass three filing legs read the same `submissions/CIK<10>.json` key
+milliseconds apart; at zero each read refetches, tripling the per-company cost for no freshness. Five minutes
+keeps those re-reads free and still closes the daytime gap, since EDGAR accepts filings only 06:00-22:00 market
+time and the pass starts after that.
+
+**Offline** (`allow_live` off: tests, `--no-live`), a stale cached copy is still served.
+
+**The error-body guard.** SEC sometimes answers 2xx with an error body (a JSON object carrying `errorType`).
+`get_text` checks every body, fresh or cached, against that guard and the caller's `validate`; a rejected body
+raises `InvalidBody`. A fresh one is never cached and never counted in `live_completed`, which the freeze check
+reads; a cached one is a miss, refetched when live and raised when not.
+
+**Prices** cache differently: `fetch_eod` is cache-first, the recurring path passes `force_refresh=True`, and a
+miss always fetches. Massive.com caches are keyed by the market day or the queried date, so a new day is a miss.
+
+**Persistence.** The caches live under `data/`, the `appdata` volume in the backend and cron containers, so
+they survive a rebuild; files are written atomically (`ingest.write_atomic`).
+
+## When a filing became public
+
+`db/public_clock.py` dates every history view by when a fact became public, and detectors gate a filing fact on
+`valid_from <= asof` ([invariant 1](INVARIANTS.md#1-no-lookahead-history-is-judged-on-the-public-clock)), so the
+stored acceptance decides which night a filing lands on. `ingest/edgar/acceptance.py` is the one home of the
+rule; every leg that stores an acceptance, and both repairs, call it.
+
+- **Form 4 and 4/A** (`resolve_acceptance`). Trust SEC's listed `acceptanceDateTime` when its market-time date
+  is the listed filing date and its time is within EDGAR's hours, 06:00-22:00; SEC's list has shown times hours
+  late for some filings. Otherwise read the filing's own header through the client. If the header cannot be
+  read, store the end of the filing date in market time: never early, always the right night, never NULL.
+- **8-K, 13D/G and 10-Q / 10-K revenue rows** (`resolve_public_acceptance`, rule
+  `2026-11-filings-dated-by-acceptance`). A filing submitted after 17:30 market time carries the next business
+  day's filing date, though EDGAR shows it that evening. Trust the listed time when the Form 4 test passes or
+  when it is that roll (the business day before the filing date, 17:30-22:00); otherwise the header from the
+  cache only; otherwise nothing is stored and the filing date stands, late but never early. `public_date` makes
+  a trusted time's market-time night the row's `valid_from`.
+- **Share counts** (`count_publication`). A count is public from the acceptance of the earliest filing whose
+  companyfacts cover row states exactly that count on that date, else the end of that filing's date. The machine
+  writer and the steward's write (`platform_values/machine.py`, `platform_values/steward.py`) stamp it from the
+  cache at write time; a count no cover row states counts from when it was written.
+- **No leg re-dates a stored row.** `pipeline.backfill_accepted --drift` re-dates Form 4 and 4/A acceptance
+  times; `pipeline.repair_filing_dates` re-dates 8-K, 13D/G, revenue and share-count rows. Both are dry runs by
+  default and append versions (the `data-repair` skill).
+
+## Prices (Yahoo)
+
+The live source is Yahoo's chart API: free, no key, unofficial and uncontracted. The ingest depends on the
+`PriceSource` seam (`ingest/prices/source.py`), so a new vendor is a new adapter; `YahooPriceSource` is the
+default and `StooqPriceSource` a fallback whose live endpoint is now gated. There is no Massive.com price client.
+
+- The stored close is Yahoo's `quote.close`: split-adjusted, not dividend-adjusted. Yahoo re-bases a history on
+  a split, but not always stably, so the price leg puts every bar on the scale of Alpha Deck's own split list
+  (`ingest/prices/split_normalize.py`) and never adds an adjustment of its own.
+- The day's bar is not final during the session, and its volume keeps settling upward into the evening. No bar
+  is stored before its session settles (`Settings.price_settle_time`, `ingest/prices/settle.py`); later
+  revisions are re-versioned by the restatement compare (`ingest/prices/restatement.py`).
+- A delisted symbol returns 404. Some symbols return only the current bar; the steward can mark such a name as
+  a known feed limitation on Admin.
+- The member pull reads a fixed window, `DEFAULT_RANGE` (two years: a one-year return plus the longest
+  moving-average lookback). Benchmarks pull five years (`pipeline.ingest_benchmarks`).
+
+**The Yahoo gate.** Every Yahoo request passes one process-wide token bucket, `ingest.http.yahoo_limiter`, at
+`yahoo_rate_per_sec`. A 429 or 503 is retried after a jittered backoff that pushes the gate back for every
+puller, and each refusal is counted per host on the pass meter (`http_429:<host>`). It is process-local:
+Yahoo is not a fair-access requirement, and the nightly is the one heavy puller.
+
+**When the symbol drifts.** The vendor may price a name under a symbol other than its SEC ticker (an OTC suffix,
+a new ticker after a rename); `security_master.price_symbol` (migration 0032) overrides the ticker for the price
+pull only. A renamed symbol's old series simply ends, which looks like a quiet market until the stale-tape
+monitor sees it ([FEED_MONITORS](FEED_MONITORS.md)). Renames are not followed automatically beyond the company
+list's pin and splice (below): a wrong guess files another company's tape under the member, which is worse than
+a visible gap.
+
+The nightly pass and the onboarding job pull with `force_refresh`; a steward can pull one name
+(`POST /workbench/securities/{security_id}/ingest-prices`, cache-first). The write path is in
+[INGEST](INGEST.md).
+
+## Company list and identity
+
+`security_master` is platform data in the data tenant ([TENANT_SCOPES](TENANT_SCOPES.md)): one row per tradeable
+line, identity only, updated in place. It is loaded from SEC's `company_tickers_exchange.json`, which carries a
+per-instrument exchange.
+
+- **Keyed on `(cik, ticker)`, not `cik`.** Dual-class issuers share one CIK (GOOGL and GOOG).
+- **One primary line per company.** `sec_tickers.flag_primaries` ranks a CIK's lines by instrument class, venue,
+  then a demotion for five-letter OTC foreign ordinaries; SEC's file order is only the last tiebreak, because
+  the file is usually, not reliably, primary-first.
+- **The weekly refresh.** `python -m pipeline.populate_master` is a dry run by default; `--live --apply` reads
+  SEC's current file, writes the plan in one transaction, caches the file it planned from, refreshes the fund
+  file and writes a run artifact under `data/master_runs/`. The cron sidecar runs it weekly and at boot when the
+  newest applied run is over a week old. An apply refuses with exit 75 inside the nightly window, while another
+  refresh holds its lock, or while a pass holds the call-of-record lock. The rules are
+  `securities/master_refresh.py`'s: a rename updates the company's row in place (the id stays, so every fact
+  stays attached) and appends the pair to `security_ticker_history` (migration 0066); new classes are inserted
+  non-primary; at most one primary per CIK; primacy moves only on structural grounds, never on file order alone;
+  a ticker another CIK holds is a conflict, never applied; a CIK SEC no longer lists is left untouched.
+- **Prices follow a rename only when safe.** A renamed row with stored bars and no price symbol is pinned to its
+  old ticker (`system:rename-pin`, undoable on Admin); once the old symbol stops, the rename probe adopts the new
+  ticker only on a splice of at least `AUTO_ADOPT_MIN_OVERLAP` shared bars at a ratio of exactly one
+  (`pipeline/rename_probe.py`, `system:auto-adopt`). A row whose price symbol is set is never touched.
+- **The Workbench reads the history**: its search matches a former ticker, and the promote's identity guard
+  reads a basket label holding the former ticker as a rename, not a mismatch.
+- **Funds.** An ETF is not in the company file. `securities/fund_tickers.py` resolves a fund symbol on the fly
+  from `company_tickers_mf.json`; the trust CIK is never written into the master, because extraction keys on
+  `cik`.
+- **Successor CIK.** A company that re-registers under a new CIK and keeps its ticker leaves the member on a
+  dead CIK, and its filing legs go quiet. `pipeline/successor_cik.py` reads SEC's ticker map each night and
+  flags such a member; the re-point is the steward's Adopt on Admin (`master.set_cik`, migration 0049, with an
+  exact Undo). `populate_master` never re-keys a CIK. EDGAR links built from the current CIK still resolve.
+
+## USASpending (DOE awards)
+
+`ingest/doe/` turns DOE awards into catalyst facts deterministically: grade and horizon come from the award's
+structured terms, never from a model (invariant 3); the grade rule is the catalyst detector's
+([DETECTORS](DETECTORS.md)). The feed has one caller today, the demo seed (`pipeline/seed.py`), which runs it
+offline against the committed payloads in `backend/seed_data/doe/`; no nightly leg pulls USASpending.
+
+A recipient maps to a ticker only by exact `recipient_id` in `ingest/doe/entities.py` (invariant 11); an
+unknown recipient is dropped. Three API traps force this: `spending_by_award` silently ignores a `recipient_id`
+filter and returns every DOE award by size; text search over-matches ("Centrus" returns an unrelated
+recipient); and homonyms ("Oklo" surfaces OKLO TECHNOLOGIES, INC., a different recipient holding tens of billions
+of dollars of national-lab contracts; the awardee is OKLO INC.).
+`tests/ingest/test_doe_feed.py::test_resolver_is_exact_not_fuzzy` pins them. Discovery queries one award-type
+group per call (the API answers 422 to mixed groups); the loans group is not queried.
+
+A DOE catalyst counts from the date the award was recorded (`date_signed`, its first action date), else the work
+period's start; with neither it is skipped (`feed._event_date`, rule `2026-11-catalysts-dated-by-record-date`).
+A work period can start before the public knew; the record date is late by design, because this source carries
+no announcement date. `UsaSpendingClient` is cache-first like the EDGAR client, with its own rate limit.
+
+## Massive.com
+
+Read with `MASSIVE_API_KEY`; the key's absence is the off switch, and nothing keyless is sent. The adapters use
+the vendor's legacy host (`Settings.polygon_base`), which is why their files keep the old name.
+
+- **Fund shares outstanding by date** (`ingest/funds/polygon.py`): the primary source for `fact_fund_shares`
+  when keyed, with real history for `pipeline.backfill_fund_shares`. A sample is dated by the queried date; a
+  null count is a miss, never a zero. The fallback chain is the issuer's fund page, then an aggregator
+  (`ingest/funds/source.py`), each dated by the page's own stated as-of date.
+- **The split reference** (`ingest/polygon_splits.py`): every split in the market from a date, a paged query
+  that carries no ticker; the second source the split list confirms against ([FILINGS](FILINGS.md#split-filings)).
+- **Pacing.** The free tier allows about five requests a minute; both adapters share one limiter and wait out
+  a 429. URLs are cached without the key, and raised messages are scrubbed of it.
+
+## Who can do what
+
+| Route, control or CLI | Who | Enforced by |
+|---|---|---|
+| Nightly, onboarding and weekly fetches | Machine (cron sidecar) | `backend/scripts/daily_cron.sh` |
+| `POST /workbench/securities/{security_id}/ingest-prices` | Steward | `require_super_admin`; `tests/app/test_auth_gate.py` |
+| CIK and price-symbol Adopt, Set, Acknowledge, Undo (`/admin/price-feed/...`) | Steward | `require_super_admin` on the router; `tests/app/test_auth_gate.py` |
+| Workbench discovery (EFTS) | Any signed-in user | `require_user`; allowances in [AUTH](AUTH.md) |
+| `pipeline.populate_master --live --apply` | Operator, or the cron sidecar | Its lock and window refusals |
+| `pipeline.backfill_accepted`, `pipeline.repair_filing_dates`, `pipeline.repair_catalyst_dates` | Operator | Dry run by default; the `data-repair` skill |
+
+## Settings
+
+| Knob | Owner | Passed by compose? |
+|---|---|---|
+| `ALPHADECK_USER_AGENT` | `domain/settings.py` | Yes |
+| `ALPHADECK_SEC_GLOBAL_RATE_PER_SEC` | `domain/settings.py` | Yes; every process must agree |
+| `ALPHADECK_YAHOO_RATE_PER_SEC` | `domain/settings.py` | Yes |
+| `MASSIVE_API_KEY` | `domain/settings.py` (`polygon_api_key`) | Yes |
+| `ALPHADECK_EDGAR_RATE_PER_SEC`, `ALPHADECK_USASPENDING_RATE_PER_SEC`, `ALPHADECK_HTTP_TIMEOUT_S` | `domain/settings.py` | No |
+| `ALPHADECK_PRICE_SETTLE_TIME`, `OPENFIGI_API_KEY`, vendor base URLs | `domain/settings.py` | No |
+
+## Known limits
+
+- **The SEC budget is per database.** Dev and prod run on the operator's machine and share its IP but not a
+  database, so live SEC work on dev during the prod nightly can push the IP past SEC's ceiling.
+- **A second pass started within five minutes of another** reads the first pass's cached indexes for the
+  companies it reached last.
+- **A long outage leaves holes a resumed feed cannot see.** The price pull reads a fixed two-year window, so
+  older bars are never requested again (the repair is a hand-run wider pull). Filing legs read only the
+  submissions `filings.recent` window (SEC's newest 1,000 or so filings of every form) and never enumerate the
+  older `filings.files[]` pages, so a filing that scrolled out during an outage is lost without a trace
+  (`pipeline.backfill_accepted --deep` reads those pages only to date rows already stored).
+- **The DOE record date** is not proven never to precede public knowledge: a record can appear on USASpending
+  some days after its action date.
+
+## Related
+
+[FILINGS](FILINGS.md), [INGEST](INGEST.md), [FEED_MONITORS](FEED_MONITORS.md),
+[PLATFORM_VALUES](PLATFORM_VALUES.md), [DISCOVERY](DISCOVERY.md), [FUND_RADAR](FUND_RADAR.md),
+[INVARIANTS](INVARIANTS.md) (1, 3, 9, 11).

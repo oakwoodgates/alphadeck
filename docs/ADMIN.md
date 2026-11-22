@@ -186,7 +186,7 @@ and never confirm on price.
   deliberately not built beyond one narrow, undoable path (the weekly company-list refresh, 2026-10-24: a
   renamed name with stored bars is pinned to its old ticker, then adopted onto the new one only when the nightly
   probe's splice shares at least 20 bars at x1.000 — "The company list", below): a wrong auto-resolve would
-  file another company's tape under your member, which is worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices. **Since T2/Q8
+  file another company's tape under your member, which is worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §Prices (Yahoo). **Since T2/Q8
   the renamed, never-priced and closed names move to the "Price feed repairs" panel below**, where the
   repair is one click with its Undo; this block keeps only the stopped tapes that panel does not hold (a
   plain feed gap — or every row, against an older backend that has no panel).
@@ -287,7 +287,7 @@ of the filing's rows, never at its written date (rule `2026-11-amendment-linker-
 
 **R8-B — the filer's own correction is applied by default.** A Form 4/A the linker resolves to the Form 4 it
 amends is the insider's legal correction of their own filing — deterministic data, not a model's recommendation —
-so the SYSTEM resolves it (`DATA_SOURCES.md` §Form 4/A): it applies it, replacing only the original rows it accounts for
+so the SYSTEM resolves it (`FILINGS.md` §Form 4/A): it applies it, replacing only the original rows it accounts for
 (the leftovers settled by the filer's own FIX / ADD words), or — for a zero-row 4/A whose words retract nothing —
 keeps the original as filed. The operator is asked only about what the system cannot resolve, with three verdicts,
 each with its **Undo**: **Use the correction** (the amendment's rows replace the whole original; a void hides it),
@@ -318,7 +318,7 @@ shows them: "Read as: the filer's words FIX the trade it re-reports — “…�
   `S` 120 days) sorts to the top and says "in today's P/S signal window — can move tonight's call". Each pages
   ONCE when new (`FEED_MONITORS.md` §The monitors). MEASURED 2026-10-21 (asof 2026-10-20, after the first
   sweep): 6 — 4 ambiguous (CVNA, FIS, HROW, SKYT), 1 unresolved match (YYAI), 1 held void (FIGR); none in
-  tonight's signal windows. Since the R8 linker fix (`DATA_SOURCES.md` §Form 4/A), an ambiguous set is
+  tonight's signal windows. Since the R8 linker fix (`FILINGS.md` §Form 4/A), an ambiguous set is
   settled when exactly ONE candidate holds a row the amendment accounts for: once `python -m
   pipeline.relink_amendments --apply` runs, FIS and SKYT move to "Resolved automatically" and the owed list is 4
   (CVNA, HROW, YYAI, FIGR). A link the system settled shows every candidate beside it (the one it chose marked
@@ -603,7 +603,7 @@ newest edition was published by hand (Edition 1). To cut right after a repair in
 ### The company list — "is the security master current?"  `[BUILT, 2026-10-24]`
 
 The cron sidecar refreshes the security master from SEC's company file every Saturday at 09:00 ET
-(`DATA_SOURCES.md` §SEC company_tickers; `python -m pipeline.populate_master`, dry-run by default). `GET /admin/status`
+(`DATA_SOURCES.md` §Company list and identity; `python -m pipeline.populate_master`, dry-run by default). `GET /admin/status`
 carries its **one line**, `master_refresh` — the newest APPLIED run's own words from `data/master_runs/<ts>.json`
 (a directory read, no DB; a dry run is never shown; `null` until the job has run):
 

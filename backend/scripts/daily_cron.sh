@@ -157,7 +157,7 @@
 #   MASTER_REFRESH_AT, container TZ), in the background like onboard_loop: SEC's current company file onto the
 #   master (a rename updates the company's row IN PLACE, so every fact stays attached) plus the fund list. The job
 #   refuses inside the nightly window, holds its own lock (advisory id 5) and yields to a running pass; a refused
-#   run retries hourly a few times; fail-open (one log line). docs/DATA_SOURCES.md §SEC company_tickers.
+#   run retries hourly a few times; fail-open (one log line). docs/DATA_SOURCES.md §Company list and identity.
 # - RUNS A FOURTH SCHEDULE: THE WEEKLY TERM-MENTIONS COUNT (2026-10-29). `term_mentions_loop` fires
 #   `python -m pipeline.term_mentions --weekly --apply --run-kind cron` every Saturday 10:00 (TERM_MENTIONS_DOW /
 #   TERM_MENTIONS_AT, container TZ — after the 09:00 company-list refresh, which is bounded at 900 s), in the
