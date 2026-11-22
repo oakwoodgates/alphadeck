@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ===========================================================================
-   Theme tokens + Cockpit/CallCard styles, lifted from docs/mockups/mockup_board_cockpit.html.
+   Theme tokens + Cockpit/CallCard styles, lifted from the original Board and Cockpit mockup.
    The Board styles + the two-keys / two-clocks blocks below are our additions.
    =========================================================================== */
 :root {
@@ -836,7 +836,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .rail-toggle:hover { border-color: var(--txt-3); color: var(--txt); }
 
 /* ===========================================================================
-   Workbench (Phase-2 front half) — ported from docs/mockups/mockup_workbench_nuclear.html.
+   Workbench (Phase-2 front half) — ported from the original Workbench mockup.
    Reuses the global tokens + .topbar/.nav/.brand/.sect/.narrative/.btype/.asof. Two deliberate
    deviations from the mockup: the DILUTION meter is the ember RISK axis (pressure polarity, set
    apart) and a no-data figure renders "—" (distinct from a measured zero), plus an honest in-product
@@ -1200,7 +1200,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 
 /* ===========================================================================
    Workbench RESULTS surface (post-draft) — three buckets: PLACED · TO REVIEW · COULDN'T RESOLVE.
-   Built against docs/mockups/mockup_workbench_results.html. SCOPED under .wb-results so the mock's class
+   Built against the original Workbench results mockup. SCOPED under .wb-results so the mock's class
    names (.nmrow / .fit / .prov / .pill / ...) match the mock WITHOUT colliding with ScoredRow's .nmrow/.fit
    or DDRail's .prov (those screens aren't inside .wb-results). Reuses .sect-h + the lifecycle palette.
    =========================================================================== */

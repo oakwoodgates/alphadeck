@@ -61,6 +61,10 @@ A new checkout: copy `.env.example` to `.env` and `.env.dev` at the main checkou
 The dev overlay sets `ALPHADECK_SEED_ON_BOOT`, so the demo cards sit in the founding workspace; attach the user with
 `--founding` to see them.
 
+The host loop is opt-in: set `DATABASE_URL` to `localhost:5545/alphadeck_dev`, run `scripts/ensure-venv.sh`, then from `backend/` `python -m db.migrate` and
+`python -m uvicorn app.main:app --reload` (port 8000, shared with prod). `pipeline.ingest_thesis --thesis <id>`
+and `pipeline.daily` pull live data and write: dev only.
+
 ### One-way refresh
 
 `refresh-dev.sh`, `refresh-fork.sh` and `refresh-sig.sh` copy prod into another stack and never write prod. Each
@@ -182,9 +186,9 @@ Every API request opens one database connection for its run; there is no pool. P
   the allowance is charged; a promote's new names go to the onboarding queue. A job counts until its thread ends
   (`tests/workbench/test_job_caps.py`).
 - **The SEC budget** holds one connection per process (`ingest/sec_budget.py`).
-- **The arithmetic.** The in-flight cap, both job caps and the budget connection, plus a few brief ones (the boot,
-  the run-daily probe, a backup) and the cron's passes, must stay below `max_connections` less Postgres's reserved
-  slots, with room left for `psql` and migrations. Raise `max_connections` before raising any cap.
+- **The arithmetic.** The in-flight cap, both job caps, the budget connection, a few brief ones (boot, run-daily
+  probe, backup) and the cron's passes must stay below `max_connections` less Postgres's reserved slots, with room
+  for `psql` and migrations. Raise `max_connections` before any cap.
 - **Request connections** (`db.session.connect_request`, used by `app.db_conn.get_conn` and the OAuth provider) set
   connect, statement, lock and idle-in-transaction timeouts as session options (the `db_*_timeout_s` settings; 0
   is off); a connect, statement or lock timeout answers 503. No request route holds a transaction open across a
@@ -216,8 +220,7 @@ Every API request opens one database connection for its run; there is no pool. P
   ([CRON_SIDECAR](CRON_SIDECAR.md), "Failure handling").
 - A stack that will not load (a 502, a blank app, no answer): the `stack-recovery` skill.
 - `/health` is open. With no SEC User-Agent it still answers 200 but reports degraded (`app/health.py`,
-  `tests/app/test_health_guard.py`). `ALPHADECK_REQUIRE_UA` would make the boot refuse instead, but compose does not
-  pass it, so it has no effect on any Docker stack.
+  `tests/app/test_health_guard.py`).
 
 ### Safety rules
 
@@ -254,8 +257,7 @@ Compose passes an explicit list and no `env_file`, and `Settings` reads no `.env
 unlisted name changes nothing in a container; it affects only a process run on the host. To make one tunable, add it
 to compose with a fallback equal to the Settings default and extend `tests/domain/test_settings.py`.
 
-Not passed by compose, so the code default holds on every Docker stack, though docs or templates have presented them
-as adjustable: `ALPHADECK_REQUIRE_UA`; `ALPHADECK_DB_WAIT_S`; `ALPHADECK_BACKUP_KEEP`, `ALPHADECK_BACKUP_LABELED_KEEP`,
+Not passed by compose, so the code default holds on every Docker stack: `ALPHADECK_REQUIRE_UA`; `ALPHADECK_DB_WAIT_S`; `ALPHADECK_BACKUP_KEEP`, `ALPHADECK_BACKUP_LABELED_KEEP`,
 `ALPHADECK_BACKUP_LABELED_MAX_AGE_DAYS`, `ALPHADECK_BACKUP_STALE_HOURS`; `ALPHADECK_TAPE_STALE_DAYS`,
 `ALPHADECK_FUND_SHARES_STALE_DAYS`, `ALPHADECK_TAPE_CLOSED_BEFORE_DAYS`, `ALPHADECK_TAPE_CLOSED_AFTER_DAYS`,
 `ALPHADECK_FREEZE_COMPLETED_FLOOR`, `ALPHADECK_INSIDER_AMENDMENT_REVIEW_HORIZON_DAYS`; the onboarding job's
@@ -280,8 +282,8 @@ The cron's schedule settings are in [CRON_SIDECAR](CRON_SIDECAR.md); the sign-in
 ## Known limits
 
 - `deploy.sh` does not check the editions lock, so a `cron` deploy can kill a hand cut.
-- `refresh-fork.sh` still runs the platform-facts move after migrating (it finds nothing to move on a dump taken
-  after the cutover) and keeps `--v1-state`.
+- `refresh-fork.sh` still runs the platform-facts move after migrating (a no-op on a dump taken after the
+  cutover) and keeps `--v1-state`.
 - The sig stack duplicates what a fork does and has no branch of its own.
 - Nothing terminates TLS, and the backend's port 8000 is published on the host, past nginx's headers
   ([SECURITY](SECURITY.md)).
