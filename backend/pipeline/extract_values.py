@@ -1,6 +1,6 @@
 """THE PLATFORM-VALUE BACKFILL (V2 W3d): extract every due company's share count and cash/burn. DRY RUN by default.
 
-``docs/PLATFORM_VALUES.md`` ("Background extraction", "The backfill"). It walks the same work list as the nightly
+``docs/PLATFORM_EXTRACTION.md`` ("The backfill"). It walks the same work list as the nightly
 leg (``platform_values.extraction.work_list``, with ``include_never=True``: never-extracted companies are taken
 too), in its order (a new filing, then a retry, then never extracted; within each, pen-only companies last, most
 cards first), and runs each company through ``run_extraction(..., run_kind="backfill")``: fetch with the company

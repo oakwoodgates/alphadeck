@@ -1,912 +1,300 @@
-# Platform values: the share count and cash/burn (V2)
+# Platform values
 
-Not a rule doc. This page says how a company's two **platform values** are stored, picked and labeled on the
-`v2` branch. The rules of the call live in `docs/CALL_LOGIC.md`; neither value is a call input.
+A platform value is a company's share count or its cash and burn: one value per company for everyone, stored in
+the data tenant (invariant 12), never in a workspace. The machine applies clean values from filings, the steward
+decides the rest, and a plain user reads each value with its state and may flag it. The values feed the market
+cap, the runway meter and the Peer Table; neither is a call input. Read this before you change
+`backend/platform_values/`, `domain/platform_values.py`, or any reader or writer of `fact_shares_outstanding` or
+`fact_cash_burn`. When the machine runs: [PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md). A user's flag:
+[VALUE_FLAGS](VALUE_FLAGS.md). How a number is parsed from a filing: [WORKBENCH_EXTRACTION](WORKBENCH_EXTRACTION.md).
 
-A platform value is one value per company for everyone. It lives in the data tenant (`docs/TENANT_SCOPES.md`,
-`domain/scopes.py`):
+## Code
 
-| Value type (`fact_type`) | Fact table | Read by |
+| Piece | Module |
+|---|---|
+| Pure rules: pick, state, correction rule, machine's rule, annual share-count rule | `domain/platform_values.py` |
+| The one reader | `platform_values/state.py` |
+| The machine writer; the steward writer | `platform_values/machine.py`; `platform_values/steward.py` |
+| The user's read and its words | `platform_values/user_view.py`, `platform_values/words.py` |
+| The cross-workspace card count | `platform_values/cards.py` |
+| Store; routes | `repositories/platform_value_repo.py`; `app/routers/admin_platform_values.py` (steward), `app/routers/platform_values.py` (user) |
+| Currency label; year-to-date pace | `domain/cash_currency.py` (frontend twin `components/currency.ts`); `domain/burn_pace.py` |
+| Screens | steward: `frontend/src/admin/SharedFacts.tsx`, `CompanyFacts.tsx` ([ADMIN](ADMIN.md)); user: `frontend/src/workbench/SharedValues.tsx` |
+
+## Storage
+
+| Table | Migration | Holds |
 |---|---|---|
-| `shares_outstanding` | `fact_shares_outstanding` | the market cap (Workbench, Hot Board, Insider Tracker, Peer Table, Theme Leaderboard, Ticker Lookup, Market Map, Track Record, the data flags) |
-| `cash_burn` | `fact_cash_burn` | the runway meter (Workbench), the Peer Table (a runway that does not apply: below, "Runway does not apply") |
+| `fact_shares_outstanding`, `fact_cash_burn` | fact tables | the values: append-only versions |
+| `extraction_candidate` | 0200 | a flagged or "nothing" extraction result; never a fact |
+| `steward_pin` | 0201 | pin and unpin events |
+| `platform_value_decision` | 0205 | the steward's approve, correct, dismiss and undo |
+| `platform_extraction_attempt` | 0207 | one row per extraction attempt |
+| `value_flag` | 0202, 0210, 0211 | users' flags |
 
-`cash_usd` is one "cash and short-term investments" number (cash + equivalents + short-term investments +
-long-term marketable securities; never the generic long-term investments line: `docs/WORKBENCH_EXTRACTION.md`).
-The extractor also carries the investment part on its own (`ExtractedFact.investments_usd`) and names every
-component in the note.
+All but `value_flag` are in the DATA scope (`domain/scopes.py`); `value_flag` is user-keyed (`UNSCOPED_TABLES`). The
+Admin status counts share or cash rows left under a workspace (`platform_rows_in_workspaces`): nothing reads them,
+so it should be 0.
 
-**The stored currency and investment part** (migration 0208; operator decisions D4 and D1 (d), 2026-11-15).
-`fact_cash_burn.currency` is the statement's ISO code (three capital letters; the `*_usd` columns then hold that
-currency's figures, never converted) and `fact_cash_burn.investments_usd` the investment part already inside
-`cash_usd`; `extraction_candidate.investments_usd` is the same on the candidate (whose currency is its
-`statement_currency`). Both are nullable with no default and no backfill: NULL means **not recorded** (a V1 row, a
-periodic value applied before the PR 6 follow-up, an annual value whose currency the extractor could not establish, a
-correction that stated none), never an invented `USD` or 0. They are set on the INSERT of a new version only, on
-every write path: the machine's apply and its candidate, the steward's approve (the candidate's own) and correct
-(the steward states them: an ISO code, a part never negative and never above the cash, else 422), and an undo
-falls back to the earlier version with its own. Every screen that prints a cash or burn figure labels it in
-the stored currency through ONE rule (`?` for an annual-statements value stored without one, `$` for a quarterly
-value or a V1 row without one; never a conversion): `backend/domain/cash_currency.py` `currency_symbol` for every
-backend printer (the Filing Stream row, the pace caveat on the scored meter, the Peer Table cell and the steward
-page) and its twin `frontend/src/components/currency.ts` (`labelCurrency` / `storedCurrency` / `cashSymbol`) for
-every screen (the steward pages, the Workbench facts panel and rail, the scored row, the Cockpit name panel, the
-Peer Table). Where there is room (a hover, a detail line) they add "of which short-term investments X" when a part
-is stored. The runway in months is a ratio and unchanged. Display only: nothing under `calls/` or `signals/` reads them.
-The periodic 10-Q/10-K path reads companyfacts' USD unit only, so a value it read records `USD` explicitly
-(`statement_currency='USD'` on the extraction, `currency='USD'` once applied); a result that read nothing records
-none. Rows applied before that stay NULL (no backfill) and still read `$`.
+**Who set it.** Migration 0206 limits `ratified_by` on new rows: `auto` or NULL is the machine, `operator` a V1 row
+carried over, an email the steward. The check was added `NOT VALID`; the V2 cutover (`pipeline/v2_reset.py`)
+validates both constraints. `domain.platform_values.ratifier_kind` maps a stored value to `machine`, `carried` or
+`steward`.
 
-**The stored year-to-date pace** (migration 0209; operator decision D3's sub-decision, a column). `fact_cash_burn`
-and `extraction_candidate` carry `ytd_quarterly_burn_usd` (the year to date ending on the burn's end, scaled to one
-quarter, burn sign, in the value's own currency) and `ytd_burn_days` (its span): both or neither, nullable, no
-default, no backfill (NULL = not recorded). They ride the same write paths as 0208's columns, on the INSERT of a new
-version only: the machine's apply and its candidate, the steward's approve (the candidate's own), correct and the
-Workbench confirm (stated, both or neither, else 422), and an undo falls back to the earlier version's. A
-correction that does not state the pace stores none, and the machine-written pace segment and caveat are dropped
-from the note it keeps (`domain.burn_pace.drop_pace`), so an old pace is never re-applied to a corrected burn. One
-reader, `domain.burn_pace.stored_pace`, reads a row's pace: the columns, else (a row written before 0209) the
-note's segment. The caveat sentence is never stored: the pure rule computes it on read from the stored numbers,
-and it never changes a tier. Display only.
+**Cash columns.** What `cash_usd` includes: [WORKBENCH_EXTRACTION](WORKBENCH_EXTRACTION.md). Migration 0208 adds
+`currency` (the statement's ISO code; the `*_usd` columns hold that currency's figures, never converted) and
+`investments_usd` (the investment part inside `cash_usd`); 0209 adds the stored year-to-date pace
+(`ytd_quarterly_burn_usd`, `ytd_burn_days`, both or neither). NULL means not recorded, never an invented `USD` or 0;
+there is no backfill. Every write path sets them on a new version's insert only. One label rule
+(`domain.cash_currency.currency_symbol` and its frontend twin): `?` for an annual-statements value with no currency,
+`$` for a quarterly or V1 value with none. One pace reader (`domain.burn_pace.stored_pace`: the columns, else the
+note's segment on an older row). A correction that states no pace stores none and drops the machine's pace from
+the note (`drop_pace`). The pace caveat is computed on read and never changes a tier.
 
 ## The one pick
 
-The as-of read returns one row per filing (`source_ref`; the newest version of each, set-aside versions skipped).
-The value shown is `domain.platform_values.pick_current` over those rows (operator decision D1 (a), 2026-11-14):
+The as-of read returns one row per filing (`source_ref`; the newest version, set-aside versions skipped).
+`domain.platform_values.pick_current` chooses the value shown:
 
 1. the latest `valid_from` wins;
-2. on a date tie, the newest write wins: `recorded_at`, then `id` (on a history read, `ingested_at` is the write);
+2. on a date tie the newest write wins: `recorded_at`, then `id`;
 3. a row dated after today is never picked.
 
-Every reader that shows "the value" calls it. `tests/dashboards/test_one_pick.py` fails on a reader that picks by
-its own rule. Before V2 each reader kept the first row on a date tie, so the alphabetically first filing URL won.
-
-## Who set it: the `ratified_by` vocabulary
-
-Migration 0206 fixes the vocabulary on every new row (added NOT VALID: stored rows are not judged until W10
-validates the constraint):
-
-| `ratified_by` | Who | `ratifier_kind` |
-|---|---|---|
-| `auto` or NULL | the machine applied a clean filing value | `machine` |
-| `operator` | a V1 row carried over | `carried` |
-| an email (`x@y`) | the steward | `steward` |
+Every reader that shows "the value" calls it; `tests/dashboards/test_one_pick.py` fails on a reader with its own
+key. Why: readers once kept the first row of a date tie, so the alphabetically first filing URL won.
 
 ## The four states
 
-`platform_values.state.read_state(conn, security_id, fact_type)` reads, in the data tenant only:
+`platform_values.state.read_states(conn, security_ids, fact_type)` reads, in the data tenant and exactly as the
+meters do (record clock, today's market date), the picked value, the newest candidate per company, its standing
+decision and the newest pin event. `domain.platform_values.derive_state` gives the state:
 
-- `P` = the picked value (record clock, as of today's market date, known now): exactly what the meters show;
-- `C` = the newest candidate for the company and type (`extraction_candidate`, migration 0200);
-- whether a standing decision (an approve, correct or dismiss no undo names) closes `C`;
-- the pin: the newest `steward_pin` event is `pin`.
-
-Then `domain.platform_values.derive_state` gives the state:
-
-| Condition | State | Extra |
+| Picked value | Newest candidate | State |
 |---|---|---|
-| `P`, set by `auto` / NULL | `from_filing` | ratifier `machine` |
-| `P`, set by `operator` | `verified` | ratifier `carried` |
-| `P`, set by an email | `verified` | ratifier `steward` |
-| `P`, and `C` an undecided flag dated after `P` | the state of `P` | `pending` = `C` |
-| no `P`, no `C` | `no_value` | reason `not-extracted` |
-| no `P`, `C` a "nothing" | `no_value` | reason = `C`'s own (`no-annual-filing`, `cash-generative`, ...) |
-| no `P`, `C` an undecided flag | `awaiting_steward` | `awaiting` = `C` |
-| no `P`, `C` a dismissed flag | `no_value` | reason `dismissed` |
+| set by the machine | any | `from_filing` |
+| set by the steward or carried | any | `verified` |
+| a value | an undecided flag dated after it | the value's state, plus `pending` |
+| none | none | `no_value`, reason `not-extracted` |
+| none | a "nothing" candidate | `no_value`, the candidate's reason |
+| none | an undecided flag | `awaiting_steward` |
+| none | a dismissed flag | `no_value`, reason `dismissed` |
 
-**Awaiting the steward never reaches a meter.** A candidate is not a fact: it is in no as-of read and no mirror
-(`tests/db/test_v2_schema.py`), and `DerivedState.meter_value` returns only `P`.
+A candidate is never a fact: it is in no as-of read and no replay mirror
+(`tests/db/test_v2_schema.py::test_a_candidate_is_not_a_fact`), and `DerivedState.meter_value` returns only the
+picked value, so a value awaiting the steward never reaches a meter.
 
-`read_states(conn, security_ids, fact_type)` is the same read for a set of companies, in a fixed number of queries
-whatever the set's size (one point-in-time view prefetched over the set, the newest candidate per company, their
-standing decisions, the newest pin per company), then `pick_current` and `derive_state` per company. `read_state`
-is `read_states` for one company, so there is one way to read a state; `tests/platform_values/test_state_batched.py`
-pins that the batch equals the per-company reads in every state above and in the edge cases (a workspace row, a
-value dated after today, an undone approve or dismiss, a reopened older candidate, a pin then an unpin).
+`read_states` runs a fixed number of queries for any set; `read_state` is `read_states` for one company
+(`tests/platform_values/test_state_batched.py`). Never loop over `read_state`. `read_company` adds stored versions
+(with `set_aside`), recent candidates, decisions and the pin event. Only the newest candidate per company and type
+is read, so an older candidate reopened by an undo waits in no queue and shows only in the company read.
 
-`read_company` adds every stored version (with `set_aside`), the newest 20 candidates, the newest 50 decisions and
-the newest pin event; `awaiting` lists the open flags the state says still wait, newest first (one `read_states`
-batch per value type); `awaiting_companies` groups them one row per company.
+## Who writes
 
-**A reopened older candidate waits nowhere.** The state reads only the newest candidate per company and type. If
-the steward undoes the dismiss of an older candidate while a newer one stands, the older one is open again but is
-not `awaiting`, not `pending`, and not in either queue; it shows only in the company read's `candidates` (its
-`decision` is None).
+A value is written by the machine writer (`ratified_by='auto'`) or the steward writer (the steward's email), and
+otherwise only by the exceptions below. Both writers take the company write lock
+(`db.write_lock.acquire_company_lock`), re-read the state under it, append, stamp the company changed
+(`db.change_stamp.mark_changed`) in the same transaction, and commit. Any SEC fetch happens before the lock.
 
-## The machine writer (W2b)
+`tests/ingest/test_platform_value_writers.py` reads the source (no database) with three rules: only named files call
+`ingest_shares_outstanding` or `ingest_cash_burn`; only named files write either table directly; only
+`pipeline/seed.py` stamps `operator`. A stale entry fails too. The allowed exceptions:
 
-`platform_values/machine.py`, `record_extraction(conn, security_id, result, *, wait_s, cache_dir=None, cik=None,
-today=None) -> {fact_type: MachineOutcome}`, is the only code that turns the deterministic extractor's parse into a
-platform value. It takes an `ExtractionResult` already fetched (no network inside) and, for each type:
-
-| Extractor result | What is written |
+| File | Why it may write |
 |---|---|
-| AUTO with its number(s) | `machine_action` decides: a fact stamped `auto` (applied), a `flag` candidate with flag `pinned` (the company is pinned), or nothing: `already_on_file` (any stored version of the filing, set-aside ones too, so an undone approve is never re-applied), `older_than_on_file` (dated on or before the value shown), `after_today` (never shown, so never written) |
-| an annual share count (`source='annual-cover'`, a 20-F / 40-F cover) whose only flags are `annual-cover` / `stale-cover`, ADS ratio `known` or not applicable, at most `annual_shares_auto_max_age_days` (400) old | treated as AUTO (the annual share-count rule, below): the same `machine_action` |
-| FLAG, or AUTO with no number | a `flag` candidate: raw values, flags, filing, date, located passages, ADS fields / statement currency and investment part |
-| no value of that type | a `nothing` candidate with the extractor's reason: cash/burn takes the runway reason first (`cash-generative`, `financials-in-exhibit`, `exhibit-ambiguous`, `statements-not-located`), then the result's (`no-annual-filing`, `cover-not-located`), else `no-candidate` |
-| an exception (SEC down, companyfacts 404) | nothing: the caller never gets a result to record |
+| `pipeline/seed.py` | the demo seed's fixtures |
+| `db/bitemporal.py`, `ingest/shares.py`, `ingest/cash_burn.py` | the generic `append_fact` and the two ingest functions (`require_write_tenant`, append, stamp) |
+| `pipeline/repair_shares_cover_dates.py`, `pipeline/repair_filing_dates.py` | repairs bound by the rules below |
+| `pipeline/v2_move.py` | the one-time move of workspace rows into the data tenant |
+| `pipeline/dedup_identical_versions.py` | listed so a new writer still fails (Known limits) |
 
-A strictly newer filing is applied over a verified value unless the company is pinned (D3 (a)). A candidate that
-repeats the newest candidate for that company and type (same outcome, reason, filing, date, flags and values) is
-not written again. Only the extractor's own parse is read: a fact carrying an `estimate_source` (a model's
-proposal) is ignored, and the module imports nothing from `llm`.
+**The repair rules** (`pipeline/platform_repair_guard.py`):
 
-**The annual share-count rule** (the extractor correctness plan's PR 5, operator-approved 2026-11-15). Every share
-count from an annual foreign filer is a FLAG by design (`annual-cover`, plus `stale-cover`, which on an annual filer
-only means older than 183 days), and an audit found 30 of 30 such counts right with every ADS ratio right. So the
-machine applies one when `domain.platform_values.annual_shares_auto_eligible(fact, today, max_age_days)` holds:
+1. Data tenant only: a row under another tenant is listed `outside_data_tenant`, never judged or written.
+2. The steward's decisions stand: a fact any version of which a decision names (standing or undone), or which has a
+   set-aside version, is listed `steward_decision` and never written.
+3. Each company an `--apply` appends to is stamped inside the repair's own transaction, because a repair holds the
+   repair lock, not the company lock whose release stamps.
 
-- a share count with a finite number and `source = 'annual-cover'`;
-- its flags are a subset of `ANNUAL_ONLY_FLAGS = {annual-cover, stale-cover}`: any other flag
-  (`multi-value-cover`, `dual-class`, `ads-ratio-unread`, `source-disagreement`, `implausible-count`,
-  `cover-after-filing`) or a flag not named yet still queues;
-- `ads_ratio_status` is `known` (with a ratio of 1 or more) or None (no ADR evidence);
-- its own as-of date (`event_date`, the period of report or a fresher companyfacts date) is 0 to
-  `ExtractorConfig.annual_shares_auto_max_age_days` (400, a domain dial) days before today's market date. A count
-  dated after today, or older than the cap, queues with its age in the note.
+Also guarding: `tests/ingest/test_platform_write_tenant.py` (the ingest functions refuse a workspace tenant) and
+the card-count guard (below).
 
-`plan()` maps an eligible FLAG to `auto`; `machine_action` then applies the pin (a pinned company gets a candidate
-with flag `pinned`), `already_on_file`, `older_than_on_file` and `after_today` rules unchanged. The applied fact is
-`ratified_by='auto'`, `source='annual-cover'`, `valid_from` = the count's real as-of date, the ADS fields, and the
-filing's accession and acceptance; its state is `from_filing`. Facts carry no flag column, so the stored note keeps
-the extractor's note (the form, the as-of date, the age, the ADS ratio) and adds one sentence: "Applied automatically
-as an annual figure (the annual share-count rule): a 20-F/40-F cover count as of <date>, <N> days old on <today>,
-flags annual-cover, stale-cover; ...". The steward's company page says "annual figure from the 20-F or 40-F cover,
-as of <date>" in the value's status line, quietly. **Share counts only:** annual cash and burn always waits for
-the steward. A candidate recorded for the same filing before the rule stops waiting (the value shown has its date),
-and stays in History. Tests: `tests/domain/test_platform_values.py`, `tests/platform_values/test_machine.py`.
+## The machine writer
 
-**The same-day annual tie (D1).** A company that filed 10-Qs and now files a 20-F/40-F can carry a share count the
-machine wrote on the quarterly path before the router fix: `ratified_by='auto'`, `source='10-q-cover'`, citing an
-old 10-Q, dated the same day as the annual cover's count (BTCT, CURR, EUDA on the fork). `older_than_on_file` used
-to skip the annual result, so the annual rules never ran. Now `machine_action` (via the pure
-`annual_cover_replaces`) applies an `annual-cover` count dated EXACTLY the shown value's date when the shown row
-was written by the machine (`auto` or NULL) from `10-q-cover`; the pick shows it as the newest write. It is an
-APPENDED new version (the old row is kept; a re-run is `already_on_file`), and only a count the annual rule makes
-`auto` reaches it: a flagged annual count stays a candidate and the value shown does not change. A steward's value,
-a carried `operator` value (GFUZ), a pin, an annual row already shown, an earlier date, another source and a
-quarterly-over-quarterly tie behave exactly as before. Dates and provenance only: the new row keeps its own
-`valid_from` and filing acceptance, so nothing becomes public earlier. The nightly does not retake these companies
-on its own (an `older_than_on_file` attempt is `done`, so the company stays "up to date" until a new periodic
-filing); the steward presses "Extract now" (or a backfill extracts them).
+`platform_values/machine.record_extraction(conn, security_id, result, *, wait_s, ...)` is the only code that turns
+the extractor's parse into a value. It takes an already-fetched `ExtractionResult` and, per value type:
 
-**Lock and stamp.** The caller fetches with the company free. The writer then takes the company write lock
-(`acquire_company_lock`, waiting at most `wait_s`; `CompanyLockBusy` with nothing written), re-reads the state, the
-pin and every stored filing under it, writes both types in one transaction with the company's change stamp,
-commits, and releases. Two simultaneous get-data clicks write one value.
-
-**Callers.** Background extraction (below) and the steward's "Extract now"
-(`POST /admin/platform-values/{id}/extract`). The get-data route `POST /workbench/facts/auto-confirm` (D2 (a)) was
-deleted in W7b, with its `auto_confirm` allowance. Background extraction calls it with the request wait `ingest_lock_request_wait_s`, not the batch wait, so
-one busy company cannot spend a run's budget (the W3 plan, Q5).
-
-## Background extraction (W3a)
-
-`platform_values/extraction.py` keeps the two values current without a click. Its callers: the nightly step,
-the onboarding job's step for new companies, the backfill CLI (`python -m pipeline.extract_values`) and the
-steward's Extract now, each described below and each calling the pieces below. Nothing here is a call input; no
-module of the call, replay or editions engine names it
-(`tests/platform_values/test_extraction_run.py`).
-
-**The attempt record.** `platform_extraction_attempt` (migration 0207, data tenant, append-only) holds one row per
-attempt, whatever its outcome (approved B3 (a)):
-
-| `status` | Meaning | Also stored |
-|---|---|---|
-| `done` | the machine writer ran | `shares_reason`, `cash_reason`: its `MachineOutcome.reason` per value type |
-| `error` | the fetch or the write failed; nothing else was written | `error`: one line, at most 200 characters, built from the exception's class, never its text (no URL, no secret) |
-| `busy` | another writer held the company for the whole wait; nothing was written; not a failure | `detail` |
-| `skipped` | nothing could be read (no CIK); nothing was fetched | `detail` |
-
-Every row carries `run_kind` (`nightly`, `onboarding`, `backfill`, `steward`, `get_data`), `inputs_key` and
-`live_fetches` (the SEC requests the attempt made). A failure is never a candidate, so it never hides a value
-awaiting the steward.
-
-**The inputs key** names exactly what the extractor reads: the company's CIK plus the accession of its newest 10-Q,
-10-K, 20-F and 40-F (exact form match: an amendment, an 8-K or a 6-K never changes it), for example
-`1234567|10-Q:0001-26-000002|10-K:0001-26-000001|20-F:|40-F:`. The attempt's key comes from the submissions index
-the extraction read; the gate's from the stored filing index (`fact_filing_index`).
-
-**When a company is due** (`due`, pure; `work_list` reads it for every company on a live card):
-
-| Reason | Rule |
+| Extractor result | Written |
 |---|---|
-| `never` | no attempt exists |
-| `new_filing` | the stored index has a 10-Q, 10-K, 20-F or 40-F newer than the one of that form the last attempt read, public for at least `platform_extraction_hold_h` hours (companyfacts lags acceptance by about 5-6 hours); or the CIK changed |
-| `retry` | the last attempt was `busy`; or it failed and fewer than `platform_extraction_retry_max` attempts in a row failed on the same key (a steward's failed Extract now click is not counted) |
+| AUTO | `machine_action` decides: apply a fact; a `flag` candidate flagged `pinned` for a pinned company; or nothing (`already_on_file`, `older_than_on_file`, `after_today`) |
+| an annual share count the annual rule accepts | treated as AUTO |
+| FLAG, or AUTO with no number | a `flag` candidate with raw values, flags, filing, date and located passages |
+| no value | a `nothing` candidate with the extractor's reason |
+| an exception | nothing; the caller records a failed attempt |
 
-Otherwise it is not due: `up to date`, `held` (a new filing not yet public for the hold) or `waiting` (failed
-`retry_max` times; it waits for a new filing or the steward). "Public" is the SEC acceptance, else the end of the
-filing date in ET; a filing not public at `now` never makes a company due. An attempt that read a filing the stored
-index does not have yet read a newer one, never an older one. **The backstop:** a company with nothing to find (no
-periodic filing) has an empty key, so after one attempt it is not fetched again until a periodic filing appears in
-its filing index; a company that keeps failing stops after `retry_max` attempts on the same filings.
-**Steward clicks and the cap** (operator decision 2026-11-15): a failed `steward` attempt (Extract now) never counts
-toward `retry_max`, so failed clicks (on a stack with no SEC User-Agent, say) cannot leave a company waiting for a
-new filing. `due` skips them when it counts the failures in a row (as it skips `busy`); `work_list` hands it each
-attempt's `run_kind`. A steward attempt counts for everything else: a `done` one on the current filings makes the
-company not due, and the company page lists every attempt.
+`already_on_file` counts every stored version of the filing, set-aside ones too, so an undone approve is never
+re-applied. A strictly newer filing replaces a verified value unless the company is pinned. A candidate identical
+to the newest one is not written again. Only the extractor's own parse is read: a fact with an `estimate_source` is
+ignored and the module imports nothing from `llm` (invariant 3;
+`tests/platform_values/test_machine.py::test_the_writer_imports_no_model_code`). Callers: background extraction
+and the steward's Extract now, both through `platform_values.extraction.extract_one`, with the request lock wait
+(`ingest_lock_request_wait_s`) so one busy company cannot spend a run's budget.
 
-**The order** (`work_list`): `new_filing`, then `retry`, then `never`; within each, pen-only companies last, then
-most cards first (the card count from `platform_values/cards.py`, reused, never rebuilt), then ticker. ETFs are left
-out (`extractable`, one line to flip; a decision that can wait).
+### The annual share-count rule
 
-**Before a backfill extracts a company** (approved B4 (a), tightened 2026-11-15): `work_list` with
-`include_never=None` (the nightly's and onboarding's default) holds back every never-extracted company until a
-`backfill` attempt with status `done` exists (`backfill_applied`: a backfill extracted at least one company, whether
-applied, a candidate recorded or nothing found), and counts them in `withheld_never`. A backfill whose every attempt
-failed (`error`, `not cached` included), was `busy` or was `skipped` unlocks nothing; neither does a `done` attempt
-of another run kind (steward, nightly, onboarding). The backfill passes `include_never=True`.
+An annual foreign filer's cover count (20-F or 40-F) always carries the FLAG tier. The machine applies it as AUTO
+when `domain.platform_values.annual_shares_auto_eligible` holds: source `annual-cover`, a finite count, flags only
+from `ANNUAL_ONLY_FLAGS`, an ADS ratio `known` (at least 1) or absent, and an as-of date 0 to
+`ExtractorConfig.annual_shares_auto_max_age_days` days old. Anything else, and a pinned company, still queues. The
+applied fact keeps its real as-of date and acceptance, and its note says it was applied as an annual figure. Share
+counts only: annual cash and burn always wait for the steward. Tests: `tests/domain/test_platform_values.py`,
+`tests/platform_values/test_machine.py`.
 
-**One company** (`extract_one(conn, company, *, client, wait_s, run_kind)`): rolls back any open transaction,
-fetches with the company free through the caller's client (the submissions index, then
-`extract_with_annual_fallback(..., values_only=True)`), only then calls `record_extraction` (which takes the company
-lock and commits), then appends exactly one attempt row and commits. It never raises for a company; only a failure
-to write the attempt row itself (the database gone) propagates. Running it twice on the same filings writes no
-second fact and no second candidate, and the company is then not due.
+**The same-day annual tie** (`annual_cover_replaces`): when the value shown is the machine's own quarterly-cover
+count (`10-q-cover`) dated the same day as an accepted annual cover count, the machine appends the annual count,
+and the pick shows it as the newest write. Never over a steward's or carried value. The new row keeps its own date
+and acceptance, so nothing becomes public earlier (invariant 1).
 
-**A run** (`run_extraction(connect, work, *, client, run_kind, should_stop, max_names, budget_s, wait_s, clock)`):
-walks the list on one connection, fail-open per company, checking between companies: `should_stop()`, the count
-cap, and the time budget (it never starts a company when the slowest one so far would end past the budget). It
-returns an `ExtractionRun` (counts per outcome, failures named, `deferred`, `live_fetches`, `to_json()`,
-`admin_line()`, `attention` when anything failed). `pipeline/extraction_run_log.py` writes and reads the run files
-in `data/extraction_runs/`.
+## The steward
 
-**The onboarding job's step (W3e, approved B5 (a)).** New companies get their values from a step of the onboarding
-job (`pipeline/onboarding.py`, `_extraction_step`), not from a leg: a promote of five or fewer new names is
-fast-laned and a company already on another card is never queued, so a leg would miss both (the W3 plan,
-correction 5), and a leg would fetch under the company lock. The step runs AFTER the queue's batch, on every batch
-that got past its refusals (also when nothing is queued or the daily cap is reached), under the job's lock, when the
-batch's names are finished and every company lock is released. It takes only `never` companies from `work_list`
-(B4: until a backfill extracts a company they are counted as `withheld_never`, never fetched), at most
-`platform_extraction_onboard_max_names` (25), through the batch's one recurring client, with what is left of the
-batch's `onboard_batch_budget_s`; it stops between companies on the nightly window or a running pass, and is `off`
-under the kill switch. A company already extracted (a new filing, a retry) is the nightly's (`left_for_nightly`).
-Fail-open: a fault is one `FAILED` line; the batch's names, counts, stop reason, artifact and exit status, the
-onboarding queue and every thesis stay exactly as without it (`tests/pipeline/test_onboarding.py`, section 9). A
-run that attempted a company writes `data/extraction_runs/` (run kind `onboarding`); the job prints its one line
-(`Shared facts, new companies · …`) and `python -m pipeline.onboarding --status` shows the newest one. So a new
-company gets its values within about 30 minutes of a promote outside the nightly window, or from the nightly.
+The steward is the super admin. `platform_values/steward.py` holds six actions: approve a candidate (its own value),
+correct a value (the steward's value citing a filing, `source='ratified'`, optionally closing a candidate), dismiss
+a candidate (with a reason), undo a decision, pin and unpin (a pinned company's new filing values all wait). Each
+takes the company lock, re-reads the state, checks its rule, appends the fact then the decision or pin event,
+stamps and commits. `ratified_by` and `decided_by` are the signed-in steward's email, never a request body's. An
+action refuses a connection with an open transaction, so its write is the company's newest.
 
-**Settings** (`domain/settings.py`; each passed to the backend and cron containers in `docker-compose.yml`):
+**The correction rule** (`correction_wins`): approve and correct write only a value that will be shown. Its date
+must be on or after the value shown from any other filing and not after today; correcting the shown filing itself
+replaces it. After the write, inside the transaction, the meter's own pick is re-read and the write rolls back if
+the new row is not it (`not_shown`).
 
-| `ALPHADECK_…` | Default | Meaning |
-|---|---|---|
-| `PLATFORM_EXTRACTION_MAX_NAMES` | 300 | companies per nightly run. **0 = the kill switch:** a `nightly` or `onboarding` run is `off` (nothing fetched, nothing written); a backfill or steward run still runs by hand |
-| `PLATFORM_EXTRACTION_BUDGET_S` | 900 | a nightly run's wall-time budget, seconds |
-| `PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES` | 25 | companies per onboarding run |
-| `PLATFORM_EXTRACTION_HOLD_H` | 24 | hours a new filing must be public before it makes its company due |
-| `PLATFORM_EXTRACTION_RETRY_MAX` | 3 | failures in a row on the same filings before a company waits (a steward's failed click is not counted) |
+**Undo** sets aside the fact version an approve or correct wrote (`db/set_aside.py`), so every read (both clocks,
+the basket prefetch, the replay mirror) falls back to the version it replaced. Nothing is deleted. An undone
+approve or dismiss reopens its candidate; an undo cannot be undone. A decision that wrote no fact has a NULL
+`fact_id`, which the registered SQL filters out: a `NOT IN` over a NULL would blank every read
+(`tests/db/test_platform_value_set_aside.py`).
 
-To turn background extraction off on prod: set `ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0` in `.env`, then
-`scripts/deploy.sh --env-only cron`. That one recreate covers both steps the switch stops: the nightly step and the
-onboarding job both run in the cron sidecar (`backend/scripts/daily_cron.sh`: the nightly pass, and `onboard_loop`
-firing `python -m pipeline.onboarding`). The backend container needs no deploy for it: there the settings serve only
-the steward's Extract now (a `steward` run, which the kill switch never stops; it reads the hold and the retry cap
-for its due note), and the Admin line reads the run files.
+Refusals: `LookupError` 404, `PlatformValueConflict` 409, `PlatformValueInvalid` 422, `CompanyLockBusy` 409, each
+kind with one sentence in `app.errors.PLATFORM_VALUE_SENTENCES`; the steward also sees the blocking date and filing.
 
-**The nightly step** (`pipeline/nightly_extraction.py`, V2 W3c; approved B2 (a)): the LAST thing in the nightly
-pass, after every thesis's call of record is written and committed and the run artifact is finished. Live passes
-only (a `--no-live` pass records `skipped: no-live`). Its time budget is the smaller of
-`PLATFORM_EXTRACTION_BUDGET_S` and the pass's limit (`ALPHADECK_CRON_RUN_TIMEOUT_S`, 5,400 s) minus the time the
-pass has spent minus 600 s; at zero it is `no time left` (the due companies counted, taken the next night). It uses
-the recurring SEC client (the recurring lane of the global SEC budget) and `work_list`'s B4 rule. It never raises:
-a fault is a `status: error` block. Its summary (`ExtractionRun.to_json()` plus `budget`, `withheld_never`, `held`,
-`waiting`, `live_completed`) is added to the finished pass artifact as the `platform_extraction` block.
+**Routes** (`/admin/platform-values`, mounted with `require_super_admin`; bodies in `backend/openapi.json`): the
+awaiting list, the queue, the company read, the six actions, Extract now, and a flag's close and reopen. Every
+write answers the company's new state. A plain user gets 403 on each
+(`tests/app/test_admin_platform_values_api.py`, real sign-ins). `POST /workbench/facts` also takes the steward's
+share-count and cash confirm, through `correct`.
 
-| `status` | Admin line |
-|---|---|
-| `ran` | `Shared facts · Nov 14: 42 extracted: 31 applied, 6 to the steward, 5 nothing found · 2 failed (ACME: SEC unreachable) · 118 still due · 84 SEC requests · 3m 12s` |
-| `off` | `Shared facts · Nov 14: off (the kill switch, ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0)` |
-| `no time left` | `Shared facts · Nov 14: no time left in the pass · 12 due, taken next night` |
-| `skipped: no-live` | `Shared facts · Nov 14: skipped (a --no-live pass fetches nothing)` |
-| `error` | `Shared facts · Nov 14: did not run (the step failed (RuntimeError))` |
-
-Any line gains `· N waiting after repeated failures` and `· N never extracted, held until a backfill extracts a
-company` when they are not 0. **Loud** (`attention`) when a company failed, the run itself failed, a company is
-waiting after repeated failures, or never-extracted companies are held back (the backfill is owed); quiet otherwise.
-
-**On Admin:** `AdminStatusOut.platform_extraction` (`line`, `ran_at`, `run_kind`, `attention`) is the newer of the
-newest finished pass's block and the newest file in `data/extraction_runs/` (the backfill, the onboarding step, a
-hand run): two directory reads, no database, fail-open.
-
-**By hand** (`python -m pipeline.nightly_extraction`): the same step outside a pass. A dry run by default (the
-work list, the budget; reads only); `--apply` runs it (attempts are `nightly`), `--no-live` makes the client
-cache-only (no SEC request, no User-Agent needed: a missing document is an `error` attempt, `not cached`, and stays
-due). It refuses (exit 75) inside the nightly window or while a pass holds the call-of-record lock, stops between
-companies if either begins, and writes its summary to `data/extraction_runs/`.
-
-## The backfill (W3d)
-
-`python -m pipeline.extract_values` extracts every due company by hand, through the pieces above
-(`work_list(include_never=True)`, then `run_extraction(..., run_kind="backfill")`). It is never scheduled. Nothing
-it writes is a call input.
-
-```bash
-python -m pipeline.extract_values                    # DRY RUN (the default): the SEC cost plan; no request, no write
-python -m pipeline.extract_values --no-live          # DRY RUN of a cache-only run: who would extract, who would fail
-python -m pipeline.extract_values --apply            # extract every due company (live, the recurring SEC lane)
-python -m pipeline.extract_values --apply --no-live  # cache only: never reaches SEC (the fork rehearsal)
-python -m pipeline.extract_values --apply --max-names 200 --budget-s 1800 --ticker OKLO --ticker LEU
-```
-
-**The dry run** reads the work list (a read-only database session) and the EDGAR cache on disk. It builds no client,
-makes no SEC request and writes no row and no file. Per company and in total it prints what a real run would fetch
-live and what it would read from the cache, by the client's own rules:
-
-| Read | Counted as live when |
-|---|---|
-| the submissions index | missing, or older than the recurring 5 minutes (so most companies cost one request) |
-| companyfacts | missing, or due by the filing gate (judged on the cached index); a cached 404 costs nothing (the extraction then fails on it) |
-| the one values document | missing (`forms/` is cached forever): the newer of the latest 10-Q and 10-K (B1, values only), else the newest 20-F / 40-F, which is also read when it is newer by public time than the 10-Q and 10-K (the router's `_takes_annual_path`) |
-| an annual filer's exhibit search | a bound of up to 8 more (the index headers, the filing index, up to `exhibit_scan_max` EX-99 documents) |
-| a company whose index is not cached | one known request, the rest a range (up to 10 more) |
-
-Bytes: a missing document is bounded by the index's `size` column (the whole filing's size, so an upper bound); an
-index or companyfacts refresh is estimated by its cached copy's size; anything else is counted "of unknown size".
-The time shown is a floor: the requests at `ALPHADECK_SEC_GLOBAL_RATE_PER_SEC` (8.5 a second). **What the dry run
-cannot know without fetching** (printed with every plan): whether the refreshed index lists a newer filing (another
-document, and companyfacts may become due); exact bytes; whether an annual filer's statements sit in an exhibit;
-which documents a company with no cached index needs; SEC throttling and the Workbench's share of the one global
-budget; the CPU time per company.
-
-**`--apply`** takes advisory lock 7 (`LOCK_ID_EXTRACTION`, one backfill at a time); refuses inside the nightly window
-(the onboarding job's window, `ALPHADECK_ONBOARD_WINDOW_BEFORE_MIN` / `_AFTER_MIN`) and while a pass holds the
-call-of-record lock (a probe, never a take); and re-checks both between companies, stopping cleanly when either
-begins. It uses one recurring-dial `EdgarClient`: the global SEC budget's recurring lane. It is **resumable**: a
-finished company is no longer due, so a second run does only what is left, and a run with nothing due writes
-nothing (not even an artifact). `--max-names` (alias `--limit`) and `--budget-s` bound it, checked between companies;
-it takes companies in the work list's order (a new filing, a retry, then never extracted; pen-only last; most cards
-first). `--ticker` scopes it; a ticker that is not a company on a live card (or is an ETF) refuses the run.
-
-It writes `data/extraction_runs/<started>Z-backfill-<token>.json` (`pipeline/extraction_run_log.py`: the start to
-the microsecond, the run kind and a short random token, so two runs never share a name and the name sort is the time
-sort; `ExtractionRun.to_json()` plus `mode`, `tickers`, `errors_by_reason`, `stop_detail`,
-`backfill_applied_before` / `_after`) and prints a summary: applied, candidates (flagged to the steward, nothing
-found), unchanged, skipped, busy, failed with their reasons, deferred and why, and the live SEC fetches.
-
-| Exit | Meaning |
-|---|---|
-| 0 | ran (failed companies are listed, not fatal), nothing due, or the dry run |
-| 1 | could not run: a live run with no `ALPHADECK_USER_AGENT`, or no database |
-| 2 | a bad argument: an unknown `--ticker`, `--max-names` below 1, a non-positive `--budget-s` |
-| 75 | refused (the nightly window, another backfill, a running pass) or stopped between companies by the window or a pass; nothing more written, the rest stays due |
-
-**`--no-live`** (cache only): the client never reaches SEC; a stale copy is served. A company whose documents are
-not all cached gets an `error` attempt with the reason `not cached` and is counted; nothing is fetched. It stays due
-(`retry`) until `platform_extraction_retry_max` such attempts on the same filings, then waits for a new filing.
-
-**Decision B4** (tightened 2026-11-15). The nightly leg and the onboarding step take no never-extracted company
-until this CLI has EXTRACTED at least one company: a `backfill` attempt with status `done` (`backfill_applied`).
-Failed attempts (a `not cached` error included), `busy` and `skipped` (no CIK) attempts unlock nothing, so a first
-backfill in which every company fails leaves them held. The CLI says where B4 stands before (dry run) and after
-(`--apply`); after a run that extracted nothing it says `B4: nothing was extracted (...), so the nightly is still
-holding never-extracted companies, and so is the onboarding job, ...`.
-
-### Rehearsing on the fork (cache only)
-
-A fork has prod's EDGAR cache (copied by `scripts/refresh-fork.sh`) but no SEC User-Agent, so a live run there fails
-every company. Rehearse cache-only, inside the fork's backend container, from the fork worktree root (`<name>` = the
-fork's `FORK_NAME`):
-
-```bash
-F="-f docker-compose.yml -f docker-compose.fork.yml -p alphadeck_<name> --env-file .env.fork"
-docker compose $F exec backend python -m pipeline.extract_values --no-live            # who would extract, who fails
-docker compose $F exec backend python -m pipeline.extract_values                      # prod's live cost, from the copied cache
-docker compose $F exec backend python -m pipeline.extract_values --apply --no-live --max-names 50   # a first slice
-docker compose $F exec backend python -m pipeline.extract_values --apply --no-live    # the rest (resumable)
-```
-
-Afterwards, look at: the summary and `data/extraction_runs/` (the per-company CPU time is the run's `seconds` over
-its `attempted`, which sets the nightly cap and budget); `platform_extraction_attempt` grouped by `status` and
-`error` (how many are `not cached`); the steward's queue (the flagged companies) and the values now "from the
-filing". The live dry run on the fork measures prod's request count from the copied cache, except for anything
-filed after the copy.
-
-**What the rehearsal changes on the fork.** It records `backfill` attempts; once one company extracts from the
-cache (a `done` attempt), it flips the B4 marker on the fork:
-from then on the fork's nightly and onboarding steps would take never-extracted companies. That is acceptable there:
-the fork's cron service rides the `donotstart` profile (`docker-compose.fork.yml`, `docs/FORKS.md`), and that
-sidecar is what fires both the nightly and the onboarding job, so nothing on the fork acts on the marker. A re-seed resets it: `scripts/fork.sh
-refresh --reset` drops the fork database and restores prod's dump, which has no attempt rows (prod is not on V2 yet),
-then the migrations create an empty `platform_extraction_attempt`. On prod, run the dry run first, then `--apply`
-before the V2 cron starts (cutover order, W10; the runbook is `docs/V2_CUTOVER.md`).
-
-## The steward's decisions and undo
-
-`platform_value_decision` (migration 0205, data tenant, append-only) holds one row per steward action:
-
-| `action` | Names | Effect |
-|---|---|---|
-| `approve` | a candidate and the fact version it wrote | the candidate's value is applied |
-| `correct` | the fact version it wrote (and optionally a candidate it closes) | the steward's value is applied |
-| `dismiss` | a candidate | the candidate is closed, no fact |
-| `undo` | the decision it undoes (`revokes`) | below |
-
-An **undo** sets aside the fact version an approve or correct wrote: `db/set_aside.py` registers "the fact written
-by an undone approve or correct" for both tables, so every read (both clocks, the basket prefetch, the replay
-mirror) skips it and falls back to the version it replaced. Nothing is deleted. An undone approve or dismiss
-reopens its candidate. An undo cannot be undone (make a new decision). A decision or undo that wrote no fact has a
-NULL `fact_id`; the registered SQL filters NULLs out, or `NOT IN` would blank every read.
-
-The steward's actions (W2c, below) write them; the machine writer (W2b) writes candidates.
-
-## The steward's write (W2c)
-
-`platform_values/steward.py` holds the six steward actions. Each one takes the company write lock
-(`db/write_lock.py`, the request wait `Settings.ingest_lock_request_wait_s`), re-reads the state under it, checks its
-rule, appends (never updates) the fact and then the decision or pin event, stamps the company changed in the same
-transaction, commits, and releases. The fact's `ratified_by` and the decision's `decided_by` are the signed-in
-steward's email. The action owns its transaction: it refuses a connection with one already open, so its write is
-the company's newest (the tie-break of D1 (a)).
-
-| Action | Writes | Refused |
-|---|---|---|
-| `approve(candidate)` | the candidate's own value (its filing, date, ADS fields; a cash/burn candidate's `statement_currency` as `currency` and its `investments_usd`), `vouched='confirmed'`; an `approve` decision | a "nothing" candidate or a flag without a complete value (422); a currency that is not an ISO code or an investment part below zero or above the cash (422, `bad_values`); already decided (409); would not be shown (below) |
-| `correct(company, type, values, source_ref, event_date)` | the steward's value (cash/burn may state `currency` and `investments_usd`), `source='ratified'` (the Workbench confirm keeps the candidate's basis); a `correct` decision, closing `candidate_id` when given | would not be shown (below); the candidate decided or not this company's and type's (409); an ADS ratio without `known`, or `known` without a ratio (422); a currency that is not an ISO code, or an investment part below zero or above the cash (422) |
-| `dismiss(candidate, reason)` | a `dismiss` decision | a blank reason (422); already decided (409) |
-| `undo(decision)` | an `undo` decision naming it | an undo (409: make a new decision); already undone (409) |
-| `pin(company, type)` / `unpin` | a `steward_pin` event | already pinned / not pinned (409) |
-
-**The correction rule** (D1 (a)), for approve and correct: a value is written only when it will be shown. Its
-date must be on or after the value shown from any OTHER filing and not after today; correcting the shown filing
-itself replaces its value. A date after today is refused with 422 (`after_today`); a date before the value shown is
-refused with 409 (`older_than_shown`), and the steward's detail names the blocking value's date and filing. After
-the write, still inside the transaction, the meter's own pick is re-read: if it is not the new row the write is
-rolled back (`not_shown`, 409). Nothing is ever stored that no meter would show.
-
-Errors: `LookupError` (404), `PlatformValueConflict` (409), `PlatformValueInvalid` (422), `CompanyLockBusy` (409).
-Each kind has one fixed sentence in `app/errors.py` (`PLATFORM_VALUE_SENTENCES`).
-
-### The routes (steward only, `/admin/platform-values`)
-
-| Route | Body | Answer |
-|---|---|---|
-| `GET /admin/platform-values/awaiting?limit=` (1-500, default 200) | | `PlatformAwaitingOut { items, total }`, newest first |
-| `GET /admin/platform-values/queue?limit=&offset=&pen=` (limit 1-200, default 50; offset 0-100,000; pen `after` / `only` / `exclude`, default `after`) | | `PlatformQueueOut { items, total, pen_only_total }`, in queue order (below) |
-| `GET /admin/platform-values/{security_id}` | | `CompanyValuesOut` (each value's `pin`: the newest pin event, below) |
-| `POST /admin/platform-values/candidates/{candidate_id}/approve` | `PlatformApproveIn { note? }` | `CompanyValuesOut` |
-| `POST /admin/platform-values/{security_id}/correct` | `PlatformCorrectSharesIn` or `PlatformCorrectCashBurnIn` (by `fact_type`), with `source_ref`, `event_date`, `note?`, `candidate_id?` | `CompanyValuesOut` |
-| `POST /admin/platform-values/candidates/{candidate_id}/dismiss` | `PlatformDismissIn { reason }` | `CompanyValuesOut` |
-| `POST /admin/platform-values/decisions/{decision_id}/undo` | `PlatformUndoIn { reason? }` | `CompanyValuesOut` |
-| `POST /admin/platform-values/{security_id}/pin` and `/unpin` | `PlatformPinIn { fact_type, note? }` | `CompanyValuesOut` |
-| `POST /admin/platform-values/{security_id}/extract` | none | `PlatformExtractOut { attempt, company }` (below) |
-
-Every write answers the company's new state. The model names carry a `Platform` prefix where a bare name
-(`DecisionOut`, ...) already exists in the contract. A plain user gets 403 on every route
-(`tests/app/test_admin_platform_values_api.py`, with real sign-ins). `POST /workbench/facts` keeps the steward's
-share-count and cash/burn confirm, through `correct` with no candidate (approved decision D4 (a)); a plain user still
-gets 403. The two ratify CLIs (`pipeline.ratify_shares`, `pipeline.ratify_cash_burn`) are deleted.
-
-**The pin event on the company read (W4a).** Each value in `CompanyValuesOut` carries `pin`
-(`PlatformPinEventOut { action, decided_by, note, recorded_at }`): the newest `steward_pin` event, `pin` or `unpin`,
-who, when and why; None when the value was never pinned. `pinned` (bool) stays; it is `pin.action == "pin"`.
-
-## The steward's queue (W4a)
-
-`GET /admin/platform-values/queue` lists every company with a share count or cash/burn waiting for the steward, one
-row per company (approved B2 (a): these two values only; B3 (a)). It reads the same open flags as `/awaiting`
-(`state.awaiting_companies`, so a flag older than the value shown is not listed) and adds each company's card count
-(below).
-
-`PlatformQueueItemOut { security_id, ticker, name, cards, pen_only, waiting_since, shares, cash_burn, open_flags }`:
-`shares` and `cash_burn` are `PlatformQueueValueOut { state, candidate, value }` or None (no candidate waits for that
-value); `value` is the value shown when the candidate is pending beside it. `waiting_since` is the oldest of the
-waiting candidates' `recorded_at` and the open user flags' `opened_at`.
-
-**Users' flags in the queue (W5c, the W5 plan's Q6).** A company with an OPEN user flag (below, §Flags) is in the
-queue even when no candidate waits: then `shares` and `cash_burn` are both None. `open_flags` is how many open user
-flags it has (0 when none): a number only, never whose, which value or what note. A closed or withdrawn flag waits
-for nothing. The order's keys are unchanged; a flag-only company sorts by its own cards and its oldest open flag
-like any other row (a company flagged only from an archived card counts 0 cards: just before the pen-only block).
-
-**The order** (approved B3 (a), B5 (a)), total:
-
-1. pen-only companies last (every live row it sits in is the Discovered link);
-2. then most cards first;
-3. then the longest wait first (`waiting_since` ascending);
-4. then the company id.
-
-A company on no live card (removed from every card after its candidate was written) shows `cards = 0`,
-`pen_only = false`, so it sorts just before the pen-only block. `pen=after` (default) keeps that order, `pen=only`
-lists only the pen-only companies, `pen=exclude` leaves them out; `offset` / `limit` cut the page. `total` counts
-every company waiting and `pen_only_total` the pen-only ones, whatever the page and `pen`.
-
-**Its cost is fixed.** The awaiting list (one query), one `read_states` batch per value type, one grouped read of
-open user flags (`flags.open_by_company`), one master read for the flag-only companies' tickers (made even when there
-are none) and one card count: the number of statements does not grow with the queue, nor with 0 or 25 open flags
+**The queue** lists one row per company with a candidate waiting (`state.awaiting_companies`) or an open user flag
+(a count only). Order: pen-only companies last, most cards first, longest wait, then the id. Its query count is fixed
 (`tests/app/test_admin_platform_values_queue_api.py`).
 
-## The card count
+**Extract now** (`POST /admin/platform-values/{security_id}/extract`) runs background extraction's per-company step
+with run kind `steward` on the recurring SEC client (`app.deps.get_platform_sec_client`), holding no lock or
+transaction across the SEC call, and answers the attempt and the company's new state. 404 for an unknown company
+or no CIK, 422 for an ETF, 409 when busy (`tests/app/test_admin_platform_values_extract_api.py`).
 
-`platform_values/cards.py`, `card_counts(conn, security_ids) -> dict[UUID, CardCount]` with
-`CardCount(cards: int, pen_only: bool)`. One statement for any number of ids:
+### The card count
 
-- `cards`: how many live (non-archived) cards hold the company, in ANY workspace, in any basket row: every link,
-  the Discovered pen and the silent links (Context, ETFs, Bench) included (approved D5 (a)). One card holding the
-  company in two rows counts once.
-- `pen_only`: every one of those rows is the `Discovered` link (approved B5 (a)). A row with no link counts as not
-  Discovered.
-- A company on no live card is absent from the answer; the caller decides what that means.
+`platform_values/cards.card_counts(conn, security_ids)` gives, in one statement, how many live cards in any
+workspace hold each company (every link included; a card counts once) and whether every row is the Discovered pen
+(`pen_only`). It is the one platform-value read that crosses workspaces, so it returns those two numbers only and
+logs nothing. `tests/app/test_card_count_guard.py` allows two callers: the steward router (the queue order) and
+`platform_values/extraction.py` (the extraction work order, never served). A new caller joins that guard's
+`ALLOWED` with the reason it is steward-side.
 
-It is the only W4 read that crosses workspaces, so it returns two numbers per company and nothing else: no thesis
-id or name, no workspace, no user, no link label; it logs nothing. It is steward-side only:
-`tests/app/test_card_count_guard.py` fails when a product file other than the steward router names it. W3's
-backfill may reuse it for its order: add the caller to that guard's `ALLOWED` in the same change.
+## What a user sees
 
-### The steward's company page (W4b)
+### The user's read
 
-`/admin/facts/<security_id>` (steward-only in the UI like Admin; a plain user sees one line and no request is made;
-reached by the company search box on the page, and from the queue card once W4c lands). One block per value
-(`frontend/src/admin/CompanyFacts.tsx`, words in `factWords.ts`): the state line (who set it, when, the filing link
-and date), a waiting candidate with its located passages, flags and Explain (the Workbench's explain route; a draft,
-never a value), then Approve, Correct, Dismiss, Undo, Pin and Unpin, each answered by the company's new values. An
-undo cannot be undone, so the page offers the decision again (Approve on the reopened candidate, "Correct again"
-prefilled from the set-aside version). A refusal shows the server's sentence inside the block that made the call.
-Nothing disappears: dismissed candidates, undone decisions and set-aside versions stay in the collapsed History, gray.
-Who pinned a value, when and why shows beside the Pinned chip, from the company read's newest pin event (`pin`).
-
-### Extract now (W4d)
-
-`POST /admin/platform-values/{security_id}/extract` (steward only, no body) runs background extraction's own
-per-company step, `extract_one(..., run_kind="steward")`, on the RECURRING SEC client (`app.deps.get_platform_sec_client`,
-the five-minute dial: companyfacts is re-read from the cache unless the company filed since; its requests ride the
-recurring lane of the global SEC budget). The step fetches with the company free, then the machine writer takes the
-lock and writes, then exactly one attempt row is appended. The route never holds the lock itself and holds no
-transaction across the SEC call. There is no daily allowance to charge: a steward is never counted.
-
-| Answer | When | Written |
+| Route | Who | Answers |
 |---|---|---|
-| 200, `attempt.status` `done` | the writer ran | its usual rows, plus the attempt |
-| 200, `attempt.status` `error` | SEC unreachable, a document missing, no SEC User-Agent set, ... | the attempt only (`error`, one line); a value awaiting the steward still waits |
-| 404 (`PLATFORM_VALUE_NOT_FOUND`) | no such company in the data tenant | nothing; nothing fetched |
-| 404 (`PLATFORM_VALUE_NO_CIK`) | the company has no CIK | nothing; nothing fetched |
-| 409 (`COMPANY_BUSY`) | another writer held the company for the whole wait (`ingest_lock_request_wait_s`) | the `busy` attempt only |
-| 422 (`PLATFORM_VALUE_FUND`) | an ETF (`extraction.extractable` is false) | nothing; nothing fetched |
+| `GET /platform-values/{security_id}` | anyone signed in | both values of any company in the master; 404 for an unknown id |
+| `GET /platform-values/theses/{thesis_id}` | anyone signed in, own workspace | every company on the card; another workspace's thesis is 404 |
 
-`PlatformExtractOut { attempt: PlatformExtractAttemptOut, company: CompanyValuesOut }`;
-`PlatformExtractAttemptOut { attempt_id, status, error, detail, live_fetches, shares, cash_burn }`, each value a
-`PlatformExtractValueOut { outcome, reason, written, fact_id, candidate_id }` with `outcome` the writer's reason
-(`applied`, `flagged`, `pinned`, `nothing_found`, `already_on_file`, `older_than_on_file`, `after_today`) or
-`failed` / `skipped` (`reason` then the attempt's error line or detail); `reason` on `nothing_found` is the
-extractor's own (`cash-generative`, ...); `written` False on `flagged` means the same flag was already waiting.
+Each value (`UserValueOut`) carries the state and its words, who set it as a kind, the applied value with its
+filing, an annual line, a pending line when a newer filing waits, the passages of a value awaiting the steward, and
+`my_flag`, the caller's own flag. `platform_values/user_view.values_for` builds it from `read_states` in a fixed
+number of statements (`tests/platform_values/test_user_view.py`). Every user screen and agent tool reads it. It is
+current, with no as-of: a dated view must not use it to explain an old meter.
 
-**The recent attempts on the company read.** `CompanyValuesOut.attempts` (additive): the company's newest 10
-`platform_extraction_attempt` rows, newest first, whoever ran them:
-`PlatformExtractionAttemptOut { id, recorded_at, run_kind, status, shares_reason, cash_reason, error, detail }`.
-The company page lists them in each value's History.
+- **No parked number reaches a user.** A value awaiting the steward, or a pending newer filing, carries the filing's
+  link, date and passages, never a candidate figure, flag name or note.
+- **No email reaches a user.** No plain user's response and no agent tool names who set a value by email; the scored
+  read, the Filing Stream, Ticker Lookup and the Evidence Ledger say a kind (`machine`, `steward`, `carried`, or
+  `you` for the user's own purity; `tests/app/test_no_steward_email_for_users.py`). The steward's routes still
+  show emails.
+- **The words** live in `platform_values/words.py`, outside `domain/`, so a wording change does not move the
+  editions fingerprint (`tests/platform_values/test_words.py`).
 
-## The user's read (W5a)
+A user never writes a share count or cash: the Workbench rail's Shared values block is read-only, and the purity
+panel (`FactsPanel.tsx`) is the user's own.
 
-A plain user reads both values of a company, or of every company on one of their cards, with the state in words,
-who set the value as a kind, and their own flag on it. They never write a value. This is the one read every user
-screen and agent tool uses (the Workbench's Shared values block and the Cockpit's lines, W5e; `get_triage`, W5d).
-It is CURRENT: there is no `asof`, so a dated view must not use it to explain an old meter.
+### Flags
 
-| Route | Answer |
-|---|---|
-| `GET /platform-values/theses/{thesis_id}` | `UserThesisValuesOut { thesis_id, members }`: the card's resolved members in basket order, each company once; another workspace's thesis is 404 (`get_thesis_or_404`, like every thesis route) |
-| `GET /platform-values/{security_id}` | `UserCompanyValuesOut { security_id, ticker, name, shares, cash_burn }`: any company in the master (shared data, no card check); an unknown id is 404 ("There is no such company.") |
+A user may flag a value in any state as wrong or missing. A flag tells the steward and never changes the value;
+only the user and the steward see it. Everything else: [VALUE_FLAGS](VALUE_FLAGS.md).
 
-The static `theses` path is declared before `{security_id}`; nothing else lives under the prefix (a user's flag
-routes live under `/value-flags`, W5b). Both routes are on the plain user gate; the steward may read them too.
+## Runway does not apply
 
-`UserValueOut { fact_type, state, reason, label, set_by, value, annual_line, pending, awaiting, my_flag }`:
+A runway (cash divided by quarterly burn) means nothing for a bank, insurer, broker, exchange, asset manager,
+lender or fund trust: its cash moves with customer money, loans or fund flows, not with spending.
 
-| Field | Meaning |
-|---|---|
-| `state`, `reason` | the state from `read_states` (the one reader): `no_value` (with the reason), `from_filing`, `awaiting_steward`, `verified` |
-| `label` | the state in words (`platform_values/words.py`, below) |
-| `set_by` | who set the value shown: `machine` / `steward` / `carried`; None with no value. Never the steward's email |
-| `value` | the value the meters show (`UserAppliedValueOut`): `source`, `source_url`, `valid_from`, `filing_accepted`, `set_at`; a share count's `shares` and ADS fields; cash and burn's `cash_usd`, `investments_usd`, `quarterly_burn_usd`, the stored `currency` (None = not recorded), `currency_symbol` (the one rule, `domain.cash_currency`) and `pace` (`domain.burn_pace.stored_pace`) |
-| `annual_line` | an annual cover count (`source='annual-cover'`): "annual figure from the 20-F or 40-F cover, as of Mar 31, 2026" |
-| `pending` | a newer flagged candidate beside the value shown: `event_date`, `filing_accepted`, `source_url`, `line` ("A newer filing (dated ...) is awaiting the steward"). No figure. The value shown is kept |
-| `awaiting` | nothing shown and a flagged candidate waits: `event_date`, `filing_accepted`, `source_url`, `line`, `located_passages` (`kind`, `anchor`, `excerpt`, `url`) and `passages_unreadable`. **No figure** |
-| `my_flag` | the caller's own flag on the value (`id`, `note`, `opened_at`, `closed_at`, `outcome`, `outcome_note`): their open flag, else their newest closed one; None if they never flagged it |
+- **The rule:** `securities.business_type.runway_applies(*, sector, ticker, instrument_kind)`, pure. False for every
+  ETF and for a ticker or SIC description listed in `backend/securities/business_type/runway_not_meaningful.csv`;
+  true otherwise, including no SIC. It keys on the SIC string, never the business-type leaf: the finance leaf also
+  holds crypto miners and treasury companies, whose runway is real. The file's contract and its tests:
+  [the business-type README](../backend/securities/business_type/README.md).
+- **Who asks it:** the Workbench scoring (`workbench/scoring.py`: the scored read, the Cockpit name panel,
+  `get_triage`), the Peer Table (`dashboards/peer_table.py`) and the user's read.
+- **What changes:** no runway pips, months or pace; the scored runway carries `runway:not-applicable` and the fit no
+  funding risk; the Peer Table gap is `not_applicable`; the user's read adds `runway_not_applicable`. Screens show a
+  quiet "n/a" with `platform_values.words.RUNWAY_NOT_APPLICABLE`, never a warning (invariant 7).
+- **What does not change:** the cash and burn are still extracted, stored, shown and flaggable.
 
-**No parked number reaches a user** (approved B1 (b), 2026-11-16): for a share count or cash awaiting the steward
-the answer carries the state, the filing's link and date and its located passages, and no candidate figure, flag
-name or note; the pending line likewise names only the newer filing. The passages are the filing's own words, so
-an excerpt can print the number the filing prints. (An API or agent caller can still reach the live extract route's
-raw parse until W7 narrows it.)
+Display only: nothing on the call path imports the rule.
 
-**`my_flag`** reads `value_flag` (migration 0202) with ONLY its original columns, in one statement whose WHERE
-names the caller's id (`user_id = %s`), never a read of every user's flags filtered afterward:
+## Narrowed fetches
 
-```sql
-SELECT DISTINCT ON (security_id, value_type)
-       id, security_id, value_type, note, opened_at, closed_at, outcome, outcome_note
-FROM value_flag
-WHERE user_id = %s AND security_id = ANY(%s) AND value_type = ANY(%s) AND value_ref = ''
-ORDER BY security_id, value_type, (closed_at IS NULL) DESC, closed_at DESC NULLS FIRST, opened_at DESC, id DESC
-```
+- **A user's extract is purity only.** For a plain user, `GET /workbench/securities/{id}/extract` (own card, the
+  extract allowance) runs `ingest.edgar.extract.extract_purity_for_security`: the submissions index, companyfacts and
+  one 10-K or 10-Q, never the values filing, an annual document or an exhibit. A 20-F or 40-F filer answers
+  `purity-not-covered`. The steward gets the full extract (`tests/ingest/test_extract_purity.py`,
+  `tests/app/test_user_fetches.py`).
+- **Steward-only:** `POST /workbench/facts/explain`, `POST /workbench/securities/{id}/ingest-prices`, the ETF resolve
+  and the business-type re-tag (`require_super_admin`; `tests/app/test_auth_gate.py`, `STEWARD_PATHS`).
+  `POST /workbench/facts` refuses a share count or cash from a plain user (403) and the retired catalyst form (409).
+- **A fund or SPAC attach loads like a promote:** `POST /radar/funds/attach` and `POST /radar/spac/attach` call
+  `app.routers.workbench.start_member_load` when they added a company.
 
-**Its cost is fixed:** the master (one statement), one `read_states` batch per value type and the flag query, for
-one company or thirty (`tests/platform_values/test_user_view.py` counts the statements on its own connection).
-Links: every URL field is `HttpUrlOut`, built by `dashboards.filings.source_url` (a stored URL that passes the one
-rule, an accession through the EDGAR index, anything else None).
+## Who can do what
 
-**The words** live in ONE module, `platform_values/words.py` (not under `domain/`, so the editions fingerprint does
-not move): `state_label`, the no-value reasons (`NO_VALUE_WORDS`), `set_by` / `set_by_words`, `annual_line`,
-`pending_line`, `awaiting_line`, `day_words`, and (W5d) the server-written lines: `set_by_line` ("From the filing
-(applied automatically)" / "Verified by the steward on Nov 18, 2026" / "Verified (carried over from V1)") and the
-scored read's market-cap notes (`CAP_NO_PRICE`, `CAP_NO_SHARES`, `CAP_ADS_UNREAD`). Tests:
-`tests/platform_values/test_words.py`, `test_user_view.py`, `tests/app/test_platform_values_user_api.py` (real
-sign-ins: two plain users in two workspaces and the steward).
-
-## No email reaches a user (W5d)
-
-No response a plain user can receive, and no agent tool, names who set a value by email. Who set it is a KIND:
-
-| Surface | Before W5d | Now |
+| Route, control or CLI | Who | Enforced by |
 |---|---|---|
-| The scored read (`GET /workbench/theses/{id}/scored`, `workbench/scoring.py::_prov`) | provenance `detail.ratified_by` = the stored value (the steward's email) | `detail.set_by`: `machine` / `steward` / `carried` for a share count or cash; `you` for the user's own ratified purity |
-| The Filing Stream and Ticker Lookup rows (`dashboards/filings.py`) | form "ratified fact", detail "Source: ratified, ratified by s@x", wire `ratifier` = the email | a shared value a person set: form "verified value", detail "Verified by the steward on Nov 18, 2026" or "Verified (carried over from V1)"; a machine value: "From the filing (applied automatically)"; the user's purity: form "ratified fact", "Ratified by you on Nov 18, 2026"; a company catalyst a person ratified: like the steward's value. Wire `set_by` (`you` / `steward` / `carried`), never `ratifier` |
-| The Evidence Ledger (`dashboards/evidence_ledger.py`) | class `operator` for any fact a person set, `by` = the email | class `steward` (after `operator`, before `system`) for a shared value or company catalyst the steward set (carried V1 values too), `by` `steward` / `carried`; the user's purity stays `operator`, `by` `you`. Tallies: `facts_ratified` (yours), `facts_verified` (the steward's), `facts_stored` |
-| `get_triage`, `lookup_ticker` (agent tools) | copied the provenance detail and the detail lines | copy the new kinds and lines; `get_triage` adds each member's `values` (state and words, current) |
+| `GET /platform-values/...` | anyone signed in | `require_user` (`_USER`, `app/main.py`) |
+| `/admin/platform-values/*` (12 routes) | steward | `require_super_admin` (`_STEWARD`); `test_admin_platform_values_api.py` |
+| `POST /workbench/facts`, share count or cash | steward | the route's `is_super_admin` check |
+| Nightly and onboarding extraction | machine | [PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md) |
+| `pipeline.extract_values`, the two repair CLIs | operator | by hand; dry run by default |
 
-The steward still sees emails on the steward-only routes (`/admin/platform-values/...`). The scored read no longer
-carries `unconfirmed_estimates` (a blank runway or cap is a shared value's state, read here; a blank purity is the
-user's own). Tests: `tests/app/test_no_steward_email_for_users.py` (real sign-ins: no `@` in the scored read, the
-Filing Stream, Ticker Lookup or the Evidence Ledger), `tests/dashboards/test_filings_words.py`,
-`tests/workbench/test_scoring_words.py`.
+## Settings
 
-## Flags (W5b)
-
-A plain user who thinks a shared value is wrong, or missing, **flags** it: the flag tells the steward and never
-changes the value. Only the flagging user and the steward ever see it. (The word is the user's; the extractor's
-FLAG tier and a candidate's `outcome='flag'` are different things.)
-
-**What may be flagged** (decision B5 (a)): a company's share count or cash/burn in any state: a value shown (from
-the filing or verified), a value awaiting the steward, and "no value yet" (a request to look at it). Catalysts are
-W6 (`value_type='catalyst'` is refused, 422). The request carries only the company, the value type and an optional
-note; the SERVER records what was current when the flag was raised (`platform_values.state.read_state`): the shown
-fact's id (`seen_fact_id`), the candidate awaiting the steward (`seen_candidate_id`), or neither. When a value is
-shown and a newer candidate is pending, the flag targets the value shown. The screens say "current when flagged".
-
-**The table** (`value_flag`, migration 0202, extended by 0210; user-keyed, no tenant, `UNSCOPED_TABLES`; `keep` in
-the cutover): one OPEN flag per user and value (a partial unique index); closed once as `fixed` / `kept` (the
-steward) or `withdrawn` (the user, `closed_by` the literal `user`); a closed row is never edited (a trigger). 0210
-adds three nullable columns, each set only on the INSERT or the one close: `seen_candidate_id` (a flag sees a value
-OR a candidate, never both: a CHECK), `fixed_decision_id` (allowed only when `outcome IS NOT DISTINCT FROM 'fixed'`,
-so an open row with a link is refused: a plain `outcome = 'fixed'` would be UNKNOWN on an open row and pass) and
-`reopens` (at most one row reopens a flag: a unique index; a trigger refuses a reopen of an open or user-withdrawn
-flag, or one that changes the user, company or value). 0211 adds `reopened_by` (the steward's email on a reopen
-row; when = that row's `opened_at`; a CHECK allows it only on a row that reopens something; nullable, so a reopen
-written before 0211 or by hand has none). Every query of the table lives in
-`repositories/value_flag_repo.py`; each user-side read filters by the user's id in SQL
-(`tests/app/test_value_flag_guard.py`).
-
-**The module** `platform_values/flags.py` (no commit inside; the route commits):
-
-- `raise_flag`: the per-user-and-value **advisory transaction lock** (`lock_value`, namespace `0x414446`), then the
-  duplicate check, then the allowance charge (`app.allowance.take`, in the same transaction), then the state read,
-  then the insert. The route commits the row and its unit together; a refusal rolls both back. So two simultaneous
-  identical requests give ONE row, ONE unit and ONE Slack message, and the loser answers 409 having spent nothing
-  (`tests/app/test_value_flag_api.py`, two real threads on two connections). The partial unique index still guards
-  the row (a `UniqueViolation` is the same 409).
-- `withdraw`: the user's own open flag only; never refunds. `mine`: the user's own flags, open first (newest opened
-  first) then closed (newest closed first), paged.
-- For the steward's routes (W5c, below): `steward_close` (the company write lock, then `close`, then the commit),
-  `close` (`fixed` needs a STANDING approve or correct of the SAME company and value type, checked in the close
-  transaction after the flag row is locked; `kept` needs a note that is not blank after trimming and names no
-  decision), `reopen` (the inverse of the steward's close, decision B3 (a): a NEW open row copying the original's
-  user, company, value, what it saw and the user's note, stamped `reopened_by`; refuses an open flag, one already
-  reopened, one the user withdrew, and a value the user has flagged again since; sends no Slack, spends no
-  allowance), `reopen_refusal` (the same refusals, read from a listed page), `for_company` (open flags oldest first
-  plus a page of closed ones, each with the user's email, decision B4 (a): steward routes only, and which closed ones
-  were reopened as what) and `open_by_company` (one grouped statement: count, per value, the oldest open).
-
-### The routes (plain users, `/value-flags`)
-
-Mounted with `_USER`; no `asof` (a flag is about the value now). Request models carry the bounded types of
-`domain/text_types.py`; response models carry none.
-
-| Route | Request | Answer |
+| Knob | Owner | Passed by compose? |
 |---|---|---|
-| `POST /value-flags` | `ValueFlagIn { security_id, value_type: "shares_outstanding" \| "cash_burn", note: Prose \| null }` (any other field is ignored) | 201 `ValueFlagOut` |
-| `GET /value-flags?limit=1..100 (50)&offset=0..100000 (0)` | | `ValueFlagListOut { items: ValueFlagOut[], total }` (the caller's own only) |
-| `POST /value-flags/{flag_id}/withdraw` | no body | 200 `ValueFlagOut` |
+| `ALPHADECK_INGEST_LOCK_REQUEST_WAIT_S` (every action's lock wait) | `domain/settings.py` | no |
+| `annual_shares_auto_max_age_days` | `ExtractorConfig` in `domain/config.py` | no (a domain dial) |
+| Extraction settings, the kill switch | [PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md) | yes |
+| The flag allowance, the steward's Slack webhook | [VALUE_FLAGS](VALUE_FLAGS.md) | yes |
 
-`ValueFlagOut { id, security_id, ticker, name, value_type, note, opened_at, closed_at, outcome, outcome_note,
-current_when_flagged: "value" | "awaiting" | "none", reopens }`: never who closed it, never another user. `note`
-and `outcome_note` are plain strings, exactly as stored (no HTML or markdown anywhere; screens render them as text).
+## Known limits
 
-Refusals, in this order on a raise:
+- `pipeline/dedup_identical_versions.py` deletes duplicate versions in every tenant and follows none of the repair
+  rules; the writer guard lists it so a new writer still fails and calls its V2 rules a follow-up.
+- An older candidate reopened by an undo waits in no queue.
+- A company fixed by a same-day annual tie is not retaken by the nightly until a new periodic filing (its attempt
+  is `done`); the steward presses Extract now.
+- The user's read is current only.
 
-| Status | When | Body (`detail`) |
-|---|---|---|
-| 401 | not signed in | the gate's |
-| 403 | the steward (raise and withdraw) | "The steward corrects values on the company page. A flag is for users." |
-| 422 | a value type other than the two, a note over 2,000 characters, a malformed id (FastAPI, before anything is read) | the validation list |
-| 404 | a company unknown OR not on any of the caller's own cards: ONE body for both, read in the caller's workspace only and before any flag or allowance read | "This company is not on any of your cards. Add it to a card first." |
-| 409 | an open flag by this user on this value (nothing spent) | "You already have an open flag on this value. The steward will look at it." |
-| 429 | the day's flag allowance spent | "Daily allowance reached: 50 flags a day. It resets at midnight America/New_York time." |
+## Related
 
-On a withdraw: 404 "There is no such flag." for an id that is not the caller's or does not exist (the same bytes);
-409 "This flag is already closed." A withdrawal never refunds the unit; flagging the value again spends one.
-
-**The allowance**: action `flag`, `ALPHADECK_ALLOWANCE_FLAG_PER_DAY` (default 50 per user per market day; 0 = no
-limit; `docs/AUTH.md`). It bounds the Slack messages a user can cause: withdraw then flag again spends a unit each
-time.
-
-### The Slack message
-
-One per raised flag (none on a withdrawal, close or reopen), built from what the raise transaction read and sent by
-a FastAPI background task AFTER the commit and after the answer (`notify/flags.py`): to
-`ALPHADECK_STEWARD_SLACK_WEBHOOK_URL` (decision W-c), else `SLACK_WEBHOOK_URL`, else one log line; through
-`notify.post_text` (the escaping chokepoint) with a 5-second timeout. A failure or an exception is logged without
-the URL and never changes the answer or the stored row.
-
-```
-Flag from a user: ACME (Acme Corp), share count
-Current when flagged: 52,113,000 shares, from the filing, dated 2026-09-30
-Note: the cover lists two classes
-Open: https://<ALPHADECK_PUBLIC_ORIGIN>/admin/facts/<security_id>
-```
-
-"Current when flagged" reads `<count> shares, from the filing | verified by the steward | verified (carried over
-from V1), dated <valid_from>` (cash/burn: no figure; the currency rule lives on the steward's page), plus `; a newer
-filing dated <date> awaits the steward` when one is pending; `awaiting the steward (a filing dated <date>)` (no
-number, decision B1 (b)); or `no value yet (<reason>)`. No note: no Note line. No public origin: `Open: Admin >
-Shared facts > <ticker>`. Each value is flattened with `one_line` (the note is cut at its 300-character default; the
-steward reads the whole note on the company page) and `& < >` are escaped at the chokepoint, so a note with
-`<!channel>`, a link or a newline posts as one inert line. It says "a user": never an email, a user id, a
-workspace, a card count or a queue rank. The channel carries users' notes, so every reader of it must be a steward.
-
-### The steward's side (W5c)
-
-Steward-only routes in `app/routers/admin_platform_values.py` (mounted under the steward gate; a plain user gets 403
-on each, and on the company read and the queue, with nothing written). Each answers the company's new state
-(`CompanyValuesOut`, the shape every steward write answers). Refusals use the error contract: the fixed sentence of
-`app.errors.VALUE_FLAG_SENTENCES`, a reference, and for the steward the detail.
-
-| Route | Request | Answer |
-|---|---|---|
-| `POST /admin/platform-values/flags/{flag_id}/close` | `PlatformFlagCloseIn { outcome: "fixed" \| "kept", note: Prose \| null, decision_id: uuid \| null }` | 200 `CompanyValuesOut` |
-| `POST /admin/platform-values/flags/{flag_id}/reopen` | no body | 200 `CompanyValuesOut` |
-| `GET /admin/platform-values/{security_id}?flags_offset=0..100000 (0)&flags_limit=1..100 (20)` | | `CompanyValuesOut` with `flags` |
-
-Refusals:
-
-| Status | When | Sentence |
-|---|---|---|
-| 404 | no flag with that id (close or reopen) | "There is no such flag." |
-| 409 | close: the flag is already closed (by the steward or withdrawn by its user) | "This flag is already closed." |
-| 409 | close `fixed`: the decision is unknown, another company's or value type's, a dismissal or an undo, or undone | "That decision is not a standing approve or correct of this company's value. Nothing was saved." |
-| 409 | close: another writer holds the company for the whole wait | the existing company-busy sentence |
-| 422 | close `kept` with no note or one that is blank after trimming | "Closing a flag as kept needs a note for the user. Nothing was saved." |
-| 422 | close `kept` naming a decision | "A flag closed as kept names no decision. Nothing was saved." |
-| 422 | close `fixed` naming no decision | "Closing a flag as fixed needs the decision that fixed it. Nothing was saved." |
-| 422 | an outcome other than the two, a note over 2,000 characters, a malformed id | the validation list |
-| 409 | reopen: the flag is open | "This flag is still open, so there is nothing to reopen." |
-| 409 | reopen: a row already reopens it | "This flag was already reopened. Reopen its newest closed flag instead." |
-| 409 | reopen: its user withdrew it | "The user withdrew this flag. Only a flag you closed can be reopened." |
-| 409 | reopen: the user has a newer open flag on the value | "The user has a newer open flag on this value, so this one is not reopened." |
-
-**Close as fixed is ordered by the company write lock.** `flags.steward_close` reads the flag's company, ends that
-read, then takes the company write lock (`db.write_lock.acquire_company_lock`, the one every approve, correct,
-dismiss, undo and pin takes, waiting `ingest_lock_request_wait_s`), then in ONE transaction locks the flag row,
-checks the decision (still an approve or correct of this company and value type, no undo naming it), closes the
-flag, commits, and only then releases. An undo of that decision therefore runs wholly before the close (the close
-is refused, nothing written) or wholly after it (the close stands). `tests/app/test_admin_platform_values_flags_api.py`
-proves it with two real threads on two connections: the close pauses after its check until the undo has been made
-to wait for the lock; when the undo answers, the flag is already closed. (Without the lock the undo answered first
-and the close still committed a fix linked to an undone decision.)
-
-**A linked decision undone LATER.** The closed row is never rewritten (0202's closed-once trigger refuses it), so a
-`fixed` flag keeps its `fixed_decision_id`. The company read shows the decision with `undone: true` and
-`fixed_decision_undone: true` ("the linked correction was since undone"), and the flag can be reopened. The user
-still reads `fixed` on their own flag; the steward reopens it when the fix no longer stands. Nothing closes or
-reopens by itself (decision W-j: an approve or correct never closes flags).
-
-**The company read's `flags`** (`PlatformUserFlagsOut { open, closed, closed_total, closed_offset, closed_limit }`):
-every open flag, oldest first, and one page of closed ones, newest closed first, so an old closed flag (and its
-Reopen) stays reachable by paging. Each `PlatformUserFlagOut`: `id`, `value_type`, `user_email` (decision B4 (a):
-the steward's page names the user; Slack never does), `note` (plain text as stored), `opened_at`,
-`current_when_flagged` (`value` / `awaiting` / `none`) with `seen_value` (the stored version it recorded, with
-`set_aside`) or `seen_candidate` (the candidate that was awaiting the steward, with its standing decision), `reopens`,
-`reopened_by`, `reopened_as` (the row that reopened this one), `closed_at`, `closed_by` (a steward's email, or `user`
-for a withdrawal), `outcome`, `outcome_note`, `fixed_decision` (with `undone`), `fixed_decision_undone`, `can_reopen`
-and `reopen_refusal` (the sentence the reopen route would answer). Reopen eligibility is read from the page already
-fetched: every open flag of the company is listed, so "the user has a newer open flag" needs no extra query.
-
-**Reopen** (decision B3 (a)) appends a new open row linked by `reopens`, copying the user, company, value, note and
-what was current from the closed row (nothing from the request) and stamping `reopened_by` with the steward's email;
-the closed row stays in the history as it was, so a reopen then a second close keeps both closes. It sends no Slack
-message and spends none of the user's allowance. The user's own list shows the new open flag with `reopens`.
-
-**Privacy.** A plain user's answers (`GET /value-flags`, `GET /platform-values/...`) carry only the caller's own
-flags, with the outcome and the steward's note and never `closed_by`, `reopened_by`, another user's flag or any
-count. Only the steward's routes read `user_email`, `closed_by` and `reopened_by` (`repositories/value_flag_repo.py`'s
-steward-side reads; the user-side reads select a column list without them). Proven with real sign-ins (two plain
-users in two workspaces and the steward) in `tests/app/test_admin_platform_values_flags_api.py`.
-
-## The Workbench and Cockpit for a user (W5e)
-
-A plain user never writes a share count or cash/burn: both are platform values. The screens (frontend only):
-
-- **The rail's "Shared values" block** (`frontend/src/workbench/SharedValues.tsx`, words in `components/valueWords.ts`):
-  read-only, one quiet block per value, from `GET /platform-values/{security_id}`, labeled CURRENT (a dated view says it
-  shows today's state and never explains an old meter with it). Each state has its words: from the filing; verified by the
-  steward; verified (carried over from V1); awaiting the steward (the filing link and date and the passage behind "Show the
-  filing passage", **no figure**); no value yet (the reason, quiet); a newer filing waits (gray line; the applied value and
-  the meters keep the applied value).
-- **The Flag** on each block (not for the steward, who gets "Open on the steward's page" instead): a one-line optional
-  note, "Send to the steward" / "Cancel"; then "You flagged this on <date>. The steward will look at it." with "Withdraw";
-  the steward's outcome is loud for 14 days after `closed_at` (computed, nothing stored), then quiet. Every refusal shows the
-  server's own sentence. Notes render as plain text.
-- **Purity stays the user's own** under "Purity (yours to set)" (`FactsPanel.tsx`: extract, the proposal, Confirm). The
-  shares and cash confirm forms, the per-row and per-section "get data", and the machine auto-confirm call are gone from the
-  Workbench for everyone; `POST /workbench/facts` still accepts the share and cash variants until W7 narrows it.
-- **The stale-shares badge** (`staleSharesMonths(date, asof, source)`): an annual-cover count inside the 400-day cap shows no
-  badge (its date is in the hover); a quarterly count over six months old keeps it.
-- **The Cockpit name panel**: "N unconfirmed estimate(s)" is gone; under the meters, only on the current view and only when
-  it applies, gray lines: "Share count: awaiting the steward", "Cash: no value yet (...)", "Purity: not set yet (yours to
-  set in the Workbench)".
-
-## A user's extract is purity only (W7a)
-
-The rule "a plain user never sees an unverified extracted number" now holds on the API too, not only on the screens.
-
-- **`GET /workbench/securities/{id}/extract`** for a plain user (and the server's own system principal) runs
-  `ingest.edgar.extract.extract_purity_for_security`: it reads the submissions index, companyfacts (purity's revenue
-  test) and ONE document, the latest 10-K, else the latest 10-Q, and returns the HUMAN purity candidate alone. It never
-  fetches the values filing, an annual (20-F/40-F) document or an exhibit, so no share count or cash figure exists to
-  return. A company whose newest periodic filing is a 20-F or 40-F answers `empty_reason="purity-not-covered"` after
-  the submissions read alone (the annual path never covered purity); a company with no periodic or annual filing keeps
-  `no-annual-filing`. The facts panel says: "Purity is not read automatically for a company that files annual reports
-  on Form 20-F or 40-F. Set it by hand from its annual report." The thesis-aware purity proposal works as before.
-- **The steward** keeps the full extract (all three candidates, the annual path, the exhibit hunt); the steward
-  console's own extraction (`POST /admin/platform-values/{id}/extract`) is unchanged.
-- **`POST /workbench/facts/explain`** is steward-only (`require_super_admin`), with no allowance.
-- **The agent tool `get_extract`** says the same: a user's token reads purity only (`docs/AGENT_TOOLS.md`).
-
-## W7b: no user fetch of platform data; attaches load like a promote
-
-- **The auto-confirm route is gone** (`POST /workbench/facts/auto-confirm`, its request and answer schemas, the
-  `auto_confirm` allowance and its setting). No screen or agent tool called it; shared values come from background
-  extraction and the steward.
-- **The price pull is the steward's** (`POST /workbench/securities/{id}/ingest-prices`, `require_super_admin`, not
-  counted). A plain user's call is the steward-only 403.
-- **A fund or SPAC attach starts the same data load as a promote.** `POST /radar/funds/attach` and
-  `POST /radar/spac/attach` call `app.routers.workbench.start_member_load` after their commit when they added the
-  company: the lane (cold names queued for the onboarding job, up to five loaded at once outside the nightly
-  window), the global ingest cap, one `price_pull` unit per new name for a plain user, then the kick. The answer
-  carries `ingest` or `onboarding` like the promote's. The Cockpit's fund-launch line no longer pulls prices; after
-  an add it reads "Added. Its prices and filings are loading now; the price appears in a few minutes." or "Added.
-  Its prices and filings load in the background outside the nightly window; until then it shows no price."
-- **Allowances reviewed down** (settings and `docker-compose.yml`): extract 300, new names loaded at once
-  (`price_pull`) 200, holdings 200, chain drafts 20, term runs 50, flags 50 (unchanged).
-
-## Runway does not apply (V2 C1)
-
-A runway (cash divided by quarterly burn) means nothing for a bank, insurer, broker, exchange, asset manager, lender
-or fund trust: its operating cash flow moves with customer money, loans or fund flows, not with spending (the
-2026-11-18 audit: a bitcoin ETF trust read cash 0, a $660M burn and runway 0; a broker under two quarters).
-
-- **The rule, one place:** `securities.business_type.runway_applies(*, sector, ticker, instrument_kind)`, pure. False
-  for every ETF (`instrument_kind='etf'`), a ticker listed in `backend/securities/business_type/runway_not_meaningful.csv`
-  or a company whose SIC description (`security_master.sector`) is listed there (21 strings: banks, savings
-  institutions, brokers and dealers, exchanges, commodity brokers (the crypto ETF trusts file there), investment
-  advice, investors NEC, the five insurer strings, the six lender strings). True otherwise, including no SIC: nothing
-  disappears by accident. It keys on the SIC string, never on the business-type leaf (`finance_brokers` also holds
-  "Finance Services": the crypto miners and crypto-treasury companies, which keep their runway by operator decision,
-  as do insurance agents). Edit the file to re-rule; `tests/securities/test_business_type.py` checks every SIC row is
-  a live string.
-- **The three reads that show a runway ask it:** the Workbench scoring (`workbench/scoring.py`: the scored read, the
-  Cockpit name panel, `get_triage`) via `master.identity_for`'s derived `runway_applies`; the Peer Table
-  (`dashboards/peer_table.py`, the same identity); the user's shared-values read (`platform_values/user_view.py`).
-- **What changes there:** no runway pips, months, year-to-date pace or pace caveat. The scored runway carries the
-  cash fact's provenance (cash, burn, currency, investment part) and a `runway:not-applicable` entry with the
-  sentence; the fit adds no "funding risk". The Peer Table cell has gap `not_applicable` with `note` (the stored cash
-  and burn stay on it; left out of the runway count). The user read adds `runway_not_applicable` (the sentence; None
-  when runway applies) and its cash value carries no `pace`.
-- **What does not change:** the cash and burn are extracted, applied, stored and shown as numbers with their source,
-  and keep their flag; the steward's read and console show every figure as before; no migration.
-- **The words** (`platform_values.words.RUNWAY_NOT_APPLICABLE`): "Runway does not apply to this kind of company (a
-  bank, insurer, broker, exchange, asset manager, lender or fund trust): its cash moves with customer money, loans or
-  fund flows, not with spending." Screens show a plain "n/a" with that sentence on hover or as a quiet line; never a
-  warning (true of a small minority, asks nothing).
-- Display only: nothing on the call path imports the rule, and it lives outside the editions fingerprint.
+[PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md), [VALUE_FLAGS](VALUE_FLAGS.md),
+[WORKBENCH_EXTRACTION](WORKBENCH_EXTRACTION.md), [WORKBENCH_SCORING](WORKBENCH_SCORING.md), [ADMIN](ADMIN.md),
+[AUTH](AUTH.md) (allowances), [TENANT_SCOPES](TENANT_SCOPES.md), [INVARIANTS](INVARIANTS.md).

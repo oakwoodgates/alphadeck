@@ -45,7 +45,7 @@ model runs on this path (invariant 3): every fact is a filing or a price bar.
 
 Legs a, j and k run on a live pass only. Each fail-open leg uses its own connection, so its fault cannot
 reach the per-thesis counters or the recording gate. Leg k budgets against what is left of the pass's time
-limit ([PLATFORM_VALUES](PLATFORM_VALUES.md), "Background extraction"); the fund radar is
+limit ([PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md), "The nightly step"); the fund radar is
 [FUND_RADAR](FUND_RADAR.md)'s.
 
 #### The per-thesis loop

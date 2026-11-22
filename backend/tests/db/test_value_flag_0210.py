@@ -1,5 +1,5 @@
 """V2 W5b: migration 0210 links a user's flag (``value_flag``) to what it saw, to the decision that fixed it and to
-the closed flag it reopens (``docs/PLATFORM_VALUES.md`` §Flags).
+the closed flag it reopens (``docs/VALUE_FLAGS.md``).
 
 - three nullable columns: ``seen_candidate_id`` (the candidate awaiting the steward when the flag was raised),
   ``fixed_decision_id`` (the steward's decision behind a ``fixed`` close) and ``reopens`` (the closed flag a new

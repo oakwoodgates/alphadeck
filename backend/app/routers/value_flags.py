@@ -1,4 +1,4 @@
-"""A user's FLAG on a platform value (V2 W5b; ``docs/PLATFORM_VALUES.md`` §Flags): "this shared share count or
+"""A user's FLAG on a platform value (V2 W5b; ``docs/VALUE_FLAGS.md``): "this shared share count or
 cash/burn looks wrong (or is missing)", told to the steward. A flag never changes a value; only its user and the
 steward ever see it.
 

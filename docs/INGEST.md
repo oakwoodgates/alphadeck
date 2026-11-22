@@ -167,7 +167,7 @@ it leads to stay append-only.
   fast lane gets the fetch-ahead.
 - **Two more steps per batch.** At the start, `pipeline/split_history.py` fills the split history of every live
   member that has none (`security_split_history`, migration 0067; needs `MASSIVE_API_KEY`). After the queue,
-  the job extracts platform values for never-extracted companies ([PLATFORM_VALUES](PLATFORM_VALUES.md), "The
+  the job extracts platform values for never-extracted companies ([PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md), "The
   onboarding job's step").
 - **The nightly's treatment.** The pass reads the pending rows once (a failed read walks every member in full).
   A member still queued, in progress or failed gets its per-filing legs windowed to filings within
