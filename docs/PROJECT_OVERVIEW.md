@@ -9,7 +9,7 @@
 > repo layout** in `docs/PROJECT_LAYOUT.md`; where data lives at runtime in `docs/DATA_FLOW.md`; **how the platform
 > feeds itself** in `docs/FEED_LOOP.md`; the front door (narrative → chain) in `docs/DISCOVERY.md` (how the names
 > are found — EDGAR-first) + `docs/WORKBENCH.md` (the authoring / ratify / promote surface); the SURFACE stage
-> in `docs/WORKBENCH_EXTRACTION.md` + `docs/DISCOVERY.md` (identity), basket crafting in `docs/WORKBENCH.md`; the live
+> in `docs/EXTRACTOR.md` + `docs/DISCOVERY.md` (identity), basket crafting in `docs/WORKBENCH.md`; the live
 > sequencing in `docs/ROADMAP.md`.
 >
 > **Status — the MVP is COMPLETE.** Both halves on one spine are built: the **front-half loop closes**

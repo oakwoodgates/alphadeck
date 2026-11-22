@@ -5,7 +5,7 @@ deterministic filing extractor on each company that is due and hands the result 
 ([PLATFORM_VALUES](PLATFORM_VALUES.md)). The machine runs it in the nightly pass and in the onboarding job; the
 operator runs the backfill by hand; the steward runs it for one company with Extract now. Read this before you
 change when a company is extracted, the run order, the attempt record or the backfill. How the extractor reads a
-filing is [WORKBENCH_EXTRACTION](WORKBENCH_EXTRACTION.md). Nothing here is a call input: no module of the call,
+filing is [EXTRACTOR](EXTRACTOR.md). Nothing here is a call input: no module of the call,
 replay or editions engine names it
 (`tests/platform_values/test_extraction_run.py::test_no_call_path_module_names_the_background_extraction`).
 
@@ -195,5 +195,5 @@ to the nightly pass and the onboarding job ([FEED_LOOP](FEED_LOOP.md)).
 
 ## Related
 
-[PLATFORM_VALUES](PLATFORM_VALUES.md), [WORKBENCH_EXTRACTION](WORKBENCH_EXTRACTION.md), [FEED_LOOP](FEED_LOOP.md),
+[PLATFORM_VALUES](PLATFORM_VALUES.md), [EXTRACTOR](EXTRACTOR.md), [FEED_LOOP](FEED_LOOP.md),
 [ADMIN](ADMIN.md), [DATA_SOURCES](DATA_SOURCES.md) (the SEC budget and cache rules).

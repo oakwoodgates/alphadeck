@@ -40,7 +40,7 @@ alphadeck/
 ├── scripts/ensure-venv.sh · .ps1   # tooling: provision THIS checkout's backend/.venv with `-e ".[dev,replay,mcp]"` (per worktree, idempotent; `make venv`) + ensure-venv-probe.py, the readiness probe both twins run
 ├── docs/                           # THE CANON — read STAGE_MODEL.md first (the frame), then by stage
 │   ├── STAGE_MODEL.md · PROJECT_OVERVIEW.md · ROADMAP.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
-│   ├── DISCOVERY.md · WORKBENCH.md · WORKBENCH_EXTRACTION.md · WORKBENCH_SCORING.md   # the front half, in stage order
+│   ├── DISCOVERY.md · WORKBENCH.md · EXTRACTOR.md · WORKBENCH_SCORING.md   # the front half, in stage order
 │   ├── BOARD.md (the MONITOR surface) · CALL_LOGIC.md (the brain) · FEED_LOOP.md (the rhythm) · ADMIN.md (the ops surface)   # the back half
 │   ├── SCOREBOARD.md · DISPLAY_SIGNALS.md   # SCORE (the forward record) · the read-only tape indicators
 │   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · TENANT_SCOPES.md · REPLAY.md · DEV_PROD.md   # + the local dev/prod split

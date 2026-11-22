@@ -6,7 +6,7 @@ decides the rest, and a plain user reads each value with its state and may flag 
 cap, the runway meter and the Peer Table; neither is a call input. Read this before you change
 `backend/platform_values/`, `domain/platform_values.py`, or any reader or writer of `fact_shares_outstanding` or
 `fact_cash_burn`. When the machine runs: [PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md). A user's flag:
-[VALUE_FLAGS](VALUE_FLAGS.md). How a number is parsed from a filing: [WORKBENCH_EXTRACTION](WORKBENCH_EXTRACTION.md).
+[VALUE_FLAGS](VALUE_FLAGS.md). How a number is parsed from a filing: [EXTRACTOR](EXTRACTOR.md).
 
 ## Code
 
@@ -41,7 +41,7 @@ carried over, an email the steward. The check was added `NOT VALID`; the V2 cuto
 validates both constraints. `domain.platform_values.ratifier_kind` maps a stored value to `machine`, `carried` or
 `steward`.
 
-**Cash columns.** What `cash_usd` includes: [WORKBENCH_EXTRACTION](WORKBENCH_EXTRACTION.md). Migration 0208 adds
+**Cash columns.** What `cash_usd` includes: [EXTRACTOR](EXTRACTOR.md#the-uniform-cash-rule). Migration 0208 adds
 `currency` (the statement's ISO code; the `*_usd` columns hold that currency's figures, never converted) and
 `investments_usd` (the investment part inside `cash_usd`); 0209 adds the stored year-to-date pace
 (`ytd_quarterly_burn_usd`, `ytd_burn_days`, both or neither). NULL means not recorded, never an invented `USD` or 0;
@@ -296,5 +296,5 @@ Display only: nothing on the call path imports the rule.
 ## Related
 
 [PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md), [VALUE_FLAGS](VALUE_FLAGS.md),
-[WORKBENCH_EXTRACTION](WORKBENCH_EXTRACTION.md), [WORKBENCH_SCORING](WORKBENCH_SCORING.md), [ADMIN](ADMIN.md),
+[EXTRACTOR](EXTRACTOR.md), [WORKBENCH_SCORING](WORKBENCH_SCORING.md), [ADMIN](ADMIN.md),
 [AUTH](AUTH.md) (allowances), [TENANT_SCOPES](TENANT_SCOPES.md), [INVARIANTS](INVARIANTS.md).
