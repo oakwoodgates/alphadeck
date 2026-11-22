@@ -12,7 +12,7 @@ against SPY."
 
 It answers "what did the payers, the rivals and the direct reads just say": one table, across every card counted at
 the as-of, of every company the operator tagged with a context role, sorted by what it filed most recently. It is the
-cross-card lens on the roles backfilled in Phase 1 (`docs/TRIAGE.md`), and the row's drill-in is where the Phase 2
+cross-card lens on the roles backfilled in Phase 1 (`docs/WORKBENCH.md`), and the row's drill-in is where the Phase 2
 read-through panel lands later. Display only: it never feeds a call, never writes to the database and never calls the
 LLM. A role is display metadata (#4) and is never written by the model (#3); this page only shows it.
 

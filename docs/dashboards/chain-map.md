@@ -38,7 +38,7 @@ and never calls the LLM. At a past as-of it draws the roster as of that night.
   operator-approved description. A company with a role that ALSO sits in a real link is drawn in its link column with
   the role tag and no rail copy (one node per company).
 - **Edges = the roles.** A rail node draws one edge to the chain's bracket (the whole chain, not a link): a role names a
-  part, not a target (`docs/TRIAGE.md`), so the edge lands on the chain as a whole. Payer and financier edges come
+  part, not a target (`docs/WORKBENCH.md`), so the edge lands on the chain as a whole. Payer and financier edges come
   in from the left; direct-read, participant and benchmark edges come in from the right; a counter-case edge is
   dashed. Edges are thin, gray, no arrowheads beyond a small end mark; the role is the label.
 - **Context and Bench names with no role** sit in a quiet "Context" and "Bench" column at the far right, behind a

@@ -7,7 +7,7 @@ field. This CLI productizes the remedy: resolve a scope to per-tenant ``{cik: se
 the EXISTING ``workbench.enrichment.enrich_for_ciks`` over them (per-CIK isolated, commit-per-CIK resumable,
 idempotent UPDATE-in-place). Because ``master.enrich`` writes EVERY submissions-sourced column every run,
 any future field added to ``parse_identity`` + the ``enrich`` UPDATE is backfilled by re-running this same
-command — no bespoke script again (the field-generic checklist, ``docs/WORKBENCH_ENRICHMENT.md``).
+command — no bespoke script again (the field-generic checklist, ``docs/DISCOVERY.md`` "Identity enrichment").
 
 Scopes (bare invocation = ``--baskets``); a full re-enrich of the scope every run — deliberately no
 ``--missing-only`` (a per-field "missing" predicate goes stale every time a field is added; a basket-wide

@@ -1,496 +1,276 @@
-# DISCOVERY.md — the EDGAR-first discovery system
+# Discovery
 
-> Repo path: `docs/DISCOVERY.md`. How the Workbench finds the **names** for a thesis: from a narrative to a
-> complete, deterministic, CIK-keyed universe of US-listed companies, surfaced PLACED / VERIFY with thesis-fit
-> prose and a matched-term provenance tag. This is the name-finding engine behind the narrative→chain front
-> door; `CHAIN_DRAFTER.md` is its companion (the authoring / ratify / promote surface that consumes this draft).
->
-> House style follows `INVARIANTS.md`: a statement, the war story that earned it, then **Enforced by:** the
-> code + tests. Companions: `INVARIANTS.md` (#11 exact membership, #3 no model-sourced numbers, **#9 recall is
-> sacred**), `CHAIN_DRAFTER.md`, `ROADMAP.md` (sequencing). Engines:
-> `backend/ingest/edgar/fulltext.py` (the EFTS enumerator + `classify`), `backend/workbench/term_set.py` (the
-> producer), `backend/workbench/discovery.py` (the orchestrator), `backend/workbench/chain_draft.py` (the
-> per-CIK reconciler), `backend/llm/keyword_gen.py` + `backend/llm/chain_decomposition.py` (the demoted LLM
-> roles), `backend/app/routers/workbench.py` (the `/terms` + `/draft-chain` endpoints).
->
-> **Status: BUILT + operator-confirmed live.** Deterministic ~57 PLACED + a VERIFY tier, every name carrying
-> thesis-fit prose + a matched-term tag, recall 31/32 on the answer key.
+How the Workbench finds the companies for a thesis: the card's term set drives an EDGAR full-text search keyed
+by CIK, the hits are classified PLACED or VERIFY, a model organizes and narrates them, and the result comes back
+as a draft. A user runs it from the Workbench on their own card; a steward's draft also stores each company's
+identity on the shared master; the nightly never runs discovery or identity enrichment. Read this before you
+change the term set, the enumerator, the caps, the draft job, a model step in the draft, the run log or identity
+enrichment. What a user does with the draft is [WORKBENCH](WORKBENCH.md); the recall rules are
+[invariant 9](INVARIANTS.md#9-recall-is-sacred).
 
----
+## Code
 
-## The diagnosis — why single-pass LLM recall cannot do this  *(preserved; still load-bearing)*
+| Piece | Module |
+|---|---|
+| Term set: producer, tier guard, edit stamping | `backend/workbench/term_set.py` |
+| Keyword proposals; tier recommender | `backend/llm/keyword_gen.py`; `backend/llm/tier_recommendation.py` |
+| EFTS enumerator and classifier | `backend/ingest/edgar/fulltext.py` (`discover`, `classify`) |
+| Orchestrator and its failure types | `backend/workbench/discovery.py` (`run_discovery`) |
+| Organizer, narrator, tail-sweep | `backend/llm/chain_decomposition.py`; cache and guard in `backend/workbench/research_runner.py` |
+| Reconciler, resolver, listing-status gate | `backend/workbench/chain_draft.py` |
+| The pipeline and its routes | `backend/app/routers/workbench.py` (`execute_draft`, `start_draft_chain`) |
+| Draft jobs; run log; run loader | `backend/workbench/draft_jobs.py`, `draft_run_log.py`, `run_loader.py` |
+| Identity | `backend/ingest/edgar/submissions.py` (`parse_identity`), `backend/workbench/enrichment.py`, `securities/master.enrich` |
+| Canonical primary | `backend/securities/sec_tickers.py`, `master.ids_for_ciks`, `master.canonicalize_ids` |
+| Editor side | `frontend/src/workbench/ChainEditor.tsx`, `DraftStatusStrip.tsx`, `RunPicker.tsx` |
 
-The first drafter was a single **forced** Sonnet tool call (`tool_choice` pinned to `draft_value_chain` — it
-literally cannot search), proposing names from training recall. That is **recall, not research, and it cannot
-be tuned away**:
+## How it works
 
-- **Stochastic.** Three runs of the same psychedelic-therapy thesis returned three different baskets (only two
-  names survived all three); one run reached for **NVAX, a COVID-vaccine maker** — off-thesis drift.
-- **False absents.** A real listed name lands as "not in your universe" because the model proposes a **dead
-  identity** (MindMed → renamed Definium/DFTX, already in the master).
-- **`high_beta` on everything** — a non-answer wearing a classification's clothes.
+### Why EDGAR, not model recall
 
-**Completeness is a METHOD problem, not a phrasing problem.** A discovery bake-off (psychedelic thesis, live) put
-three methods head-to-head — **A** EDGAR full-text (EFTS), **B** LLM parallel-union, **C** LLM exclude-extend — and
-made it concrete: the LLM methods sampled a **different tail each run** (~6 core stable, ~6–7 tail varying, ~$3.60 /
-3 runs, plus free-text-parsing fragility + identity hallucination), while **EDGAR full-text returned the same 404
-CIKs every time, deterministic, for $0** (ibogaine re-query: 31 = 31, identical). The LLM spend buys variance;
-EDGAR buys determinism, and **CIK-keying dissolves the identity + variance problems at once.** Verdict: **method A
-as the foundation; kill B** (parallel-union dominated on every axis); the LLM **demoted** off enumeration to the two
-roles it is good at — proposing candidate keywords, and a directed tail-sweep (C-style) for names EDGAR
-structurally can't see. This is `INVARIANT #9` in its origin: recall is the point, and a stochastic method silently
-drops real names.
+A model asked to name companies from memory returned a different basket on each run, drifted off thesis, and named
+renamed companies under dead identities. EDGAR full-text search returns the same CIKs every run, for free, and a CIK
+survives renames and trade names. So the deterministic layer owns completeness, and a model only proposes keywords,
+sweeps for the foreign tail, arranges names into segments and writes one sentence per name. There is no fallback to
+model recall: a discovery that cannot enumerate the universe fails.
 
----
+### The pipeline
 
-## The architecture — EDGAR-first, deterministic, operator-seeded
+`execute_draft` runs, in order:
 
-One narrative → a complete universe, in six steps. The deterministic layer (steps 1–4) owns COMPLETENESS; the
-LLM (steps 5–6) only arranges LAYOUT and adds DISPLAY prose + the foreign tail (the organizer emits structure
-+ assignment only; the batched narration step authors ALL per-name prose — the prose reroute). Nothing here
-sources a number (#3); discovery only PROPOSES — exact CIK membership DECIDES (invariant 11).
+1. Read the card's stored term set; a seeds-only draft keeps the SIGNAL entries only.
+2. Enumerate EFTS for every term under per-tier caps (`run_discovery`, `discover`).
+3. Resolve each CIK to an exact master row and classify PLACED or VERIFY (`master.ids_for_ciks`, `classify`).
+4. Identity: a steward's draft stores it on the master; a user's draft overlays it for this response only.
+5. Tail-sweep for names EFTS cannot see (`research_tail_sweep`); skipped on a seeds-only draft.
+6. Organize the names into segments (`decompose_narrative`, parsed by `proposed_from_decomposition`).
+7. Reconcile the layout against the discovered universe, CIK by CIK (`resolve_discovered_chain`).
+8. Narrate every PLACED and VERIFY name (`narrate_placements`) and attach the run report.
 
-### 1. The term set — the operator owns the discriminating decision
+### The term set
 
-The thesis OWNS a persisted, tiered **term set** (`thesis.term_set`, JSONB, operational-not-bitemporal, mirrors
-`segments`). Each entry is **SIGNAL** or **BROAD**:
+| Tier | Source | What a hit does |
+|---|---|---|
+| SIGNAL | the user's seeds (`operator_set`) or a term the user promoted (`operator_edited`) | places the company alone (PLACED) |
+| BROAD | keyword proposals the guard kept (`system_drafted`) | corroborates only (VERIFY) |
 
-- **SIGNAL = operator SEEDS** — anchored canonical compounds (e.g. `psilocybin`, `ibogaine`, `5-MeO-DMT`). A
-  SIGNAL hit **places a company alone**. `authored_by = operator_set`.
-- **BROAD = keyword-gen proposals** — the LLM brainstorms candidates; a deterministic guard (`assign_tier`)
-  tiers each. **No LLM proposal is ever SIGNAL** — it is BROAD (contributes only to the ≥-net, never places
-alone) or DROPPED (generic/regulatory noise; a short collision abbreviation like `MDMA`/`DMT`/`LSD` that
-  would ≥2-combine into junk). `authored_by = system_drafted`. An LLM term may be **recommended** for
-  promotion to SIGNAL, but it becomes `operator_edited` SIGNAL only on the operator's explicit approval —
-  the model never self-promotes (INVARIANTS.md #10).
+- `assign_tier` never returns SIGNAL for a model proposal: it keeps it as BROAD or drops it as generic or a short
+  collision token. Why: a live draft once placed hundreds of junk names because the model put collision terms in
+  SIGNAL; taking the tier off the model made PLACED the same set on every run.
+- `POST /workbench/theses/{id}/terms` produces the set. Every user-authored entry is kept verbatim, new seeds join as
+  SIGNAL, and only the `system_drafted` terms re-roll.
+- `PUT /workbench/theses/{id}/terms/edit` saves the user's edit with no model call; the server stamps authorship by
+  diffing the stored set (`stamp_edited_term_set`). A blank or duplicate term is a 422; an empty list clears the set.
+- `POST /workbench/theses/{id}/recommend-tiers` returns a model's tier and reason per term on its own wire type and
+  calls no writer; the user adopts one through the edit toggle
+  ([invariant 10](INVARIANTS.md#10-the-model-recommends-a-person-decides)).
+- `thesis_repo.set_term_set` is the only writer; `upsert` never names `term_set`, so a save cannot blank it
+  (`tests/repositories/test_thesis_repo.py::test_upsert_cannot_blank_a_persisted_term_set`).
+- Seed quality is a person's judgment, never a code filter. Demoting a widely cited seed (esketamine) to cut junk
+  would have moved eleven real answer-key companies to VERIFY; the matched-term tags make the junk easy to delete.
 
-Produced out of band by **`POST /workbench/theses/{id}/terms`** (`produce_terms` → `produce_term_set`): the
-keyword-gen LLM proposes, the guard tiers, the operator's seeds are preserved across a regenerate (so a re-POST
-re-rolls the LLM half while anchoring the seeds). The **autonomous** "is this term discriminating?"
-decision is **off the model and off the draft path** — no LLM term self-tiers to SIGNAL, and discovery
-just READS what the operator ratified. The model MAY **recommend** a tier (for an operator seed or its own
-proposal); the operator confirms it, exact membership still decides placement, and the confirmed tier is
-operator-authored (INVARIANTS.md #10).
+### Enumeration (EFTS)
 
-**The tier RECOMMENDER (INVARIANT #10) — BUILT.** `POST /workbench/theses/{id}/recommend-tiers`
-(`recommend_tiers`, Haiku, own `llm_tier_rec_*` dials) recommends `signal`/`broad` + a one-line reason per term,
-judging each independently of its current tier. It is **DISPLAY-ONLY + RESPONSE-ONLY**: a separate wire type
-(`TierRecommendation`), never on `ThesisDetail.term_set`, the endpoint calls **no writer** (test-enforced byte-
-identical `term_set`), and it is **off `produce_term_set`'s determinism path** (`assign_tier` untouched). The FE
-shows every term's recommendation (the "✦ Recommend tiers" button) — loud for a **disagreement** (DEFENSE: your
-SIGNAL seed flagged BROAD — caught the nuclear flood before it placed junk; OFFENSE: an unseeded term flagged
-SIGNAL — the value cell), quiet for an **agreement** (show-everything in v1 to judge the engine). The **confirm is
-the existing tier toggle** — the operator's click stamps `operator_edited` (`stamp_edited_term_set`), never an
-LLM-authored SIGNAL; an adopted OFFENSE keeps a "✦ adopted" trace in v1. A recommendation changes nothing until
-confirmed → recall stays sacred (#9), no number (#3).
+- `discover` queries EFTS per term and unions the distinct CIKs, each tagged with the terms that hit it. Pages fan
+  out over a thread pool, but every fetch goes through the one shared `EdgarClient` and its rate limiter
+  ([DATA_SOURCES](DATA_SOURCES.md) "EDGAR etiquette"), and the merge equals the sequential walk.
+- Caps are per tier: SIGNAL terms enumerate deep (`discovery_hit_cap`), BROAD terms shallow
+  (`discovery_broad_hit_cap`), and a term in both tiers enumerates deep. Why: a BROAD hit only corroborates and its
+  deep pages are mostly unrelated filers, while a SIGNAL hit places a name, so a real company deep under a seed must
+  not be cut. A term that reaches its cap lands in `capped_terms` and its chip is marked. The caps are backstops; a
+  normal run should not reach them.
+- A failed page gets one more pass after the fan-out, through the same client; a recovered page 0 also fetches its
+  deep pages. If the failed fraction still exceeds `discovery_degraded_ratio`, `discover` raises `DiscoveryDegraded`
+  with the counts; below it, the gap rides the report's coverage.
+- An error body is a failed page, never an empty one. EFTS sometimes answers success with an error body; every page
+  is validated and a bad one raises `EftsErrorBody`, takes the retry, and lands in `failed_terms` if still bad.
+  `empty_terms` means a valid page 0 with zero hits, and the client never caches a bad body
+  (`tests/ingest/test_fulltext.py::test_an_error_body_on_page0_is_RETRIED_and_recovered_never_reported_empty`).
 
-- *War story:* the live draft once placed ~370 junk names (utilities on "substance use disorder", Verisign on
-  "MDMA") because keyword-gen put generic/collision terms in its SIGNAL tier and "≥1 signal → PLACED" faithfully
-  placed them. The fix took the tiering decision off the LLM entirely.
-- *Enforced by:* `workbench/term_set.py` (`produce_term_set`, `assign_tier` — never returns SIGNAL for an LLM
-  term; `tests/workbench/test_term_set.py`); `domain/thesis.py` (`TermSetEntry`); the structural wipe-guard —
-  `thesis_repo.set_term_set` is the SOLE writer and `upsert`'s SQL never names `term_set`, so a promote omitting
-  it CANNOT blank it (`tests/repositories/test_thesis_repo.py::test_upsert_cannot_blank_a_persisted_term_set`).
+### Classification and the canonical primary
 
-### 2. EFTS enumeration — deterministic, free, CIK-keyed, parallel under a shared rate limit
+- `classify` splits the in-master CIKs: PLACED has at least one SIGNAL hit; VERIFY has BROAD hits only and is
+  surfaced and promotable by hand. A CIK with no master row is left to the tail-sweep. The old rule that two BROAD
+  hits make PLACED is gone: it was the last model-driven placement and made PLACED swing between runs.
+- A CIK with several master rows (share classes, an ADR beside a foreign ordinary, warrants) resolves to its
+  `is_primary` row, ranked by instrument class, exchange, foreign-ordinary demotion, then SEC file order. Why not
+  SEC's first row: checked against every multi-row CIK, it picked OTC lines and warrants over the listed share. The
+  save re-asserts the same pick, so draft and save cannot disagree (`tests/securities/test_canonical_primary.py`).
 
-`discover(edgar, [*signal, *broad], broad=broad − signal, hit_cap=…, broad_hit_cap=…)` queries
-`efts.sec.gov/LATEST/search-index?q="<term>"` for every US filer whose filings mention a term, unioning the
-distinct **CIKs** (each tagged with which terms hit it). It is
-**DETERMINISTIC** (an index query — re-running returns the same set), **CIK-keyed** (the stable identity — no
-ticker-guessing), and **FREE**. Parallel but rate-bounded: per-term pages fan out over a thread pool, yet every
-fetch funnels through the ONE shared `EdgarClient` → the ONE `RateLimiter` (the SEC budget is global), so
-concurrency removes serialization without exceeding the limit; `ThreadPoolExecutor.map` yields in input order so
-the merge is identical to the sequential walk.
+### The tail-sweep
 
-**The run reports its own honesty** (`DiscoveryRun` — the honest-discovery slice, #9 rules 2/3/4 made
-structural, not log-only):
+`research_tail_sweep`, a web-search model pass, gets the found list and is asked for what is missing: foreign, ADR
+and newly listed names with no US filing. It is framed as a directed sweep, never a bare exclusion (which makes the
+model re-list the core). It fails open and only adds context; its outcome is a tri-state on the report (`ran`,
+`failed`, `skipped`), so a lost sweep never reads as "no foreign names exist". The client runs with `max_retries=0`;
+`run_research` caches the result by thesis and narrative for `llm_research_cache_ttl_s` (zero: always fresh). A
+name it surfaces carries `discovery_source="off_universe"`: its origin, not a claim the sweep found it.
 
-- **Coverage + one retry pass.** A page that fails after `polite_get`'s retries is skipped and counted; when
-  the fan-out completes, the failed subset gets **ONE retry pass** through the same client → the same rate
-  limiter (the same global politeness budget — no new dial). A retry-recovered **page-0 also owes its deep
-  pages** (they were never enumerated — recovering page 0 alone would be a silent partial), fetched inside the
-  same pass and counted in `pages_attempted`. The **post-retry** failed fraction drives the existing
-  `DiscoveryDegraded` raise (the failure MODE stays loud; only its frequency drops — #9 rule 5), and its
-  message carries the counts (`"N/M EFTS pages failed"`). A **within-tolerance gap is no longer only a log
-  line**: `DiscoveryCoverage` (pages ok/attempted, the failed TERMS, retried/recovered) rides the draft report
-  to the operator.
-- **An error reply is a FAILED page, never an empty one (2026-10-23).** EFTS sometimes answers with a success
-  status but an error body instead of results — MEASURED on prod: `{"errorType": "ConnectionError",
-  "errorMessage": "getaddrinfo EBUSY ...", ...}`, no `hits`. It used to read as a real zero-hit page: a seed
-  whose page 0 got one landed in `empty_terms` ("no EDGAR filer mentions it") with its deep pages never
-  fetched, a deep page that got one silently dropped its companies (#9), and coverage still read 100% (a
-  real draft reported `81/81` with three live seeds "empty"; the same seeds had 7–9 hits
-  minutes earlier). Now `_fetch_page` validates every page (a JSON object with a `hits` object whose `hits`
-  is a list and whose `total` is an object with an int `value` — pagination reads `total`, so a page with
-  hits but no total used to stop the term's walk at page 0 without a word; MEASURED 2026-10-23, all 1,691
-  cached prod pages carry it) and anything else raises `EftsErrorBody`, so the page takes the retry pass
-  above and, if still bad, lands in `failed_terms` / `DiscoveryDegraded`. The `EdgarClient` never caches the bad body and treats
-  an old cached copy as a miss (`DATA_SOURCES.md` §EDGAR etiquette), so the retry really goes back to SEC.
-  **`empty_terms` keeps one meaning: SEC returned a VALID page 0 with zero hits.** *Enforced by:*
-  `tests/ingest/test_fulltext.py` (`test_an_error_body_on_page0_is_RETRIED_and_recovered_never_reported_empty`,
-  `…_EVERY_attempt_is_a_FAILED_term_not_an_empty_one`, `…_on_a_DEEP_page_is_a_counted_failed_page_not_a_silent_loss`,
-  `test_a_page_with_hits_but_NO_TOTAL_is_a_failed_page_not_a_silent_truncation`,
-  `test_a_REAL_zero_hit_page_is_still_an_empty_term`, and the real-client cache tests after them).
-- **The hit-cap is on the record — and it is PER TIER.** Two caps, one loop, one cap site: SIGNAL terms
-  enumerate **deep** (`hit_cap`, default 5000, `ALPHADECK_DISCOVERY_HIT_CAP`) and BROAD terms **shallow**
-  (`broad_hit_cap`, default 1000, `ALPHADECK_DISCOVERY_BROAD_HIT_CAP`); a term stored in BOTH tiers enumerates
-  deep (recall-first — `run_discovery` sends `broad − signal` as the shallow set). Why the split: a BROAD term
-  is collision-prone (a short generic token hits thousands of unrelated filers, and its deep pages are nearly
-  all noise that only corroborates — VERIFY, never places), while a SIGNAL term is a discriminating operator
-  seed whose hit PLACES a name — a real name surfacing deep under a seed is exactly what a low cap silently
-  dropped. A measured large draft showed per-tier capping keeps the placed-recall of a high global cap with
-  far less verify noise. Both caps are pathological-keyword backstops, not recall limiters — and HITTING
-  either flags: the term lands in `capped_terms` (+ a WARNING naming the cap that applied), rides the draft
-  report, and the FE marks the term chip (`⚠ capped`) inside its own tier list, so a capped SIGNAL term and a
-  capped BROAD term each surface independently with no wire change (`capped_terms` stays one flat,
-  input-ordered list). Pages beyond a cap are genuinely not searched, so a capped term says "deep hits for
-  this term may be missing" — visible, never silent (#9 rule 4). Against the single-cap era (one number for
-  every term) the default universe is a **monotone superset**: BROAD is unchanged and SIGNAL only deepens, so
-  no name that surfaced before can stop surfacing — proven by the answer-key re-score at both configs, not
-  asserted. `discover(broad=, broad_hit_cap=None)` is the single-cap behavior, so every untiered caller is
-  untouched.
+### The organizer and the reconciler
 
-- *Enforced by:* `ingest/edgar/fulltext.py` (`discover` → `DiscoveryRun`/`DiscoveryCoverage`, `Filer`;
-  determinism + parallel-==-sequential tests in `tests/ingest/test_fulltext.py`; the coverage/retry/capped
-  gates there — `test_discover_retry_recovers_a_transient_page`,
-  `test_discover_retry_recovered_page0_fetches_its_deep_pages` (the silent-partial nuance pinned),
-  `test_discover_reports_capped_term`, `test_discover_clean_run_coverage`, and the post-retry count asserts on
-  the degraded tests; the per-tier gates — `test_discover_per_tier_caps_flag_each_tier_independently`,
-  `test_discover_deep_signal_page_survives_the_shallow_broad_cap`,
-  `test_discover_broad_hit_cap_none_is_the_single_cap`,
-  `test_discover_per_tier_parallel_matches_the_sequential_reference`,
-  `test_discover_retry_recovered_broad_page0_caps_its_late_offsets_shallow`; and the tier split at
-  `workbench/discovery.run_discovery` — `tests/workbench/test_discovery.py::test_run_discovery_per_tier_caps`,
-  `…_a_term_in_both_tiers_enumerates_deep`, `…_env_caps_reach_discover`).
+- The organizer arranges the found names into segments: structure and assignment only. Why no per-name prose: in one
+  organize call it grew with the universe and truncated large drafts to zero segments. A stray `prose` field is
+  stripped at `proposed_from_decomposition` and counted in a warning.
+- `resolve_discovered_chain` matches each placement to a discovered CIK by exact ticker, then exact name. An unmatched
+  name goes to `_resolve_one`: a unique exact match is PLACED; a contradiction, several rows or a partial match is
+  AMBIGUOUS with candidate rows (ticker and CIK) for a person to pick; no row is ABSENT, shown and never placed
+  ([invariant 11](INVARIANTS.md#11-entity-resolution-is-an-exact-allowlist)).
+- Every in-master discovered CIK the organizer did not emit is appended to a "Discovered" segment, so the organizer's
+  mistakes cost layout, never a company (`test_draft_endpoint_dropped_discovered_name_surfaces`). A failed organize
+  leaves every name there.
+- The draft never writes Context, ETFs or Bench. A segment named after one is not emitted and its names go to
+  Discovered, with a warning carrying the count; only a person places a name in a silent link
+  ([CALL_LOGIC](CALL_LOGIC.md) section 1).
+- The listing-status gate: a PLACED name whose master row reads `inactive` becomes AMBIGUOUS with its own row as the
+  single pick and a hedged flag, so a false inactive costs one click, never a dropped name.
+- A resolved placement shows the master row's SEC name and ticker, never the model's echo.
 
-### 3. classify — PLACED / VERIFY (seeds-only-place)
+### Narration and display provenance
 
-`master.ids_for_ciks` resolves each discovered CIK to an EXACT in-master member (the cleanest invariant 11),
-then `classify` splits the in-master set by tier:
+- `narrate_placements` writes one thesis-fit sentence per PLACED and VERIFY name, in batches joined back by list
+  number, failing open per batch with a log line. It also sets an `off_thesis` flag per name: a recommendation, and
+  the name stays placed.
+- `matched_terms`, `discovery_source`, `off_thesis` and the identity chips are display only, never promoted onto a
+  member. The exception is `surfaced_terms` (below).
+- No number: the tool schemas and `ChainDraftOut` have no value field, and the prompts forbid figures
+  ([invariant 3](INVARIANTS.md#3-the-model-augments-it-never-sources-a-number-or-a-firing)). A fake-client suite
+  proves wiring, never that the live call works: narration once passed hundreds of fake-client tests and returned
+  empty prose live. After a prompt or model change, run a live draft and read the prose for numbers.
 
-- **PLACED** — hits **≥1 SIGNAL** (a seed — an operator-specified compound). High-confidence; auto-loads.
-- **VERIFY** — no signal, hits **≥1 BROAD** (any count). Lower-confidence, **surfaced not dropped**, and
-  **promotable** (the operator adds the ones that fit). A not-in-master CIK is omitted here — the tail-sweep's
-  job.
+### The draft job
 
-The OLD rule was "≥2 distinct keywords OR ≥1 signal → PLACED". The `≥2-broad → PLACED` clause was dropped — see
-*SIGNAL = seeds only* below.
+- `POST /workbench/theses/{id}/draft-chain` starts a background job and answers 202 with a job id; the optional body
+  sets `scope` (`full` by default, or `seeds_only`). It answers 409 while the card already has a draft running, and
+  429 when `draft_jobs_max_running` drafts run across all cards (checked before the allowance is charged) or when a
+  user's daily `chain_draft` allowance is spent.
+- `GET .../draft-chain/jobs/{job_id}` polls `running`, `done` with the draft, or `failed` with a message. A job lost
+  to expiry or a restart is a 404, shown as a lost draft. The editor polls every 2.5 s and stops at
+  `DRAFT_POLL_TIMEOUT_MS` (`ChainEditor.tsx`), below the reaper's running TTL.
+- A discovery that cannot run ends the job `failed`, with counts where there are any: no term set
+  (`DiscoveryNoTerms`), nothing placeable (`DiscoveryEmpty`), too many failed pages (`DiscoveryDegraded`), or a
+  seeds-only draft with no SIGNAL seeds (`DiscoveryNoSeeds`, before any EFTS fetch). The model steps fail open.
+  Without `ANTHROPIC_API_KEY` they produce nothing, and seeds, EFTS, classification and hand-authoring still work.
+- A seeds-only draft enumerates SIGNAL seeds only and skips the tail-sweep. The scope rides the report, the run log
+  and a badge on the status strip: a chosen state, never a silent substitute for a full draft.
+- The job opens its own connection and writes no `basket_member` or `fact_*` row
+  (`tests/app/test_workbench_api.py::test_draft_endpoint_writes_nothing`). Its only writes are a steward's identity
+  enrichment and the run log file.
+- The registry is in-process memory. `draft_jobs.assert_single_worker` refuses to boot when `WEB_CONCURRENCY` or
+  `UVICORN_WORKERS` asks for more than one worker, and the Dockerfile pins `--workers 1`. More workers would need a
+  shared job store first.
+- The reaper fails a job running past `draft_job_running_ttl_s` and drops finished jobs after
+  `draft_job_finished_ttl_s`. The real cost bound is one tail-sweep pass per job (`max_retries=0` and
+  `llm_research_timeout_s`).
 
-**A multi-sibling CIK resolves to its CANONICAL instrument** (the canonical-primary slice). A CIK often
-carries several master rows (dual-class, US-ADR vs foreign-ordinary, warrants/units, preferred);
-`ids_for_ciks` picks the `is_primary` row — flagged at populate by the **composite rank** in
-`securities/sec_tickers.py` (instrument class > exchange > F-ordinary demotion > SEC file order; the pure
-"SEC-first-row" rule was EMPIRICALLY REJECTED — validated against all 1,476 multi-row CIKs, 51 violations
-including DEVSF/OTC listed before DEVS/Nasdaq and warrants/units listed first). The old bare
-`recorded_at DESC` pick tied on byte-identical timestamps and returned an ARBITRARY sibling — a re-draft
-could resolve a DIFFERENT instrument than the operator confirmed (the FE's security_id dedup then
-duplicated the row), and the shown ticker / price cache / MONITOR position anchored to whichever sibling
-luck picked. **Promote re-asserts the same pick** (`master.canonicalize_ids` — coerce-all, operator-ratified),
-so the spine stores the instrument the operator actually trades regardless of which sibling a draft
-surfaced. Deploy note: the migration (0017) + a `populate_master --live --apply` run backfill the flag;
-`pipeline.repoint_canonical` is the one-time fix for pre-slice baskets (duplicate sibling pairs are skipped
-loudly — the operator prunes, a script never merges visible rows).
+### The run report
 
-- *Enforced by:* `ingest/edgar/fulltext.py` (`classify`, `Discovery`; `tests/ingest/test_fulltext.py` —
-  `test_classify_*`). `precision_filter` (the older `≥2-OR-signal` raw pre-filter) is retained for reference but
-  is NOT the live path; `classify` is. The canonical pick: `securities/sec_tickers.py`
-  (`canonical_sort_key`/`flag_primaries` — every violation class found live is pinned in
-  `tests/securities/test_canonical_primary.py`), `master.ids_for_ciks`/`canonicalize_ids` (+ the promote
-  guard test `test_promote_canonicalizes_a_non_primary_sibling`), `pipeline.repoint_canonical`
-  (`tests/pipeline/test_repoint_canonical.py`).
+Every draft carries `ChainDraftOut.report`: EFTS coverage and failed terms, capped and empty terms, the tail-sweep
+state, the narration fill (M of N) and the scope. `DraftStatusStrip.tsx` shows one quiet line when the run is whole
+and a loud block on any gap, which also tells a done-but-empty draft from a failed one. It is run state, never
+stored on the card or in the term set.
 
-### 4. The per-CIK reconciler — completeness is the deterministic layer's, never the organizer's to lose
+### The run log and the run loader
 
-The organizer (the Sonnet decompose call, step 5) arranges names into value-chain segments — but it is an LLM
-and unreliable at completeness. So **`resolve_discovered_chain`** matches each organizer placement to a
-discovered CIK by exact ticker/name, then **set-difference-appends EVERY in-master discovered CIK the organizer
-DIDN'T emit** to a synthetic "Discovered" segment, by its CIK. A name the organizer silently dropped — invisible
-to an eyeball among a plausible-looking many — is caught structurally. The organizer's mistakes cost segment
-arrangement, never a lost name. (#9 rule: a dropped name is a system failure.)
+- Each completed job writes `data/draft_runs/<thesis_id>/<timestamp>-<job_id>.json` (`write_draft_run_log`): the
+  thesis and narrative, the term set as used, the dials (both caps, the models, the scope) and the full draft. A
+  failed write is logged and swallowed; a failed job writes nothing. The files live on the `appdata:/data` volume.
+  Why: once a draft is pruned and saved, what it surfaced and under which dials is otherwise gone. A file with no
+  `discovery_broad_hit_cap` predates per-tier caps.
+- The run loader reads those files back when `run_loader_enabled` is on; it is off by default.
+  `GET /workbench/theses/{id}/runs` lists a card's runs and `GET .../runs/{run_id}` returns one as a `ChainDraftOut`
+  for the editor to load instead of paying for a fresh draft (`RunPicker.tsx`). Both are 404 when the setting is off
+  (the picker hides); a file that no longer validates is a 422. Loading seeds editor state only
+  (`test_run_loader_loads_artifacts_with_and_without_scope`).
 
-**The draft never writes Context, ETFs or Bench.** Those three fixed links are the operator's silent links — a name in
-one never counts toward the call (`CALL_LOGIC.md` §1) — so only the operator may place one there. A segment the
-organizer proposes under a reserved label (any case) is **rerouted, not emitted**: its names, the CIK-matched
-and the off-universe ones alike, are filed under "Discovered" (where they still count and the operator can move
-them), the result carries at most ONE "Discovered" segment (merged with the organizer's own and with the
-dropped-CIK bucket above), and the reroute is WARNed with its count — never silent, no name dropped (#9). The
-LLM prompt is unchanged; this is the deterministic layer holding the line.
+### Re-scope and `surfaced_terms`
 
-- *Enforced by:* `workbench/chain_draft.py` (`resolve_discovered_chain`; the dropped-CIK-surfaces test in
-  `tests/app/test_workbench_api.py::test_draft_endpoint_dropped_discovered_name_surfaces`; the reroute tests in
-  `tests/workbench/test_chain_draft.py`, "Context / Bench" and the ETFs reroute).
+- `basket_member.surfaced_terms` freezes the matched terms that surfaced a company when it enters the basket. The
+  save keeps the stored value for a member already on the card, the payload for a new one, and empty when omitted
+  (`test_promote_freezes_existing_members_surfaced_terms`). It decides nothing and never reaches the call; invariant 11
+  names it as the one provenance field allowed on a member. `repositories/mappers.py` must read it back, or the next
+  resave wipes it.
+- `pipeline.backfill_surfaced_terms` fills members older than the column by re-running discovery: empty values only
+  unless `--overwrite`; a card whose discovery fails is refused and the run continues. The "original" is the match
+  against the current term set, so run it before a card's terms are refined; afterwards it cannot be recovered.
+- Re-scope (`startRescope` in `Workbench.tsx`) clears only the candidate pile, keeps the saved basket as it is, and
+  re-runs discovery on the current term set. A row shows its frozen terms and, apart, the terms that match it now.
 
-### 5. Fail-open batched narration + matched-term provenance
+### Identity enrichment
 
-Each surfaced name carries two display layers, both value-free (#3):
+- `parse_identity` reads a CIK's submissions JSON: sector, exchange, a listing status, the filer category and the
+  origin ingredients. Identity is never a fact, never a number, never promoted onto a member, never a call input.
+- `master.enrich` fills the exchange only when it is null: submissions give a company-level exchange, the company list
+  writes each instrument's own venue, and overwriting it once labeled a foreign ordinary line "Nasdaq".
+- Status is a listing heuristic (a current ticker and exchange read `active`, else `inactive`), never a delisting
+  verdict; the user sees a hedged guess.
+- Only a genuine submissions document, one that echoes a top-level `cik`, enriches, so a bad fetch cannot harden into
+  a false `inactive`. A fault skips that one name, never the draft (`tests/workbench/test_enrichment.py`).
+- Writers: a steward's draft (`enrich_for_ciks`), `python -m pipeline.enrich_identity`, and the steward's
+  successor-CIK adoption on Admin. A user's draft reads the same submissions through `identities_for_ciks` and overlays
+  them for that response only (`overlay_identity`), because the master is shared data only a steward writes
+  (`tests/app/test_user_fetches.py::test_a_plain_users_draft_writes_no_master_row_and_still_carries_identity`).
+- `pipeline.enrich_identity` re-enriches a whole scope every run (`--baskets` by default, `--thesis`, `--universe`;
+  `--live` to fetch), with no `--missing-only`: a per-field "missing" test goes stale each time a field is added. To
+  add a field, extend `parse_identity` and the `master.enrich` UPDATE, then re-run it.
+- The nightly never enriches identity: the data barely changes, a failure there would sit on the call path, and a
+  command with a receipt is safer than a side effect.
+- The scored view reads identity and a derived origin through `master.identity_for`; the editor prefers it over chips
+  captured at draft time. Business type is derived from the sector by the maps in `backend/securities/business_type/`
+  (its [README](../backend/securities/business_type/README.md)). `former_names` is parsed and unused.
+- CIK keying absorbs renames and trade names, so there is no identity bridge: a redomicile that leaves two CIKs
+  surfaces both, and merging them is bug-prone work for a cosmetic gain.
 
-- **Thesis-fit prose** — `narrate_placements` (a focused Sonnet step, reusing the decompose client) writes one
-  ≤25-word reasoning sentence per empty-prose PLACED + VERIFY name — since the **prose reroute** that is EVERY
-  placed/verify name: the organizer emits structure + assignment only (`{name, ticker}` — per-name prose in the
-  ONE organize call scaled its output with the universe and truncated large drafts to 0 segments), so
-  organizer-placed and reconciler-appended names alike are narrated, each with its real segment label threaded
-  in. **BATCHED** (chunks of 15 — a 100+-name universe in one call truncates the tool JSON to nothing) with a
-  **numbered-`ref` join** (the model replies by list number, never a re-typed name — the key can't drift),
-  **fail-open per batch** (a failed batch keeps `prose=""` and is LOGGED with its reason — visible, never a
-  silent empty), scoped to the promotable tiers (AMBIGUOUS/ABSENT — the identity-triage drawer — render
-  without a fit sentence, accepted). Narration is the SOLE prose author: a stray organizer `prose` is stripped
-  at the single LLM-output door (`proposed_from_decomposition`) and WARN-logged with a count.
-- **Matched terms** — `ResolvedPlacement.matched_terms`, the discovery keyword(s) the name's CIK hit, surfaced
-  as a quiet tag (`KAYS ← esketamine, psilocin`). It makes a colliding seed visible at a glance (#6/#9).
-  Display-only and **recomputed each draft**; its **frozen twin `surfaced_terms`** persists these onto the
-  member at Basket entry (the re-scope churn fix — see *Re-scope* below).
-- **Discovery source** — `ResolvedPlacement.discovery_source` (`"edgar"` | `"off_universe"`), the ORIGIN of a
-  placed name (#6): `"edgar"` = matched a CIK in the EDGAR-discovered universe; `"off_universe"` = resolved
-  OUTSIDE it (via the sweep-augmented context — see §6). Set in exactly ONE place, the `_match_discovered_cik`
-  fork (matched CIK → `"edgar"`, `None` → `"off_universe"` threaded through `_resolve_one`), so it is
-  **orthogonal to status** — an off-universe name can be PLACED / AMBIGUOUS / ABSENT. The FE lights a quiet
-  "off-universe" pill from it. It records "off the deterministic universe," **never** the hard claim "the
-  tail-sweep sourced this" (`decompose` may surface an off-universe name from its own knowledge); display-only
-  like `matched_terms`, never a number (#3), never promoted onto a `BasketMember` (invariant 11).
+## Contracts
 
-**Identity chips carried onto the placement — the derived business type (Business-Type M1).** Beyond those
-value-free layers, `_carry_identity_and_gate` binds machine-parsed IDENTITY from the resolved master row
-onto every PLACED/VERIFY placement (`ResolvedPlacement`): sector, exchange, filer category, derived origin,
-and — new — the **derived business type + royalty overlay**. `business_type` is
-`resolve_business_type(sector, name, ticker, override)`, the SAME derive-on-read the Cockpit *Type* column
-uses (the operator-editable SIC maps in `securities/business_type/`, the operator's per-security re-tag
-winning); the FE renders it as a **muted `.idchip`** riding right after the raw SIC chip on both the
-candidate (To-Review / Couldn't-resolve) and placed rows, with the ◈ **royalty/streaming** overlay marked
-only when true (honest loudness — ~32 of ~8k names). A no-sector name shows **no** chip (honest abstain,
-#9); `other` (a SIC the maps don't cover) still shows — the visible tail. Display-only like the rest: never
-a number (#3), never promoted onto a `BasketMember` (invariant 11), never a call input (#4). *Enforced by:*
-`workbench/chain_draft.py` (`ResolvedPlacement.business_type` / `royalty`, set in `_carry_identity_and_gate`;
-`tests/app/test_workbench_api.py`); `frontend/src/workbench/ChainEditor.tsx` (the `.idchip` at all three
-`IdentityChips` sites; `__tests__/ChainEditor.scoredIdentity.test.tsx`).
+- The draft, its poll and the run loader write no `basket_member` or `fact_*` row; the save is the only writer of
+  the basket, and `thesis_repo.set_term_set` the only writer of the term set.
+- `ChainDraftOut` and `DraftReportOut` are the wire shapes (`backend/openapi.json`); the run loader serves the same
+  `ChainDraftOut`.
+- A file under `data/draft_runs/` is never a fact and never read on the call path.
+- Every change to discovery, classification, caps, tiers or filters re-scores the recall answer key
+  (`tests/fixtures/recall_answer_key.py`) with the `recall-rescore` skill before it merges.
 
-- *War story:* this seam shipped green on 388 fake-client tests yet produced EMPTY prose for every name live —
-  two faults a 1-name fake can't surface (token-ceiling truncation; a name-as-join-key the model formatted as
-  "Name (TICKER)"). **A fake-client suite proves wiring, never that the live LLM call succeeds** — live
-  confirmation against real Anthropic (token ceilings, join keys, parsing) is the gate, not a green fake suite.
-- *Enforced by:* `llm/chain_decomposition.py` (`narrate_placements` — batching, ref-join, per-batch
-  fail-open + `alphadeck.llm` logging; `tests/llm/test_chain_decomposition.py`); `workbench/chain_draft.py`
-  (`ResolvedPlacement.matched_terms`, populated at both reconciler build sites); the draft endpoint fills + tags
-  (`tests/app/test_workbench_api.py`).
+## Who can do what
 
-### 6. The directed tail-sweep — the names EFTS structurally can't see
+Every route sits on the workbench router behind `require_user`; `get_thesis_or_404` limits a card route to the
+caller's own workspace (404 otherwise).
 
-`research_tail_sweep` (the demoted Opus web-search role, behind the cost-safety in-flight guard + TTL cache +
-`max_retries=0`) is given the already-found list and asked for what's MISSING — the foreign / ADR / brand-new-
-listing names with no US filing yet. Framed as a directed sweep, never a bare exclusion (which makes the model
-re-list the core and stop early). Fail-open to `None`; additive, never the universe.
+| Route, control or CLI | Who | Enforced by |
+|---|---|---|
+| Produce terms, recommend tiers | any signed-in user, own card; `term_run` allowance; term cap | `allowance.charge("term_run")`, `workspace_caps.check`; `tests/app/test_user_fetches.py::test_the_draft_and_term_allowances`, `tests/app/test_workspace_caps.py` |
+| Edit terms | any signed-in user, own card; term cap | `workspace_caps.check`; `test_edit_terms_past_the_cap_is_409` |
+| Start a draft | any signed-in user, own card; `chain_draft` allowance (a steward is not counted); global draft cap | `require_draft_room`, `allowance.charge("chain_draft")`; `tests/app/test_job_caps_api.py` |
+| Store identity during a draft | steward; a user's draft only overlays it | `execute_draft(steward=...)`; `test_a_stewards_draft_still_stores_the_identity` |
+| Poll a draft; list or load saved runs | any signed-in user, own card; runs only when `run_loader_enabled` is on | `get_thesis_or_404`; the setting |
+| `pipeline.enrich_identity`, `pipeline.backfill_surfaced_terms`, `pipeline.repoint_canonical` | the operator, in the backend container | no route |
 
-Its contribution is made **visible (and so validatable)** by `discovery_source` (§5): a name the sweep-augmented
-context surfaced resolves outside the EDGAR universe → `"off_universe"` → the quiet "off-universe" pill. The
-signal to watch is *off_universe + PLACED* (a real US-tradeable name EDGAR's term-search missed — the sweep
-earning its keep) vs *off_universe + ABSENT* (something with no US listing). The tag records the off-universe
-ORIGIN, **not** a hard claim the web-search sourced the name — `decompose` may surface one from its own knowledge.
+## Settings
 
-**LIVE VALIDATION (2026-07-06 — P0 finalize item 6, PASSED).** Run against the psychedelic thesis's REAL
-found list (~123 placed+verify names; one bounded Opus pass, status `ran`). The sweep returned **exactly the
-tail it was built for**: PharmAla Biotech (PMBHF), Universal Ibogaine (IBOGF), Bionomics (BNOX) — foreign /
-OTC / ADR filers EFTS structurally can't see, each flagged US-tradeable. Discipline held on every contract:
-**zero found-list names re-listed** (the directed framing works — it hunted what was MISSING); empty corners
-declared honestly ("nothing new confirmed rather than padding", corners 2/3); non-tradeable names labeled
-rather than dropped or oversold (Mindbloom *PRIVATE*, Awakn *ACQUIRED → Solvonis*, Solvonis *foreign-listed
-only*); and **no financial figure in the prose** (numerals appeared only inside drug-candidate identifiers —
-SVN-001/-002/-015 — a trial phase, and a founding year; the #3 no-number bound held live). Known limitation
-unchanged: `max_retries=0` (the deliberate cost guard) means one transient fault loses the pass — now VISIBLE
-as `tail_sweep: "failed"` on the draft report rather than silent (the honest-discovery slice).
+A setting reaches the stack only when compose passes it; otherwise the default in `domain/settings.py` applies.
 
-- *Enforced by:* `llm/chain_decomposition.py` (`research_tail_sweep`); `workbench/research_runner.py` (the
-  in-flight guard); `workbench/chain_draft.py` (`discovery_source`, set at the `_match_discovered_cik` fork);
-  `tests/llm/test_chain_decomposition.py`; `tests/workbench/test_chain_draft.py` +
-  `tests/app/test_workbench_api.py` (the provenance assertions).
+| Knob | Owner | Passed by compose? |
+|---|---|---|
+| `discovery_hit_cap`, `discovery_broad_hit_cap` | `domain/settings.py` | yes |
+| `discovery_max_workers`, `discovery_degraded_ratio` | `domain/settings.py` | no |
+| `llm_keyword_*`, `llm_tier_rec_*`, `llm_decompose_*`, `llm_research_*` | `domain/settings.py` | no |
+| `draft_job_running_ttl_s`, `draft_job_finished_ttl_s` | `domain/settings.py` | no |
+| `draft_jobs_max_running` | `domain/settings.py` | yes |
+| `allowance_chain_draft_per_day`, `allowance_term_run_per_day` | `domain/settings.py` ([AUTH](AUTH.md) "User-triggered fetches") | yes |
+| `run_loader_enabled` | `domain/settings.py` | yes |
+| `ANTHROPIC_API_KEY`, `ALPHADECK_USER_AGENT` | environment | yes |
 
-**The end-to-end front door** (`POST /workbench/theses/{id}/draft-chain`): read the stored term set →
-`run_discovery` (EFTS → classify) → `research_tail_sweep` → organize (decompose — structure + assignment only)
-→ `resolve_discovered_chain` (per-CIK reconcile) → narrate ALL prose + tags → `ChainDraftOut`. If the thesis
-has no term set, or EFTS can't
-enumerate the universe, the draft **503s** (`DiscoveryNoTerms` / `DiscoveryDegraded` / `DiscoveryEmpty`) — never
-a silent fall back to model recall (#9) — and the failed job's operator-facing message **carries the counts**
-(`"discovery unavailable — discovery degraded: N/M EFTS pages failed (X%) after retries"`).
+## Known limits
 
-**The draft SCOPE — the seeds-only fast lane** (draft-scope PR pair #303/#304). The kick-off takes an optional
-`{scope: "full" | "seeds_only"}`; absent = `"full"`, **byte-identical to the pre-scope wire** (the FE's full
-button posts no body). `seeds_only` narrows the INPUT the operator explicitly chose: discovery enumerates ONLY
-the SIGNAL seeds (BROAD terms aren't searched) and the Opus tail-sweep is **skipped outright** — everything
-downstream (classify → reconcile → organize → narrate) is unchanged. It's minutes and dollars cheaper (the cost
-thread), and the #9 position is that a narrowed input is fine **only when loudly labeled, never a silent
-substitute**: the scope rides `report.scope`, the run-log's dials entry, and the FE's persistent seeds-only
-badge — a *chosen* state, not a fault. Zero SIGNAL seeds fails visibly BEFORE any EFTS fetch
-(`DiscoveryNoSeeds`, its message traveling to the failed job **verbatim**: `"no SIGNAL seeds — seed terms in
-the drawer, or run a full draft"`), and a seeds-only `DiscoveryEmpty` appends `"— the seed set may be narrow;
-try a full draft"` — the narrow lane never reads as "nothing exists". *Enforced by:* the scope tests in
-`tests/app/test_workbench_api.py`, the run-loader compat test, and the strip badge tests
-(`frontend/src/workbench/__tests__/ChainEditor.test.tsx`).
+- One transient fault loses the tail-sweep for that draft (`max_retries=0`); the report shows `failed`.
+- The single-worker guard cannot see a `--workers` flag typed on the command line.
+- The no-number bound on drafted prose rests on the prompt wherever the schema cannot block a figure; there is no
+  post-filter.
+- AMBIGUOUS and ABSENT rows carry no thesis-fit sentence.
+- A restart loses running and finished drafts; the run log keeps completed ones.
 
-**Every draft carries its run report** (`ChainDraftOut.report`, the honest-discovery slice): EFTS coverage
-(pages ok/attempted + the failed terms), the `capped_terms`, the **tail-sweep tri-state** (`ran | failed |
-skipped` — `research_tail_sweep` returns a `TailSweep`, so a transiently-LOST sweep is no longer
-indistinguishable from "no foreign names exist"; `skipped` = the operator's own no-key/live-disabled config,
-rendered quiet), and the **narration fill** (M of N names that needed prose got it — since the prose reroute N
-≈ the whole placed/verify set; a partial narration was a log line only). The Workbench renders it as a
-**status strip**: one muted line at 100% healthy, a loud
-flag-block on any gap (inverse loudness), which also disambiguates *done-but-empty* from *failed*. Display-only
-RUN state — value-free (#3), never persisted (the draft stays response-only). *Enforced by:*
-`app/schemas_api.py` (`DraftReportOut`), the report assembly in `execute_draft`
-(`tests/app/test_workbench_api.py::test_draft_report_rides_the_response` / `…_carries_capped_term` / the
-tail-sweep status asserts), `llm/chain_decomposition.py` (`TailSweep`;
-`tests/llm/test_chain_decomposition.py::test_tail_sweep_failopen_names_the_outcome`), and the FE strip tests
-(`frontend/src/workbench/__tests__/ChainEditor.test.tsx`).
+## Related
 
-**And every COMPLETED run leaves a run-of-record** — one WRITE-ONLY JSON artifact per finished draft job
-(`data/draft_runs/<thesis_id>/<utc-timestamp>-<job_id>.json`; `workbench/draft_run_log.py`, fired by the job
-layer on success): the thesis + narrative, the **term set as used**, the dials in effect (both per-tier hit
-caps + models — an artifact lacking `discovery_broad_hit_cap` is from the single-cap era, where
-`discovery_hit_cap` alone bounded every term), and the full draft (segments, placements, the report above). The `calls`-log pattern applied to DISCOVER: the
-report tells the operator the run's honesty *live*; the artifact preserves it *after* the draft is pruned and
-promoted, so "what did that run surface, under which dials?" stays answerable (run-to-run drift at the hit-cap
-boundary is now diffable, not folklore). **Never a read path** — nothing in the app loads it (a file is not a
-fact; promote stays the only spine writer), and a failed write is logged + swallowed, never a failed draft.
-*Enforced by:* `tests/app/test_workbench_api.py::test_completed_draft_job_writes_the_run_log_artifact` (+ the
-untouched `…writes_nothing`), the fail-open units in `tests/workbench/test_draft_run_log.py`, and the hook
-tests in `tests/workbench/test_draft_jobs.py`. Persistence: the compose `appdata:/data` volume.
-
----
-
-## Re-scope — maintaining an established thesis's discovery  `[surfaced_terms]`
-
-The architecture above is the CREATE path (draft → prune → promote). An **established** thesis (curated basket,
-hand-added ETF sleeve, a tuned term set) needs a second, quieter path — **re-scope / maintenance** as the
-operator's understanding evolves: refine the term set, sweep the universe again, but keep the vouched basket
-exactly as it was. Three things make that safe.
-
-**1. `surfaced_terms` — the frozen seed-term provenance.** `matched_terms` (§5) is display-only and
-**recomputed every draft** (the current term set ∩ the name's filings), so refining the term set *churns* an
-established member's tags — words appear, drop, or blank as the vocabulary moves. The fix is a persisted twin:
-`basket_member.surfaced_terms text[]` (migration 0029), **the discovery terms that surfaced this name, frozen at
-Basket entry**. It is captured on the FE the moment a placement enters the basket (`matched_terms` at pick / add
-/ load) and **frozen on promote** — see (2). Provenance only: keyword strings, **never a number, never on the
-call path (#3)**; a hand-added name with no discovery origin (an operator-typed ETF sleeve) honestly carries
-`{}`.
-
-**The deliberate invariant-11 crossing.** §5 says the display tag is "never promoted onto a `BasketMember` (invariant 11)" — and its
-live form still isn't. `surfaced_terms` is the ONE blessed exception, and narrowly: it is not the
-recompute-every-draft tag riding the member, it is a **fact captured once at entry** — *these terms surfaced
-this name*. Membership was already decided by exact CIK + the operator's promote (invariant 11 proper); this record
-**decides nothing**, is never a figure, never an input to the call (#3), and sits squarely on #3/#6's
-explainability side of the line. Operator-blessed, on the record — do not "fix" it back off the member.
-(`INVARIANTS.md` #11 carries the breadcrumb.)
-
-**2. Freeze-on-promote + a re-runnable backfill.** Two write paths, one rule — *the stored value wins for an
-existing member*:
-- **Promote** freezes it: before the upsert, for every member already on the spine, the STORED `surfaced_terms`
-  overrides the incoming payload (a re-draft's fresh matched terms, or a stale client, can never overwrite the
-  original); a genuinely new member keeps its payload; an omitted field defaults `{}`. The original survives
-  every re-draft and re-save.
-- The **backfill** (`pipeline.backfill_surfaced_terms`, the `enrich_identity` re-run pattern) seeds the field
-  for baskets that predate the column: it re-runs discovery per thesis and freezes each member's *current*
-  matches. **Only-fills-empty by default**; `--overwrite` is the sole correction path (the operator can't
-  hand-edit terms in the UI). A thesis whose discovery is degraded/unavailable is **refused per-thesis and the
-  run continues** (found on the dev backfill, where a degraded thesis had crashed the whole run); the exit code
-  gates.
-- *Wipe-trap:* the mapper reads `surfaced_terms` back onto the domain object (`repositories/mappers.py`) — an
-  unmapped field would be silently wiped on the next resave (the `conviction` twin). Guarded by a
-  resave-through-the-mapper test.
-
-> **⚠️ Sequencing (R7, time-sensitive).** The frozen "original" is *defined* as the name's match against the
-> **current** term set — there is no per-name add-date. So the backfill must run **while the thesis still holds
-> its original term set, BEFORE the operator refines it**; once refined, the original is unrecoverable. On the
-> prod rollout the `--live` backfill ran first (327 members frozen / 0 refused) — the freeze-before-refine step.
-
-**3. The re-scope loop (the ⟳ button) + the stale-session gate.** A distinct **Re-scope** action (NOT folded
-into Draft-from-narrative): it clears only the **transient candidate pile** (the non-Basket To-Review /
-Discovered names — re-surfaced by discovery if still relevant, #9), keeps the **whole saved Basket frozen**
-(every member, segment, accept-vs-draft), re-runs discovery on the **current (refined) term set**, and surfaces
-a fresh candidate set. The Basket never churns or vanishes unless the operator acts. It starts from the SAVED
-Basket, **never a stale autosaved session** — and the autosave now carries an **age gate** (`STALE_SESSION_DAYS`:
-an old session prompts rather than silently driving the editor or clobbering the basket on Save — the root of a
-1-click multi-week rollback risk). The display pairs the two records honestly: **`⚓ seeded by:`** the frozen
-originals, and **`+ also matches now:`** the set-diff when a re-scope's new terms hit an established name — both
-visible, distinguished.
-
-- *Enforced by:* migration `0029_basket_member_surfaced_terms.sql`; `domain/thesis.py`
-  (`BasketMember.surfaced_terms`); the promote freeze pass (`app/routers/workbench.py`;
-  `tests/app/test_workbench_api.py::test_promote_freezes_existing_members_surfaced_terms` /
-  `…_new_member_keeps_payload…` / `…_omitted…defaults…`); the narrow writer `thesis_repo.set_surfaced_terms` +
-  the upsert INSERT (`tests/repositories/test_thesis_repo.py` — roundtrip, default, the wipe-trap resave,
-  in-place-touches-nothing-else); `repositories/mappers.py` (the mapper read-back);
-  `pipeline/backfill_surfaced_terms.py` (`tests/pipeline/test_backfill_surfaced_terms.py`, incl. the
-  degraded-thesis-refuses-and-continues test); the FE capture + display + button (`workbench/ChainEditor.tsx` —
-  `⚓ seeded by` / `+ also matches now` / `⟳ Re-scope`; `workbench/useChainDraft.ts`; `workbench/Workbench.tsx` —
-  `startRescope` + the stale-session gate; `__tests__/ChainEditor.test.tsx`). Shipped to prod 2026-08-02.
-
----
-
-## The key decisions, and why  *(do not relitigate)*
-
-- **SIGNAL = operator seeds only** (the model may *recommend* a tier; an operator-confirmed recommendation
-  is operator-authored and stable across runs, so it does not return determinism to the model — INVARIANTS.md
-  #10). Moving the *autonomous* discriminating decision off the LLM made PLACED **deterministic**:
-  the same byte-identical **57-name set across three runs** while keyword-gen re-rolled the broad terms each run
-  (raw universe 3296 / 1020 / 610). The `≥2-broad → PLACED` clause was the *last* LLM-driven placement authority
-  and the source of run-to-run variance (PLACED swung 96 → 184 on the same seeds); demoting it to VERIFY made
-  PLACED stable while keeping every name surfaced. *Enforced by:* the determinism re-score (gitignored
-  `docs/temp/termset_t2_live_gate.py`) + `classify`.
-- **The esketamine case — #9 caught a change we proposed.** A live draft placed off-thesis junk; the suspected
-  fix was demoting the worst-offending seed (`esketamine` — a *marketed* drug, Spravato, named in nearly every
-  CNS 10-K) to BROAD. The #9 answer-key re-score REVERSED it: demoting esketamine moves **11 real answer-key
-  names** to VERIFY (they cite it as comparator) to remove ~10 junk, and leaves other boilerplate junk. So we
-  **demoted nothing** — the matched-term tags make junk deletable at a glance at zero recall cost (#9 working as
-  designed: over-include, surface the reason, the operator prunes visible junk). Seed quality is an operator
-  judgment for the (deferred) edit-UI, never a code filter.
-- **CIK-keying dissolves the identity problem.** EDGAR returns CIKs, so the rebrand/DBA/ticker drift that sank
-  the LLM methods doesn't matter: MindMed→Definium is one CIK; "Helus" is a Cybin DBA (a trade name, not a
-  hallucination) that EDGAR full-text returns under Cybin's CIK regardless. `formerNames` + current-ticker are
-  SECONDARY bridges, only for the LLM-proposed tail.
-
----
-
-## Invariant ties
-
-- **#11 — exact CIK membership decides; discovery only PROPOSES.** EFTS surfaces CIKs; `ids_for_ciks` +
-  `classify` place only EXACT in-master members; a VERIFY/AMBIGUOUS name enters the basket only by an explicit
-  operator action. *Enforced by:* `fulltext.classify`, `chain_draft.resolve_discovered_chain`, the promote
-  membership guard (`app/routers/workbench.py`).
-- **#3 — no model-sourced number.** Discovery returns keywords / CIKs / names; the prose is reasoning; nothing
-  here is a figure. The narrate + decompose tool schemas have no value field. *Enforced by:* the tool schemas;
-  the response shape (`ChainDraftOut` carries no number); the gate-2 manual no-number prose check.
-- **#9 — recall is sacred.** The whole architecture is a #9 instrument: deterministic enumeration over stochastic
-  recall (rule 1, prove don't assume); the VERIFY tier surfaces low-confidence adjacents rather than dropping
-  them; the per-CIK reconciler guarantees no discovered name is lost to the organizer; the `503`s fail LOUD
-  rather than silently degrade (rule 3); the matched-term tags make a tier-change visible (rule 2); the
-  narration fail-open keeps a name even when its prose breaks. *Enforced by:* the answer-key recall re-score on
-  every discovery-touching change (2026-07 live re-score: **31/32 holds** — ATAI, the historical miss, now
-  RECALLED; the one non-placeable is PRTG, delisted out of `company_tickers`, surfaced shown-not-placed →
-  counted recalled by operator ruling; details in the fixture header. 2026-10-23 re-score (EFTS error-body
-  fix): 30/30 on the placeable set; ATAI delisted (closed 2026-09-11, SEC lists no ticker) and moved to the
-  surfaced-only canaries — it surfaced AMBIGUOUS, never dropped) — the
-  ground truth is the **committed fixture `backend/tests/fixtures/recall_answer_key.py`** (the operator seeds +
-  the 32 acceptable-ticker groups + the collision-junk set that must stay OUT of PLACED; previously it lived only
-  in gitignored scripts, so the gate wasn't re-runnable); `workbench/discovery.py` (the `503`s); `fulltext.classify`
-  (VERIFY); `chain_draft.resolve_discovered_chain` (per-CIK completeness). See `INVARIANTS.md` #9.
-
----
-
-## Known deferred gaps  *(pointers — sequenced in `ROADMAP.md`, not here)*
-
-*(The one-time discovery fork is CLOSED: the seed-edit UI shipped (#100) and the tail-sweep validated live —
-the dated record is §6 above. What remains below is the one conscious drop + the standing gaps.)*
-- **The identity bridge — DROPPED (operator decision, 2026-07-06, PR #123 gate-2).** The gap it targeted has
-  closed from both ends: **clean renames are handled** — the deterministic path is **CIK-keyed**, so a renamed
-  filer surfaces under its CURRENT identity regardless of what it used to be called (MNMD→Definium arrives as
-  DFTX by its CIK through EFTS; and on the LLM-proposed tail, a kept ticker rescues a rename —
-  atai→AtaiBeckley kept `ATAI` → PLACED). And the one hard case — the **ATAI dual-CIK redomicile** (…904 pre /
-  …043 post) — **already SURFACES** on a live draft (both CIKs, one ticker-less, both off-universe), so recall
-  is satisfied. What a bridge would still buy is collapsing the duplicate row — **identity-MERGE logic,
-  subtle-bug-prone (the homonym trap), for cosmetic value** — so it is dropped, not deferred. `former_names`
-  stays parsed-but-unused (cheap, tested; its planned consumer was this bridge). *(The analysis kept for the
-  record: the LLM-proposed tail can carry a stale name/ticker from the model's training cutoff; a rename +
-  ticker change defeats both exact-match signals — MindMed→Definium was that shape before EDGAR-first
-  discovery made the deterministic CIK path the source of names. If a real false-ABSENT ever reappears, that
-  is the shape to look for.)*
-- **Enrichment `[SHIPPED — #105–108, #118]`** — identity (sector / exchange / listing-status gate / filer
-  category) + the deterministic **derived archetype** killed the blanket `high_beta` default. Home:
-  `WORKBENCH_ENRICHMENT.md`. *(No longer deferred — moved out of this list.)*
+- [WORKBENCH](WORKBENCH.md): the user's flow on the draft.
+- [INVARIANTS](INVARIANTS.md) 3, 9, 10 and 11; [CALL_LOGIC](CALL_LOGIC.md) section 1 (the silent links).
+- [DATA_SOURCES](DATA_SOURCES.md) (EDGAR etiquette); [AUTH](AUTH.md) (allowances and workspace caps).
+- Skills: `recall-rescore` (the recall gate), `seed-thesis` (seed a card on dev).

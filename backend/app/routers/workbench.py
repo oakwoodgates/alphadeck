@@ -1810,8 +1810,8 @@ def start_draft_chain(
     draft, #9); a benign fail-open (no key / the model declined) is a *done* job with an empty draft. RESPONSE-ONLY
     (the job writes only its in-memory result — no fact, no promote). A completed job additionally dumps a
     WRITE-ONLY run-of-record artifact (``data/draft_runs/`` — the DISCOVER stage's ``calls``-log analogue:
-    the term set as used, the dials, the full draft); nothing in the app reads it, and a failed write is
-    logged + swallowed, never a failed draft.
+    the term set as used, the dials, the full draft); only the run loader reads it back, when
+    ``run_loader_enabled`` is on (off by default), and a failed write is logged + swallowed, never a failed draft.
 
     The OPTIONAL body carries the draft SCOPE (``DraftChainIn``): absent body (the FE today) or absent field
     = ``full`` — byte-identical to the pre-scope draft; ``seeds_only`` is the fast lane (SIGNAL-seeds-only

@@ -123,7 +123,7 @@ group has no header (WB#3). Precedence in `buckets.groupBasket`, first match win
   links). Every lens shows every name, and each row keeps its call-state dot and clocks. The value-chain lens
   shows a name once per link; the others once per `security_id`. Context, ETFs and Bench are the last groups
   except in the business-type lens, where a silent name carries a link tag. A context role
-  ([TRIAGE](TRIAGE.md#context-roles--what-a-company-is-on-this-card)) shows as a quiet tag only when set.
+  ([WORKBENCH](WORKBENCH.md#context-roles)) shows as a quiet tag only when set.
 - **The moving line.** Each header ends with the group size and the median 7-day return of its priced rows
   (`groupAggregate.groupMoving`): a median so one blowup cannot move it, "—" below a minimum of priced rows,
   flagged values left out and counted. It moves no row, bucket or call.
@@ -268,4 +268,4 @@ steward sees only their own (`::test_the_super_admin_sees_no_other_workspace_the
 
 [CALL_LOGIC](CALL_LOGIC.md) (the call), [INVARIANTS](INVARIANTS.md), [FEED_LOOP](FEED_LOOP.md) (the nightly
 pass), [DISPLAY_SIGNALS](DISPLAY_SIGNALS.md), [DASHBOARDS](DASHBOARDS.md), [SCOREBOARD](SCOREBOARD.md) (the
-record), [TRIAGE](TRIAGE.md) (the Workbench and the basket), [AUTH](AUTH.md) (Settings page, allowances, caps).
+record), [WORKBENCH](WORKBENCH.md) (the Workbench and the basket), [AUTH](AUTH.md) (Settings page, allowances, caps).

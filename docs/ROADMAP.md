@@ -4,7 +4,7 @@
 > parked. History lives in the **shipped log** (one line per arc + a pointer); the detail lives in the canon
 > docs, never here. Siblings: **`STAGE_MODEL.md` (the organizing frame — read first)**, `CALL_LOGIC.md` (the
 > brain), `INVARIANTS.md` (the load-bearing rules), the stage docs (`DISCOVERY.md`, `WORKBENCH_EXTRACTION.md`,
-> `WORKBENCH_ENRICHMENT.md`, `TRIAGE.md`, `CHAIN_DRAFTER.md`, `FEED_LOOP.md`), `RECALIBRATION.md` (the dial
+> `WORKBENCH.md`, `FEED_LOOP.md`), `RECALIBRATION.md` (the dial
 > backlog), `PROJECT_OVERVIEW.md` (design rationale).
 
 ---
@@ -20,7 +20,7 @@
 - **The front half** (DISCOVER → SURFACE → TRIAGE): narrative → EDGAR-first discovery (deterministic EFTS
   off an operator-seeded term set, recall 31/32 against the answer key, honest coverage/cap/sweep reporting)
   → drafted chain the operator ratifies → the **three-gate TRIAGE flow** (cheap cut → mark-for-data →
-  finalize on data; `TRIAGE.md`) with per-section data pulls, honest extraction flags (one observed
+  finalize on data; `WORKBENCH.md`) with per-section data pulls, honest extraction flags (one observed
   condition, one label), canonical-primary CIK resolution, and the archetype decided once on the rail.
 - **Live-fire hardening happened on a real operator thesis** (the MVP-gate walkthrough): the every-name
   dual-class mis-flag, the invisible ratify, the 2018 stale-marketable composition, and the ticker-less
@@ -119,30 +119,30 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | Confirmation honesty + the Workbench design pass (mockup + spec) | #40, #41 | `docs/mockups/mockup_workbench_nuclear.html` |
 | M5: per-member ranked menu + theme arming | #42, #43 | `CALL_LOGIC.md`, `THEME_CONVICTION.md` |
 | Phase 1 trust: replay harness · recalibration pass 1 (zero dial changes) · production tenant | #44, #45, #46 | `REPLAY.md`, `RECALIBRATION.md`, `TENANT_SCOPES.md` (replaced `PRODUCTION_TENANT.md`) |
-| Workbench MVP: persistence seam · ratify bridges + seed · scoring engine · UI · authoring | #47–#54 | `WORKBENCH_SCORING.md`, `TRIAGE.md` |
+| Workbench MVP: persistence seam · ratify bridges + seed · scoring engine · UI · authoring | #47–#54 | `WORKBENCH_SCORING.md`, `WORKBENCH.md` |
 | Extract → ratify → score hybrid + the broadener (any-name universe) | #55–#58 | `WORKBENCH_EXTRACTION.md` |
 | LLM seam 1: the FLAG-explanation drafter (structural no-write bound) | #59 | `WORKBENCH_EXTRACTION.md` |
-| LLM seam 2: the narrative → chain drafter (response-only; exact membership decides) | #61–#65 | `CHAIN_DRAFTER.md` |
-| M1 front door (create/edit thesis, the wipe-trap) + M2 feed loop (ingest, cron, price seam, sidecar) | #67–#73 | `CHAIN_DRAFTER.md`, `FEED_LOOP.md`, `DATA_SOURCES.md` |
+| LLM seam 2: the narrative → chain drafter (response-only; exact membership decides) | #61–#65 | `DISCOVERY.md`, `WORKBENCH.md` |
+| M1 front door (create/edit thesis, the wipe-trap) + M2 feed loop (ingest, cron, price seam, sidecar) | #67–#73 | `WORKBENCH.md`, `FEED_LOOP.md`, `DATA_SOURCES.md` |
 | Config centralization (prompts/dials/URLs → files + typed Settings) + quick-win refactors | #75–#81 | — |
 | EDGAR-first discovery: research two-step → EFTS pipeline → term set → seed-edit UI → async draft job | #83–#101 | `DISCOVERY.md` |
-| The #10 recommendation family: tier rec · off-thesis flag · SURFACE estimates · derived archetype · enrichment | #102, #105–#118 | `INVARIANTS.md` #10, `WORKBENCH_ENRICHMENT.md` |
-| TRIAGE crafting: include/find/weight + To-Review ruleset + row polish | #113–#122 | `TRIAGE.md` |
+| The #10 recommendation family: tier rec · off-thesis flag · SURFACE estimates · derived archetype · enrichment | #102, #105–#118 | `INVARIANTS.md` #10, `DISCOVERY.md` |
+| TRIAGE crafting: include/find/weight + To-Review ruleset + row polish | #113–#122 | `WORKBENCH.md` |
 | Honest discovery: coverage + retry, capped terms, tail-sweep tri-state, status strip, worker guard | #123, #124 | `DISCOVERY.md`, `INVARIANTS.md` #9 |
 | Draft persistence: the `/data` cache volume + the write-only draft run log + the run loader | #125, #131 | `DISCOVERY.md` |
-| Canonical-primary CIK resolution (composite rank; the empirical gate killed SEC-file-order) | #126 | `DISCOVERY.md` §3, `INVARIANTS.md` #11 |
-| The three-gate TRIAGE round: board partitions + low-quality lens · archetype-null (rail = single home) · per-name get-data | #127–#129 | `TRIAGE.md` |
+| Canonical-primary CIK resolution (composite rank; the empirical gate killed SEC-file-order) | #126 | `DISCOVERY.md` "Classification and the canonical primary", `INVARIANTS.md` #11 |
+| The three-gate TRIAGE round: board partitions + low-quality lens · archetype-null (rail = single home) · per-name get-data | #127–#129 | `WORKBENCH.md` |
 | Gate-3 honesty: shares period-of-report + three labels · scored-view visibility · per-section data + decoupled price leg · runway honest flags + one-date rule | #132–#136 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 | Runway re-tier (flags mark exceptions) · finalize feel-of-control (on-file values, AUTO shows work, honest empty purity) | #140, #141 | `WORKBENCH_EXTRACTION.md` |
 | **The MVP gate, run live (2026-07-10)**: 68-name ingest → WARMING call w/ a Form 4-linked insider conviction → cron nightly, idempotency held in prod | — | `FEED_LOOP.md`, `CALL_LOGIC.md` |
 | Decision capture: the operator-decisions log (take/pass/close/void) · Managing thesis-monitoring state reachable · the gate's override record | #143, #144, #146 | `CALL_LOGIC.md` §2 |
 | Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
-| Excluded-name permanence (#7): the durable NO + optional reason, seeded grayed on re-draft (discovery never filters) | #151 | `TRIAGE.md` |
+| Excluded-name permanence (#7): the durable NO + optional reason, seeded grayed on re-draft (discovery never filters) | #151 | `WORKBENCH.md` |
 | Re-version restated bars (source-strategy A): a split self-heals in one cron tick; replay stays honest | #152 | `DATA_SOURCES.md` |
 | Cockpit per-name build: grouped per-member buckets + the read-only NamePanel + per-member Managing attribution | #153–#157 | `BOARD.md` |
 | **Scoreboard v1 (SCORE)**: the episode ledger over the call-of-record + the operator track + gated metrics + replay-history-alongside | #158–#164 | `SCOREBOARD.md`, `REPLAY.md` |
 | Ops/UX round: Slack notify adapter · cron-on-by-default · URL routing + name deep-links · seed rename · the ID-misbind (canonical-primary) fix | #165–#175 | `DISCOVERY.md`, `BOARD.md` |
-| Signal + Workbench cleanup: detector-seam formalize + dilution parity · triage polish (junk tells, include filter, exports, prune-session persistence, Placed-from-master) | #176–#191 | `TRIAGE.md` |
+| Signal + Workbench cleanup: detector-seam formalize + dilution parity · triage polish (junk tells, include filter, exports, prune-session persistence, Placed-from-master) | #176–#191 | `WORKBENCH.md` |
 | Display-signal framework: read-only NamePanel indicators (SMA / 52-week / volume / insider-flow) + the SMA posture headline/column + the insider-flow headline | #192–#194, #204–#206 | `DISPLAY_SIGNALS.md` |
 | Cron-freeze remediation (R1–R8): key-classed EDGAR TTL · recording gate · run-of-record log · health pager · catch-up-on-boot · backend TZ pin | #196–#203 | `FEED_LOOP.md`, `CRON_SIDECAR.md` |
 | Form 4 ingest: strip the tz-offset `transactionDate` suffix (49 open-market buys were silently dropped) | #207 | `FEED_LOOP.md` |
@@ -152,14 +152,14 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | Board view fixes (dead per-name Position, silent error-vanish, DQ deep-link) · per-worktree test-DB isolation (the shared-Postgres root-cause fix) | #216, #217 | `BOARD.md`, `PROJECT_LAYOUT.md` |
 | **Scoreboard episode drill-down (SCORE)**: the row-opened drawer + 4 timing lenses + Summary\|Timing toggle + row/icon split · the price chart with a numbered insider/trigger/lifecycle overlay (relevance-floored, as-of-correct on both axes) · the event ledger sharing the chart's numbering + a Cockpit strip | #227–#230 + the chart/ledger (Slice A/B) | `SCOREBOARD.md` |
 | ETF sleeve + net flow (the safe-exposure expression sleeve): CUSIP→ticker holdings resolution · holdings on the SleeveRail DD + include-a-holding (reversible) · fund internals (AUM / asset composition) · the fund-shares ingest leg with a Massive.com-primary flow read | #233–#237 | `PROJECT_OVERVIEW.md` §10, `FEED_LOOP.md` |
-| SURFACE identity + Workbench editor round: the per-name origin/country chip (derive-on-read, migration 0028) · the `enrich_identity` lifecycle + the scored-join origin read · Country/Exchange find-bar filters · the additive **Basket section** (an established thesis's re-draft only ADDS, never invents links) | #238–#242 | `WORKBENCH_ENRICHMENT.md`, `TRIAGE.md` |
+| SURFACE identity + Workbench editor round: the per-name origin/country chip (derive-on-read, migration 0028) · the `enrich_identity` lifecycle + the scored-join origin read · Country/Exchange find-bar filters · the additive **Basket section** (an established thesis's re-draft only ADDS, never invents links) | #238–#242 | `DISCOVERY.md`, `WORKBENCH.md` |
 | Re-scope loop: frozen `basket_member.surfaced_terms` seed-provenance + "also matches now" + the ⟳ Re-scope button + the stale-session badge/expire | #243 | `DISCOVERY.md`, `INVARIANTS.md` |
 | SPAC radar: the blank-check deal tape (daily-index DA scan) + the term-set thesis matcher + the quiet To-Review drawer / Type filter, on an always-on shared AppHeader nav | #244, #245 | `PROJECT_LAYOUT.md` |
 | Ops/UX touchups: the Scoreboard's full company name + a drawn chart for a just-armed (no-forward-bar) episode · the TradingView-importable watchlist Export · `market_today()` — "today" as a market-tz domain fact (closes `INVARIANTS.md` §13) | #246–#248, #250 | `SCOREBOARD.md`, `BOARD.md`, `INVARIANTS.md` |
-| Foreign-filer explainability: the §16-exempt "Canada · 40-F · no Form 4" tell on the origin cell | #251 | `WORKBENCH_ENRICHMENT.md`, `BOARD.md` |
+| Foreign-filer explainability: the §16-exempt "Canada · 40-F · no Form 4" tell on the origin cell | #251 | `DISCOVERY.md`, `BOARD.md` |
 | OTC price-symbol healing: resolve the vendor price symbol when the SEC ticker ≠ vendor symbol (ingest under it · self-heal at add-time · export the resolved symbol · thin-history data-health flag · shortened-name search fallback) | #252 | `DATA_SOURCES.md` |
 | Empty-seed visibility: dead ("∅ no EDGAR hits") seed terms ride the draft report (the `empty_terms` chip + strip line) + a DecisionActions name-dedupe fix | #253, #254 | `DISCOVERY.md`, `INVARIANTS.md` #9 |
-| **Business-type M1**: the two-level SIC → **leaf** → **super-sector** characterization (+ the royalty/streaming overlay) that **retired the size-tier archetype** — operator-editable maps in `backend/securities/business_type/` + the master re-tag · the cockpit **Type** column + the super-sector lens | #255 | `WORKBENCH_ENRICHMENT.md`, `BOARD.md` |
+| **Business-type M1**: the two-level SIC → **leaf** → **super-sector** characterization (+ the royalty/streaming overlay) that **retired the size-tier archetype** — operator-editable maps in `backend/securities/business_type/` + the master re-tag · the cockpit **Type** column + the super-sector lens | #255 | `DISCOVERY.md`, `BOARD.md` |
 | **Cockpit-refinement arc**: trailing-return columns (1d/7d/30d/90d + 1Y) · RVOL\|8 (call-matched) + RVOL\|20 (call-decoupled) · insider **Ins 30d/90d** buys/buyers · the **value-chain lens** (a third basket grouping) · the business-type chip on discovery rows · within-group **sortable columns** — the cockpit as a scannable display-signal instrument, all off the call path | #256–#262 | `BOARD.md`, `DISPLAY_SIGNALS.md`, `DISCOVERY.md` |
 | *(#263–#329 are not yet logged here — the canon docs carry them: `BOARD.md`, `DISPLAY_SIGNALS.md`, `SCOREBOARD.md`, `DEPLOY.md`, `ACTIVIST_STAKE.md`, `CORPORATE_EVENTS.md`)* | #263–#329 | — |
 | **Cron missed-nights arc**: the sidecar fires for the INTENDED night (target as-of fixed at schedule time) + forward-only late-wake catch-up · the hole-aware freshness read + `gappy` · `pipeline.backfill` (first shipped with a pinned `known_at`; it now judges each night on the public clock and refuses `--known-at`) · boot catch-up to the LAST EXPECTED night + a post-`RUN_AT`-only `already_ran_live` + the sliced wall-clock wait (the monotonic-sleep overshoot under host suspend, MEASURED) | #330–#332 | `FEED_LOOP.md`, `ADMIN.md` |
@@ -242,7 +242,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    from Key-1; and the **`insider_flow` sell-side ceiling** (the display headline's symmetric guard). Both
    are preventive precision on the insider key, as-encountered against real filings.
 8. **Context read-throughs — Phase 2** (the 2026-10-28 brief; Phase 1 shipped only the per-company context
-   role on the membership, `TRIAGE.md` "Context roles"). Reading signals FROM a role-tagged name's disclosures,
+   role on the membership, `WORKBENCH.md` "Context roles"). Reading signals FROM a role-tagged name's disclosures,
    signed by its role, display-only and compute-on-read like `theme_breadth`: a payer's capex (trailing four
    quarters vs a year earlier), a direct read's or participant's RPO (else revenue), a counter-case's revenue
    (inverted), a benchmark's own price (trailing returns + ETF flow where sampled), a financier's passages only,
