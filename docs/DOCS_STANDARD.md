@@ -118,17 +118,18 @@ status banner, sign-off line or timings. The Board's doc is `docs/BOARD.md`.
 From the repo root, with Python 3.11 or later:
 
 ```bash
-python scripts/check_docs.py                   # exit 1 on a fail finding not in the baseline
-python scripts/check_docs.py --all             # every finding, baselined or not
-python scripts/check_docs.py --write-baseline  # record the current findings
+python scripts/check_docs.py    # prints every finding; exit 1 on a fail finding
 ```
 
 Standard library only: no database, no network. It reads the files git would track; CI runs it in the
 `docs` job. Its checks are `links`, `pointers` (every `docs/` path named in code or doc text exists, and a
-cited heading or DASHBOARDS rule number matches; report only under migrations and the archive), `banned`,
+cited heading or DASHBOARDS rule number matches; report only where noted below), `banned`,
 `budgets`, `parity` (dashboard `entry.ts` files and their docs), `frontmatter` and `archive`.
 
-The baseline, `scripts/check_docs_baseline.json`, holds the findings the tree had when the checker arrived,
-keyed by file, check and a normalized key, never a line number. A link to a doc that a later PR adds may go
-in the baseline: regenerate it with `--write-baseline`, never by hand, and list the forward links in the PR
-description. When the baseline is deleted, every finding fails.
+There is no baseline: every `fail` finding blocks the `docs` job, and a `warn` prints without failing. Fix a
+finding in the PR that causes it, even a link to a doc a later PR adds.
+
+A pointer is reported, never failed, under `REPORT_ONLY_PREFIXES` in the script: applied migrations (never
+edited), the archive (a record) and `backend/pipeline/split_evidence/polygon_raw_2026-10.json`, whose bytes the
+repair tool hashes into each repair's provenance record, so its text stays as written. Add a path there only
+when its bytes must not change.

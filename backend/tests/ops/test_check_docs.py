@@ -210,18 +210,22 @@ def test_pointer_reads_json_escapes(cd, tmp_path):
     assert _keys(findings, "pointers") == ["docs/A.md §Nope"]
 
 
-def test_pointer_findings_in_migrations_and_archive_are_report_only(cd, tmp_path):
+def test_pointer_findings_in_migrations_archive_and_split_evidence_are_report_only(cd, tmp_path):
+    evidence = "backend/pipeline/split_evidence/polygon_raw_2026-10.json"
     files = {
         "backend/db/migrations/0001_x.sql": "-- docs/GONE.md\n",
         "docs/archive/RECORD.md": "# Record\n\nThe old docs/GONE.md had the steps.\n",
+        evidence: '{"_provenance": {"pulled": "see docs/GONE.md"}}\n',
+        "backend/pipeline/split_evidence/other.json": '{"note": "see docs/GONE.md"}\n',
     }
     findings = _pointer_tree(cd, tmp_path, files)
-    pointers = _found(findings, "pointers")
-    assert sorted(f.file for f in pointers) == [
-        "backend/db/migrations/0001_x.sql",
-        "docs/archive/RECORD.md",
-    ]
-    assert {f.severity for f in pointers} == {"report"}
+    severity = {f.file: f.severity for f in _found(findings, "pointers")}
+    assert severity == {
+        "backend/db/migrations/0001_x.sql": "report",
+        "docs/archive/RECORD.md": "report",
+        evidence: "report",
+        "backend/pipeline/split_evidence/other.json": "fail",
+    }
 
 
 def test_pointer_mentions_in_docs_are_checked_once(cd, tmp_path):
@@ -562,6 +566,27 @@ def test_all_prints_baselined_findings_and_summary_counts_per_check(cd, tmp_path
     for check in ("links", "pointers", "banned", "budgets", "parity", "frontmatter", "archive"):
         assert check in summary[0]
     assert "links 1" in summary[0] and "banned 1" in summary[0]
+
+
+def test_no_baseline_means_every_fail_blocks(cd, tmp_path, capsys):
+    root = _tree(tmp_path, {"docs/A.md": "# A\n\n[gone](GONE.md)\n"})
+    assert cd.main(["--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert "docs/A.md:3: fail [links]" in out
+    assert "not in baseline" not in out and "FAIL: 1 fail findings" in out
+    _tree(tmp_path, {"docs/A.md": "# A\n\nSince R8 it runs.\n"})  # a warning alone never fails
+    assert cd.main(["--root", str(root)]) == 0
+    assert "OK: no fail finding" in capsys.readouterr().out
+
+
+def test_write_baseline_needs_a_baseline_file(cd, tmp_path):
+    with pytest.raises(SystemExit) as stop:
+        cd.main(["--root", str(tmp_path), "--write-baseline"])
+    assert stop.value.code == 2
+
+
+def test_the_repo_ships_no_baseline_file():
+    assert not (_REPO / "scripts" / "check_docs_baseline.json").exists()
 
 
 def test_clean_tree_passes_with_no_findings(cd, tmp_path, capsys):

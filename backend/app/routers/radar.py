@@ -1,4 +1,4 @@
-"""The SPAC Radar API (docs/temp/spac-radar-options.md, slices 1+2): the pull-only tape read +
+"""The SPAC Radar API (the nightly leg: docs/FEED_LOOP.md): the pull-only tape read +
 the two reversible act-on writes. Read-time state derive (radar/state.py) — the DB stores facts
 only. No LLM anywhere on this surface (#3); no ``calls/`` import (the radar is structurally
 outside the call path)."""

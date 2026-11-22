@@ -19,7 +19,7 @@ const STATE_LABEL: Record<SpacEventOut["deal_state"], string> = {
   completed: "combination completed",
 };
 
-/** The SPAC Radar (docs/temp/spac-radar-options.md slices 1+2): the blank-check transition tape —
+/** The SPAC Radar (the nightly leg: docs/FEED_LOOP.md): the blank-check transition tape —
  *  quiet, pull-only (#7), every row linked to its filing (#6). Matches are recommendations (#10):
  *  nothing changes until the operator clicks; add ⇄ remove is a reversible pair (#1). */
 export function Radar({ header }: Props) {

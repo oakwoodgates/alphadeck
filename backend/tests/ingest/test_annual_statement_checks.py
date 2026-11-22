@@ -1,6 +1,6 @@
 """Annual statements: currency, table and line selection, and the companyfacts cross-check (PR 4).
 
-The extractor correctness plan's PR 4 (docs/temp/v2-extractor-correctness-plan-2026-11-15.md, findings 6 to 9 and
+The 2026-11-15 extractor correctness plan's PR 4 (a working note, not kept in the repo; findings 6 to 9 and
 question 6), built against the 2026-11-15 audit of 20 annual cash-and-burn candidates, 7 of them wrong. Each test
 below is one audited case (or a control the audit found right), on a fixture RECONSTRUCTED from the values and
 wording the audit and plan recorded (``fixtures/sec_extractor/annual/audit-2026-11-15/README.md`` says field by

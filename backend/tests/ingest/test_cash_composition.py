@@ -16,8 +16,8 @@ MARKETABLE securities still count.
 
 The fixtures in ``tests/fixtures/edgar/cash_composition/`` are RECONSTRUCTED, not copied: the fork's EDGAR cache
 was not readable for this work. Each holds only the nodes the composer reads, with the tag names and values the
-audit files record (``docs/temp/v2-extractor-audits-2026-11-15/quarterly-cash-FINDINGS.md`` and
-``quarterly-cash-verdicts.txt``, and the build plan's finding 1, 2 and 2b rows). What the audit files do NOT
+audit files record (the 2026-11-15 quarterly-cash audit's findings and verdicts,
+and the build plan's finding 1, 2 and 2b rows; none of these notes is kept in the repo). What the audit files do NOT
 record is synthetic and marked ``"accn": "reconstructed"``: every accession, filed date and fiscal label; DIS's,
 KMI's and SOAR's dates and operating cash flow; SOAR's investment tag; CRSP's tag names. Fed through the old
 reader, each reproduces the value the audit found stored (RBRK 416,166,000; LMAT 27,493,000; DIS

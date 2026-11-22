@@ -1853,7 +1853,7 @@ def _run_daily_pass_locked(
                 print(f"  shell sweep ERROR: {err}")
         except Exception as e:  # noqa: BLE001 — the sweep is a passenger, never the driver
             print(f"WARNING: shell sweep leg failed: {e}")
-    # The SPAC Radar's universe-level leg (docs/temp/spac-radar-options.md, slice 1) — deliberately
+    # The SPAC Radar's universe-level leg (docs/FEED_LOOP.md, passenger legs) — deliberately
     # OUTSIDE run_daily: its own connection + EdgarClient, so it can never pollute the per-thesis
     # edgar_fetches freeze counters or the recording gate. Fail-open: a radar fault never fails the
     # call cron (printed loud, not raised). Skipped on --no-live (the recording-gate philosophy — a

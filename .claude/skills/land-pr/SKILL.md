@@ -45,8 +45,9 @@ check, because GitHub's Merged badge is not proof.
    (`git worktree add .claude/worktrees/land-<effort> -b <effort> origin/<effort>`): `git fetch origin`, note each
    sub-PR's head sha (`gh pr view <n> --json headRefOid`), then `git merge --no-ff --no-edit origin/<branch>` for
    each sub-branch. Resolve conflicts. After the last merge,
-   regenerate generated files once: the contract pair (`contract-sync`) and, for a docs effort, the checker
-   baseline (`python scripts/check_docs.py --write-baseline`). Run the local checks once, then push once.
+   regenerate generated files once: the contract pair (`contract-sync`). For a docs effort, run
+   `python scripts/check_docs.py` too: it has no baseline, so every fail finding must be cleared. Run the local
+   checks once, then push once.
 4. Wait for the one CI run on the integration PR (`gh pr checks <n> --watch`, in the background).
 5. `gh pr ready <n>` if it is still a draft, then `gh pr merge <n> --merge`. Delete the integration branch only
    when the effort is done; a phased effort keeps it and merges `origin/main` into it before the next phase.
