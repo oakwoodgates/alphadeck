@@ -19,7 +19,7 @@ framed by **stage**, not by surface.
 |---|---|---|---|
 | **SEED** | The operator banks a narrative / early conviction in their own words (the vault). The edge is theirs, preserved. | Operator | `PROJECT_OVERVIEW.md` §2/§5 |
 | **DISCOVER** | Theme → names. EDGAR-first deterministic enumeration off an operator-seeded term set — not model recall. | Deterministic (+ LLM organizes/narrates) | `DISCOVERY.md` |
-| **SURFACE** | The system POPULATES each name — estimated scoring facts + machine-parsed identity — for the operator to confirm. | System recommends | `WORKBENCH_EXTRACTION.md`, `DISCOVERY.md` (identity) |
+| **SURFACE** | The system POPULATES each name — estimated scoring facts + machine-parsed identity — for the operator to confirm. | System recommends | `EXTRACTOR.md`, `DISCOVERY.md` (identity) |
 | **TRIAGE** | Craft the discovered draft into a chosen, weighted basket through **three gates**: cheap cut (zero API) → mark for data (bounded spend) → finalize on data. | Operator crafts | `WORKBENCH.md` |
 | **MONITOR** | The chosen basket becomes a parked thesis → incubate → warm → arm → monitor after an operator-entered position. The two-key call loop; `Managing` is thesis monitoring, not portfolio risk management. | System times and watches the thesis; operator gates | `BOARD.md` (the surface), `CALL_LOGIC.md` (the brain), `FEED_LOOP.md` (the rhythm) |
 | **SCORE** | Forward attribution — the platform's calls vs the operator's decisions (follow-blindly = v2). The record is now **instrumented**: per-episode record-provenance + a maturity horizon, an operator **ops surface** (freshness/health + Run-daily-now), a DB-snapshot safety net, and a per-episode **drill-down** (a price chart with a numbered insider/trigger/lifecycle overlay + an event ledger); Edition 0 scores the nightly log's honest rows only — a night reconstructed by a backfill is reported, never scored. Editions ≥ 1 read stored public-clock re-runs; the newest published edition is the default unless configured otherwise (0 if none). *(v1 built — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → `SCOREBOARD.md` (the forward one) · `ADMIN.md` (the ops surface) |
@@ -93,7 +93,7 @@ funnel.
 >
 > **The trap for a future author:** "let's cache the estimate for perf" or "let's persist it so the meter shows it
 > pre-confirm" reintroduces exactly this leak. If you need the estimate faster, cache it OUTSIDE the `fact_*`
-> tables / outside the as-of read — never inside. The full detail lives in `WORKBENCH_EXTRACTION.md` (same
+> tables / outside the as-of read — never inside. The full detail lives in `EXTRACTOR.md` (same
 > callout, repeated on purpose).
 
 ## Where this maps
@@ -135,4 +135,4 @@ read it as an omission:
 ---
 
 **Read next:** `PROJECT_OVERVIEW.md` (why), then the stage doc for whatever you're building. If you're touching the
-front half, `DISCOVERY.md` → `WORKBENCH_EXTRACTION.md` → `WORKBENCH.md`, in stage order.
+front half, `DISCOVERY.md` → `EXTRACTOR.md` → `WORKBENCH.md`, in stage order.

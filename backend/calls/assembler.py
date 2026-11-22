@@ -438,7 +438,7 @@ def rank_members(
     Tuple, best-first: (is_fresh, entry-grade rank, is_own, runway_days, conviction score, id) — `is_own`
     (M5b) orders a name armed on its OWN conviction above one armed only on the theme conviction (the
     fallback), as a within-band tiebreak after grade; freshness stays primary (the within-band weighting
-    is a RECALIBRATION dial).
+    is a tuning candidate, not a dial today).
     """
 
     def key(sec: UUID) -> tuple[bool, int, bool, int, float, int]:

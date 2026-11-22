@@ -400,7 +400,7 @@ _CASH = [
 # The cash concept whose value INCLUDES restricted cash — stated in the note whenever it is the source.
 _RESTRICTED = "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
 # THE CASH COMPOSITION (V2 extractor correctness PR 1, operator decisions D1 + D2, 2026-11-15). The written rule
-# (``docs/WORKBENCH_SCORING.md``, the uniform cash rule) is cash + equivalents + ALL marketable securities, current
+# (``docs/EXTRACTOR.md``, "The uniform cash rule") is cash + equivalents + ALL marketable securities, current
 # and noncurrent. The investment lists below are NOT read through ``_pick_instant``: every tag is read AT the cash
 # date (a balance sheet is one date), and among the tags present there the LARGEST value is taken, never the sum,
 # because they often restate one another (an AFS tag can equal ``ShortTermInvestments``). Every tag seen is named.

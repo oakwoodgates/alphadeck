@@ -1,10 +1,10 @@
-# Alpha Deck — dev/prod Docker Compose wrappers. Full model, ports table + gotchas: docs/DEV_PROD.md.
+# Alpha Deck — dev/prod Docker Compose wrappers. Full model, ports table + gotchas: docs/OPERATIONS.md.
 #
 # Windows note: `make` is frequently NOT installed on Windows. Every target here is a thin wrapper over a
 # raw `docker compose` command — if you have no `make`, run those directly, or use the PowerShell forms
-# documented in docs/DEV_PROD.md. All targets are non-interactive and safe to re-run.
+# documented in docs/OPERATIONS.md. All targets are non-interactive and safe to re-run.
 #
-# Run from the MAIN checkout root, NOT a worktree — worktrees never run the stack (see docs/DEV_PROD.md).
+# Run from the MAIN checkout root, NOT a worktree — worktrees never run the stack (see docs/OPERATIONS.md).
 # Requires `.env` (prod) and `.env.dev` (dev) at this root; copy `.env.example`.
 # The one per-checkout target is `venv`: it provisions the backend venv of WHICHEVER checkout you run it
 # from (each worktree gets its own), so it is the exception to "main checkout only".

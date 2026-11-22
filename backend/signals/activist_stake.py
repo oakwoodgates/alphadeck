@@ -65,7 +65,7 @@ real 13D — the ``_is_misattributed`` self-filed screen is what made the flip s
 detectors this is a CONVICTION: it WARMS, and the two-key gate means a fire can never arm a name
 alone. ``detect`` remains GATED: set the dial False and it no-ops (registered either way). The pure
 ``score`` is UNGATED (the math stays testable); ``replay.run``'s ``--activist-stake`` /
-``ALPHADECK_ACTIVIST_STAKE`` set it explicitly for the backtest. See docs/ACTIVIST_STAKE.md.
+``ALPHADECK_ACTIVIST_STAKE`` set it explicitly for the backtest. See docs/DETECTORS.md (activist_stake).
 """
 
 from __future__ import annotations
@@ -337,7 +337,7 @@ def _switch_from_13g(
     subject_cik: str | None,
 ) -> dict[str, Any] | None:
     """The 13G→13D SWITCH tell — a passive holder going activist (the loudest version of the signal;
-    docs/ACTIVIST_STAKE.md). Given the firing 13D ``anchor``, find the EARLIEST prior 13G-family filing
+    docs/DETECTORS.md, activist_stake). Given the firing 13D ``anchor``, find the EARLIEST prior 13G-family filing
     by the SAME filer (normalized CIK) on this subject's tape — the moment they first disclosed a
     PASSIVE stake — provided it predates the 13D by at least ``cfg.activist_switch_min_gap_days``.
     Returns that earliest 13G (the escalation evidence) or ``None`` (no switch).

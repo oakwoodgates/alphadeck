@@ -5,7 +5,7 @@ span-normalized operating-cash burn — read from the financial statements of th
 the annual-cover shares path already fetches (ONE fetch, shared by ``annual_facts_for_security`` below).
 Always tier FLAG, always carrying the located statement rows as passages. A cash-GENERATIVE name (the
 operating-cash-flow sign is the state) is marked **"cash-generative"** — never a bogus runway number.
-The rules are canon in ``docs/WORKBENCH_EXTRACTION.md`` ("The annual-statements runway path"); the
+The rules are canon in ``docs/EXTRACTOR.md`` ("The annual-statements runway path"); the
 values are pinned in ``tests/ingest/test_annual_runway.py`` + its fixtures — the tests are the oracle.
 
 THE STRUCTURAL BOUND — mirror of ``annual_shares.py``: the pre-fill tier's token appears NOWHERE in

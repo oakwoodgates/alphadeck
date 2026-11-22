@@ -4,7 +4,7 @@
 # Copies prod's data into the SIG database cheaply and safely: a read-only `pg_dump` of prod (never a
 # writable connection) restored into the sig Postgres (project alphadeck_sig, DB alphadeck_sig, host
 # :5546). This is the anti-truncation guarantee — prod (`alphadeck`, :5544, volume alphadeck_pgdata) is
-# ONLY EVER READ; the refresh direction is prod -> sig only, NEVER the reverse. Full model: docs/SIGNALS_LAB.md.
+# ONLY EVER READ; the refresh direction is prod -> sig only, NEVER the reverse. Full model: docs/OPERATIONS.md §Forks (the sig stack).
 #
 # The Signals Lab runs FROM THE WORKTREE (maximal isolation — the main checkout is never involved in
 # running the lab). Two consequences this script handles:
@@ -30,7 +30,7 @@
 #   --dry-run       print the resolved plan and exit; touches NO Docker (safe anywhere, incl. worktrees)
 #   --help          this help
 #
-# PowerShell (no Git Bash) — the restore redirection differs; see docs/SIGNALS_LAB.md / docs/DEV_PROD.md:
+# PowerShell (no Git Bash) — the restore redirection differs; the dev-stack skill has the same sequence for dev:
 #   Get-Content <dump>.sql | docker exec -i <sig-pg> psql -U alphadeck -d alphadeck_sig     # <-- pipe, not `< file`
 #
 # Prereqs for a real run (NOT --dry-run): the SIG stack is up, and for --fresh the PROD stack is up too.
@@ -154,9 +154,9 @@ say "using dump: $dump"
 
 say "resolving the sig Postgres + backend containers"
 SIG_PG="$(docker compose "${SIG_COMPOSE[@]}" ps -q postgres || true)"
-[ -n "$SIG_PG" ] || fail "sig Postgres not up — bring the sig stack up first (see docs/SIGNALS_LAB.md)"
+[ -n "$SIG_PG" ] || fail "sig Postgres not up — bring the sig stack up first (see docs/OPERATIONS.md §Forks)"
 SIG_BACKEND="$(docker compose "${SIG_COMPOSE[@]}" ps -q backend || true)"
-[ -n "$SIG_BACKEND" ] || fail "sig backend not up — bring the sig stack up first (see docs/SIGNALS_LAB.md)"
+[ -n "$SIG_BACKEND" ] || fail "sig backend not up — bring the sig stack up first (see docs/OPERATIONS.md §Forks)"
 
 # Drop + recreate the sig DB. WITH (FORCE) terminates the sig backend's open connections (Postgres 13+),
 # so the drop can't hang on 'database is being accessed by other users'. Prod is never touched here.
@@ -167,7 +167,7 @@ docker exec "$SIG_PG" psql -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 \
   -c "CREATE DATABASE $SIG_DB" || fail "create $SIG_DB failed"
 
 # Restore the plain-SQL pg_dump into the fresh sig DB. `-f -` reads the dump from stdin (bash redirection);
-# the PowerShell form pipes Get-Content instead (see the header + docs/SIGNALS_LAB.md).
+# the PowerShell form pipes Get-Content instead (see the header + the dev-stack skill).
 say "restoring the dump into $SIG_DB"
 docker exec -i "$SIG_PG" psql -U "$PGUSER" -d "$SIG_DB" -v ON_ERROR_STOP=1 -f - < "$dump" \
   || fail "restore into $SIG_DB failed"

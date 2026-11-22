@@ -8,7 +8,7 @@ candidates recorded (``fixtures/sec_extractor/annual/audit-2026-11-16/README.md`
 recorded and what is filler). Every fixture reproduces, under the extractor before this change, the exact stored
 candidate; the docstrings name it.
 
-The rules (docs/WORKBENCH_EXTRACTION.md, "The annual-statements runway path"): a deposits or investments row is
+The rules (docs/EXTRACTOR.md, "The annual-statements runway path"): a deposits or investments row is
 added ONLY from the balance-sheet statement the cash row is on, in the same year column, as its own line; anything
 else is seen, quoted and NOT counted (``investments-unconfirmed``). Cash is a closing balance, never a flow line.
 The year column comes from the table's own header. An explicit presentation-currency statement settles the

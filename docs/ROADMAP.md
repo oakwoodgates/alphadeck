@@ -3,7 +3,7 @@
 > Repo path: `docs/ROADMAP.md`. **This is the live plan** — where we are, what's next, what's locked, what's
 > parked. History lives in the **shipped log** (one line per arc + a pointer); the detail lives in the canon
 > docs, never here. Siblings: **`STAGE_MODEL.md` (the organizing frame — read first)**, `CALL_LOGIC.md` (the
-> brain), `INVARIANTS.md` (the load-bearing rules), the stage docs (`DISCOVERY.md`, `WORKBENCH_EXTRACTION.md`,
+> brain), `INVARIANTS.md` (the load-bearing rules), the stage docs (`DISCOVERY.md`, `EXTRACTOR.md`,
 > `WORKBENCH.md`, `FEED_LOOP.md`), `RECALIBRATION.md` (the dial
 > backlog), `PROJECT_OVERVIEW.md` (design rationale).
 
@@ -115,13 +115,13 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 
 | Arc | PRs | Canon |
 |---|---|---|
-| Back-half core: store, two-key arming, assembler, catalysts, through-line | ≤ #39 | `CALL_LOGIC.md`, `CATALYST_CONVICTION.md` |
+| Back-half core: store, two-key arming, assembler, catalysts, through-line | ≤ #39 | `CALL_LOGIC.md`, `DETECTORS.md` |
 | Confirmation honesty + the Workbench design pass (mockup + spec) | #40, #41 | `docs/mockups/mockup_workbench_nuclear.html` |
-| M5: per-member ranked menu + theme arming | #42, #43 | `CALL_LOGIC.md`, `THEME_CONVICTION.md` |
+| M5: per-member ranked menu + theme arming | #42, #43 | `CALL_LOGIC.md`, `DETECTORS.md` |
 | Phase 1 trust: replay harness · recalibration pass 1 (zero dial changes) · production tenant | #44, #45, #46 | `REPLAY.md`, `RECALIBRATION.md`, `TENANT_SCOPES.md` (replaced `PRODUCTION_TENANT.md`) |
 | Workbench MVP: persistence seam · ratify bridges + seed · scoring engine · UI · authoring | #47–#54 | `WORKBENCH_SCORING.md`, `WORKBENCH.md` |
-| Extract → ratify → score hybrid + the broadener (any-name universe) | #55–#58 | `WORKBENCH_EXTRACTION.md` |
-| LLM seam 1: the FLAG-explanation drafter (structural no-write bound) | #59 | `WORKBENCH_EXTRACTION.md` |
+| Extract → ratify → score hybrid + the broadener (any-name universe) | #55–#58 | `EXTRACTOR.md` |
+| LLM seam 1: the FLAG-explanation drafter (structural no-write bound) | #59 | `EXTRACTOR.md` |
 | LLM seam 2: the narrative → chain drafter (response-only; exact membership decides) | #61–#65 | `DISCOVERY.md`, `WORKBENCH.md` |
 | M1 front door (create/edit thesis, the wipe-trap) + M2 feed loop (ingest, cron, price seam, sidecar) | #67–#73 | `WORKBENCH.md`, `FEED_LOOP.md`, `DATA_SOURCES.md` |
 | Config centralization (prompts/dials/URLs → files + typed Settings) + quick-win refactors | #75–#81 | — |
@@ -132,11 +132,11 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | Draft persistence: the `/data` cache volume + the write-only draft run log + the run loader | #125, #131 | `DISCOVERY.md` |
 | Canonical-primary CIK resolution (composite rank; the empirical gate killed SEC-file-order) | #126 | `DISCOVERY.md` "Classification and the canonical primary", `INVARIANTS.md` #11 |
 | The three-gate TRIAGE round: board partitions + low-quality lens · archetype-null (rail = single home) · per-name get-data | #127–#129 | `WORKBENCH.md` |
-| Gate-3 honesty: shares period-of-report + three labels · scored-view visibility · per-section data + decoupled price leg · runway honest flags + one-date rule | #132–#136 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
-| Runway re-tier (flags mark exceptions) · finalize feel-of-control (on-file values, AUTO shows work, honest empty purity) | #140, #141 | `WORKBENCH_EXTRACTION.md` |
+| Gate-3 honesty: shares period-of-report + three labels · scored-view visibility · per-section data + decoupled price leg · runway honest flags + one-date rule | #132–#136 | `EXTRACTOR.md`, `FEED_LOOP.md` |
+| Runway re-tier (flags mark exceptions) · finalize feel-of-control (on-file values, AUTO shows work, honest empty purity) | #140, #141 | `EXTRACTOR.md` |
 | **The MVP gate, run live (2026-07-10)**: 68-name ingest → WARMING call w/ a Form 4-linked insider conviction → cron nightly, idempotency held in prod | — | `FEED_LOOP.md`, `CALL_LOGIC.md` |
 | Decision capture: the operator-decisions log (take/pass/close/void) · Managing thesis-monitoring state reachable · the gate's override record | #143, #144, #146 | `CALL_LOGIC.md` §2 |
-| Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
+| Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `EXTRACTOR.md`, `FEED_LOOP.md` |
 | Excluded-name permanence (#7): the durable NO + optional reason, seeded grayed on re-draft (discovery never filters) | #151 | `WORKBENCH.md` |
 | Re-version restated bars (source-strategy A): a split self-heals in one cron tick; replay stays honest | #152 | `DATA_SOURCES.md` |
 | Cockpit per-name build: grouped per-member buckets + the read-only NamePanel + per-member Managing attribution | #153–#157 | `BOARD.md` |
@@ -161,7 +161,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | Empty-seed visibility: dead ("∅ no EDGAR hits") seed terms ride the draft report (the `empty_terms` chip + strip line) + a DecisionActions name-dedupe fix | #253, #254 | `DISCOVERY.md`, `INVARIANTS.md` #9 |
 | **Business-type M1**: the two-level SIC → **leaf** → **super-sector** characterization (+ the royalty/streaming overlay) that **retired the size-tier archetype** — operator-editable maps in `backend/securities/business_type/` + the master re-tag · the cockpit **Type** column + the super-sector lens | #255 | `DISCOVERY.md`, `BOARD.md` |
 | **Cockpit-refinement arc**: trailing-return columns (1d/7d/30d/90d + 1Y) · RVOL\|8 (call-matched) + RVOL\|20 (call-decoupled) · insider **Ins 30d/90d** buys/buyers · the **value-chain lens** (a third basket grouping) · the business-type chip on discovery rows · within-group **sortable columns** — the cockpit as a scannable display-signal instrument, all off the call path | #256–#262 | `BOARD.md`, `DISPLAY_SIGNALS.md`, `DISCOVERY.md` |
-| *(#263–#329 are not yet logged here — the canon docs carry them: `BOARD.md`, `DISPLAY_SIGNALS.md`, `SCOREBOARD.md`, `DEPLOY.md`, `ACTIVIST_STAKE.md`, `CORPORATE_EVENTS.md`)* | #263–#329 | — |
+| *(#263–#329 are not yet logged here — the canon docs carry them: `BOARD.md`, `DISPLAY_SIGNALS.md`, `SCOREBOARD.md`, `OPERATIONS.md`, `DETECTORS.md`)* | #263–#329 | — |
 | **Cron missed-nights arc**: the sidecar fires for the INTENDED night (target as-of fixed at schedule time) + forward-only late-wake catch-up · the hole-aware freshness read + `gappy` · `pipeline.backfill` (first shipped with a pinned `known_at`; it now judges each night on the public clock and refuses `--known-at`) · boot catch-up to the LAST EXPECTED night + a post-`RUN_AT`-only `already_ran_live` + the sliced wall-clock wait (the monotonic-sleep overshoot under host suspend, MEASURED) | #330–#332 | `FEED_LOOP.md`, `ADMIN.md` |
 | **Scoreboard Timing view + record bugs**: MAE/MFE excursions (close + wick, all four columns) · the episode path sparkline with the de-arm tick · split Armed/De-armed columns + close-reason chips · sortable columns + sticky headers · `truncated` redefined against the tape edge (+ `tape_behind_market`, the TAPE ENDS badge) · the exit = the last bar IN the window (the backwards-return fix) | #333, #334 | `SCOREBOARD.md` |
 | **Serve-path `known_at` cap + reconstructed rows**: `serve_known_at(asof)` on `/call`, `/display-signals`, `/scored` (a scrub-back reads what was knowable by the end of that MARKET day) · `calls.reconstructed` (migration 0042) + the backfill's thesis-existence gate · the Scoreboard scores honest rows only, `reconstructed_nights` named once | #336–#338 | `INVARIANTS.md` #1, `FEED_LOOP.md`, `SCOREBOARD.md` |
@@ -302,7 +302,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 - **ETF radar** — universe seed; the built N-1A/485 launch radar and ETF flows are display-only context, not
   call inputs (`FUND_RADAR.md`); `etf_launch` remains a reserved, un-emitted trigger kind. The
   `safe_sleeve` card field exists but is unpopulated.
-- **More catalyst sources** (`CATALYST_CONVICTION.md` §3): the automated 8-K material-agreement detector; the
+- **More catalyst sources** (`DETECTORS.md`, catalyst_conviction): the automated 8-K material-agreement detector; the
   NRC license-action feed; wire the DOE loans award-type group so the loan-guarantee → core rule fires.
 
 **Depth:**

@@ -18,7 +18,7 @@ Freshness is DETECTOR-ENFORCED (the assembler never ages risk signals): each ite
 its configured ``liveness_days`` anchored on its filing date, then drops out of the re-derived
 stream — replay stays honest. An 8-K/A is its own tape row; these existence/latest-shaped reads
 can't double-count an amendment (the deferred cadence slice, which COUNTS, must dedupe — noted in
-docs/CORPORATE_EVENTS.md).
+docs/DETECTORS.md, corporate_catalyst and corporate_risk).
 
 SUCCESSION REPORTS NEVER FIRE (operator decision, 2026-10-17): a successor issuer's 8-K12B / 8-K12G3 /
 8-K15D5 is stored on the tape, but its 3.01 is the listing TRANSFER and its 3.02 the share exchange, not

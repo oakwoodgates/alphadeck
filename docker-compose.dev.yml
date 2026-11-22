@@ -10,7 +10,7 @@
 # never mutates the base, so prod's resolved config is byte-identical with or without this file present.
 #
 # Env: the dev wrapper passes `--env-file .env.dev` (canonical dev env at the MAIN-checkout root). Worktrees
-# never run the stack. Full model + the one-way prod->dev refresh: docs/DEV_PROD.md.
+# never run the stack. Full model + the one-way prod->dev refresh: docs/OPERATIONS.md.
 
 services:
   postgres:
@@ -48,7 +48,7 @@ services:
       - ./data/backtest:/data/backtest:ro
     # Override the Dockerfile CMD for the dev edit loop: keep the (idempotent) migrate + seed, then serve
     # with --reload. --reload runs a single process, so it is compatible with the single-worker invariant.
-    # --limit-concurrency keeps the image's in-flight bound (docs/DEPLOY.md §Connections); `$$` hands the expansion
+    # --limit-concurrency keeps the image's in-flight bound (docs/OPERATIONS.md §Connections); `$$` hands the expansion
     # to the container's shell, so it reads the backend's ALPHADECK_UVICORN_LIMIT_CONCURRENCY like the Dockerfile CMD.
     command: ["sh", "-c", "python -m db.wait && python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --limit-concurrency $${ALPHADECK_UVICORN_LIMIT_CONCURRENCY:-64}"]
 

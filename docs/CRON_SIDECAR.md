@@ -167,4 +167,4 @@ The editions nightly is on in prod.
 ## Related
 
 [FEED_LOOP](FEED_LOOP.md), [FEED_MONITORS](FEED_MONITORS.md), [INGEST](INGEST.md), [ADMIN](ADMIN.md),
-[DEPLOY](DEPLOY.md). Restore: the `backup-restore` skill. Health checks: the `cron-health` skill.
+[OPERATIONS](OPERATIONS.md). Restore: the `backup-restore` skill. Health checks: the `cron-health` skill.

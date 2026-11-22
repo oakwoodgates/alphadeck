@@ -16,7 +16,7 @@ from replay.scoring import RealizedPrices
 # calibration claim (that is step 2, which sweeps cfg and runs against real history at scale).
 
 # Below this many observations a metric reports `insufficient_n=True` and its summary must not be read as
-# a claim. RECALIBRATION dial; deliberately conservative for a solo instrument.
+# a claim. A tunable constant; deliberately conservative for a solo instrument.
 MIN_N = 5
 
 

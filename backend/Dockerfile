@@ -42,7 +42,7 @@ RUN if [ -n "$PIP_EXTRAS" ]; then \
 
 # GIT_SHA — the commit this image was built from, stamped on every `calls` row the container writes
 # (F1 / migration 0044: `code_sha`, so the record can tell "the facts changed" from "the code changed").
-# Passed by docker-compose as `build.args.GIT_SHA: ${GIT_SHA:-}`; `docs/DEPLOY.md` and the `deploy` skill
+# Passed by docker-compose as `build.args.GIT_SHA: ${GIT_SHA:-}`; `scripts/deploy.sh` and the `deploy` skill
 # prefix every rebuild with `GIT_SHA=$(git rev-parse HEAD)`.
 #
 # It sits AFTER the pip layer deliberately: a new sha on every deploy would otherwise bust the dependency
@@ -63,7 +63,7 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Security hardening PR 2 (docs/DEPLOY.md §Connections) — the cap on IN-FLIGHT requests. Every request holds one
+# Security hardening PR 2 (docs/OPERATIONS.md §Connections) — the cap on IN-FLIGHT requests. Every request holds one
 # database connection while it runs (there is no pool), so this bound, plus the background-job caps
 # (ALPHADECK_DRAFT_JOBS_MAX_RUNNING / ALPHADECK_INGEST_JOBS_MAX_RUNNING), keeps the API's connections below
 # Postgres's limit: past it uvicorn answers 503 at once instead of opening one more connection. A build arg for the

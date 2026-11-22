@@ -4,7 +4,7 @@
 # Re-seeds a named fork's database from prod cheaply and safely: a read-only `pg_dump` of prod (never a
 # writable connection) restored into the fork's Postgres (project alphadeck_<name>, DB alphadeck_<name>).
 # This is the anti-truncation guarantee — prod (`alphadeck`, :5544, volume alphadeck_pgdata) is ONLY EVER
-# READ; the refresh direction is prod -> fork only, NEVER the reverse. Full model: docs/FORKS.md.
+# READ; the refresh direction is prod -> fork only, NEVER the reverse. Full model: docs/OPERATIONS.md §Forks.
 #
 # RESET-ONLY, and the flag is REQUIRED: `--reset` DROPS the fork DB and re-clones prod — the fork's own
 # theses/baskets/calls are WIPED. The app-preserving "data mode" (merge prod's new facts, keep the fork's
@@ -44,7 +44,7 @@
 #   --dry-run       print the resolved plan and exit; touches NO Docker (safe anywhere, incl. worktrees)
 #   --help          this help
 #
-# PowerShell (no Git Bash) — the restore redirection differs; see docs/FORKS.md for the full sequence:
+# PowerShell (no Git Bash) — the restore redirection differs; the dev-stack skill has the same sequence for dev:
 #   Get-Content <dump>.sql | docker exec -i <fork-pg> psql -U alphadeck -d alphadeck_<name>   # <-- pipe, not `< file`
 #
 # Prereqs for a real run (NOT --dry-run): the fork stack is up (`fork.sh up`), and for --fresh the PROD
@@ -101,7 +101,7 @@ done
 # --reset is REQUIRED (see the header): the bare command has NO meaning this pass, so its meaning cannot
 # silently flip when the app-preserving data mode lands as a future default.
 [ "$RESET" -eq 1 ] || fail "refresh-fork is RESET-ONLY this pass — pass --reset (DROPS the fork DB and \
-re-clones prod, wiping the fork's own theses). The app-preserving data mode is deferred; see docs/FORKS.md."
+re-clones prod, wiping the fork's own theses). The app-preserving data mode is deferred; see docs/OPERATIONS.md §Forks."
 
 # --- fork identity + FAIL-CLOSED guards (before ANY Docker call) -------------------------------------
 [ -f "$ENV_FORK" ] || fail "no .env.fork at $REPO_ROOT — run from a fork worktree root (fork.sh init scaffolds it)"
@@ -206,9 +206,9 @@ say "using dump: $dump"
 
 say "resolving the fork Postgres + backend containers (project $FORK_PROJECT)"
 FORK_PG="$(docker compose "${FORK_COMPOSE[@]}" ps -q postgres || true)"
-[ -n "$FORK_PG" ] || fail "fork Postgres not up — run 'fork.sh up' from this worktree first (see docs/FORKS.md)"
+[ -n "$FORK_PG" ] || fail "fork Postgres not up — run 'fork.sh up' from this worktree first (see the fork skill)"
 FORK_BACKEND="$(docker compose "${FORK_COMPOSE[@]}" ps -q backend || true)"
-[ -n "$FORK_BACKEND" ] || fail "fork backend not up — run 'fork.sh up' from this worktree first (see docs/FORKS.md)"
+[ -n "$FORK_BACKEND" ] || fail "fork backend not up — run 'fork.sh up' from this worktree first (see the fork skill)"
 
 # Drop + recreate the fork DB. WITH (FORCE) terminates the fork backend's open connections (Postgres 13+),
 # so the drop can't hang on 'database is being accessed by other users'. Prod is never touched here.
@@ -219,7 +219,7 @@ docker exec "$FORK_PG" psql -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 \
   -c "CREATE DATABASE $FORK_DB" || fail "create $FORK_DB failed"
 
 # Restore the plain-SQL pg_dump into the fresh fork DB. `-f -` reads the dump from stdin (bash redirection);
-# the PowerShell form pipes Get-Content instead (see the header + docs/FORKS.md).
+# the PowerShell form pipes Get-Content instead (see the header + the dev-stack skill).
 say "restoring the dump into $FORK_DB"
 docker exec -i "$FORK_PG" psql -U "$PGUSER" -d "$FORK_DB" -v ON_ERROR_STOP=1 -f - < "$dump" \
   || fail "restore into $FORK_DB failed"

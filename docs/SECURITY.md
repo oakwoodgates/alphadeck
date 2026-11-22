@@ -52,7 +52,7 @@ What a failed request answers. An error the code did not word itself never reach
 - **Unhandled database errors** go through the global handlers in `errors.install`, which map each psycopg class to
   a status (`errors.classify`): bad data and a check, foreign-key or not-null break are 422, a uniqueness or other
   integrity conflict 409, an oversized index row 413, a timeout or a lost connection 503 with `Retry-After`
-  (request timeouts: [DEPLOY](DEPLOY.md) "Connections"), anything else 500.
+  (request timeouts: [OPERATIONS](OPERATIONS.md) "Connections"), anything else 500.
 - **Failures a route catches** (an upstream fetch, a file read, the company write lock held elsewhere) go through
   `errors.fail(status, sentence, exc, user=...)` with the route's own status. Background jobs (the chain draft, the
   on-promote data fetch) follow the same contract on their poll; a partial fetch names each failed ticker's parts in

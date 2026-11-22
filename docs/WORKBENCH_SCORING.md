@@ -1,196 +1,114 @@
-# WORKBENCH_SCORING.md — the Workbench's scored read (Phase 2, Slice 3)
+# Workbench scoring
 
-> Repo path: `docs/WORKBENCH_SCORING.md`. How the Workbench turns a basket name into **scores** — the
-> four 0-4 "pip" meters + the market-cap figure shown per name, **re-derived on read, never persisted**.
-> Siblings: `CALL_LOGIC.md` (the back-half brain), `RECALIBRATION.md` (the cutoffs as tunable dials),
-> `INVARIANTS.md` (the load-bearing rules this slice added), `TENANT_SCOPES.md` (the tenant scopes),
-> `ROADMAP.md` (Phase-2 sequencing). The DATA behind the scores is the three ratify bridges
-> (`fact_revenue_mix` / `fact_shares_outstanding` / `fact_cash_burn`) + the dilution clock — produced by the
-> **extract → ratify hybrid** (`WORKBENCH_EXTRACTION.md`, the production side; this doc is the consumption side).
->
-> **Status: BUILT** (Slice 3, PR #50), and **unchanged by every slice since** — the UI (#52), the extract →
-> ratify hybrid (#55–#57), the broadener (#58), the flag-explanation drafter (#59), and the narrative→chain
-> drafter (#61–65) all FEED, DISPLAY, or DRAFT-INTO these meters without touching the scoring math (a drafted
-> name reads "—" until the operator extract→ratifies it). Engine: `backend/workbench/scoring.py`.
->
-> **Legend:** `[BUILT]` shipped · `[FILED]` deferred, recorded in `RECALIBRATION.md`.
+How the Workbench scores a basket member: four 0-4 pip meters (purity, runway, catalysts, dilution) and the
+market-cap figure, re-derived on every read and never stored. A user sees them on the scored rows of their own cards,
+the Cockpit name panel and the `get_triage` agent tool. Read this before you change `workbench/scoring.py` or a pip
+cutoff. How a filed value is parsed: [EXTRACTOR](EXTRACTOR.md). The shared share count and cash:
+[PLATFORM_VALUES](PLATFORM_VALUES.md).
 
----
+## Code
 
-## The model — four meters + a figure, re-derived on read (Option B)
+| Piece | Module |
+|---|---|
+| The engine: `score_member`, `score_thesis`, `_fit` | `workbench/scoring.py` |
+| The cutoffs (`purity_pip_pct`, `runway_pip_months`, `catalyst_pip_*`, `dilution_pip_pct`) | `CallConfig` in `domain/config.py` |
+| The scored read: `GET /workbench/theses/{thesis_id}/scored` (`get_scored`, `read_scored`) | `app/routers/workbench.py` |
+| Screens | `frontend/src/workbench/ScoredRow.tsx`, `Meter.tsx` |
 
-The Workbench scores each basket name from the **point-in-time facts**; the engine is a pure function
-`score_member(pit, member, cfg) -> ScoredMember`. Two non-negotiables:
+## How it works
 
-- **Scores NEVER persist — they re-derive on read (Option B).** A chain reopened months later shows *current*
-  numbers, never a stale snapshot. Only the chain **structure** persists (operationally, on the thesis spine
-  — see `ROADMAP.md` "the persistence seam"); the scores are recomputed every read.
-- **Every figure comes from a tenant-filtered as-of read** (`PointInTimeData`), so no-lookahead and tenant
-  isolation hold for free (`INVARIANTS.md` #1, #12) — on the PUBLIC clock: a past `asof` on the scored read
-  (`serve_view`) reads each fact as it was public by the end of that night (EDGAR's next open, F6). A
-  RATIFIED scoring fact
-  (purity, runway, shares) counts from its ratification — its `valid_from` is the filing period / cover date,
-  earlier than the filing was public, and the row carries no filing date — so a scrubbed-back score never
-  uses a number the operator had not yet ratified (`db/public_clock.py`).
+- **Scores never persist.** A card reopened months later shows current numbers, never a snapshot; only the card's
+  structure is stored.
+- **Every figure comes from a tenant-filtered as-of read** (`PointInTimeData`), so no-lookahead and tenant isolation
+  hold ([invariant 1](INVARIANTS.md#1-no-lookahead-history-is-judged-on-the-public-clock),
+  [invariant 12](INVARIANTS.md#12-two-tenant-scopes-every-read-names-its-scope)). A past `asof` reads on the public
+  clock (`domain/market_time.serve_view`): purity and cash count from when they were recorded, a share count from its
+  filing's acceptance (`db/public_clock.py`).
+- **"—" is not 0.** A meter with no underlying fact reads "—", never a zero.
 
-Each name carries **four 0-4 pip METERS** — `purity`, `runway`, `catalysts`, `dilution` — plus **market cap
-as a FIGURE** (a number, not a meter; `pips` stays null). **`—` (no data) is distinct from `0`** — a meter
-with no underlying fact reads "—", never a fake zero.
-
-## Each meter's exact derivation
-
-| meter | formula | fact (PIT accessor) |
+| Meter | Reading | Fact |
 |---|---|---|
-| **purity** | the largest revenue-line `mix_pct` for the name | `fact_revenue_mix` (`revenue_mix_facts`) |
-| **runway** | `cash_usd / (quarterly_burn_usd / 3)` months **at last quarter's pace**; cash-generative (burn ≤ 0) → top pip. The year-to-date pace beside it is display only (below) | `fact_cash_burn` (`cash_burn_facts`) |
-| **catalysts** | count of **live** catalysts (live = within the catalyst's liveness horizon) + the core/flip grade | `fact_catalyst` (`catalyst_facts`) |
-| **dilution** | the raw convert-overhang % | `fact_dilution` via `dilution_clock.overhang_pct` |
-| **market cap** | latest `close` × latest `shares` (A+B total-economic) | `fact_price_eod` × `fact_shares_outstanding` |
+| purity | the largest revenue-line `mix_pct` among the user's own purity facts; the basis rides `source` | `fact_revenue_mix` (workspace) |
+| runway | months at last quarter's pace: `cash_usd` over a third of `quarterly_burn_usd`, from the one picked value (`pick_current`); a burn of 0 or less reads the top pip | `fact_cash_burn` (platform value) |
+| catalysts | the count of live catalysts (`catalyst_conviction.liveness`, the call's own window) and their grade: none 0, one flip 1, one core 2, then the multi and dense counts | `fact_catalyst` |
+| dilution | the raw convertible overhang (`dilution_clock.overhang_pct`); the top bar reuses the risk veto's `dilution_overhang_severe_pct`; converts below the first bar read 0, no converts "—" | `fact_dilution` |
+| market cap (a figure, no pips) | the latest close times the picked share count, divided by a `known` ADS ratio and put on the close's split scale | `fact_price_eod`, `fact_shares_outstanding`, the split list |
 
-**Reuse, not rebuild** (the back half already computes two of these):
-- **dilution** calls the shared `dilution_clock.overhang_pct` — the **single source of overhang**, read by
-  both the risk-veto and the meter. See the single-source rule below + `INVARIANTS.md` #8.
-- **catalysts** reuse `catalyst_conviction.liveness` (promoted from `_liveness` to public) — a name's catalyst
-  is "live" in the *same* sense for the meter and the back-half conviction key.
+With one input missing, market cap shows the other with a note naming the gap; an `unread` ADS ratio withholds it;
+a split between the count's date and the close rescales the count (`tests/workbench/test_market_cap_split.py`).
 
-## The pre-registration DISCIPLINE (the heart)
+## Cutoff rationale
 
-**The cutoffs are grounded in what each metric MEANS in absolute terms — NOT fit to the seed.** This is the
-same discipline the recalibration pass holds (`RECALIBRATION.md`): the four nuclear seed names cluster (three
-at ~100% purity, all with long runways), so setting a cutoff *so a seed name lands on a given pip* would be
-overfitting to n=4. Instead:
+Every cutoff is grounded in what the metric means, stated before any result, never fit to seed names: a bar moved so
+a seed name lands on a pip overfits a handful of clustered names. Seed scores check the result, never source it.
 
-1. Every cutoff is justified by an **absolute-meaning rationale stated up front** (below), drawn from a
-   convention, a first principle, or an existing dial — never from a seed value.
-2. The seed names' scores are a **sanity check on the result, shown separately — never the source** of the
-   numbers. (E.g. purity 80 = the pure-play convention; LEU lands at 3 because it's 77%, *honestly* not a
-   pure-play — the bar wasn't moved to make LEU look any particular way.)
-3. All cutoffs live in `CallConfig` (`backend/domain/config.py`), never hardcoded — enforced by a
-   **behavioral** magic-number test (a changed cutoff changes a pip) **and** a **lexical** float-literal scan
-   of the scorer (`INVARIANTS.md` #14; `tests/workbench/test_scoring.py`).
+- **Purity** measures concentration: the top bar is the conventional pure-play threshold, then a majority, a clearly
+  material segment (above the SEC's segment-materiality floor) and the floor of relevance.
+- **Runway** is a funding-risk gauge set by the financing cycle: raises tend to land a year to eighteen months out,
+  the lowest bar signals distress, the top is about two raise cycles of cushion.
+- **Catalysts** are deliberately strict: a binding (core) catalyst counts more than a provisional (flip) one, and one
+  award is not a dense surface.
+- **Dilution** reuses the risk veto's severe bar, so the two never disagree on "severe".
 
-## The cutoffs, with their grounding
+All cutoffs live in `CallConfig`: `tests/workbench/test_scoring.py::test_pip_cutoffs_are_config_driven` (a changed
+cutoff moves a pip) and `::test_scorer_has_no_magic_number_thresholds` (no float literal in the scorer). Changing one
+follows the dial rule in [CALL_LOGIC](CALL_LOGIC.md).
 
-(Tunable dials — the live values + tuning notes are in `RECALIBRATION.md` Table A. The *grounding* is here.)
+## Rules that must not regress
 
-- **purity** `(10, 25, 50, 80)` % — exposure **concentration** (the % of revenue/business that *is* the
-  theme). 80 = the conventional **pure-play** bar; 50 = majority; 25 = a clearly-material segment (above the
-  ~10% SEC reportable-segment-materiality floor); 10 = the floor of relevance.
-- **runway** `(6, 12, 18, 24)` months — a **funding-risk** gauge grounded in the **financing cycle**: raises
-  typically land ~12-18 months out; < 6 months signals distress / an imminent raise; ≥ 24 months is ~two
-  raise cycles of cushion. A cash-generative name reads the top pip.
-- **catalysts** — live **count** + **grade**: 0 live → 0; 1 live *flip* → 1, 1 live *core* → 2 (a binding
-  catalyst is denser than a provisional one); ≥ `catalyst_pip_multi_count` (2) → 3; ≥ `…_dense_count` (3) → 4
-  (a rich surface). Deliberately strict — a lone DOE award is not a dense surface.
-- **dilution** `(2, 8, 15)` % + the severe dial — raw overhang %; the 4-pip "severe" bar **reuses the
-  existing `dilution_overhang_severe_pct` (25%)** the back-half risk-veto already grades against (one place).
-  A name with converts below the 1-pip bar reads **0** (a clean, low reading); no convert fact reads **—**.
+- **Purity is concentration, not safety.** A pre-revenue pure-play reads near the top: it is fully exposed to the
+  thesis, and its funding risk belongs to runway and dilution, so purity is never discounted for it. The basis
+  (`10-k-segment` or `10-k-business-description`) stays distinct.
+- **Cash has one basis**: [EXTRACTOR](EXTRACTOR.md) "The uniform cash rule". The scorer trusts `cash_usd` as stored.
+- **The dilution overhang has one source**
+  ([invariant 8](INVARIANTS.md#8-the-dilution-overhang-is-computed-once)): the meter buckets the raw overhang and
+  never recovers it from the clamped risk severity, which saturates at the severe bar.
+- **Share counts are total economic**: every class counts toward market cap ([EXTRACTOR](EXTRACTOR.md) "Shares on
+  the periodic path").
+- **No `if kind ==` in the engine** ([invariant 14](INVARIANTS.md#14-behavior-keys-on-the-property-that-drives-it)):
+  each meter keys on its own driving property.
 
-## The deterministic fit label
+### The recurring-vs-one-time burn pattern
 
-A pure function of the pips (NOT prose — the auto-drafted *thesis-fit paragraph* is the LLM's job, Slice 5):
-purity drives the base read (`pure-play` / `core exposure` / `partial exposure` / `peripheral` / `off-thesis`
-/ `unrated` when purity is "—"), and a **risk flag** is appended — `· funding risk` if runway ≤ 1 pip,
-`· dilution risk` if dilution ≥ 3 pips.
+The runway is meaningful only on the recurring burn: a one-time outflow (a settlement, a milestone payment) makes it
+look far shorter. The extractor flags it (`possible-one-time`) and never backs it out; a person decides, and the
+note records what was backed out and why. No single pass is authoritative on a sourced figure: check the filing.
 
-## Provenance chips ("behind the scores")
+## Fit label and provenance
 
-Every meter traces to a fact or a computation (`INVARIANTS.md` #6): **purity** → the `fact_revenue_mix`
-`source`/`source_ref` (10-K) + `note`; **runway** → the `fact_cash_burn` `source_ref` (10-Q) + `note`;
-**catalysts** → each live `fact_catalyst.source_ref`; **dilution** → the convert accession + the computed
-overhang; **market cap** → the price ref + the shares `source_ref`. Filing refs resolve to clickable EDGAR
-URLs (`edgar_url`).
+- **Fit** (`_fit`) is a pure function of the pips: the purity pip picks the base label (`_FIT_BY_PURITY`; `unrated`
+  without purity), and "funding risk" or "dilution risk" is appended past `_FIT_FUNDING_RISK_PIP` or
+  `_FIT_DILUTION_RISK_PIP`.
+- **Provenance** ([invariant 6](INVARIANTS.md#6-explainability-every-output-shows-its-source)): each meter carries
+  its facts or computation, with filing links. `detail` carries the fact's own figures (the purity panel shows what
+  is on file) and `set_by`, a kind (`machine`, `steward`, `carried`, or `you` for the user's own purity), never an
+  email (`tests/app/test_no_steward_email_for_users.py`).
+- **Dilution is the only risk meter**, drawn as the ember pressure meter (`Meter.tsx`): more pips is worse. The
+  call's other risk signals have no meter.
 
-**The runway's pace (V2 extractor correctness PR 3; operator decision D3).** Every screen labels the runway "at
-last quarter's pace". The runway provenance's `detail` also carries the value's stored `currency` and `investments_usd` when
-recorded (0208), so every screen prints the cash in its own currency with its split (`domain/cash_currency.py`; the
-caveat sentence speaks the same currency). When the stored value carries the extractor's year-to-date pace (`domain/burn_pace.py`,
-`stored_pace`: the 0209 columns, else the note of a row written before them), the runway provenance's `detail` adds `ytd_quarterly_burn_usd`, `ytd_burn_days`,
-`ytd_runway_months` (when that pace burns) and `pace_caveat` (only when last quarter is more than 2× off that
-pace or of the opposite sign), and the Peer Table cell (`ytd_quarterly_burn_usd`, `ytd_months`, `pace_caveat`),
-the Filing Stream row and the steward's company page (`pace`) carry the same reading. Shown quietly: the pace
-line on the rail, the name panel and the steward page; the caveat sentence only on the minority it applies to (a
-quiet "uneven quarter" on the scored row, an asterisk on the Peer Table cell). **Never the pips, the months, the
-fit label or the sort**, and never a call input.
+## Display-only additions
 
-**Runway does not apply (V2 C1).** For a bank, insurer, broker, exchange, asset manager, lender or fund trust
-(`securities.business_type.runway_applies`, driven by the editable `runway_not_meaningful.csv`; every ETF too) the
-runway meter has no pips and no value: its provenance is the cash fact (cash, burn, currency, investment part; no
-year-to-date pace) then `computed` / `runway:not-applicable` with the sentence in `detail.note`, so the fit adds no
-"funding risk". `score_thesis(..., runway_na=)` takes the ids; the scored read builds them from the master
-(`identity_for`'s `runway_applies`). The scored row and the name panel read "n/a" with the sentence. See
-`docs/PLATFORM_VALUES.md`, "Runway does not apply".
+- **Runway does not apply**: for a company `runway_applies` rules out, `score_thesis(..., runway_na=)` gives no pips
+  or months, keeps the cash fact's provenance, adds a `runway:not-applicable` entry, and the fit adds no funding risk.
+  The rule: [PLATFORM_VALUES](PLATFORM_VALUES.md) "Runway does not apply".
+- **Pace and currency**: the runway's `detail` carries the year-to-date pace (`ytd_quarterly_burn_usd`,
+  `ytd_burn_days`, `ytd_runway_months`, `pace_caveat`, from `domain.burn_pace.stored_pace`), the stored `currency`
+  and `investments_usd`. The pace never moves the pips, months, fit or sort
+  (`tests/workbench/test_runway_pace_display.py`); screens label cash in its own currency.
+- There is no "unconfirmed estimates" count: a blank runway or market cap is a platform value's state, read from
+  `GET /platform-values/...`; a blank purity is the user's to set.
 
-## The risk axis — dilution is the only implemented risk signal
+## Who can do what
 
-`dilution_risk` is the **sole implemented** `Role.RISK_SIGNAL` today (`squeeze` etc. are reserved in the
-`Kind` enum but unbuilt). So **dilution IS the risk axis** — its meter is the risk read; there is no separate
-fifth "risk" meter. When a second risk signal lands, it becomes its own meter (or feeds this slot); the
-four-meter row already reserves the place.
+| Route, control or CLI | Who | Enforced by |
+|---|---|---|
+| `GET /workbench/theses/{thesis_id}/scored` | anyone signed in, a thesis in their own workspace (404 otherwise) | `get_thesis_or_404` |
 
-> **Dilution meter polarity (a Slice-4 display concern, `[FILED]`):** dilution is a *pressure* meter — more
-> pips = more risk, **opposite** the three goodness-meters. The scoring is correct; the UI needs a clear
-> visual distinction so a full dilution meter never reads like a full purity meter. A display problem, not a
-> scoring change.
+## Known limits
 
----
+- Market cap prices off the latest bar however old, so a stale or delisted company still shows one.
 
-## The crown-jewel rules — the *why* that must survive
+## Related
 
-These are the decisions whose reasoning is easy to lose. State the why next to the what.
-
-### Purity is exposure CONCENTRATION, not safety
-A pre-revenue pure-play reads ~**100%** purity on the **business-description** basis — it is *maximally
-exposed* to the thesis, which is the honest reading. The funding risk of being pre-revenue lives in
-**runway** and **dilution**, NOT in purity. **Never discount purity for being pre-revenue.** The **basis**
-rides the fact's `source` field and is **kept distinct, never flattened**: `10-k-segment` (a real
-revenue-segment %, e.g. LEU 77% enrichment, SMR 100% single nuclear segment — *revenue-backed*) vs
-`10-k-business-description` (a pure-play read off Item 1, e.g. OKLO / NNE 100% — *pre-revenue /
-pre-commercial-revenue*). A revenue-backed 100% and a pre-revenue 100% must never read as the same thing.
-
-### The uniform cash rule (the runway numerator)
-`cash_usd = cash + equivalents + ALL marketable securities (current AND noncurrent)`. These are liquid
-Treasuries regardless of balance-sheet classification, so all-marketable is the honest runway basis. **The
-rule is applied at RATIFY time** (when `cash_usd` is ratified) **as a documented convention — the
-`cash_runway_basis` constant in `CallConfig` — NOT enforced in the scorer**, which trusts `cash_usd` as
-ratified. Every future cash ratification follows the one stated rule. *(Origin: the seed draft mixed bases —
-one name's figure included noncurrent marketable securities, another's was current-only — so the rule was
-made uniform + documented.)*
-
-**Which lines count (operator decisions D1 + D2, 2026-11-15).** "Marketable securities" means short-term
-investments (Treasury bills, deposits and bonds due within a year, under any of the tags the extractor
-reads) plus long-term MARKETABLE debt securities. The generic **long-term investments** line is **never**
-cash: it is often stakes in other companies. The machine's candidate carries the investment part on its own
-(`investments_usd`) so a screen can later show the split. Tag lists and the reconcile rule:
-`WORKBENCH_EXTRACTION.md` (Cash includes short-term investments…).
-
-### The recurring-vs-one-time burn provenance pattern (the ENTRA1 lesson)
-**A cash-burn provenance note MUST separate one-time outflows from recurring burn** — the runway meter is
-only honest on the *recurring* figure. The worked example: **NuScale (SMR)** seeds a recurring burn of
-**$50.483M/qtr = the reported $314.678M operating cash use LESS the $264.195M one-time ENTRA1 Milestone
-Contribution** (a $507.4M strategic-partner obligation under the Partnership Milestones Agreement, recognized
-as FY2025 G&A, paid to ENTRA1 in tranches). Seeding the reported $314.678M would have shown a *false ~3-month
-runway*; the recurring $50.483M gives an honest ~60 months. **The durable lesson is the pattern, not the
-number:** getting this right took **three independent passes** (the build agent, an independent fact-check,
-and a web search against the filings) that **each got part of it wrong** — so **no single pass is gospel** on
-a sourced financial figure; the provenance note records what was backed out and why, and the operator
-ratifies against the filing.
-
-### The dilution overhang single-source rule
-`dilution_clock.overhang_pct(facts, asof)` is the **one** raw-overhang computation, shared by the
-risk-veto (`score`) and the Workbench meter. **The meter buckets on this raw % and NEVER backs it out of the
-clamped risk `severity`** — because severity *saturates* at the severe threshold (`min(overhang /
-severe_pct, 1) × risk_block_severity`), so a number recovered from severity is wrong above the severe bar. A
-future reader will be tempted to derive the meter from severity; that is the trap. See `INVARIANTS.md` #8.
-
-### The LEU A+B (total-economic shares) lesson
-Share counts are the **A+B total-economic** count — Class B is **economic** common stock (the A/B split is
-*voting*, not economics), so it counts toward market cap. LEU (Centrus) = Class A 18,953,594 + Class B
-719,200 = **19,672,794**; NuScale's Up-C A+B is its total economic share count too. Market cap uses the A+B
-count, not Class A alone.
-
-### The through-line on the scorer
-Each meter is factored on **its own driving property** — purity on revenue-mix %, runway on cash/burn,
-catalysts on live-count + grade, dilution on overhang % — with **no `if kind ==` branching anywhere in the
-engine**. This is the back-half through-line (`INVARIANTS.md` #14) applied to the Workbench: behavior is keyed
-on the property that drives it, never on a kind literal.
+[EXTRACTOR](EXTRACTOR.md), [PLATFORM_VALUES](PLATFORM_VALUES.md), [WORKBENCH](WORKBENCH.md),
+[CALL_LOGIC](CALL_LOGIC.md), [INVARIANTS](INVARIANTS.md).

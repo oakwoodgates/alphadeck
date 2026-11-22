@@ -3,7 +3,7 @@
 A basket name with NO 10-K/10-Q (a foreign private issuer) gets an honest, current shares-outstanding
 count — and therefore a market cap — from the cover of its latest annual foreign filing (20-F or 40-F),
 at tier FLAG, carrying its located cover passage and its age. Roughly a fifth of a real basket was dark
-this way. The rules below are canon in ``docs/WORKBENCH_EXTRACTION.md`` ("The annual-cover path"); the
+this way. The rules below are canon in ``docs/EXTRACTOR.md`` ("The annual-cover path"); the
 dated measurement that established them is PR #221, and the values are pinned in
 ``tests/ingest/test_annual_shares.py`` + its fixtures — the tests are the oracle, not a prose doc.
 
