@@ -135,7 +135,7 @@
 #   history load is its own job (`python -m pipeline.onboarding`), fired by `onboard_loop` in the background of
 #   this sidecar every ONBOARD_EVERY_S (default 1800 s) after the previous run ends. The job itself refuses inside
 #   the nightly window and yields to any running pass (see `onboard_loop`); the nightly gives a name still
-#   onboarding a bounded, windowed ingest and stamps its thesis `ingest_fresh=false` (docs/FEED_LOOP.md).
+#   onboarding a bounded, windowed ingest and stamps its thesis `ingest_fresh=false` (docs/INGEST.md).
 # - GROWS THE SCOREBOARD'S CURRENT EDITION AFTER THE BACKUP (editions S5, 2026-10-23). Right after the nightly
 #   dump, `editions_nightly` fires `python -m editions.run nightly --apply` once per wake: tonight's page (plus a
 #   catch-up page for any session the edition missed) per live thesis, the ink of every episode whose signal
@@ -150,7 +150,7 @@
 #   no write), for the as-of the next visit sends: the night itself (F1 — the app's dial opens on the server's
 #   current night, which stays this night until the next pass), so the morning visit is a cache hit. Bounded by WARM_DASHBOARDS_TIMEOUT_S, fail-open (one log line, never the
 #   loop, never the pass's status or exit code), off with ALPHADECK_WARM_DASHBOARDS=0 (an env-only cron deploy).
-#   docs/FEED_LOOP.md §the dashboard cache warm-up. Just before it, `prune_change_log` deletes the dashboards'
+#   docs/DASHBOARDS.md rule 7. Just before it, `prune_change_log` deletes the dashboards'
 #   change log rows older than 24 hours (`python -m db.change_stamp --prune`; fail-open, one log line).
 # - RUNS A THIRD SCHEDULE: THE WEEKLY COMPANY-LIST REFRESH (2026-10-24). `master_refresh_loop` fires
 #   `python -m pipeline.populate_master --live --apply --run-kind cron` every Saturday 09:00 (MASTER_REFRESH_DOW /
@@ -165,7 +165,7 @@
 #   the one before (plus any month a term added since is missing), display data for the Narrative Adoption Curve
 #   dashboard. A no-op until the operator has run the first backfill by hand. The job refuses inside the nightly
 #   window, holds its own lock (advisory id 6), yields to a running pass and stops between terms when one starts;
-#   a refused / stopped run retries hourly a few times; fail-open (one log line). docs/FEED_LOOP.md §term mentions.
+#   a refused / stopped run retries hourly a few times; fail-open (one log line). docs/CRON_SIDECAR.md §Schedules.
 # - The as-of dates come from this shell's `date` in the container TZ, which compose pins to the market TZ
 #   (the same "today" `market_today()` derives) — keep those two in step.
 # - Inherits the container env directly (DATABASE_URL / ALPHADECK_USER_AGENT / TZ), so unlike a cron daemon

@@ -17,7 +17,7 @@ from repositories.calls_repo import RunIdentity
 #        stamped by the cron since R2b): an explicit False = the arm rested on a PARTIAL ingest.
 #        ``None`` = legacy/manual append — never coerced to a judgment (0023's own rule).
 #   B1 — the freeze-era window. Arms made inside the 2026-07 EDGAR cache freeze
-#        (``docs/POSTMORTEM_CRON_FREEZE_2026-07.md``): the harm B2 cannot see — an arm resting on
+#        (``docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md``): the harm B2 cannot see — an arm resting on
 #        promptly-ingested OLDER facts while the frozen ``submissions`` index hid the newer filings.
 #   B2 — the derived DISCLOSURE-lateness marker. How late the facts the arm CITED became public: max
 #        calendar-day disclosure lag (first ``COALESCE(accepted, recorded_at)`` vs latest ``valid_from``)
@@ -47,7 +47,7 @@ from repositories.calls_repo import RunIdentity
 # covered by B1's hardcoded window + A's run stamp; a pure ingest-lag freeze belongs to the cron-health layer.
 THAW_LAG_DAYS = 7
 
-# The 2026-07 EDGAR cache-freeze window, INCLUSIVE both ends (docs/POSTMORTEM_CRON_FREEZE_2026-07.md:
+# The 2026-07 EDGAR cache-freeze window, INCLUSIVE both ends (docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md:
 # the record began 2026-07-10 already frozen; R1/#196's key-classed 12h TTL landed 2026-07-17).
 # Tenant-independent — the cache freeze was process-wide.
 FREEZE_WINDOW = (date(2026, 7, 10), date(2026, 7, 17))
