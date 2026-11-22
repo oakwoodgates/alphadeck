@@ -1,6 +1,6 @@
 """THE TERM-MENTIONS COUNT — how many EDGAR filings mention each card's SIGNAL terms, per month. DRY RUN by default.
 
-The data the Narrative Adoption Curve dashboard reads (``docs/dashboards/narrative-adoption.md`` §The job): for
+The data the Narrative Adoption Curve dashboard reads (``docs/dashboards/narrative-adoption.md``): for
 every live card and every SIGNAL term in its persisted term set (``thesis.term_set``, ``tier = signal`` — the
 operator's seeds; BROAD terms are collision-prone and never counted), ONE EDGAR full-text search per calendar
 month, stored as ``fact_term_mentions`` (migration 0071): the documents that matched, split by who files them
@@ -17,7 +17,7 @@ had. DISPLAY ONLY: it never feeds a call, never places a name (discovery is unto
                                                                  # current month and the one before
     python -m pipeline.term_mentions --backfill --apply --thesis <id> --months 12 --no-live
 
-THE RULES, each the plan's (``docs/dashboards/narrative-adoption.md``) or named there under "Choices to confirm":
+THE RULES (this docstring is the job's contract; the page's side is ``docs/dashboards/narrative-adoption.md``):
 
 - **One request per (term, month), across cards.** Cards that share a term (compared case-insensitively) share
   its request; the parsed reply is fanned out to every card that needs that month and stored under each card's
@@ -38,6 +38,10 @@ THE RULES, each the plan's (``docs/dashboards/narrative-adoption.md``) or named 
   earlier month is filled after a later one was stored, the later month's count is re-derived (no request).
 - **Never the first backfill by itself.** ``--weekly`` with an EMPTY table for the tenant is a no-op line: the
   first backfill (~an hour of SEC requests) is the operator's call — cost is the operator's to spend.
+- **First month, new and removed terms.** ``new_filers`` is NULL for a term's first stored month (no earlier month
+  to compare with), never "all new". A term added to a card, or respelled (case included), is a new term: its window
+  is fetched on the next run that fills missing months. A term removed from a card stays stored (history is never
+  deleted); the page shows the card's current terms.
 
 THE WEEKLY JOB. The cron sidecar fires ``--weekly --apply --run-kind cron`` every Saturday at 10:00 market time
 (``term_mentions_loop`` in ``scripts/daily_cron.sh``), plus once at boot with ``--if-stale-days 7``. An
