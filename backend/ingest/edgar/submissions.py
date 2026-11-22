@@ -426,7 +426,7 @@ def fetch_submissions_page(client: EdgarClient, name: str) -> dict[str, Any]:
     The cache key sits beside the company's own document (``submissions/<name>``), so the key-classed
     freshness policy treats it as mutable like the rest of that prefix — correct and safe-by-default: an
     older page is effectively closed, so a refresh costs only bandwidth, and nothing here threads a
-    per-call freshness flag (``docs/DATA_SOURCES.md`` §cache-freshness).
+    per-call freshness flag (``docs/DATA_SOURCES.md`` §Cache freshness).
     """
     if not _PAGE_NAME.match(
         name

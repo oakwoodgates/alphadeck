@@ -37,7 +37,7 @@ pages read, 0 unreadable, 638 accessions resolved, 1,589 rows corrected, **0 res
 intended one-shot.
 
 This is an INTERACTIVE one-shot, so the client's default 12h TTL is the right dial and nothing threads a
-freshness flag (``docs/DATA_SOURCES.md`` §cache-freshness — freshness is key-classed, never per-call).
+freshness flag (``docs/DATA_SOURCES.md`` §Cache freshness — freshness is key-classed, never per-call).
 
 MECHANISM — append-only re-version, the table's own correction discipline (the ``backfill_aff10b5_1``
 precedent). ``fact_insider_txn`` carries a live ``no_update`` trigger, so the repair appends a NEW VERSION of

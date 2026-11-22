@@ -363,7 +363,7 @@ not `BasketMember.role` (the free-text prose field) and not `SignalEvent.role` (
 
 **The section button** (`⇣ get data — {section} (N)`): one deliberate click covers the ACTIVE value-chain
 section — for every member it pulls EOD price bars (the DECOUPLED price leg,
-`POST /workbench/securities/{id}/ingest-prices` — incremental, cache-first; see `FEED_LOOP.md`) and
+`POST /workbench/securities/{id}/ingest-prices` — incremental, cache-first; see `INGEST.md`) and
 prefetches the extraction candidates into the same query the rows + rail read — so the section lands
 mostly-complete: caps computed where shares are already ratified, business types derived, purity candidates
 staged one ratify away. **Bounded by the section** (a slice of the saved shortlist, never the draft),

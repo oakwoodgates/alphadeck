@@ -10503,7 +10503,7 @@
           "reason"
         ],
         "title": "AdminMissingCloseOut",
-        "description": "One company with no stored close for ``session`` (``pipeline/missing_closes.py``) \u2014 on the night's quiet\nlist, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its\nnewest stored bar at that pass; ``reason`` is ``no_bar`` (the price leg ran clean \u2014 the vendor had no close\nyet), ``fetch_error`` (the leg failed; ``error`` keeps its message) or ``not_ingested`` (another writer held\nthe company). ``usual_late`` marks a company late at the night's run on most of its recent sessions\n(``late_nights`` of ``judged_nights``); ``otc`` a company the master lists on the OTC venue \u2014 a KNOWN vendor\nissue (``FEED_LOOP.md`` \u00a7Known feed limitations). ``ticker`` may be null; the row renders by id (#9)."
+        "description": "One company with no stored close for ``session`` (``pipeline/missing_closes.py``) \u2014 on the night's quiet\nlist, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its\nnewest stored bar at that pass; ``reason`` is ``no_bar`` (the price leg ran clean \u2014 the vendor had no close\nyet), ``fetch_error`` (the leg failed; ``error`` keeps its message) or ``not_ingested`` (another writer held\nthe company). ``usual_late`` marks a company late at the night's run on most of its recent sessions\n(``late_nights`` of ``judged_nights``); ``otc`` a company the master lists on the OTC venue \u2014 a KNOWN vendor\nissue (OTC closes often arrive a night late). ``ticker`` may be null; the row renders by id (#9)."
       },
       "AdminMissingClosesOut": {
         "properties": {

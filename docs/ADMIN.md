@@ -77,7 +77,7 @@ them, `record.missed_asofs` lists them ascending, `record.window_days` says how 
 `days_behind` keep their exact edge-check meaning; the expected day itself, when missing, appears in both.
 The page lists the missed dates **only when there are any** (a control that doesn't discriminate doesn't
 render). The cause — the sidecar firing for the day it *woke* rather than the night it was scheduled for — is
-fixed in `FEED_LOOP.md` §the scheduling sidecar (the target as-of is now fixed at schedule time).
+fixed in `CRON_SIDECAR.md` §Getting the right night (the target as-of is now fixed at schedule time).
 
 **What "covered" means — a POST-`RUN_AT` row (G2c).** A session counts as recorded only if some
 call-of-record for that as-of was **`recorded_at` at or after that night's `RUN_AT` in market time**
@@ -149,8 +149,8 @@ and never confirm on price.
   in the theses it did cover, and a skipped thesis keeps the rows of the last pass that covered it (normally
   the night before, in the killed-night shape). The loud rows are exactly what the next pass treats as already
   told, and `newly_stale` is what the newest such pass paged — a catch-up included — so a name the panel
-  marks new is a name that paged. `asof` / `ran_at` name that newest pass (`FEED_LOOP.md` §"the stale-tape
-  and name-error baselines carry each thesis forward").
+  marks new is a name that paged. `asof` / `ran_at` name that newest pass (`FEED_MONITORS.md` §"The monitor rule":
+  the baselines carry each thesis forward).
   The **thresholds shown are the ones that pass judged under**, read off its artifact rather than live: a
   setting changed between the pass and the read would otherwise describe the list on screen with a number
   that never produced it. `0` on a threshold means that feed's monitor was disabled for the pass.
@@ -186,7 +186,7 @@ and never confirm on price.
   deliberately not built beyond one narrow, undoable path (the weekly company-list refresh, 2026-10-24: a
   renamed name with stored bars is pinned to its old ticker, then adopted onto the new one only when the nightly
   probe's splice shares at least 20 bars at x1.000 — "The company list", below): a wrong auto-resolve would
-  file another company's tape under your member, which is worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices. **Since T2/Q8
+  file another company's tape under your member, which is worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §Prices (Yahoo). **Since T2/Q8
   the renamed, never-priced and closed names move to the "Price feed repairs" panel below**, where the
   repair is one click with its Undo; this block keeps only the stopped tapes that panel does not hold (a
   plain feed gap — or every row, against an older backend that has no panel).
@@ -204,7 +204,7 @@ are read live from the append-only repair log (0046), so a click shows at once. 
 something is in it.
 
 - **Renamed** (loud) — each stopped tape whose company EDGAR lists under a symbol we don't price, with the
-  nightly **splice probe**'s verdict on every listed symbol (`FEED_LOOP.md` §the tape monitor, part 3): its
+  nightly **splice probe**'s verdict on every listed symbol (`FEED_MONITORS.md` §Stopped price tapes): its
   shared dates with our stored tape, the median close ratio, verified (>= 5 dates within 1%) or not, and how
   far its bars run — plus the EDGAR evidence (current name, former names, the item-5.03 8-K). **Adopt <SYM>**
   (the verified one is the primary button; an unverified one stays adoptable on your judgment) sets
@@ -256,7 +256,7 @@ already told; `successor_asof` names the newest such pass, and an Adopt records 
 wrote the row.
 
 - **Now files under a NEW CIK** (loud) — a member whose stored CIK lists no symbol on EDGAR while SEC's ticker
-  map assigns ours to another registrant (`FEED_LOOP.md` §the identity monitor): the row names the stored CIK
+  map assigns ours to another registrant (`FEED_MONITORS.md` §The monitors): the row names the stored CIK
   with its EDGAR name and deregistration ("UROY — stored CIK 0001711570 (Uranium Royalty Corp. /CA) lists no
   symbol · 15-12G filed 2026-07-31") and the successor with its evidence ("SEC now assigns UROY to CIK
   0002143673 (Uranium Royalty Corp.) · 8-K12B filed 2026-07-28 · incorporated DE · files 10-K / 10-Q").
@@ -283,11 +283,11 @@ to its EDGAR filing index, and its Table I rows beside each original's (role `or
 duplicate, `candidate` for an ambiguous link). Rendered only when an amendment is stored. An original's HELD row
 (`insider_txn_hold`, "Held insider rows" below) is listed among its rows with no date — the linker reads it as one
 of the filing's rows, never at its written date (rule `2026-11-amendment-linker-sees-held-rows`,
-`FEED_LOOP.md` §the linker sees held rows).
+`domain/rule_log.py`).
 
 **R8-B — the filer's own correction is applied by default.** A Form 4/A the linker resolves to the Form 4 it
 amends is the insider's legal correction of their own filing — deterministic data, not a model's recommendation —
-so the SYSTEM resolves it (`FEED_LOOP.md` §R8-B): it applies it, replacing only the original rows it accounts for
+so the SYSTEM resolves it (`FILINGS.md` §Form 4/A): it applies it, replacing only the original rows it accounts for
 (the leftovers settled by the filer's own FIX / ADD words), or — for a zero-row 4/A whose words retract nothing —
 keeps the original as filed. The operator is asked only about what the system cannot resolve, with three verdicts,
 each with its **Undo**: **Use the correction** (the amendment's rows replace the whole original; a void hides it),
@@ -316,9 +316,9 @@ shows them: "Read as: the filer's words FIX the trade it re-reports — “…�
   amendment you took back from the system (by revoking its decision through the API) is owed here too.
   **In-window first:** an item whose changed rows sit inside a signal's own read horizon today (`P` 210 days,
   `S` 120 days) sorts to the top and says "in today's P/S signal window — can move tonight's call". Each pages
-  ONCE when new (`FEED_LOOP.md` §the amendment leg). MEASURED 2026-10-21 (asof 2026-10-20, after the first
+  ONCE when new (`FEED_MONITORS.md` §The monitors). MEASURED 2026-10-21 (asof 2026-10-20, after the first
   sweep): 6 — 4 ambiguous (CVNA, FIS, HROW, SKYT), 1 unresolved match (YYAI), 1 held void (FIGR); none in
-  tonight's signal windows. Since the R8 linker fix (`FEED_LOOP.md` §the R8 linker fix), an ambiguous set is
+  tonight's signal windows. Since the R8 linker fix (`FILINGS.md` §Form 4/A), an ambiguous set is
   settled when exactly ONE candidate holds a row the amendment accounts for: once `python -m
   pipeline.relink_amendments --apply` runs, FIS and SKYT move to "Resolved automatically" and the owed list is 4
   (CVNA, HROW, YYAI, FIGR). A link the system settled shows every candidate beside it (the one it chose marked
@@ -389,7 +389,7 @@ the leg reports success and the series stands still.
 ### Held insider rows — "which insider rows owe me a date?"  `[BUILT — bad dates step 3, 2026-11-12]`
 
 The steward's queue for the Form 4 rows the ingest HELD because the filing's transaction date cannot be true
-(`insider_txn_hold`, migration 0082; `docs/FEED_LOOP.md`), and the steward's decisions about them
+(`insider_txn_hold`, migration 0082; `docs/INGEST.md`), and the steward's decisions about them
 (`insider_txn_hold_decision`, 0083). Its own read, `GET /admin/insider-holds`, live from the two tables; the
 writes are `/admin/insider-holds/*`. Steward only, on the DATA tenant. The Admin page's "Held insider rows"
 card (`frontend/src/admin/InsiderHolds.tsx`, from the mockup signed off 2026-11-12) renders it, under the Form 4/A
@@ -458,7 +458,7 @@ A tape can be fed every night and still be wrong: the vendor re-bases a name's h
 sometimes serves it HALF-adjusted or flips a bar between bases from one pull to the next. The stored tape
 then mixes two bases, and a basis cliff reads as a +1,800% breakout. The nightly pass scans the basket's
 stored tapes for it (`pipeline/split_basis.py`; the rule, its thresholds and the measured precision are in
-`FEED_LOOP.md` §the tape monitor, part 2) and `/admin/status` carries the result as `split_defects`, read
+`FEED_MONITORS.md` §The monitors) and `/admin/status` carries the result as `split_defects`, read
 from the newest live artifact whose scan ran, from a pass that FINISHED (M1) — a `--catch-up` that skipped
 theses (M2) counts, since the scan reads the whole basket union; the same pass the next night's diff
 reads — artifact-sourced like the stopped-feed panel, so the surface still owns no tables:
@@ -504,7 +504,7 @@ is shrinking the shell to a dumb trigger. See `ROADMAP.md` "what's next".)*
 
 A name new to every live basket is COLD: its first ingest walks its whole filing history (MEASURED 300–600 s, median
 396 s, against ~3.5 s warm). That load runs in the staged onboarding job OUTSIDE the nightly window
-(`FEED_LOOP.md` §onboarding new names; `pipeline/onboarding.py`), and until a name is loaded the nightly reads
+(`INGEST.md` §Cold names; `pipeline/onboarding.py`), and until a name is loaded the nightly reads
 only its recent filings and stamps its thesis `ingest_fresh=false`. The **Onboarding** panel reads the queue
 (`GET /admin/onboarding` — the `security_onboarding` table + the job's latest `data/onboard_runs` artifact; a
 read of its own, like the Splits panel):
@@ -538,7 +538,7 @@ The operator's rule (2026-10-23): "an admin flag should fire if no closing price
 day". The Scoreboard's edition pages are written the same night, right after the nightly pass, so a close that
 had not arrived by then is paged without it. `status.missing_closes` is that flag, read from the newest
 finished live run artifact that ran the check (`missing_closes` block — a file read, no DB; `null` until a live
-pass has run it). The rule and the measurements: `FEED_LOOP.md` §Missing closes; the code:
+pass has run it). The rule and the measurements: `FEED_MONITORS.md` §The monitors; the code:
 `pipeline/missing_closes.py`.
 
 - **QUIET, every night** — one gray line, the backend's own words: `Closing prices · 21 of 679 companies had no
@@ -546,7 +546,7 @@ pass has run it). The rule and the measurements: `FEED_LOOP.md` §Missing closes
   `… all 679 companies had a close …`, or `… not judged for Nov 26 — neither SPY nor IWM has a close for it`
   (a holiday, or a pass before the session settled). It expands to the companies, each with its last bar and
   why (the vendor had no close yet / the price pull failed / another writer held it), the marker
-  **"OTC · known issue"** on a company the master lists on the OTC venue (`FEED_LOOP.md` §Known feed
+  **"OTC · known issue"** on a company the master lists on the OTC venue (`FEED_MONITORS.md` §Known feed
   limitations — OTC closes arrive a night late, logged, not fixed) and **"usually late (n of m nights)"** on any
   other company late on most of its recent sessions; plus the closes still waiting on a later session's pull,
   and the late closes that arrived since the previous check ("late, arrived", with how many hours after the
@@ -561,7 +561,7 @@ pass has run it). The rule and the measurements: `FEED_LOOP.md` §Missing closes
 
 ### Scoreboard editions — "did tonight's page land?"  `[BUILT, editions S5 2026-10-23]`
 
-The cron sidecar grows the Scoreboard's current edition after the nightly backup (`FEED_LOOP.md` §the editions
+The cron sidecar grows the Scoreboard's current edition after the nightly backup (`CRON_SIDECAR.md` §The nightly wake order, the editions
 nightly page; `editions/nightly.py`). `GET /admin/status` carries its **one line**, `editions_nightly` — the
 newest APPLIED run's own words from `data/edition_runs/<ts>.json` (a directory read, no DB; a dry run is never
 shown; `null` until the job has run, and the page then renders nothing):
@@ -603,7 +603,7 @@ newest edition was published by hand (Edition 1). To cut right after a repair in
 ### The company list — "is the security master current?"  `[BUILT, 2026-10-24]`
 
 The cron sidecar refreshes the security master from SEC's company file every Saturday at 09:00 ET
-(`FEED_LOOP.md` §the company list; `python -m pipeline.populate_master`, dry-run by default). `GET /admin/status`
+(`DATA_SOURCES.md` §Company list and identity; `python -m pipeline.populate_master`, dry-run by default). `GET /admin/status`
 carries its **one line**, `master_refresh` — the newest APPLIED run's own words from `data/master_runs/<ts>.json`
 (a directory read, no DB; a dry run is never shown; `null` until the job has run):
 
@@ -652,8 +652,8 @@ with `whole pass <total> · slowest leg <leg> <time>` when the artifact carries 
 per-thesis loop (the scans, the self-audit, the artifact write, the shell sweep, the SPAC radar), so it is
 longer than the run's own duration, which ends with the loop. Plain text, never styled, and it never moves
 the verdict: it is a measurement, not news. Absent on an artifact written before X5. The full per-leg,
-per-thesis, request-count and peak-memory breakdown lives in the artifact (`docs/FEED_LOOP.md`, "Where a
-pass spends its time").
+per-thesis, request-count and peak-memory breakdown lives in the artifact (`docs/FEED_MONITORS.md`, "The monitors": where a
+pass spends its time).
 
 **A killed or partial pass never reads healthy (M1, 2026-10-16).** MEASURED on 2026-10-12: the 22:30 pass
 died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no artifact, and this page read
@@ -747,7 +747,7 @@ legs ran) got fresh SEC data anywhere in the pass — the line reads `FROZEN —
 N of M companies (x%) got fresh SEC data this pass — below the 50% floor`. It is re-judged from the coverage
 and the floor the artifact recorded (`edgar_companies` / `edgar_companies_fresh` / `freeze_completed_floor`),
 so a later change of the setting never recolors a row; an artifact without those keys keeps its rule
-(`FEED_LOOP.md` "Known gaps"). The run-history table shows `completed/attempted` in the fetches
+(`FEED_MONITORS.md` "The health page"). The run-history table shows `completed/attempted` in the fetches
 column when they differ. A **`--catch-up`** pass (the sidecar's boot / late-wake catch-up; a small
 **catch-up** tag, `AdminRunOut.catch_up`) is judged on the theses it PROCESSED — the ones M2 skipped, whose
 on-time row stood, are left out. Every row is re-derived by the rule its pass was assessed under: an
@@ -781,7 +781,7 @@ from the run artifacts or the backups dir (the surface still writes nothing):
   when any `fact_price_eod` row (benchmarks included) was recorded before its bar date's settle instant
   (`d` at 18:00 market time), naming the bars (`TICKER d @ recorded`) and counting them by bar date. It
   judges the rows written since the previous pass that judged it, never before the guard's deploy
-  (2026-10-17 03:23Z), so the 5,597 pre-guard rows prod holds never page (`FEED_LOOP.md` "Settled closes").
+  (2026-10-17 03:23Z), so the 5,597 pre-guard rows prod holds never page (`FEED_MONITORS.md` "The self-audit").
 - **Per-name ingest errors (O1).** The artifact now keeps WHY each name errored, one row per failed leg.
   Names whose leg started failing since the last-known inventory (each thesis as the newest live pass that
   covered it saw it — a skipped-thesis catch-up counts for the theses it covered, so a name it first flagged
@@ -824,7 +824,7 @@ finished — the pass is idempotent (`record_if_changed` appends nothing on unch
 the night's scheduled pass then served that warm index — blind to the afternoon's filings. The recurring
 client now carries the **recurring TTL (five minutes)**, so this button *refreshes* the cache rather than
 warming it and the night re-fetches regardless — anything read more than five minutes ago is re-pulled, and
-nothing can be filed in the five minutes before the 22:30 pass (`FEED_LOOP.md` §Fresh data). The one thing
+nothing can be filed in the five minutes before the 22:30 pass (`INGEST.md` §Freshness). The one thing
 that still reads a warm cache is a pass fired **within five minutes** of another, which is why a back-to-back
 re-click can legitimately report ~0 EDGAR fetches (and page FROZEN once — loud, never a silenced freeze).
 The job opens its
@@ -845,7 +845,7 @@ ET passes had masked a missed post-close pass, and the record stayed a pre-open 
 
 ## Backups — the DB-snapshot safety net (Slice 4)
 
-The operator-facing view of the backup net; the **mechanics live in `FEED_LOOP.md` §Backups & restore** (the
+The operator-facing view of the backup net; the **mechanics live in `CRON_SIDECAR.md` §Backups** (the
 runner, retention, the host bind, the client version) — this section is the surface, not the source.
 
 - **Create + list.** `POST /admin/backup` kicks a background job (**202** + `job_id`, poll
@@ -858,17 +858,17 @@ runner, retention, the host bind, the client version) — this section is the su
   newest `ALPHADECK_BACKUP_KEEP` (default **7**) **unlabeled** snapshots are kept and older unlabeled ones
   pruned. A **labeled** dump (e.g. `pre-migration`) is deleted only when it is both older than 90 days and
   outside the newest 20 labeled dumps (Q16; the dials and the `--prune-dry-run` listing are in
-  `FEED_LOOP.md` §Backups & restore). A failed dump never prunes (it must not shrink the safety net).
+  `CRON_SIDECAR.md` §Backups). A failed dump never prunes (it must not shrink the safety net).
 - **Nightly, too.** `scripts/daily_cron.sh` runs `python -m pipeline.backup` right after the scheduled
   `pipeline.daily` (weekday branch), fail-open — deliberately **not** folded into `run_daily_pass`, so a
   manual "Run daily now" does not also dump. Since M3 (2026-10-16) the sidecar's boot also runs an
   age-gated `pipeline.backup --if-older-than-h 20`, so a night caught up at boot gets a snapshot too, and
-  a failed backup pages from the shell (`FEED_LOOP.md` §Backups & restore).
+  a failed backup pages from the shell (`CRON_SIDECAR.md` §Backups).
 - **RESTORE is CLI-only — never a button.** A restore is destructive (it replaces the whole database) and
   belongs in human hands. The snapshot is a plain-SQL dump with no DROP statements, so it replays only into an
   EMPTY database: stop the `backend` and `cron` services, drop and recreate the database, replay the file with
-  `psql -v ON_ERROR_STOP=1 -f -`, then start the services again. The exact commands are in `FEED_LOOP.md`
-  §Backups & restore; a plain `psql < <file>` into a database that already has the tables restores nothing.
+  `psql -v ON_ERROR_STOP=1 -f -`, then start the services again. The exact commands are in the `backup-restore`
+  skill; a plain `psql < <file>` into a database that already has the tables restores nothing.
 
 **Why the net exists (the honest note).** On **2026-07-21** a shared-Postgres pytest hazard **truncated the
 whole demo DB**. Recovery worked **only** because an ad-hoc `pg_dump` happened to exist — it was a **real
@@ -876,7 +876,7 @@ restore** from a 2026-07-17 snapshot (all six theses and the real call-of-record
 **not** a synthetic rebuild; a forward `daily` run then re-armed one of the restored theses. This slice turns that lucky
 ad-hoc into a one-click **and** nightly net (and #217 removed the root cause — a fail-closed guard that
 refuses to truncate any non-`alphadeck_test` DB). Full account of the truncation hazard: the operator memory;
-the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
+the freeze it is adjacent to: `docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 ## The endpoints
 
@@ -914,13 +914,13 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 ## What it deliberately is NOT
 
-- **Not the scheduler.** The `cron` sidecar fires the nightly run (`FEED_LOOP.md`); this surface only
+- **Not the scheduler.** The `cron` sidecar fires the nightly run (`CRON_SIDECAR.md`); this surface only
   **triggers on demand** and **observes**. It does not change the schedule.
 - **Not a restore surface.** Restore stays a documented CLI act (above) — destructive, human-only.
 - **Not the dead-man's switch.** A run that never happens produces no artifact → no page from inside the box
   (`restart: unless-stopped` covers crash/reboot, not a deliberate `stop`, and the sidecar can't page about
   its own absence). That is the **external heartbeat's** job (H2, active since 2026-10-16): the shell pings
   `HEARTBEAT_URL` once the last expected night is recorded, and an outside service alerts when the ping does
-  not come. See `FEED_LOOP.md` (the sidecar section and "Known gaps").
+  not come. See `CRON_SIDECAR.md` §Failure handling.
 - **Not the replay-regenerate button.** Regenerating the Scoreboard's replay artifact stays out of scope,
   deferred to the replay-panel work (`ROADMAP.md`).

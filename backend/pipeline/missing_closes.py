@@ -8,7 +8,7 @@ WHAT PROD LOOKS LIKE (MEASURED read-only on prod, sessions 2026-09-21..10-22, th
 companies): 14–26 companies (~3%) have no bar for the session at the end of that night's pass; nearly all
 arrive with the NEXT nightly pull (median ~24 h later, ~72 h over a weekend — the nightly is the only price
 pull); almost none never arrive; and it is the SAME companies — 22 are late on 11+ of ~20 nights (mostly OTC,
-a known vendor issue: ``docs/FEED_LOOP.md`` §Known feed limitations), 6 on 3–10 nights, 649 never. A flag
+a known vendor issue: ``docs/FEED_MONITORS.md`` §Known feed limitations), 6 on 3–10 nights, 649 never. A flag
 that shouted every night would be noise (#7, WB#3), so THE LOUDNESS RULE is part of the contract:
 
 - **QUIET, every night:** one line — "21 of 679 companies had no close for Oct 23 at the night's run" — that

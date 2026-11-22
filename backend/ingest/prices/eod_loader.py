@@ -18,7 +18,7 @@ from ingest import CacheMiss, write_atomic
 from ingest.http import polite_get, yahoo_limiter
 
 # Free EOD source. Stooq's free CSV is now apikey/captcha-gated, so the live default is Yahoo Finance
-# (free, no key); the loader stays swappable (DATA_SOURCES: Stooq / Tiingo-free / equivalent).
+# (free, no key); the loader stays swappable (the PriceSource seam, docs/DATA_SOURCES.md §Prices (Yahoo)).
 _DEFAULT_CACHE = Path(__file__).resolve().parents[3] / "data" / "price_cache"
 
 

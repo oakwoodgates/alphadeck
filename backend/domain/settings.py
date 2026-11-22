@@ -202,13 +202,13 @@ class Settings(BaseSettings):
     # THE PASS'S BOUND on that treatment: at most this many DISTINCT not-yet-warm names get the windowed walk in
     # one pass; past it, a name is listed as onboarding but NOT ingested tonight (no leg, no fetch — the job
     # loads it), so even a promote of thousands of names cannot run the night past its 5,400 s bound. 300 x the
-    # MEASURED first-night windowed cost per cold name (docs/FEED_LOOP.md §onboarding) leaves the pass well
+    # MEASURED first-night windowed cost per cold name (docs/INGEST.md §Cold names) leaves the pass well
     # inside the bound at today's warm cost; the names past it are named in the report and on the artifact.
     # 0 = no cap. ALPHADECK_ONBOARD_NIGHTLY_MAX_NAMES.
     onboard_nightly_max_names: int = 300
     # THE FAST LANE: a Workbench promote that adds at most this many COLD names (no other live basket holds them)
     # ingests them at once, in the background, exactly as before X1; more than this are queued for the staged
-    # job instead (the promote returns at once either way). MEASURED (docs/FEED_LOOP.md §onboarding): the worst
+    # job instead (the promote returns at once either way). MEASURED (docs/INGEST.md §Cold names): the worst
     # cold name took ~600 s (a heavy filer's whole Form 4 history), so 5 is the most whose worst case
     # (~50 min) stays inside the on-promote job's 3,600 s reaper TTL and the window's 60-min lead; at the
     # prod-measured ~110 s average it is ~9 min, and a 3-name promote stays exactly as instant as it was.
@@ -595,7 +595,7 @@ class Settings(BaseSettings):
     # ALPHADECK_INGEST_FETCH_CONCURRENCY.
     ingest_fetch_concurrency: int = 8
 
-    # --- V2 W3a — BACKGROUND EXTRACTION of platform values (``platform_values/extraction.py``; docs/PLATFORM_VALUES.md)
+    # --- V2 W3a — BACKGROUND EXTRACTION of platform values (``platform_values/extraction.py``; docs/PLATFORM_EXTRACTION.md)
     # THE KILL SWITCH: ``platform_extraction_max_names = 0`` turns the nightly leg AND the onboarding step off (no
     # company is fetched, no attempt is written); the backfill CLI still runs by hand. Otherwise it is how many
     # companies one nightly leg may extract. ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES.

@@ -1,4 +1,4 @@
-"""A USER'S FLAG on a platform value (V2 W5b; ``docs/PLATFORM_VALUES.md`` §Flags).
+"""A USER'S FLAG on a platform value (V2 W5b; ``docs/VALUE_FLAGS.md``).
 
 A plain user who thinks a company's share count or cash/burn is wrong, or missing, tells the steward. A flag never
 changes a value; only its user and the steward ever see it. Every row is written here, through

@@ -1,6 +1,6 @@
 """BACKGROUND EXTRACTION (V2 W3a): the attempt record's gate and the runner that keeps platform values current.
 
-``docs/PLATFORM_VALUES.md`` ("Background extraction"). Three pieces, no caller yet (the nightly leg, the backfill
+``docs/PLATFORM_EXTRACTION.md``. Three pieces, no caller yet (the nightly leg, the backfill
 CLI and the onboarding step are later PRs):
 
 - **The gate (pure).** ``inputs_key`` names exactly what the extractor reads: the company's CIK plus the newest

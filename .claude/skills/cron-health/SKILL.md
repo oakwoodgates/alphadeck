@@ -1,95 +1,57 @@
 ---
 name: cron-health
 description: >-
-  Diagnose whether the daily call-of-record cron ran and the record is fresh —
-  the readouts that would have caught the 11-day 2026-07 freeze. Trigger on "is
-  the cron healthy", "did the cron run", "check the feed", "is the data fresh",
-  or any suspicion a thesis looks stale. Diagnosis is READ-ONLY; any remediation
-  (re-runs, restores) is proposed to the operator, never applied.
+  Use when asked whether the nightly cron ran, whether the record or a feed is fresh, or why a thesis looks
+  stale. Diagnosis is read-only; propose any re-run, repair or restore to the operator, never apply it.
 ---
 
-# Cron health — did last night's run happen, and did it do anything?
+# Cron health
 
-Authoritative sources: `docs/FEED_LOOP.md` + `docs/ADMIN.md` (the freshness
-surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
-
-## Guardrails (never violate)
-- **Diagnosis is read-only.** A manual `pipeline.daily` WRITES the call-of-record —
-  never run it as a probe. Propose remediation (the Admin "Run daily now", a
-  targeted re-ingest, a restore); the operator decides.
-- **Never "fix" stale data by re-ingesting history** — the bitemporal trap
-  (see `backup-restore`). Re-ingest recovers going-forward only.
-- **A 0-fetch reading alone is not proof of a freeze.** Since O5 (2026-10-21) the
-  verdict reads COMPLETED fetches (`edgar_fetches_completed`; `edgar_fetches` is the
-  attempts). `FROZEN — 0 of N EDGAR fetches COMPLETED` = pulls went out and none came
-  back (a dead feed: check `env.user_agent_set`, then SEC reachability);
-  `FROZEN — 0 EDGAR fetches` = the cache never reached out (a real freeze, or a pass
-  started within five minutes of another). Since 2026-10-21 a third line, the RATIO
-  FLOOR: `FROZEN — the SEC feed looks starved: only N of M companies (x%) got fresh
-  SEC data this pass — below the 50% floor` = some data came back, for too few
-  companies (the July shape: a stale cache served, nothing errored). Read the
-  artifact's `edgar_companies` / `edgar_companies_fresh` (per run, and per thesis —
-  per thesis counts a company fresh if ANY thesis fetched it that pass) and
-  `freeze_completed_floor`. Corroborate with the run log and the record edge before
-  declaring any of the three. An artifact written before 2026-10-21 has no company
-  counts: compare `edgar_fetches_completed` (or, before O5, `edgar_fetches`) with
-  the names ingested yourself (`FEED_LOOP.md` "Known gaps").
+## Guardrails
+- **Read only.** A hand `pipeline.daily` writes the call of record; never run it as a probe. Propose the fix
+  ("Run daily now" on Admin, a targeted re-ingest, `pipeline.backfill` for a missed night, a restore); the
+  operator decides.
+- **Never fix stale history by re-ingesting.** A re-ingest stamps today's `recorded_at`; it recovers going
+  forward only (see `backup-restore`).
+- **A zero-fetch line alone is not a freeze.** The verdict reads completed EDGAR fetches and the share of
+  companies that got fresh SEC data. Corroborate with the run artifact and the record edge before declaring one.
+- Never print the ops token.
 
 ## Steps
-1. **The verdict first:** `curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/admin/status`.
-   `/admin/*` is steward-only, so a bare curl answers 401. `$TOKEN` is the prod ops token,
-   `ALPHADECK_OPS_TOKEN` in `.env`; read it as one line, the way `scripts/deploy.sh:192-206` does, and
-   never print it (from the main checkout):
-   `TOKEN=$(sed -n 's/^[[:space:]]*ALPHADECK_OPS_TOKEN=//p' .env | tail -n 1 | tr -d "\r\"'")`.
-   Nothing there yet: the operator mints one once
+1. **The verdict.** `/admin/*` is steward-only, so send the prod ops token. From the main checkout, read it as
+   one line, the way `scripts/deploy.sh` does:
+   `TOKEN=$(sed -n 's/^[[:space:]]*ALPHADECK_OPS_TOKEN=//p' .env | tail -n 1 | tr -d "\r\"'")`, then
+   `curl -fsS -H "Authorization: Bearer $TOKEN" http://localhost:8000/admin/status`. No token yet: the operator
+   mints one once
    (`docker exec -it alphadeck-backend-1 python -m pipeline.users token create --email <admin> --name ops`).
-   Read:
-   - `cron.status`: `healthy` / `stale` / `unhealthy` / `gappy` / `running`;
-   - `cron.alarms`, which covers code-sha unknown or a cron↔backend mismatch, notifier=log, UA unset, backup age, and a pass that did not finish or crashed;
-   - the **record edge**: calls-log `MAX(asof)` vs the schedule-aware expected edge, so weekends don't cry wolf;
-   - the last-snapshot age.
+   Read `cron.status`, `cron.alarms`, the record edge against the expected night, the last snapshot's age,
+   `record.partial_nights`, `record.reconstructed_nights`, `unfinished_run`, `last_run.audit`,
+   `last_run.edgar_fetches` and `edgar_fetches_completed`, `last_run.name_errors_new` and `split_defects`. What
+   each verdict means: `docs/ADMIN.md`.
+2. **The self-audit**, six checks (`DEFAULT_CHECKS` in `pipeline/self_audit.py`): `on_time_rows`,
+   `code_sha_known`, `every_thesis_finished`, `split_defects_flagged`, `no_unsettled_bars` (a failure names
+   `TICKER d @ recorded`: find the writer that bypassed `ingest/prices/settle.py`) and `splits_applied` (a
+   recent unapplied split fails; an older one is named and passes; "not verified" is never a pass).
+3. **Not healthy: read the run artifact**, the newest JSON in `/data/cron_runs/` in the cron container
+   (`MSYS_NO_PATHCONV=1 docker exec alphadeck-cron-1 ls /data/cron_runs`). Look at `status` (`running` that
+   never finished means a killed pass; its catch-up still runs), the per-thesis tallies and `name_errors`,
+   `edgar_companies`, `edgar_companies_fresh` and `freeze_completed_floor`, `code_sha`, `run_kind` and the
+   audit.
+4. **No run at all: is the sidecar up?**
+   `docker compose -f docker-compose.yml -f docker-compose.prod.yml ps cron`, then `... logs --tail 50 cron`.
+   Search the log for `PAGING` (a night or backup failed for good), `TIMED OUT`, `heartbeat`
+   (`sent`, `held`, `FAILED`) and `backup:`. A box that was off shows only in the external heartbeat.
+5. **Runs happen but data looks frozen:** suspect cache freshness. Compare a stale-looking name's newest
+   insider fact date with EDGAR's filings (`docs/DATA_SOURCES.md`, "Cache freshness").
 
-   Since 2026-10-16 also read:
-   - `record.partial_nights`: a night is covered only when EVERY thesis that existed then has an on-time row, so "4 of 12" shows here;
-   - `record.reconstructed_nights`: backfilled nights, deliberately QUIET;
-   - `unfinished_run`;
-   - `last_run.audit`: the self-audit (`DEFAULT_CHECKS` in `pipeline/self_audit.py`), one entry per
-     check, six in all — `on_time_rows`, `code_sha_known`, `every_thesis_finished`,
-     `split_defects_flagged`, `no_unsettled_bars` (no EOD bar recorded before its 18:00 ET settle
-     instant, benchmarks included, over the rows written since the last judging pass; a
-     failure names `TICKER d @ recorded` — an in-progress value stored as a close, so
-     find the writer that bypassed `ingest/prices/settle.py`), and `splits_applied` (every split in
-     force is applied to its stored tape: a recent split that is not applied FAILS; an older one is
-     named and passes, the repair tool's backlog; a split the tape cannot judge is named NOT
-     VERIFIED, never counted as applied);
-   - `last_run.edgar_fetches` / `edgar_fetches_completed`: attempted vs completed
-     EDGAR pulls (the freeze verdict reads the completed count; `null` before O5) —
-     the per-company coverage the ratio floor reads is on the run artifact (step 2);
-   - `last_run.name_errors_new`: newly failing names (known ones are a quiet count);
-   - `split_defects`: the T4 split-basis monitor.
+## Checks
+- `healthy`, a current edge, no alarms, no partial nights and six passing audit checks: report and stop.
+- Every claim in the report cites its readout: the status field, the artifact key or the log line.
 
-   `healthy` with a current edge, no alarms, no partial nights and all audit checks passing → report and stop.
-2. **Not healthy → read the run-of-record:** the newest JSON in `/data/cron_runs/` inside the cron container (`MSYS_NO_PATHCONV=1 docker exec alphadeck-cron-1 ls /data/cron_runs`; append-only, one per pass). It holds:
-   - per-thesis ingest tallies and `name_errors` with reasons;
-   - the EDGAR freshness: `edgar_fetches` (attempts), `edgar_fetches_completed`, and
-     since 2026-10-21 `edgar_companies` / `edgar_companies_fresh` / `freeze_completed_floor`
-     (the ratio floor — a healthy pass reads near 100% of companies fresh);
-   - appended / unchanged / errored / skipped counts;
-   - `code_sha` / `config_hash` / `run_kind` / `env`;
-   - the audit;
-   - `status`: `running` / `finished` / `crashed`. A `running` file that never finished is a pass that was KILLED mid-loop. Its night's catch-up still runs (the guard counts finished passes only) and records only the theses missing an on-time row (M2).
-   - **Out-of-band:** the healthchecks.io heartbeat (`HEARTBEAT_URL`) alerts when the whole box or Docker is down, which no in-box check can see.
-3. **No run at all → is the sidecar up?** `docker compose -f docker-compose.yml -f docker-compose.prod.yml ps cron` +
-   `docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail 50 cron`.
-   The shell logs its own failure signals (2026-10-16): grep that log for
-   `PAGING` (a night or backup that failed for good — H3), `TIMED OUT` (a pass
-   stopped at `RUN_TIMEOUT_S` — C2), `heartbeat` (`sent` / `held` / `FAILED` — H2)
-   and `backup:` (`wrote` / `skipped` — the boot's age gate, M3).
-4. **Runs happen but data looks frozen → suspect cache freshness** (the 2026-07
-   failure shape): mutable EDGAR prefixes refresh on a key-classed TTL (five minutes
-   on the nightly's recurring client, 12h on an interactive one; G1) — check
-   a stale-looking name's newest insider fact date against EDGAR's actual filings
-   (`docs/DATA_SOURCES.md` §cache-freshness).
-5. **Report MEASURED findings** — verdict, evidence (edge dates, run-log excerpts),
-   and the proposed remediation with its blast radius. Wait for the operator's go
-   before touching anything.
+## Stop and ask when
+- Any remediation is needed: report the verdict, the evidence and the fix with its blast radius, then wait.
+- The token is missing, or the readouts disagree (the verdict says healthy but the edge is behind).
+
+## Model
+`docs/FEED_MONITORS.md` (the checks, the artifact, the health page), `docs/CRON_SIDECAR.md` (schedule,
+catch-up, heartbeat), `docs/ADMIN.md` (the verdicts).

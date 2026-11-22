@@ -4,7 +4,7 @@ The production bug this closes: a manual ``pipeline.daily`` in a UTC container a
 ``date.today() = 2026-07-18`` and recorded TOMORROW's ``asof`` — and ``asof`` is a LIVENESS PARAMETER, not
 a label (``calls/assembler``'s inclusive ``entry_signal_is_live``), so that is a materially DIFFERENT call:
 a signal whose window closed that day drops out and the derived countdowns shift.
-(``POSTMORTEM_CRON_FREEZE_2026-07.md`` — "The TZ forensic".)
+(``docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`` — "The TZ forensic".)
 
 Two kinds of test here:
 - the CONTRACT tests — a pinned UTC-evening instant yields the ET (previous) date; the zone is config,

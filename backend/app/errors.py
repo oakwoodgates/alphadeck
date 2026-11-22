@@ -113,7 +113,7 @@ PLATFORM_VALUE_FUND = "This is a fund: its share count comes from the fund's own
 SCHEDULE_SETTING_MALFORMED = "The server's nightly schedule setting is malformed, so the schedule cannot be read. A steward needs to fix it."
 
 
-# V2 W5b (docs/PLATFORM_VALUES.md §Flags): a user's flag on a platform value (``platform_values.flags``). One fixed
+# V2 W5b (docs/VALUE_FLAGS.md): a user's flag on a platform value (``platform_values.flags``). One fixed
 # sentence per refusal ``kind``; the status comes from the exception's class (``FlagConflict`` 409, ``FlagInvalid``
 # 422, ``FlagNotFound`` 404). Another user's flag is "no such flag", exactly like an unknown id. The steward's kinds
 # (close / reopen) are W5c's routes. Complete sentences: shown as is.

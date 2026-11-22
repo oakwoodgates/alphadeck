@@ -80,7 +80,7 @@ services:
       ALPHADECK_INGEST_FETCH_CONCURRENCY: ${ALPHADECK_INGEST_FETCH_CONCURRENCY:-8}
       ALPHADECK_SEC_GLOBAL_RATE_PER_SEC: ${ALPHADECK_SEC_GLOBAL_RATE_PER_SEC:-8.5}
       ALPHADECK_YAHOO_RATE_PER_SEC: ${ALPHADECK_YAHOO_RATE_PER_SEC:-4.0}
-      # V2 W3a — BACKGROUND EXTRACTION of platform values (docs/PLATFORM_VALUES.md), the SAME five on the cron
+      # V2 W3a — BACKGROUND EXTRACTION of platform values (docs/PLATFORM_EXTRACTION.md), the SAME five on the cron
       # sidecar below (the nightly leg runs there; the onboarding step runs here). Numeric fallbacks that MUST
       # EQUAL the Settings defaults (tests/domain/test_settings.py pins them).
       # ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0 is the KILL SWITCH: the nightly leg and the onboarding step off.
@@ -100,7 +100,7 @@ services:
       # Here on the backend too so a manual `docker exec ... python -m pipeline.daily` also delivers; the cron
       # sidecar (below) is the automated path.
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
-      # V2 W5b: the steward's Slack webhook for users' flags on shared values (docs/PLATFORM_VALUES.md §Flags). Unset
+      # V2 W5b: the steward's Slack webhook for users' flags on shared values (docs/VALUE_FLAGS.md). Unset
       # -> the flags post to SLACK_WEBHOOK_URL; neither -> one log line per flag. Every reader of that channel must
       # be a steward (a flag's note is private to its user and the steward).
       ALPHADECK_STEWARD_SLACK_WEBHOOK_URL: ${ALPHADECK_STEWARD_SLACK_WEBHOOK_URL:-}
@@ -311,7 +311,7 @@ services:
       HEARTBEAT_BACKUP_URL: ${HEARTBEAT_BACKUP_URL:-}
       # X1 — the sidecar's SECOND schedule: the staged cold-ingest job (`python -m pipeline.onboarding`), fired
       # this many seconds after its previous run ends (0 = OFF), each run bounded by ONBOARD_TIMEOUT_S. The job
-      # refuses inside the nightly window and yields to a running pass on its own (docs/FEED_LOOP.md). Numeric
+      # refuses inside the nightly window and yields to a running pass on its own (docs/INGEST.md). Numeric
       # fallbacks, the same reason as RETRY_DELAY_S above.
       ONBOARD_EVERY_S: ${ALPHADECK_ONBOARD_EVERY_S:-1800}
       ONBOARD_TIMEOUT_S: ${ALPHADECK_ONBOARD_TIMEOUT_S:-2700}
@@ -331,7 +331,7 @@ services:
       # The sidecar's THIRD schedule: the weekly company-list refresh (`python -m pipeline.populate_master --live
       # --apply`; daily_cron.sh `master_refresh_loop`): its kill switch (0 = off, an env-only cron deploy), the day
       # (`date +%u`, 6 = Saturday) and time (market TZ) it fires, and the hard timeout around one run. The job
-      # refuses inside the nightly window, holds its own lock and yields to a running pass (docs/FEED_LOOP.md).
+      # refuses inside the nightly window, holds its own lock and yields to a running pass (docs/CRON_SIDECAR.md).
       MASTER_REFRESH: ${ALPHADECK_MASTER_REFRESH:-1}
       MASTER_REFRESH_DOW: ${ALPHADECK_MASTER_REFRESH_DOW:-6}
       MASTER_REFRESH_AT: ${ALPHADECK_MASTER_REFRESH_AT:-09:00}
@@ -341,7 +341,7 @@ services:
       # dashboard: its kill switch (0 = off, an env-only cron deploy), the day (`date +%u`, 6 = Saturday) and time
       # (market TZ; 10:00, after the 09:00 company-list refresh) it fires, and the hard timeout around one run. A
       # no-op until the operator's first backfill; it refuses inside the nightly window, holds its own lock and
-      # yields to a running pass (docs/FEED_LOOP.md). Numeric fallbacks, the same reason as RETRY_DELAY_S above.
+      # yields to a running pass (docs/CRON_SIDECAR.md). Numeric fallbacks, the same reason as RETRY_DELAY_S above.
       TERM_MENTIONS: ${ALPHADECK_TERM_MENTIONS:-1}
       TERM_MENTIONS_DOW: ${ALPHADECK_TERM_MENTIONS_DOW:-6}
       TERM_MENTIONS_AT: ${ALPHADECK_TERM_MENTIONS_AT:-10:00}

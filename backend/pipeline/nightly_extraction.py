@@ -1,7 +1,7 @@
 """THE NIGHTLY PASS'S PLATFORM-EXTRACTION LEG (V2 W3c): keep the shared share counts and cash/burn current, LAST
 in the nightly pass (approved B2 (a)), on a budget against the pass's own time limit.
 
-``docs/PLATFORM_VALUES.md`` ("Background extraction"). ``pipeline.daily._run_daily_pass_locked`` calls
+``docs/PLATFORM_EXTRACTION.md`` ("The nightly step"). ``pipeline.daily._run_daily_pass_locked`` calls
 ``run_nightly_extraction`` after EVERYTHING else in the pass: every thesis's call of record is written and committed
 (``run_daily``), the run artifact is finished, the health page is sent and the passenger legs (shell sweep, SPAC
 radar, fund radar) have run. Its summary is then added to the finished artifact as the ``platform_extraction``

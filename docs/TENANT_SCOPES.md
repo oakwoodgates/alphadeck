@@ -144,7 +144,7 @@ cards into the founding workspace and their DATA facts into the data tenant.
   (every enabled user's `user_meta.slack_webhook_url`, else the env webhook only for a super admin's workspace,
   else the log), the digest is
   grouped by workspace, the SPAC radar's announced page goes per workspace to its own destination (only its own cards), and the dashboard warm-up walks every workspace with the system token and the
-  `X-Alphadeck-Workspace` header (`docs/FEED_LOOP.md`).
+  `X-Alphadeck-Workspace` header (`pipeline/warm_dashboards.py`).
 
 `db.session.DEFAULT_TENANT_ID` (`…0001`, equal to `DATA_TENANT_ID`) stays for TESTS and the demo SEED only: the suite's
 signed-in steward (`tests.auth_fixtures.TEST_STEWARD`) and the seed functions' default sit there, so the existing API

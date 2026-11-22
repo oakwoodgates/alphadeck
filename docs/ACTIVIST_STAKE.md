@@ -15,7 +15,7 @@ surfaced the defect.
 **Since 2026-10-28 a control holder or an insider does not fire** — the holder screen (option A, below), on the
 orchestrator's read-only prod measure and the operator's sign-off.
 Related: `docs/CORPORATE_EVENTS.md` (the S3 sibling), `docs/RECALIBRATION.md` (the dial rows),
-`docs/DATA_SOURCES.md` §SC 13D/G, `docs/CALL_LOGIC.md` §3 (`activist_stake`).
+`docs/FILINGS.md` §SC 13D/G, `docs/CALL_LOGIC.md` §3 (`activist_stake`).
 
 ## What it is
 
