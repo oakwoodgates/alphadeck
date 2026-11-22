@@ -1,323 +1,303 @@
-# Dashboards: experimental views across the cards
+# Dashboards
+
+A dashboard is a display-only page that reads many of a user's cards, or many names, at once. This doc holds the
+rules every dashboard keeps (1 to 9; code cites them by number), the registry, the looks, the thumbnails, the
+checklists and the doc template. Read it before you add, change or remove a dashboard. Each dashboard's own doc is
+`docs/dashboards/<slug>.md`; the Board's is [BOARD](BOARD.md).
 
 ## What a dashboard is
 
-The Board shows one card per thesis. A **dashboard** is an experimental, self-contained view *across*
-the cards: one page that reads many theses (or many names) at once and shows what the data says about
-them together.
+One registry entry and the files it owns (rule 8), so each builds alone and deletes cleanly. Its `status` in
+`entry.ts` is `core` (a standing page; today only the Board) or `experimental` (it may be removed); promoting one to
+`core` is the operator's call. The top nav's Dashboards menu lists every entry, `/dashboards` is the index (one tile
+per entry), `/dashboards/<slug>` is one dashboard, and an unknown slug lands on the index. Links carry `?asof=`.
 
-This is a brainstorming phase. Some dashboards will be improved and some will be cut, so each one is
-built to stand alone and to delete cleanly. Every dashboard carries a **status**, shown as the same
-quiet tag beside its title and on the index: `experimental` for a new view (it may be cut), `core` for
-a standing page of the app (today only the Board).
+## The registry
 
-Where they live in the app: the top nav's **Dashboards ▾** menu (right after Home) lists
-"All dashboards" and then each dashboard; `/dashboards` is the index; `/dashboards/<slug>` is one
-dashboard. Every link carries `?asof=` like the rest of the app.
+`frontend/src/dashboards/registry.ts` builds `DASHBOARDS` from every `<slug>/entry.ts` and `<slug>/thumbnail.svg`;
+the menu, index, routes and home page read it. `DashboardEntry` types an entry:
 
-## The Board is the home dashboard (operator decision, 2026-10-29)
+| Field | Meaning |
+|---|---|
+| `slug` | URL segment and folder name |
+| `order` | Menu place, then label. The Board is 0, the rest step by 10 |
+| `label`, `description` | Title; the line under it and in the menu |
+| `status` | `core` or `experimental` |
+| `asofAware` | `true` shows the as-of dial; `false` is a "now" view (rule 2) |
+| `layout` | Optional: `"page"` (default, title row and padded body) or `"fill"` (no title row; the body fills the viewport) |
+| `readsRecord` | Optional `true` for a page that reads the calls history; it renders the shared `RecordStartNote` (when the workspace's record starts) |
+| `component` | `React.lazy(() => import("./<Component>"))` |
 
-The Board is a registry entry like any other, the FIRST one (`frontend/src/dashboards/board/entry.ts`,
-`order: 0`): slug `board`, status `core`, as-of aware, `layout: "fill"`. Its body is a thin wrapper (`frontend/src/dashboards/board/BoardDashboard.tsx`) around
-the unchanged Board in `frontend/src/board/`, which keeps its own tests. It has no backend files under
-`dashboards/`: it reads through the app's existing endpoints (`GET /theses`, `GET /theses/{id}/call`,
-the data flags). Its plan is `docs/BOARD.md`.
+The registry adds each entry's `thumbnail` from its folder. `buildRegistry` fails loud, naming the folder, on a
+duplicate slug, a slug that is not its folder, a missing `entry`, or an `entry.ts` and a `thumbnail.svg` without
+each other (`__tests__/registry.test.ts`). `__tests__/RecordStartNote.test.tsx` lists the `readsRecord` slugs and
+checks each page renders the note. `DashboardShell.tsx` draws the header and status tag; a component renders its
+body only.
 
-- **Home.** `HOME_DASHBOARD` in `frontend/src/dashboards/registry.ts` names the dashboard `/` renders.
-  Changing the home page is that one line. `/` renders the home dashboard's shell in place, never a
-  redirect, so `/` bookmarks and `?asof=` links keep working; `/dashboards/<slug>` renders the same
-  dashboard. The top nav's first tab is **Home** (`/`), lit only at `/`; the same dashboard at
-  `/dashboards/<slug>` lights the Dashboards menu instead. A `HOME_DASHBOARD` the registry does not name
-  lands on the index.
-- **`layout`** (optional, default `"page"`). `"page"` is the title row over a padded body that grows with
-  its content. `"fill"` draws no title row and gives the body the rest of the viewport (a fixed-height
-  100vh column under the top bar), unpadded: for a page that scrolls inside itself, like the Board's
-  columns.
-- **Cockpit links are unchanged.** Every dashboard opens the Cockpit through the shell's
-  `onSelectThesis`: `/thesis/:id?name=<key>&asof=…` with `state.from` set to the current URL, so the
-  Cockpit's Back returns to the page the click came from (`/` or `/dashboards/<slug>`), or to Home when
-  there is no `state.from` (a fresh-tab link).
+## The Board is the home dashboard
 
-## The rules (operator decisions, 2026-10-28)
+The Board is the first entry (`board/entry.ts`: order 0, `core`, as-of aware, `layout: "fill"`). Its body
+(`BoardDashboard.tsx`) wraps `frontend/src/board/`, which keeps its own tests; it has no backend under
+`dashboards/` and reads the app's own endpoints. Its doc is [BOARD](BOARD.md).
 
-1. **Display only.** A dashboard never feeds a call, never changes a card's state, never writes to the
-   database, never sends a notification and never calls the LLM. It may READ anything, including the
-   recorded calls (the `calls` log) and the live call. Reading the live call goes through
-   `call_for_thesis(..., record=False)`, exactly as the Board's read does: its default is
-   `record=True`, which appends the card to the `calls` log (the nightly's write, never a dashboard's).
-   Three tests in `backend/tests/dashboards/test_isolation.py` enforce this, each a source scan over
-   the real tree:
-   - `test_leaf_rule_nothing_outside_app_dashboards_and_tests_imports_a_dashboard` (with its twin
-     `test_leaf_rule_inside_app_only_main_mounts_dashboards_and_only_their_routers_import_them`):
-     a dashboard is a leaf, so the call path, the pipeline, signals, calls and editions can never
-     depend on one.
-   - `test_no_dashboard_imports_the_llm_or_notify`: no `llm`, `notify` or `anthropic` import, and
-     no LLM client from `app.deps`.
-   - `test_no_dashboard_writes_to_the_database`: no SQL write (`INSERT INTO`, `UPDATE … SET`,
-     `DELETE FROM`, `TRUNCATE`, `ALTER`, `CREATE`, `DROP`, `MERGE INTO`) in the dashboard code's
-     strings, and no `call_for_thesis` without an explicit `record=False`.
+- `HOME_DASHBOARD` in `registry.ts` names the dashboard `/` renders, in place, never a redirect, so bookmarks and
+  `?asof=` links keep working. Home is lit only at `/`; the same dashboard at `/dashboards/<slug>` lights the
+  Dashboards menu. A name the registry lacks lands on the index.
+- Every dashboard opens the Cockpit through the shell's `onSelectThesis` with `state.from` set, so the Cockpit's
+  Back returns to the page the click came from.
 
-   The scans are a floor, not a proof: a write through an imported writer function (a `repositories`
-   save) is not caught by them, so review checks every import a dashboard adds.
+## Workspace scope
 
-   **Amendment (operator decision, 2026-10-29): a dashboard PAGE may use an operator action the app
-   already exposes elsewhere.** Today that is one action: archiving and restoring a card through the
-   existing theses endpoints (`POST /theses/{id}/archive` and `/unarchive`), which the Board does. The
-   rest of the rule stands: dashboard BACKEND code still never writes, the three isolation tests above
-   are unchanged, and a dashboard never adds a write of its own, in the frontend or the backend.
+A dashboard reads the caller's workspace plus the shared platform data (invariant 12). Every dashboard router
+takes `app.deps.get_workspace` and passes it to every card-selecting read (`baskets.cards_as_of`, `picker_cards`,
+`price_flags`) and to the cache key (rule 7), so a page computed for one workspace is never served to another.
+Pinned by `tests/app/test_workspace_isolation.py` (`test_a_cached_dashboard_page_is_never_served_to_b`) and
+`tests/dashboards/test_cache.py`. See [TENANT_SCOPES](TENANT_SCOPES.md).
 
-2. **As-of.** A dashboard follows the app's as-of dial unless its plan makes it a "now" view (like
-   Admin and Radar). The registry entry's `asofAware` flag decides: `true` shows the dial and hands
-   the body the app's as-of; `false` shows no dial and hands the body today's date. At a past as-of a
-   dashboard reads only what was public by the end of that date: the same public-clock read the
-   Board's `GET /theses/{id}/call?asof=` uses. `app/routers/theses.py` takes
-   `known_at, clock = serve_view(asof)` (`domain.market_time.serve_view`) and threads both into the
-   read, `call_for_thesis(conn, thesis.id, asof, known_at=known_at, clock=clock, record=False)`; its
-   display-signals route hands the same pair to `PointInTimeData`. A live as-of gets
-   `(None, "record")`, the unchanged live read. A past one gets `(known_at_for_asof(asof), "public")`:
-   each fact counts from when it became public, up to the end of that night — EDGAR's next open, 06:00 ET
-   the next weekday (F6; invariant #1). A
-   dashboard calls `serve_view` once per request and threads that pair into every read; it never
-   builds its own cutoff.
+## The rules
 
-   **Day counts (F2, 2026-10-30).** The as-of is the night, for the data; the **action day** (the first scheduled
-   day after the current night) is the day the operator acts, so it is the day the words count from. A
-   *countdown* to a future date ("in N days", "today", "passed", days to `exit_by`, a window "closing within N
-   days") counts from `domain.market_time.countdown_origin(asof, clock)`: the action day on a live view (as-of on
-   or after the current night), the as-of itself on a past one (unchanged). A date equal to the origin reads
-   "today"; a date before it reads "passed". Read the clock once per request (`market_clock()`, the same read
-   `serve_view(asof, night=clock.night)` takes its night from) and put the origin in the cache key beside the
-   clock, because it moves when the night does. An *age* of a past event (a filing's "Nd", "N days before the
-   as-of", days in state, `days_after_night`, "filed N days after the trade") describes the record and still counts
-   from the as-of; `sessions_left` is the call path's own count and is not re-based. On a past view a cell that
-   shows only a relative count carries its date too. The Catalyst Calendar and the Idea Timeline are "now" views
-   with no dial: their `today` is the real calendar day and stays `market_today()`.
+### 1. Display only
 
-3. **Rankings and sorts are allowed** when they are computed by code from data, never sourced from an
-   LLM, and their wording stays neutral. Say what the numbers show ("largest 1W move", "most names
-   above the 50d"), never an instruction or a verdict ("buy", "must watch", "best idea"). A dashboard
-   ranks by what the data shows; it never judges whether an idea is good (invariant #4).
+A dashboard never feeds a call, changes a card's state, writes to the database, sends a notification or calls the
+LLM. It may read anything, including the `calls` log and the live call, which it reads with
+`call_for_thesis(..., record=False)` as the Board does (the default `record=True` appends to the `calls` log, the
+nightly's write).
+`backend/tests/dashboards/test_isolation.py` scans the real tree:
 
-4. **Each dashboard's plan decides** its own loudness, which names count (for example whether
-   Context and Bench names are included) and how groups are combined, and the page states those
-   choices in a quiet line.
+- `test_leaf_rule_nothing_outside_app_dashboards_and_tests_imports_a_dashboard` and
+  `test_leaf_rule_inside_app_only_main_mounts_dashboards_and_only_their_routers_import_them`: a dashboard is a
+  leaf; the call path, pipeline, signals, calls and editions never import one.
+- `test_no_dashboard_imports_the_llm_or_notify`.
+- `test_no_dashboard_writes_to_the_database`: no SQL write in code strings, no `call_for_thesis` without
+  `record=False`.
 
-5. **Show the work.** Every aggregate says how many names it rests on and how it was combined
-   ("median of 4 priced names"). Names left out for thin data are counted or listed, never silently
-   dropped (invariant #9).
+The scans are a floor, not a proof: a write through an imported writer passes them, so review checks every import
+a dashboard adds. One exception: a page may use an action the app already offers elsewhere, today archiving and
+restoring a card (`POST /theses/{id}/archive`, `/unarchive`) on the Board. Dashboard backend code never writes.
 
-   **A flagged price history is left out (2026-10-29).** Every price dashboard (the Rotation Map, the Cross
-   Radar, Leaders, the Price & Volume Landing and the Narrative Index) leaves out a company whose data flags
-   reach its price readings at the as-of (`dashboards.baskets.price_flags`, the reader behind the Cockpit's
-   grayed price cells): a scale break chains fake returns and fake crosses. It is read inside each page's
-   cached read with the request's one `serve_view(asof)` pair, and the company is out of every aggregate and
-   list on the page. It is never vanished: the page shows a quiet "N names left out for a flagged price
-   history" that opens to each ticker and the flags' labels (`frontend/src/dashboards/FlaggedNote.tsx`), and
-   an expanded group lists the name grayed as "left out: <reason>". Measured on dev with a prod data copy
-   before the change: 6 of the 31 flagged names showed on the Leaders lists.
+### 2. As-of
 
-   **A stopped tape reads by whether the company is still on a card (operator decision 2026-11-04).** The nightly
-   stops fetching a company that left every live card (a roster cleanup); it still trades, so "price feed
-   stopped" misdescribes it (on prod, 150 of the 152 names with that flag). `price_flags` (via
-   `read_price_flags`, which also returns each flag's kind and the stopped feed's last bar date) reads a stopped
-   tape on a company with NO basket row on any unarchived card (silent rows count as on a card) as "no longer
-   priced: off every live card since <its last bar date>"; a stopped tape on a company still on a card keeps
-   "price feed stopped" (a data fault). Every page's reason follows the one rule; the Track Record's
-   `no_longer_priced` / `feed_stopped` left-out reasons read the same two functions.
+`asofAware: true` shows the dial and hands the body the app's as-of; `false` is a "now" view (the Catalyst
+Calendar, the Idea Timeline) whose compute takes `market_today()` as a parameter.
 
-6. **Event-outcome views** ("what happened after X") slice by the fixed market-cap bands in
-   `CLAUDE.md` (nano < $50M · micro $50M–$300M · small $300M–$2B · mid $2B–$10B · large ≥ $10B),
-   measured at the event, with the horizon, the comparison, n and the hit rate stated per tier. See
-   `docs/BACKTEST.md` §"Sliced by market cap". The bands are defined once, in
-   `backend/domain/market_cap.py` (`CapTier`, `cap_tier`; built with the Peer Table, which slices its names by them).
+A dashboard calls `domain.market_time.serve_view(asof)` once per request and threads its `(known_at, clock)` pair
+into every read; it never builds its own cutoff. A past as-of reads the public clock: a fact counts from when it
+became public, up to EDGAR's next open after that night (invariant 1).
 
-7. **Cache.** Allowed, in-process, used only by dashboards. It must refresh after every new cron run,
-   any basket edit and any change to a company's stored data, and it keys on events, never on a clock (the run schedule
-   will grow: market open, market close, nightly, pre-market). It is built once, with the first
-   dashboard that needs it, then shared, never reinvented per dashboard.
-   It lives in `backend/dashboards/cache.py` (built with the Rotation Map): a dashboard's router calls
-   `cached(conn, "<slug>", params, asof, compute)` and gets back the value with `status` ("hit" /
-   "computed") and `compute_ms`; cache the expensive read per as-of and derive each view from it.
-   The cross-card basket read lives beside it in `backend/dashboards/baskets.py` (built with the Rotation
-   Map, shared since the Cross Radar): the counted cards and their rosters at the as-of (`cards_as_of`), the
-   membership rows, the four groupings and who counts in each (`counted_rows`, `buckets`, `companies_in`),
-   the chunked point-in-time read (`per_company`), and the companies whose data flags reach their price
-   readings (`price_flags`, the `/data-flags` reader, read by every price dashboard; `flagged_in_view` names
-   them on a page, rule 5). A dashboard that groups cards' names reuses it rather than re-deriving the rule.
-   Pages also share per-company pieces through `dashboards.baskets`: a company's price-reaching flags
-   (`read_price_flags`) and each display member's reading (the members `display_members` hands out, called
-   from a `per_company` callback). Inside a page compute a company is read once per as-of, clock, view and
-   workspace, then reused by every other page. A compute that fails or crosses a generation stores none of
-   them. Each event clears only what it can have changed (no timer, no TTL, no polling):
-   - a new cron run or a new `data_repair` row clears everything, page entries and pieces;
-   - a basket snapshot, or a card created, archived, renamed or switched to a meta index, clears the page
-     entries only (no company's data changed, so the pieces stay);
-   - a company's change stamp (a row in `security_change`, an append-only log, `db/change_stamp.py`)
-     clears the page entries and drops that company's pieces only (every piece when it is a benchmark).
-     The company write lock's release stamps the company after every fact ingest, and every other writer
-     stamps in its own transaction. The cron sidecar prunes rows older than 24 hours after each pass.
-   - The rule for authors: a writer that changes a company's stored data outside the company write lock
-     calls `db.change_stamp.mark_changed`, or dashboards serve that company stale.
-   A one-card dashboard starts from its picker, `picker_cards` (the counted cards A→Z with their link counts;
-   built with the Chain Wave, shared since the Filing Stream).
-   The cron warms the heavy pages after each pass (`pipeline.warm_dashboards`, last in the nightly wake, GETs
-   only, each page's default view at the night itself, the as-of the dial opens on until the next pass — F1;
-   `CRON_SIDECAR.md` §The nightly wake order), so a
-   dashboard whose default query changes updates its entry in that module's `PAGES`.
-   The equal-weighted line math lives in `backend/dashboards/series.py` (the session calendar, the alignment
-   and the chain; built with the Narrative Index, shared since the Rotation Quadrant): a dashboard that draws
-   a basket as one line reuses it.
-   The approximate market-cap cell lives in `backend/dashboards/market_cap.py` (built with the Peer Table, shared by
-   the Hot Board, Ticker Lookup, Market Map, Theme Leaderboard, Track Record and Insider Tracker): `cap_cell` /
-   `CapCell` (the Workbench's cap rule, copied there), `CompanyReads` (one company's raw readings), `Gap` (why a cell
-   is blank) and `metric_of`. The cap BANDS stay in `domain/market_cap.py`. A page needing the cap cell imports it
-   from there, never from another dashboard (a dashboard can be removed with its folder; rule 8).
-   The recorded-night shapes live in `backend/dashboards/nights.py` (built with the Trigger Log, shared by the Daily
-   Digest and the Insider Tracker): `Night`, `CardNights`, `Scope` and `copies` (a card's triggers by identity). The
-   since-return of a name against IWM lives with the line math in `series.py` (`Series`, `since_move`,
-   `sessions_since`, `week_start`, `BENCHMARK`). `CLUSTER_MIN_BUYERS` (the Cockpit's Ins 30d accent, read by Leaders
-   and the Insider Tracker) lives in `filings.py`.
-   What each company filed lives in `backend/dashboards/filings.py` (built with the Filing Stream, shared with
-   the Read-Throughs table): every filing-derived fact the system stores, plus every other form in the company's
-   EDGAR index (`fact_filing_index`, migration 0070: display only, each filing shown once as its richest row),
-   normalized to one `FilingRow` shape (`read_filing_rows`: the point-in-time view plus the Form 4/A SELECT, both on
-   the request's one `serve_view(asof)` pair). A page that lists what a company filed reuses it rather than
-   re-reading the fact tables; a page that wants one family names it (`kinds=`; Insider Buying reads `form4` and `form4a`
-   alone, and every other kind's read is skipped, not filtered). A fact or a catalyst a person set carries who set it AS A KIND and
-   the day (`set_by`: `you` = the reader's own purity, `steward` = the steward set a shared value or catalyst,
-   `carried` = verified in V1 and carried over; `ratified_on`), never an email (V2 W5d, `docs/PLATFORM_VALUES.md`);
-   the Evidence Ledger's authority classes read them, and the detail lines' words come from `platform_values/words.py`.
-   Inside a page compute the reader keeps each company's rows as a piece named by the kinds read and the window
-   (`filings_piece`: `filings.all.365d`), reused only for exactly the same read (the same shown ticker and tenant too;
-   a narrower window is never a wider stored one filtered), and its Form 4/A SELECT runs only when a company is read.
-   The per-card theme breadth lives in `backend/dashboards/breadth.py` (`read_breadths`, built for the Theme
-   Leaderboard and Forming Quietly): each company's closes are read once however many cards hold it and kept as a
-   piece, and each card's reading is the one `theme_breadth.breadth_for` makes over that card's names.
+A card's call in effect at an as-of is its `calls` row with the greatest `(asof, seq)` on or before it; a
+reconstructed row is marked. A card created after the as-of is not counted; a card with no roster snapshot by then
+reads today's roster, and the page counts it (`baskets.cards_as_of`).
 
-8. **Self-contained layout, self-registering**, so dashboards build in parallel and delete cleanly. A slug
-   is lowercase letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`
-   (`tape_breadth`). Everything a dashboard owns lives in these paths:
-   - `frontend/src/dashboards/<slug>/`: the body component (default export, takes `DashboardProps`),
-     its `entry.ts` (below), its query hooks (TanStack Query over the shared `api/client.ts`, not in
-     `api/hooks.ts`), its own CSS (imported by the component, not in `index.css`) and its tests.
-   - `frontend/src/dashboards/<slug>/thumbnail.svg`: its thumbnail, the drawing on its tile in the
-     `/dashboards` index (see "Thumbnails" below). The registry collects it from the folder the way it
-     collects `entry.ts`: nothing imports it.
-   - `backend/dashboards/<slug>.py` (or a subpackage, `backend/dashboards/<slug>/`): the compute.
-   - `backend/app/routers/dashboards/<slug>.py`: its router (a module-level
-     `router = APIRouter(prefix="/<slug>")`, GET only) with its wire models in that same module, not
-     `app/schemas_api.py`.
-   - `backend/tests/dashboards/test_<slug>.py`: its backend tests.
-   - `docs/dashboards/<slug>.md`: its plan.
+A countdown to a future date counts from `domain.market_time.countdown_origin(asof, clock)`: the action day on a
+live view (the user acts the day after the night), the as-of on a past one. Read `market_clock()` once for both
+`serve_view` and the origin, and put the origin in the cache key. An age (of a filing, of a state) counts from the
+as-of. On a past view a relative count also shows its date.
 
-   **There is no shared line to edit.** The frontend registry (`frontend/src/dashboards/registry.ts`) builds
-   `DASHBOARDS` from every `<slug>/entry.ts` (`import.meta.glob`): each exports
-   `entry: DashboardEntry` (its slug = its folder name, its label, description, status, `asofAware`,
-   `layout`, a numeric menu `order` and `component: React.lazy(() => import("./<Component>"))`), sorted by
-   `order` then label; the Board is 0 and the rest step by 10, so a new dashboard picks a free number. It
-   also globs every `<slug>/thumbnail.svg` (as URLs), pairs each with the entry of the same folder and sets
-   the entry's `thumbnail`; an `entry.ts` never writes it. A duplicate slug, a slug that is not its folder,
-   an `entry.ts` without `entry`, an `entry.ts` without a `thumbnail.svg` beside it, or a `thumbnail.svg`
-   without an `entry.ts` beside it fails loud, naming the folder. The backend
-   package (`backend/app/routers/dashboards/__init__.py`) mounts every module in itself that defines a
-   module-level `router` (an `APIRouter`), in sorted module-name order; a module without one (a shared
-   helper) is skipped, and one that fails to import fails the app's start. `HOME_DASHBOARD` (one line in
-   `registry.ts`) is the only dashboard name outside a dashboard's own paths. The shell
-   (`DashboardShell.tsx`) draws the header, the title row and the status tag, so a dashboard component
-   renders only its body.
+### 3. Rankings and sorts
 
-9. **Contract regen in the same PR** (`CLAUDE.md`). A dashboard's routes change
-   `backend/openapi.json` and `frontend/src/api/types.gen.ts`; regenerate both
-   (`python -m app.openapi_export` from `backend/`, `npm run gen:api` from `frontend/`) in the same
-   PR. Parallel dashboard PRs will conflict in those two files: after a rebase, regenerate both
-   rather than hand-merging. They are the only shared files a new dashboard touches (rule 8).
+Allowed when code computes them from data, never an LLM, in neutral words: what the numbers show ("largest 1W
+move"), never an instruction or verdict ("buy", "best idea"). A formula ranking prints its formula. A dashboard
+never judges whether an idea is good (invariant 4).
+
+### 4. Each dashboard states its choices
+
+Its doc decides its loudness, which names count (Context and Bench in or out) and how groups combine; the page
+states them in a quiet line.
+
+### 5. Show the work
+
+Every aggregate says how many names it rests on and how it was combined ("median of 4 priced names"). A name left
+out for thin data is counted or listed, never silently dropped (invariants 6 and 9).
+
+A company whose data flags reach its price readings at the as-of (`baskets.price_flags`, read inside the cached
+read) is left out of every price aggregate and list, because a scale break chains fake returns and fake crosses.
+It is never hidden: the shared `FlaggedNote.tsx` opens to each ticker and reason. A page that keeps the row instead
+states its rule through `flaggedRule(...)`.
+
+A stopped price feed on a company that is on no live card of the workspace reads as no longer priced
+(`baskets.off_card_reason`): the nightly stopped fetching it, and it still trades. On a card it stays a stopped
+feed, a data fault.
+
+### 6. Event-outcome views
+
+A view of what happened after an event slices by the market-cap bands, measured at the event, stating per tier the
+horizon, the comparison, n and the hit rate. A pooled number never stands alone; the pooled row follows the tiers.
+Say what happened, never that a signal "works"; label a liquidity cut. The bands live in
+`backend/domain/market_cap.py` (`CapTier`, `cap_tier`), mirrored in `CLAUDE.md`; reasoning in `docs/BACKTEST.md`
+§"Sliced by market cap". The Track Record implements it; per-row pages leave the statistic to it.
+
+### 7. Cache, warm-up and shared readers
+
+One in-process cache, `backend/dashboards/cache.py`, used only by dashboards. A router calls, after `serve_view`:
+
+```python
+got = cached(conn, "<slug>", params, asof, compute, workspace=workspace)
+```
+
+`workspace` is required; the key is `(workspace, slug, params, asof)`. `params` holds what else the value depends on
+(the clock; the countdown origin). `got` carries `value`, `status` (`hit` or `computed`) and `compute_ms`. Cache the
+expensive read per as-of; derive each grouping or toggle per request.
+
+It clears on events, never a clock: a cron run or `data_repair` row clears everything; a roster snapshot or a card
+created, archived, renamed or switched to a meta index clears page entries; a company's change stamp clears page
+entries and that company's pieces. The module docstring holds the contract. For authors:
+
+- A writer that changes a company's stored data outside the company write lock calls
+  `db.change_stamp.mark_changed`, or dashboards serve that company stale.
+- Catalysts, kill criteria, exclusions and the decisions log move no cache event, so a page reads them live on
+  every request (`baskets.with_live_entries`).
+
+The warm-up: the nightly pass empties the cache, so the cron sidecar's last step,
+`python -m pipeline.warm_dashboards`, reads each heavy page's default view for every workspace at the night just
+recorded, and the first morning visit is a hit. It is read-only and fail-open, with the system token and the workspace in
+`X-Alphadeck-Workspace`. `warm_dashboards.PAGES` mirrors each page's default query, and
+`tests/pipeline/test_warm_dashboards.py` proves the warmed read is the next visit's hit; a page whose default query
+changes updates both. Kill switch: `ALPHADECK_WARM_DASHBOARDS` (compose passes it).
+
+Shared readers; each module's docstring is its contract:
+
+| Module | Owns |
+|---|---|
+| `dashboards/baskets.py` | Counted cards and rosters (`cards_as_of`), groupings, the point-in-time read (`per_company`), price flags, `with_live_entries`, `picker_cards` |
+| `dashboards/series.py` | Session calendar, basket line, move since a night against IWM |
+| `dashboards/nights.py` | Recorded-night shapes and trigger identity |
+| `dashboards/filings.py` | What a company filed, as one `FilingRow` (`read_filing_rows`) |
+| `dashboards/market_cap.py` | The approximate cap cell (`cap_cell`); the bands stay in `domain/market_cap.py` |
+| `dashboards/breadth.py` | Per-card theme breadth |
+
+A page imports shared code from these, never from another dashboard, so a dashboard leaves with its files. The
+exception is the Daily Digest, built from four other pages' computes.
+
+### 8. Self-contained and self-registering
+
+A slug is lowercase letters, digits and `-`; the Python module swaps `-` for `_`. A dashboard owns:
+
+- `frontend/src/dashboards/<slug>/`: the body (default export, takes `DashboardProps`), `entry.ts`,
+  `thumbnail.svg`, its hooks (over `api/client.ts`, not `api/hooks.ts`), its CSS (not `index.css`) and tests.
+- `backend/dashboards/<slug>.py` (or a subpackage): the compute.
+- `backend/app/routers/dashboards/<slug>.py`: `router = APIRouter(prefix="/<slug>")`, GET only, its wire models
+  beside it, not in `app/schemas_api.py`.
+- `backend/tests/dashboards/test_<slug>.py` and `docs/dashboards/<slug>.md`.
+
+No shared line to edit: the registry collects the folder, and `backend/app/routers/dashboards/__init__.py` mounts
+every module defining a module-level `router`, in sorted order; a module without one is skipped, and an import
+failure fails the app's start (`tests/dashboards/test_router_discovery.py`). `HOME_DASHBOARD` is the only dashboard
+name outside a dashboard's files. A one-card dashboard serves `GET .../cards` from `baskets.picker_cards` and
+`GET .../{thesis_id}`, which answers 404 for a card not counted at the as-of.
+
+### 9. Contract regen in the same PR
+
+A dashboard's routes change `backend/openapi.json` and `frontend/src/api/types.gen.ts`; regenerate both in the same
+PR (the `contract-sync` skill). After a rebase, regenerate rather than hand-merge. They are the only shared files a
+new dashboard touches.
+
+## Looks
+
+Two looks; each page's stylesheet names its look in its header comment.
+
+- **Research set:** a document. One column or one wide table, one line per row, tabular numbers, quiet uppercase
+  labels, no badges or color by kind.
+- **Trading set:** a tape. Dense rows, mono tabular numerals, a sticky header, no cards or chrome, a hairline
+  between rows, a quiet work line, filters as text chips. The sign tone (positive and negative mixed toward gray)
+  only on signed returns; the Board's state colors only on a state chip; a score bar is gray. Nothing bold but the
+  ticker.
+
+Both: the app's color tokens only; one accent per page, for the one exception its doc names (invariant 7, WB#3); a
+control renders only when it changes what the page shows; on a phone a wide table scrolls sideways with its first
+column pinned.
 
 ## Thumbnails
 
-Every dashboard has a thumbnail: a small drawing at the top of its tile on the `/dashboards` index. The
-Dashboards ▾ menu stays a plain list, with no thumbnails.
+Each dashboard's tile on the index carries `frontend/src/dashboards/<slug>/thumbnail.svg` (the menu has none). The
+registry finds it like the entry, so it leaves with the folder; the build keeps it a separate file
+(`build.assetsInlineLimit` in `frontend/vite.config.ts`). It is drawn by code, never captured, and shows the page's
+shape, never its data: the repo is public and a drawing cannot carry a card name, it never goes stale, and the
+index makes no requests.
 
-A thumbnail is one file in the dashboard's own folder, `frontend/src/dashboards/<slug>/thumbnail.svg`,
-beside its `entry.ts`. The registry finds it the way it finds the entry (rule 8): nothing imports it and
-there is no shared list. It goes when the folder goes, so the remove checklist does not change. The build
-keeps each thumbnail as its own small file, not inlined into the main chunk (`build.assetsInlineLimit` in
-`frontend/vite.config.ts` names `thumbnail.svg`).
+`frontend/src/dashboards/__tests__/thumbnails.test.ts` enforces rules 1 to 7 (its constants hold the numbers):
 
-**It is drawn by code, not captured.** It shows the shape of the page, never its data. That is on purpose:
+1. Every dashboard folder has one (`buildRegistry` refuses a folder without one).
+2. The root is the `ROOT_VIEWBOX` svg, background transparent.
+3. No words: no text elements, titles, descriptions or comments.
+4. Self-contained and flat: no images, scripts, styles, filters, gradients or patterns; links only to an `#id`.
+5. Colors only `none` or a hex from the first `:root` block of `frontend/src/index.css`.
+6. Quiet: structure in `NEUTRAL_TOKENS`, at most `MAX_ACCENTS` accents, used where the page uses that color.
+7. At most `MAX_BYTES`.
 
-- A screenshot would show card names, and this repo is public. A drawing cannot carry a name.
-- A drawing never goes stale and is never empty at a past as-of.
-- It costs no requests. The index does not call any dashboard's endpoint.
-- A builder draws it in the same PR, and GitHub renders the SVG in the diff, so a reviewer sees it without a
-  running stack.
+Review checks the one rule the test cannot: draw what makes the page different, not a generic table.
 
-**The rules.** `frontend/src/dashboards/__tests__/thumbnails.test.ts` reads every folder's `thumbnail.svg`
-and enforces rules 1 to 7:
+## Who can do what
 
-1. **It exists for every dashboard folder.** `buildRegistry` refuses a folder without one too, so the app
-   never starts with a dashboard missing its thumbnail.
-2. **The root is** `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">` (16:10, the shape of the
-   tile's frame). The background is transparent: the frame supplies it.
-3. **No words.** No `<text>`, `<tspan>`, `<textPath>`, `<title>`, `<desc>` or `<foreignObject>`, and no
-   text or comment anywhere in the file. A thumbnail can never carry a ticker, a card name or a number, so
-   it is always safe to commit to a public repo.
-4. **Self-contained and flat.**
-   - None of `<image>`, `<script>`, `<style>`, `<filter>`, `<linearGradient>`, `<radialGradient>` or
-     `<pattern>`.
-   - No `style=` attribute and no `on*` attribute.
-   - No `href` or `xlink:href` except `#id`, and no `url(` except `url(#id)`.
-5. **The app's colors only.** Every `fill`, `stroke` and `stop-color` is `none` or a hex from the first
-   `:root` block of `frontend/src/index.css`. The test reads the hexes from that file, so recoloring a
-   token fails the test and points at the drawings. `opacity`, `fill-opacity` and `stroke-opacity` are free.
-6. **Quiet** (inverse loudness, Workbench principle 3). Draw structure in the neutral tokens: `--bg`,
-   `--bg-2`, `--panel`, `--panel-2`, `--line`, `--line-2`, `--txt`, `--txt-2`, `--txt-3`, `--txt-4` and
-   `--incub`. Every other color token in `:root` is an accent, and a drawing uses at most three of them.
-   Use an accent where the page itself uses that color: the lifecycle colors for states, green and red for
-   a signed number, the one accent a page keeps for its one exception.
-7. **At most 4 KB.** Draw with paths and short strokes, and set shared styles on a `<g>`. A line of
-   placeholder "text" is one stroke with round caps.
+| Action | Who | Enforced by |
+|---|---|---|
+| Read a dashboard (`GET /dashboards/...`) | Anyone signed in, in their own workspace | `require_user` on the mount (`app/main.py`), `get_workspace`; `tests/app/test_auth_gate.py` |
+| Archive or restore a card from the Board | The user, on their own card | `get_thesis_or_404` (another workspace's card is a 404) |
+| Warm the cache | The machine (cron), with the system token | `app.auth.system_may` (GETs under `/dashboards/`, `/clock`, `/health` only); `test_the_system_token_reads_dashboards_and_the_clock_only` |
+| Add, remove or promote a dashboard; change `HOME_DASHBOARD` | A code change; promotion to `core` is the operator's call | review |
 
-**One rule the test cannot check, so review does: draw what makes the page different, not a generic
-table.** About half the dashboards are tables, and fifteen identical row stripes tell you nothing. Draw the
-feature that sets the page apart: the heat bar that shrinks down a ranking, the diagonal wave across a
-grid, the as-of line through the windows.
+## Add a dashboard
 
-## Add a dashboard: the checklist
+1. Write `docs/dashboards/<slug>.md` from the template below.
+2. Compute `backend/dashboards/<slug>.py`: reads only, `serve_view(asof)` threaded into every read.
+3. Router `backend/app/routers/dashboards/<slug>.py` with `Depends(get_workspace)`; the package mounts it.
+4. Tests `backend/tests/dashboards/test_<slug>.py`, with a past-as-of case where a fact published after the as-of
+   stays invisible.
+5. Frontend folder with `entry.ts` (`status: "experimental"`, a free `order`; `readsRecord` and the note for a
+   history page, plus the slug in the note test's list) and `thumbnail.svg`.
+6. A heavy page adds its default query to `warm_dashboards.PAGES` and the test's table.
+7. Regenerate the contract pair (rule 9).
 
-1. Write the plan, `docs/dashboards/<slug>.md`: what it shows, as-of or "now", its loudness, which
-   names count (Context and Bench included or not), how groups are combined, what a thin-data name
-   does, and whether it needs the shared cache. The plan names, in one line, what the thumbnail draws
-   (see "Thumbnails"); the operator signs off the plan, thumbnail line included, before the build.
-2. Backend compute: `backend/dashboards/<slug>.py`. Reads only; threads `serve_view(asof)` into every
-   read (rule 2).
-3. Backend router: `backend/app/routers/dashboards/<slug>.py` with a module-level
-   `router = APIRouter(prefix="/<slug>")` and its wire models. That is all: the package mounts it.
-4. Backend tests: `backend/tests/dashboards/test_<slug>.py`, including a past-as-of case where a fact
-   published after the as-of stays invisible. The isolation and discovery tests already cover the new
-   files.
-5. Frontend: `frontend/src/dashboards/<slug>/` with the body component (default export), its hooks, CSS
-   and tests, and its `entry.ts` exporting `entry: DashboardEntry` (`slug` = the folder name,
-   `order` = a free menu place after the Board's 0, `component: React.lazy(() => import("./<Component>"))`,
-   `status: "experimental"`, `asofAware` per the plan, `layout` only if the plan needs `"fill"`). The
-   folder also carries `thumbnail.svg` beside `entry.ts` (see "Thumbnails"). Nothing imports it; the
-   registry finds it. Without it, the registry and the thumbnail test fail. That is all: the registry
-   collects both.
-6. Regenerate the contract pair (rule 9) and commit it with the change.
+## Remove a dashboard
 
-## Remove a dashboard: the checklist
+1. Repoint `HOME_DASHBOARD` if it names the slug; change the Daily Digest first if it reads the compute.
+2. Delete the five paths of rule 8.
+3. Drop the slug from `warm_dashboards.PAGES` and the note test's list.
+4. Regenerate the contract pair. A search for the slug returns nothing; an old link lands on the index.
 
-1. Delete `frontend/src/dashboards/<slug>/` (its `entry.ts` and `thumbnail.svg` go with it). If
-   `HOME_DASHBOARD` names it, point that line at another slug first.
-2. Delete `backend/dashboards/<slug>.py` (or its subpackage), `backend/app/routers/dashboards/<slug>.py`
-   and `backend/tests/dashboards/test_<slug>.py`.
-3. Delete `docs/dashboards/<slug>.md`.
-4. Regenerate the contract pair (rule 9) and commit it with the removal.
-5. A search for the slug returns nothing. An old link to the dashboard lands on the index (an unknown
-   slug redirects there).
+## The dashboard doc template
 
-## Index
+Each `docs/dashboards/<slug>.md`, 400 words or fewer (500 at most). The docs checker fails a dashboard without a
+doc, a doc without a dashboard, and a doc missing one of the six headings.
 
-The `/dashboards` page is the index, one tile per dashboard under its thumbnail; each plan lives in
-`docs/dashboards/<slug>.md` (the Board's is `docs/BOARD.md`).
+```markdown
+# <Label>
 
-- **Overlap Map** (`overlap-map`, menu order 300, follows the as-of dial): where the cards overlap, as bubbles joined by shared companies, a Venn of any two or three sets, and each card's sector mix. Plan: `docs/dashboards/overlap-map.md`.
+`<slug>` · follows the as-of dial (or: a "now" view) · rules: [DASHBOARDS](../DASHBOARDS.md)
+
+## What it shows
+The question it answers and the unit (all cards, one card, one name).
+
+## Who counts
+Which cards and names are rows; Context and Bench; thin data and flagged prices.
+
+## Data and code
+| Piece | Where |
+|---|---|
+| Compute | `backend/dashboards/<slug>.py` |
+| Route | `GET /dashboards/<slug>` |
+| Shared readers | the rule 7 modules it uses |
+| Cache key | the `params` it passes to `cached`, or none |
+| Frontend | `frontend/src/dashboards/<slug>/` |
+| Tests | `backend/tests/dashboards/test_<slug>.py`, frontend tests |
+
+## As-of behavior
+What a past as-of reads; inputs that are always "now"; countdowns.
+
+## Rules not visible in code
+A rule and its why, one line each. Name constants; never copy values.
+
+## Known limits
+```
+
+Never copy what `entry.ts`, the page strings or the wire shapes own. No status banner, sign-off, timings or plans.
+
+## Known limits
+
+- Two reads are copied, not shared: the call-in-effect SELECT (`_IN_EFFECT_SQL`, three routers) and the arm-night
+  walk (`hot_board.arm_nights`, `entry_windows.armed_run`). Changing either rule changes every copy.
+- A page not in `PAGES`, or any page after a later run or edit, computes cold on its next visit.
+
+## Related
+
+[BOARD](BOARD.md) · [INVARIANTS](INVARIANTS.md) · [TENANT_SCOPES](TENANT_SCOPES.md) ·
+[DISPLAY_SIGNALS](DISPLAY_SIGNALS.md) · [DOCS_STANDARD](DOCS_STANDARD.md)

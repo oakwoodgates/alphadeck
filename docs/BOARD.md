@@ -1,552 +1,271 @@
-# BOARD.md — the MONITOR surface (Board · Cockpit · CallCard)
+# Board, Cockpit and call card
 
-> Repo path: `docs/BOARD.md`. **How the operator-facing MONITOR surface works** — the Board's lifecycle
-> columns, the Cockpit's deep view, the CallCard rail, decision capture, and the nightly rhythm that feeds
-> them. This is the *surface* doc; the *brain* is `CALL_LOGIC.md` (how signals become a call), the *rhythm*
-> is `FEED_LOOP.md` (the ingest + the call-of-record cron), and the *frame* is `STAGE_MODEL.md` (MONITOR is
-> the back half: the chosen basket parks as a thesis → incubate → warm → arm → monitor after an
-> operator-entered position).
-> Code: `frontend/src/board/` · `frontend/src/cockpit/` · `frontend/src/components/{CallCard,MemberMenu,
-> DecisionActions}.tsx` · the reads they render come from `GET /theses` + `GET /theses/{id}/call`.
->
-> **The Board is the `board` dashboard and the default Home** (2026-10-29): `/` renders it, set by
-> `HOME_DASHBOARD` in `frontend/src/dashboards/registry.ts`, and `/dashboards/board` renders the same Board
-> (`docs/DASHBOARDS.md` §"The Board is the home dashboard"). The top nav's first tab is **Home**. Everything
-> else in this doc still holds.
->
-> **The design law of the whole surface is inverse loudness (invariant #7):** quietness scales with how
-> early it is. Incubating must not nag; loudness is reserved for Armed. Every element below is calibrated
-> to that — if something reads loud, it should be the exception demanding action, never the rule.
+The Board is the home dashboard: every card in the user's workspace in its lifecycle column, under the
+Decision Queue. A card opens the Cockpit: the grouped basket, a per-name panel, the catalyst calendar, kill
+criteria and the call rail. Read this before you change `frontend/src/board/`, `frontend/src/cockpit/` or the
+call card. How a call is made is [CALL_LOGIC](CALL_LOGIC.md); the nightly pass is [FEED_LOOP](FEED_LOOP.md).
+Every user, the steward included, sees only their own workspace's cards here; no control is steward-only.
 
----
+The Board is the `board` dashboard (`frontend/src/dashboards/board/entry.ts`); `HOME_DASHBOARD` in
+`frontend/src/dashboards/registry.ts` makes it `/`, and the docs checker's parity check maps the `board` slug to
+this file ([DASHBOARDS](DASHBOARDS.md), "The Board is the home dashboard").
 
-## The Board — four columns, one loud strip
+## Code
 
-**Everything on the Board is recomputed on read.** A thesis card sits in the column its *live call*
-computes at the selected as-of (`useCalls` per thesis → `card.state`); nothing about placement is
-persisted for display. Change the as-of, and the whole board re-derives — it is a point-in-time view.
+| Piece | Module |
+|---|---|
+| Board, Decision Queue, card controls | `frontend/src/board/` (`Board.tsx`, `ThesisCard.tsx`, `useRowCap.ts`) |
+| Cockpit page and basket table | `frontend/src/cockpit/Cockpit.tsx` |
+| Buckets, lenses, the Entry-by gate | `cockpit/buckets.ts` |
+| Sorting; moving line; data flags; tape marks | `cockpit/sortBasket.ts`; `groupAggregate.ts`; `dataFlags.ts`; `tapeMarks.ts` |
+| Per-name panel | `cockpit/NamePanel.tsx` |
+| Calendar editors; the counting switch | `cockpit/SpineListEditors.tsx`; `cockpit/CatalystCounting.tsx` |
+| Call card, member menu, decision capture | `frontend/src/components/CallCard.tsx`, `MemberMenu.tsx`, `DecisionActions.tsx` |
+| Routes | `backend/app/routers/theses.py`, `clock.py`, `data_flags.py`, `fund_radar.py`, `account.py` |
+| Per-workspace notifications | `backend/notify/__init__.py` (`notifier_for_workspace`); `backend/pipeline/daily.py` |
 
-- **The columns are the lifecycle, not a ranking:** `Incubating (quiet · do not act) → Warming (stirring)
-  → Armed (act now) → Managing (entered position · thesis monitoring)`. Managing does not mean Alpha Deck
-  manages the position or portfolio risk. The lifecycle is a loop, not a ratchet — cards move back
-  when triggers age out or a position closes (`CALL_LOGIC.md` §2). Columns never rank theses against each
-  other (#4: the platform is deferential on thesis — it times, it doesn't judge ideas).
-- **The as-of scrub** (top right) defaults to **the current night** (F1, 2026-10-30): the night the nightly
-  pass last recorded, served by `GET /clock` (`domain/market_time.current_night` — today once the 22:30 pass
-  time has passed on a session day, else the session day before), never the browser's date. At 09:00 Tuesday the board
-  opens on Monday's night, read LIVE — the call that night recorded and alerted on, not a "Tuesday" recompute
-  from Monday's facts. On that live view the operator's decisions read up to the action day (the first session
-  day after the night), so a fill logged this morning shows at once (decisions only; the facts follow the night).
-  If the clock read fails the dial falls back to the browser's date with a quiet "browser date" note.
-  Scrubbing back (before the current night) recomputes the board with TODAY's rules on
-  what was PUBLIC by the end of that date — the no-lookahead rule applies to the UI too, judged on the public
-  clock (operator decision 2026-10-21): a fact dated after the as-of is invisible, and so is one PUBLISHED
-  after it (a Form 4 accepted later, a vendor correction made later); a fact public by then but ingested
-  late by our database is NOT hidden for it (`GET /theses/{id}/call?asof=` threads `serve_view(asof)` —
-  `(known_at_for_asof(asof), "public")` for an as-of before the current night, `(None, "record")` from the
-  current night on; `INVARIANTS.md` #1, `db/public_clock.py`). A fill the operator logged after a past as-of
-  stays invisible too (an operator decision counts from when it was made). The past board says so in one quiet line — "Recomputed
-  as of <date> — today's rules on what was public then, not the recorded call" (F11). The remaining caveat:
-  the roster is point-in-time only from 2026-09-15 (`basket_snapshot`; before that today's basket stands in —
-  `INVARIANTS.md` §Known gaps), so a scrubbed-back card is a labeled recompute; what the platform actually said
-  that night is the Scoreboard's record, never this recompute.
-- **The Decision Queue** — the one loud element: an armed-only strip so an actionable call can't be
-  forgotten. A multi-name theme shows its **single top-ranked actionable name** with a quiet `+N` hint
-  that a ranked menu sits behind it (anti-flooding — never every member). Empty state: *"Nothing armed.
-  Nothing to do. ✓"* — a calm board is a working board. The headline name — and a single-name card's ticker —
-  carries the same quiet **data-flag mark** as its Cockpit row (S3, `GET /data-flags`), only when a flag
-  reaches a number on it. Each item also states its **act-by clock** — "act within 3d", the card's
-  `arm_until` (the headline name's entry window) — muted, and warm with "· entry window closing" only when the
-  call's own `entry_window_closing` flag on the headline name is set (Q14; read, never re-derived). It states
-  the clock; it never reorders the queue by it (columns and queue do not rank theses, #4). The clock is a
-  **countdown**, so on a live view it counts from the **action day** (F2): "act today" when the window ends on
-  that day; on a past view it counts from the call's as-of and carries the date ("act within 5d · Oct 18"). Since F3
-  (the next-session rule, CALL_LOGIC §6) an Armed call's `arm_until` is always on or after the action day, so
-  "entry window lapsed" (a window that ended on the night) no longer appears next to Armed; the words stay for a
-  card that carries one anyway.
-  **No armed item is ever clipped away.** The strip wraps; past **two rows** it folds the rest behind a quiet
-  **"+N more"** at its right edge (N = the items held back, always on screen), and one click opens every item
-  (**"show fewer"** folds it back — reversible, WB#1). The fold is by position in the existing order, never by
-  any ranking (#4). The row count comes off the laid-out rows (`useRowCap`: a row is a distinct `offsetTop`,
-  re-measured on every render, a strip resize and font load), not from a width estimate; a folded item stays in
-  the layout but is `visibility: hidden`, so it is out of the tab order and the accessibility tree until opened.
-  The control is deliberately quiet — the strip stays the one loud element (#7).
-- **"Calls that didn't compute" (keep-it-visible, #216)** — when a thesis's `/call` errors, it lands in a
-  **visible strip at the bottom of the Board** ("⚠ Calls that didn't compute (N)") instead of silently
-  vanishing from every column, and the Decision Queue **withholds its all-clear** ("Some calls didn't
-  compute — see below."): a broken call might have been armed, so the calm empty state must not lie. A
-  failed call is an exception the operator must see, never a quietly-dropped card — the same
-  recall-is-sacred instinct as the basket's Quiet bucket.
-- **The ThesisCard**: ticker (or a basket marker for a theme), name, narrative, and a state-appropriate
-  footer — Armed leads with the **entry verdict** (STARTER/CORE — the categorical call-strength posture),
-  with the conviction grade as secondary context ("core setup" — the same "core setup" / "flip setup" wording
-  on the rail's head chip and the ranked member menu: it rates the call's strength class, never the idea, so it
-  is never called a "thesis", #4); neither label sizes a trade. A bare CORE
-  badge up front read as "go big"; this split exists to stop that over-commit misread. Non-armed cards show
-  the two-key **readiness pips** (0–2) — one pip per KEY, conviction left and confirmation right, the hover
-  naming which has turned ("Conviction ✓ · Confirmation ○"), so a confirmation-only card never reads as
-  "conviction fired". Armed
-  cards carry the `CALL READY` flag.
-- **Archive, never delete** (board hygiene): hover a card → a quiet **✕** appears (a *sibling* of the
-  card, top-right). Archiving drops the thesis into the collapsed **Archived (N)** section at the bottom —
-  visible, restorable in one click, out of the default lists and the nightly cron's walk, and **its call
-  is not computed** (cost stays the operator's). The spine, calls log, and decision log all stay; a
-  promote can neither archive nor resurrect one (the structural guard on `archived_at`).
-- **Meta index** (a card-level switch, beside archive): hover a card → a quiet **meta** control appears
-  just left of the ✕ (also a sibling of the card). One click marks it a **meta index card** — a broad
-  list for watching where money moves across a sector, whose names **never count toward the call**, so it
-  stays in Incubating and never reaches the Decision Queue; the same click makes it a normal card again
-  (reversible, nothing deleted). A marked card carries a quiet lowercase **meta index** tag after its
-  ticker (the context-role tag style), and the Cockpit header shows the same tag; an unmarked card shows
-  nothing. Its links and names stay on the card, the dashboards and the nightly ingest. A promote never
-  flips it (the structural guard on `meta_index`, `PUT /theses/{id}/meta-index` is the only writer). See
-  `docs/CALL_LOGIC.md` §1.
+## How it works
 
-## The Cockpit — one thesis, deep
+### The Board
 
-Selecting a card opens the Cockpit: the narrative (the operator's words, preserved), the **grouped
-basket table + the per-name panel** (the next two sections), evidence, and two **operator-authored
-lists** that render *even at zero* (an empty section used to vanish, which made "there's no way to
-author one" invisible):
+- **Four columns, the lifecycle:** Incubating, Warming, Armed, Managing. A card sits in the column of its
+  live call's `state` at the selected as-of (`GET /theses/{id}/call?asof=`). Placement is never stored, so a
+  new as-of re-derives every card, and cards move back when triggers age out or a position closes
+  ([CALL_LOGIC](CALL_LOGIC.md) section 2). Managing means the user logged a fill and the platform monitors
+  the thesis; it never manages the position.
+- **No ranking.** Columns and the queue keep list order and never rank theses (invariant 4).
+- **The as-of defaults to the current night**, the night the pass last recorded (`GET /clock`,
+  `domain/market_time.current_night`), never the browser's date. It is read live, with the user's decisions
+  up to the action day, so a fill logged this morning shows at once (`serve_decisions_asof`).
+- **A past as-of is a labeled recompute:** today's rules on what was public by the end of that night
+  (invariant 1, `serve_view`); a fill logged later stays invisible. One quiet line on the Board and the call
+  card says it is not the recorded call. The roster is point-in-time only from 2026-09-15
+  ([INVARIANTS](INVARIANTS.md), Known gaps). What the platform said that night is the Scoreboard's record.
+- **The card.** An Armed card leads with its verdict, colored by the entry grade, then "core setup" or
+  "flip setup" (the grade rates the call's strength, never the thesis) and a `CALL READY` flag. A Managing
+  card shows its verdict. Others show two readiness pips, conviction then confirmation, so a
+  confirmation-only card never reads as "conviction fired".
+- **During a scrub** a card keeps its previous call dimmed and dated, and is barred from the queue.
 
-- **Catalyst calendar** — the thesis-level *surface* events (label · kind · date or a fuzzy "~Q3"), listed in
-  **date order** — soonest first, a fuzzy one last (a display sort of a copy; storage and the editor keep the
-  operator's authoring order, and a save stores exactly that). A date already past reads "Nd ago" and grays — it
-  stays on the calendar, never vanishes. Dated entries within the `exit_by` signal-validity horizon ride the
-  CallCard's catalyst surface; entries ≤ 21 days out highlight as `soon`. Edited in place (`✎ edit` / `+ add catalysts`); saves through the sole-writer
-  `PUT /theses/{id}/catalysts` — a promote can never wipe the list. **Distinct from the per-name
-  conviction FACTS** (the Key-1 arming inputs), which are authored on the Workbench rail with a required
-  citation (`WORKBENCH_EXTRACTION.md`).
-- **Kill criteria** — the documented "what would kill this thesis." Consumed by the deterministic
-  counter-case on the CallCard — an authored thesis stops reading "no documented counter-case."
+### The Decision Queue
 
-Between the basket table and the evidence sits one quiet **fund launches line** (`cockpit/FundLaunchesLine.tsx`,
-`GET /theses/{id}/fund-launches?asof=`; `FUND_RADAR.md`): "N filings from M sponsors in 90 days (signal a · broad b
-· name c)", collapsed, its own query, and **nothing at all when there are none**. Display only — never a call input;
-its "+ add to ETFs" files a fund that has reached a ticker into the card's silent ETFs link.
+The one loud element: a strip of the Armed cards, so an actionable call is not forgotten.
 
-The Cockpit shares the Board's as-of; the call rail beside it recomputes live at that date — under the same
-`known_at` cap for a past as-of, and so do the display signals (`/display-signals?asof=` threads it too).
+- A theme shows only its headline name (`armed_members[0]`, ranked by `calls/assembler.rank_members`) and a
+  quiet `+N`; a click opens the Cockpit on that name (`?name=`).
+- Each item states its act-by clock, the days from the action day to `arm_until` (on a past view, from the
+  as-of, with the date). It turns warm and says "entry window closing" only when the headline member's
+  `entry_window_closing` flag is set; the flag is the call's, never re-derived. The clock never reorders.
+- **No armed item is clipped.** The strip wraps; past `DQ_ROWS` rows (counted off the laid-out rows,
+  `useRowCap`) the rest wait behind an always-visible "+N more" that opens every item, and "show fewer"
+  folds it back (WB#1). The fold goes by position, never a ranking.
+- **The all-clear is withheld** while any call is computing, and when any call failed, because a failed call
+  might have been armed. A failed card shows in a "Calls that didn't compute" strip at the bottom of the
+  Board and opens the Cockpit, which shows the error.
 
-### The grouped basket — per-name buckets
+### Card controls
 
-The basket table partitions, **in the default lens**, by each member's **own** call state — the
-Board's column idiom applied in-table, strongest → weakest, one **collapsible header** (chev · label ·
-hint · count · the moving line — the Workbench's To Review heading idiom, the toggle bucket-colored) per
-**populated** bucket (an empty bucket renders no header — loudness marks the exception) and a status dot
-per row:
+Quiet hover controls beside each card, reversible in one click (WB#1):
 
-- **Managing** — `verdict === "managing"`: the held name, when the open position carries its
-  `security_id` (a take logged **on a name** — per-member Managing attribution, `CALL_LOGIC.md` §4).
-  An unattributed position (a thesis-level take; the seed-era stored columns) emits no member
-  verdict, so the group stays empty — **render-if-present** either way, never a guessed name.
-- **Armed** / **Hold clock closing** / **Theme-armed** — the `armed_members` tier, split by its flags.
-  The middle bucket is the `lapsing` flag (bucket key + CSS class keep that wire name): the member's
-  **hold clock** (`exit_by`) is inside the freshness dial — header "Hold clock closing · signal-validity
-  horizon near". It was headed "Lapsing · entry window closing" until Q14 (2026-10-18), which named the
-  wrong clock: `lapsing` never read `arm_until` (69% of arm-window expiries never showed it, MEASURED).
-  When a member is lapsing *and* theme-armed, **the hold-clock bucket wins** (the clock is the urgent
-  fact; the theme basis stays visible on the panel). The entry window's own flag,
-  `entry_window_closing`, is not a bucket — it rides the Entry-by cell (below).
-- **Warming** — the coverage bucket the wire forces: a conviction-only name sits in NEITHER
-  `armed_members` NOR `watch_members` (watch is confirmation-only) yet its firing is live on the
-  rail. Joined by ticker from `triggers_fired` (`TriggerRefOut` carries no security_id), so
-  duplicate-ticker rows both light — visible over-inclusion, never a silent drop.
-- **Watch** — `watch_members` ("moving, no conviction yet").
-- **Quiet** — the remainder, incl. unresolved rows: every basket row lands somewhere
-  (keep-it-visible), grayed rather than gone.
-- **Context** / **ETFs** / **Bench** (after Quiet) — the three **silent value-chain links** (`TRIAGE.md`
-  "Context, ETFs and Bench"; ETFs holds the card's funds): a name placed in any of them is on the card and
-  visible but **never counts toward the call**, so when the card has nothing on it (no armed/watch hit, no
-  fired trigger) it files under its link's own bucket — one bucket per link, never a binary (header "Context ·
-  never counts toward the call") — and carries no member call. Same
-  muted accent as Quiet (hollow dot, gray row), and like every bucket **hidden when empty** (most theses
-  have neither). It is the *last* test in the precedence, deliberately: the roster is today's but the card
-  can be a **scrub-back** to a past as-of, and a name that voted then (armed, watch, a fired trigger) and
-  sits in Context now still reads as the voter the headline names — under its call bucket, with its call.
-  On a current card nothing changes (the backend never puts a silent name on one). A **held** name
-  (`verdict === "managing"`) is the top of the order, so it stays in **Managing** even from a silent link.
-  Display-only, like the rest: the buckets read the call, the call never reads them.
+- **Archive (✕).** The card moves to the collapsed "Archived (N)" section: restorable, out of the default
+  lists and the nightly pass, its call not computed. Its calls log, decisions and body stay, and a promote
+  can neither archive nor restore it. A restore past the workspace caps answers 409 with a sentence
+  ([AUTH](AUTH.md), "Workspace caps").
+- **Meta index.** Marks a broad card for watching a sector. Its names never count toward the call: it stays
+  Incubating and never warms, arms, notifies or enters the queue ([CALL_LOGIC](CALL_LOGIC.md) section 1). A
+  quiet "meta index" tag shows on the card and the Cockpit header.
 
-**The fold** is an explicit, reversible view filter — open by default, one click back, the count
-stays on a closed header (a folded bucket never reads as dropped). Folded rows stay **mounted** with
-`visibility: collapse`: a collapsed row still feeds the table's column-width algorithm, so folding
-the bucket with the widest cells cannot re-flow the columns; the vertical reflow rides a View
-Transition (instant where unsupported, off under reduced motion) instead of snapping.
+### The Cockpit
 
-Wire rank is preserved inside the armed/watch buckets (the call machinery already ranked them — the
-FE never re-ranks the brain's output); Warming/Quiet keep the authored basket order.
+The Cockpit opens at the Board's as-of. Top to bottom: the narrative; the rotation strip (theme breadth and
+sector relative strength); the basket table with its exports (JSON, TradingView watchlist); the fund launches
+line; evidence; the catalyst calendar; kill criteria. The call rail sits beside them and collapses from the top
+bar (`?rail=0`). The call, display signals, scored read and data flags all read the same as-of on the same clock
+(`serve_view`).
 
-**Three lenses over the same names.** A toggle above the table — `call state · business type · value
-chain` — re-groups the *identical* basket; it is a view choice, never a filter (nothing hides, nothing
-drops, every name is present in every lens). **Call state** is the default (the call is the product) —
-the buckets above. **Business type** re-partitions by the scored business-type **super-sector** ("are
-the utilities moving?"), with the fixed super order and its visible tails last (a mapped-`other` or
-un-enriched name still has a row, #9). **Value chain** re-partitions by each member's **value-chain
-segment** ("which part of the chain is moving?") and renders **only when the basket is decomposed into
-links** (nothing to group by otherwise — honest loudness, #7); unlike the other two it shows **every
-link-row**, so a name placed in N links appears under each of its N headers, and a null/empty-segment
-row lands in the keep-visible `Unsegmented` tail. **Context, ETFs and Bench are always the last groups**
-(after the unknown labels and the `Unsegmented` tail, whatever order a payload's segments came in), under
-their fixed descriptors, and hidden when empty. In the **business-type** lens a silent name keeps its grayed
-row and carries a small lowercase `context` / `etfs` / `bench` tag (the lens hides which link it sits in; the other two
-name it in the header). A name the operator gave a **context role** (`TRIAGE.md` "Context roles") carries a
-second quiet lowercase tag beside its ticker (`payer`, `counter-case`…) in **every** lens and on any row, **only
-when set** (never a "—" placeholder); it moves no row, bucket or call. The two non-segment lenses **dedupe to one row per
-`security_id`** (a multi-segment name's otherwise-identical duplicate rows collapse — losslessly, since
-same `security_id` ⇒ same call bucket + scored join); the value-chain lens keeps them all (that's the
-point). Whichever lens is active, each row keeps its **own call-state dot and exit-by** — the call never
-disappears behind a view.
+- **Catalyst calendar.** The card's events in date order, fuzzy dates ("~Q3") last; a past date grays and
+  stays. The sole writer is `PUT /theses/{id}/catalysts`, which saves the authoring order; a promote never
+  touches the list.
+- **Counts toward the call.** Each saved row has a quiet "Counts toward the call…" control
+  (`CatalystCounting.tsx`), the one place a user makes a catalyst count. The form takes voting names (silent
+  link names are disabled), a grade (Core needs a name; a whole-card entry is Flip), a citation (a link or
+  an SEC accession number) and an optional "relevant until" date; Stop counting is its inverse. It counts
+  from tonight, never from the calendar date. A meta index card shows a note instead. A calendar save that
+  drops a counting row is refused (409). On the rail such a trigger carries a "your entry" chip, and a
+  platform catalyst live on the same member shows as "also live, not counted". The rules:
+  [CALL_LOGIC](CALL_LOGIC.md) section 3c.
+- **Kill criteria** (sole writer `PUT /theses/{id}/kill-criteria`) feed the recorded `counter_case` text.
+- **Fund launches line** (`GET /theses/{id}/fund-launches`): one collapsed line of fund filings that fit the
+  card, absent when there are none. Its "+ add to ETFs" files a fund into the ETFs link, which never counts
+  toward the call ([FUND_RADAR](FUND_RADAR.md)).
 
-**The header's moving line — "is this group moving?"** Every group header, in every lens, ends with
-`· N names · 7d median ±X.X%` (e.g. `Miner · 41 names · 7d median -6.0%`): the **median** 7d trailing
-return over the group's **priced** rows, computed client-side off the same `ret_7d` the 7d column shows
-(zero wire — nothing fetched, nothing re-derived). **Median, not mean**, so a single blowup can't drag a
-group of −1%s into "moving"; **7d only** (one figure — no other window in v1); **N is the full group
-size** (every row counts, priced or not, #9) while the median is over the priced subset (a thin-history
-"—" is excluded, never counted as 0); **fewer than 3 priced rows reads "—"** (a "median" of one or two
-names is not a group read, and a fabricated 0.0% is worse than none). It tints **muted** green up / red
-down with no threshold accent — always-present context, not a badge (#7 / interaction principle #3) —
-and the population ("5 priced of 6 names", or the why behind a "—") rides the hover. A display
-aggregate, never a call input (#4): it changes no membership, no order, no call; a fold or a sort leaves
-it exactly where it was. Re-computed per group per lens — the value-chain lens counts a multi-link name
-once per link (each link-row is a real membership).
+### The grouped basket
 
-**The data flag — "is this real?" (split plan S3).** A number on a row can rest on data the platform knows is
-wrong or cannot vouch for: a split-night hold (S5), a split that still needs review, a price tape that mixes two
-scales (T4), a stopped feed (renamed / closed / a plain gap), a market cap on a pre-split or unreadable share
-count. `GET /theses/{id}/data-flags?asof=` computes these **on read** (never stored, never on the call card,
-never a call input — `domain/data_flags.py` + `pipeline/data_flags.py`, on the view's clock) and names, per flag,
-the exact **cells** its dates reach (`cells_for`: a step a window straddles, a bar a window reads). Only those
-cells change: **in doubt** keeps the number, grayed and dotted, the reason on hover; **known wrong** replaces it
-with a muted "—" carrying the reason; every cell no flag names renders normally. The row gets a quiet small-flag
-(⚑ — never the ◇, which already means "a basket / no ticker") **mark after the ticker** only when some flag
-reaches a cell on it (WB#3 — a split two years back that no column reads marks nothing; the panel and Admin
-still list it, and a name's flags list the reaching ones first). Flags apply only once this view's display and
-scored reads have landed: the flag read is the faster one, and a mark beside a row of loading "—" (or another
-as-of's placeholder numbers) read as "the flag blanked the row". The header's 7d median **leaves flagged 7d values out** and says so ("· 2 left out", the why on
-hover). The sparkline gets a dashed **tick** at an applied split inside its window, nothing more. The
-cells the server's flag vocabulary does not name (`Last close`, `Off 52w high`, `ADV 20d`, and each `Tape` chip) take their reach
-from the **named cells whose bar window contains their own** (`cockpit/dataFlags.ts` `DERIVED_CELL_REACH`: Last close ←
-1D; 52w ← 1Y; ADV ← 30d and RVOL 20D; coil and RS lead ← 90d; a cross ← 1Y), so a flag that could reach them grays or blanks them too; the one named limit is a step in the oldest
-~10 of the 52w window's ~262 bars, which `1Y`'s 252 do not reach — the long-run fix is to name the cells in
-`domain/data_flags.py`, which moves the engine fingerprint, so it rides a deliberate backend change. No alert,
-ever (#7). MEASURED on a read-only copy of prod (2026-10-22): 26 of 688 names carry a mark (3/90 AI Memory,
-1/34 Digital Asset, 4/190 Modern Defense, 2/79 Nuclear, 8/155 Rainbow Rush, 9/159 Everything Exchange), and
-all twelve live call cards were byte-identical with and without the flags read.
+The default lens groups names by each member's own call, strongest first, under collapsible headers; an empty
+group has no header (WB#3). Precedence in `buckets.groupBasket`, first match wins:
 
-**Columns:** `Dot · Ticker · Name · Type · Last close · SMA · 1d · 7d · 30d · 90d · 1Y · Path · Off 52w high · Tape ·
-RVOL 8D · RVOL 20D · Ins 30d · Ins 90d · Mkt cap · ADV 20d · Entry-by · Exit-by`.
+| Bucket | Test |
+|---|---|
+| Managing | the member's call has verdict `managing` (the held name of a position logged on a name) |
+| Armed, Hold clock closing, Theme-armed | in `armed_members`; `lapsing` wins over `theme_armed` |
+| Watch | in `watch_members` (confirmation only), tested before the trigger join |
+| Warming | its ticker is in `triggers_fired` (trigger rows carry no `security_id`, so duplicate tickers both light) |
+| Context, ETFs, Bench | the name sits in that silent link |
+| Quiet | everything else, unresolved rows included |
 
-**The table scrolls in its own box** (`.basket-scroll`), because twenty-two columns do not fit a laptop's
-main column beside the 380px call rail (the widths MEASURED when this was built — 17 columns, 1025px of
-min-content — predate Off 52w high, Tape and ADV 20d; the table is wider now and has not been re-measured) — before it, the overflow painted *over* the rail and those columns
-were simply unreachable. Three things hold their place inside that box: the **status dot + ticker** stick
-to the left, so scrolling the columns never costs a row its identity; the **column header** sticks to the
-top; and a **bucket heading** ("Armed · act now · 7 names") sticks to the left of its full-width row. The
-company name is capped with an ellipsis (the full name is on the hover and in the per-name panel) and the
-call rail collapses from the top bar (`?rail=0`) when the table wants its width back.
+- **Why the silent links come last:** the roster is today's but the card can be a past recompute, so a name
+  that voted that night and sits in Context today keeps its call bucket and its call. A live call never lists
+  a silent name, and a held name stays Managing even in a silent link.
+- **Order and fold.** Armed and Watch keep the call's ranking; other groups keep the authored order. A fold
+  is a view filter: the count stays on the closed header and folded rows stay mounted, so columns never
+  reflow.
+- **Lenses:** call state, business type (super-sector) and value chain (shown only when the basket has
+  links). Every lens shows every name, and each row keeps its call-state dot and clocks. The value-chain lens
+  shows a name once per link; the others once per `security_id`. Context, ETFs and Bench are the last groups
+  except in the business-type lens, where a silent name carries a link tag. A context role
+  ([WORKBENCH](WORKBENCH.md#context-roles)) shows as a quiet tag only when set.
+- **The moving line.** Each header ends with the group size and the median 7-day return of its priced rows
+  (`groupAggregate.groupMoving`): a median so one blowup cannot move it, "—" below a minimum of priced rows,
+  flagged values left out and counted. It moves no row, bucket or call.
+- **Columns** are defined in `Cockpit.tsx`: business type and market cap from `GET /theses/{id}/scored`, the
+  tape columns from the display-signals read ([DISPLAY_SIGNALS](DISPLAY_SIGNALS.md)). `Last close` is an
+  end-of-day close, never a live quote, dated only when it lags the basket's newest bar, its member calls it
+  stale or the feed is flagged stopped. `Tape` shows only exceptional readings (a coiling base, relative
+  strength at a 13-week high, a cross within `TAPE_CROSS_DAYS`).
+- **Two clocks, two columns.** `Entry-by` is the entry window (`arm_until`), which governs how long a member
+  stays armed and can end weeks before `Exit-by`. It renders only for the armed buckets
+  (`ENTRY_WINDOW_BUCKETS`), since a Watch row's `arm_until` is a decaying confirmation, not an endorsed
+  entry, and is loud only when `entry_window_closing` is set. `Exit-by` is the signal-validity horizon
+  (`exit_by`), marked "hold clock closing" when `lapsing`. Neither is a sell date.
+- **Sorting** works inside each group (desc, asc, off). A "—" cell sinks last both ways, and a sort key
+  reads the same gate as its cell, so it never ranks a hidden value.
+- **Containment.** The table scrolls in its own box with sticky identity columns and header; the rules are
+  scoped `.basket-scroll table.basket` because the Scoreboard and Admin tables share the `.basket` skin.
 
-**That machinery is scoped `.basket-scroll table.basket`, never bare `table.basket`.** `.basket` is a
-shared table *skin* — the Scoreboard ledger and the Admin history tables wear it too — and the containment
-rules are not skin: a table that takes its `max-content` width with no scroller to absorb it overflows the
-*page*, and a `<thead>` told to stick with nothing scrolling it pins itself to the viewport. Both happened:
-written unscoped, these rules escaped onto the Scoreboard, which overflowed by 498px at a 1091px viewport
-until the scoping landed. A `.basket` table outside a scroller stays fluid and wraps, which is right for
-one laid out in a flowing document.
+### Data flags
 
-- **Type** — the business-type **leaf** (Business-Type M1, the retired *archetype*'s replacement),
-  colored by super-sector with a ◈ **royalty/streaming** overlay; an ETF sleeve reads "ETF sleeve" (a
-  fund has no SIC), an un-enriched name a quiet "—" (never a guessed default).
-- **SMA · 1d/7d/30d/90d/1Y · RVOL 8D · RVOL 20D · Ins 30d · Ins 90d** — the read-only **display-signal**
-  columns (the engine doc is `docs/DISPLAY_SIGNALS.md`): quiet per-name tape context bridged onto the row
-  by `security_id`, **structurally off the call path**. SMA is the posture glyph + % vs the slow line; the
-  ladder is the trailing EOD returns (green up / red down; `1d` = last close vs the prior close, not a
-  24h move; `1Y` = 252 trading bars); RVOL 8D is the as-of bar's volume vs its prior 8-bar mean (mirrors
-  the breakout detector — the **call-matched** read) and RVOL 20D the same over 20 bars (the "vs its month"
-  trader convention, **call-decoupled**), each warming a 'hot' accent past its **own** loud threshold; the
-  insider cells read `{open-market buys}/{distinct buyers}` per trailing window (a ≥2-buyer **cluster**
-  takes the leader-blue accent — breadth is the tell). Every display cell is a muted "—" when absent — the
-  accent marks the exception (#7).
-- **Path** — the close-path **sparkline** behind the ladder's endpoint numbers (the `price_path` member's
-  fixed-slot series: the last 90 closes, one slot per trading bar, newest at the right). A **neutral**
-  hairline — no accent, so the shape never blurs into the return green/red, the RVOL warm, or the insider
-  blue — that **breaks on a gap, never interpolates**: a young name draws a genuinely shorter, right-aligned
-  path (its thinness named on hover with the exact bars), and under two closes the cell is "—" (a point is
-  not a path). One of the two display columns that are **not sortable** (the other is Tape) — a shape with no scalar to
-  rank on.
-- **Mkt cap** — bridged from the scoring read ("—" when un-scored).
-- **Last close** — the newest **end-of-day** close at or before the as-of (the `sma_position` member's `close`;
-  "$27.71", thousands separated, four decimals under a dollar). It is the *last known* price, not a live quote
-  (this platform has no intraday): the hover says "end of day, not a live quote" and names the bar's date.
-  It stays on screen when the tape has stopped — that is what "last known" means — and then says **when**: a
-  muted " · Oct 14" appears only when the bar is older than the **newest bar anywhere in the basket** (a halt, a
-  delisting, a thin name with no print), when the member itself calls it stale (> 10 days before the as-of), or
-  when the feed is flagged stopped. Relative to the table, so a weekend or holiday — every row's newest bar the
-  same Friday — marks nothing; most rows carry no date (#7). Sortable by price level, highest first on desc.
-  A **stopped feed does not blank it** (a stopped feed makes the *returns* wrong, not the last real print): the
-  cell keeps the number with its date and the flag's reason on hover, while a split flag that reaches the newest
-  bar (`1d`) still grays or blanks it like any price cell.
-- **Off 52w high** — how far the last close sits below the 52-week closing high (`range_52w`'s
-  `pct_off_52w_high`; "-23.4%", 0.0% = at the high). Muted mono, no accent — the number itself states "at the
-  high" — with the high and the bar it printed on in the hover. Sortable; desc puts the names nearest their high
-  first. Sits behind Path, the shape it summarizes.
-- **Tape** — the **exceptional** tape readings only, each a display member's own verdict: **coil** (`vcp`'s
-  `coiling` headline — a tightening base above a rising 50d), **RS lead** (`relative_strength`'s `leading`
-  headline — RS at a 13-week high vs SPY or IWM), and **golden / death** (the `sma_position` member's last 50d/200d
-  cross, while it printed within `TAPE_CROSS_DAYS` = 30 calendar days of the as-of — a display dial in
-  `cockpit/tapeMarks.ts`, never a call input). Small neutral outlined chips with only the direction glyph tinted
-  (a coil is sideways — never a forecast, #4); the member's own statement and the cross's date ride the hover.
-  A muted "—" on most rows: a mark is the exception, never the rule (#7). **Not sortable** (a set of marks is not
-  a number to rank on). Each chip is flagged on its own reach — a coil / RS read through the 90d cell's window, a
-  cross through 1Y's.
-- **ADV 20d** — the 20-bar average **dollar** volume (close × volume; `volume_regime`'s `adv_usd_20d`; "$1.2M"),
-  the liquidity read beside the size it qualifies. Muted, with **no threshold of its own**: where "thin" begins
-  is the operator's call, not the table's. Sortable; desc is the most liquid first. A name short of 20 volume
-  bars is an honest "—" with the why. Both cells are display members already rendered in the panel's
-  Indicators section, surfaced here with no backend change.
-
-**The two clocks are two columns — `Entry-by` then `Exit-by`, in the order they run out.** They were
-one stacked cell until the basket-table containment pass; separating them makes each **independently
-sortable**, and "which entry window closes soonest" is the sort the armed bucket actually wants.
-
-- **Entry-by** — the member's entry-window (`arm_until`) clock, "‹date› · Nd". **Loud only when the
-  call flags it** — `entry_window_closing` (Q14): at most two trading sessions left, decided by the
-  assembler (`CALL_LOGIC.md` §6), and then the cell also reads "· entry window closing". That replaced the
-  cell's own front-end "within a week" tint (Slice 2, #209), so "closing" has one definition. This is the
-  **confirmation** clock, which governs how long the member
-  STAYS armed, and it can fall a month before its `exit_by` (the live CRVO/MPLT confusion: "Armed ·
-  Dec 8" yet de-armed Jul 19). Rendered for the armed family ONLY (`ENTRY_WINDOW_BUCKETS` — Armed /
-  Hold clock closing / Theme-armed): a **Watch**-tier row carries `arm_until` on the wire too but must NOT light
-  it up, because watch is confirmation without conviction, so its clock is a **decay** rather than an
-  entry the system endorses. The gate is bucket-based, not presence-based (the load-bearing negative),
-  and the SAME set gates the sort key — a sort must rank what the cell shows, never a hidden value.
-- **Exit-by** — the member's **own** signal-validity horizon (amber "‹date› · hold clock closing" on a
-  `lapsing` row — formerly "lapses ‹date›").
-
-**Sorting — within-group, reversible, FE-only.** Clicking a column header ranks the basket by that
-column **inside each group** — the call hierarchy stays put (the biggest mover inside Quiet surfaces
-without leaving Quiet). The header cycles **desc → asc → off** (off restores the default order:
-call-rank, then authored ordinal); a "—" cell is **ABSENT** (not a low/high value) and **sinks last in
-both directions** (#9/#2 — the sort re-orders, never drops), and the insider columns sort
-**buyers-first, then buys** (breadth-first, matching the cluster accent). The sort **persists across a
-lens switch** (re-ranking within the new lens's groups). A flat leaderboard *across* groups is deferred,
-not shipped.
-
-**Keyboard stepping.** Every basket row is focusable (Enter / Space toggles its panel). **↑/↓** on a focused row
-moves focus to the previous / next **visible** row — the rendered order, so the active lens and sort count, and
-a **folded group is skipped** (its rows stay mounted, collapsed, but are not stops); it stops at the first and
-last row, and a shift/ctrl/alt/meta-modified arrow is left to the browser. **With the panel open, the panel
-follows focus**, so a basket is scanned a row at a time with the panel showing each name; Enter on the focused
-row then closes it, and stepping with the panel closed only moves focus. The scoping is the row, not the page:
-the arrows never hijack the panel's own scrolling. In the value-chain lens a name shown under several links
-resolves to its **first** row (the click rule), so a later link-row takes focus and leaves the panel where it is
-instead of jumping the highlight to a row far above.
-
-The old Role/Detail columns are gone from the table; the authored text survives on the per-name panel.
-No card yet (loading/error) → everything reads Quiet, honestly.
+`GET /theses/{id}/data-flags?asof=` (and `GET /data-flags` for the Board) computes on read which cells rest on
+data the platform cannot vouch for, such as a split under review, a mixed-scale tape or a stopped feed
+(`domain/data_flags.py`). Only the named cells change: "in doubt" grays the number, "known wrong" shows "—",
+each with the reason on hover. A row gets a quiet ⚑ only when a flag reaches one of its cells (WB#3), on the
+Board too. Flags apply only once the view's display and scored reads have landed. Unnamed cells borrow the
+state of named cells whose windows contain theirs (`DERIVED_CELL_REACH`). A flag never alerts.
 
 ### The per-name panel
 
-Clicking a row slides a **read-only, non-modal** panel over the rail (no scrim — the table stays
-clickable, so switching names is one click on the next row — or **↑/↓** on the focused row, above; the table
-never unmounts, and Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to bottom:
+A row click opens a read-only, non-modal panel over the rail; the table stays live. It shows this name's call
+(verdict, grades, setup strength, clocks), the position and decisions logged on it, its triggers and risk
+signals with sources, identity (including "Size weight (yours)"), data-health notes and full data flags, thesis
+fit with its authorship tag, the scoring snapshot with quiet lines on what a blank meter waits for
+([PLATFORM_VALUES](PLATFORM_VALUES.md)), and every display signal. Acting and undo stay on the rail.
 
-- **The call · this name** — its own verdict + grade chips + setup-strength bar (wire field `confidence`), or the honest degrade
-  line ("conviction fired — awaiting confirmation" / "moving, no conviction yet" / "no live signals
-  at this as-of"), plus its two clocks (a lapsing signal-validity clock reads amber, "hold clock closing ·
-  Nd"; a flagged entry window adds "· entry window closing" to the entry row).
-- **Triggers · this name's own** — `MemberCallOut.triggers` with grade + source links (#6); a
-  Warming name's come from `triggers_fired` filtered by ticker. **Risk signals · this name** —
-  `risk_signals`, ticker-filtered.
-- **The operator record · this name** — the open **position** when it's attributed to this name
-  (`Position.security_id`), and the **decision rows logged on this name** (`DecisionOut.security_id`)
-  with voided rows grayed, never hidden. Display-only slices of the rail's log (the same query, no
-  new fetch): thesis-level rows — and acting / passing / undo — stay on the rail, the one write
-  surface. *(This block only renders on real data because `GET /theses/{id}` now threads the
-  decisions-log-derived position (`effective_position`, the SAME source the call path uses) onto the
-  thesis, so `Position.security_id` is populated for an attributed take — #216. Before that the read path
-  built the position from the seed columns alone, which carry no name, and the block sat dead.)*
-- **Identity** — the free wire fields ("—" where a field didn't resolve, never a guess): the
-  business-type **Type** (leaf · super-sector, + the royalty/streaming overlay and a "your tag" mark
-  when the operator has re-tagged it), segment, sector, exchange, category, origin (with the
-  foreign-filer tell), mkt cap, the operator's **size weight — labeled "yours"** so it can never
-  read as the signal conviction beside it (the two meanings never cross), and the authored
-  role/detail. Then the **thesis-fit** prose with its authorship tag, and the **scoring snapshot**
-  (the four meters — already fetched for the mkt-cap bridge).
-- **Data · this name** (S3, only when there is something to say) — each data flag in full: its level, the
-  reason, the evidence (the SEC filing link, the Massive.com row), since when, what clears it, and the cells it
-  touches (or "no number on the row is affected"); then the company's **split rows** with their events —
-  announced (the SEC filing), confirmed (by which sources), took effect (and the factor the prices before it
-  carry), history corrected (only when Alpha Deck re-scaled the vendor's bars — the repair's provenance).
-- **Indicators · this name** — the read-only display signals (`GET /theses/{id}/display-signals`,
-  the engine doc is `docs/DISPLAY_SIGNALS.md`): every registered member rendered uniformly as quiet
-  metric chips (SMA position + % distances, the trailing-return ladder, RVOL 8D / RVOL 20D, insider
-  open-market buys, the 52w range, …), muted dated flip lines (price × 50d/200d crosses,
-  golden/death), and a fine-print basis line (bars used · through-date — the show-the-work, #6).
-  Honest gaps read "—" with the why ("n/a: 140/200 bars"); no data at all reads one muted line.
-  Ambient tape context beside the call, never an input to it and never loud (#7). Fetched once at
-  Cockpit level, joined by security_id — the SAME query the basket-table display-signal columns read.
+### The call card
 
-Everything on the panel is a wire field this page already fetched; fact ratifications and the
-business-type re-tag live on the TRIAGE rail, while actual sizing lives in the firm's external OMS / execution / risk stack. Omitted deliberately: description/website — draft-time
-enrichment fields that are never promoted onto a `BasketMember`.
+The rail renders the live call at `card.asof` (`CallCard.tsx`):
 
-## The CallCard — the opinionated, auditable rail
+- **Verdict and expression;** the expression is research context, never a size or an order (invariant 5).
+- **The two keys.** A turned but flip-grade confirmation is amber, not green, so a starter never reads strong.
+- **Setup strength** (wire field `confidence`), drawn only when the call carries it, which the assembler
+  does only for an Armed card. An experimental relative read, not a probability.
+- **Triggers fired**, newest first, each with grade, fire date and source link (invariant 6); **Still
+  missing**; **Risk signals**.
+- **Counter-case:** a count of the risk and still-missing rows. The rail never shows the `counter_case`
+  text, which restates them ([CALL_LOGIC](CALL_LOGIC.md) section 8).
+- **Catalysts through exit-by:** the call's `catalyst_surface`, every dated entry on or before `exit_by`;
+  a past one reads "passed".
+- **Two clocks.** On an Armed card the entry window (`arm_until`) is an act-by count from the action day,
+  with "entry window closing" when the headline's flag is set; on other cards it is a decaying confirmation
+  clock. The hold clock (`exit_by`) is the signal-validity horizon and the yardstick after a fill.
 
-State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top to bottom:
+When a card has more than one armed name or any watch name, the **member menu** below lists the ranked armed
+members, headline first, each with its verdict, a "theme" tag when armed on the theme fallback, "entry window
+closing" when flagged and its hold clock, then the watch tier.
 
-- **Verdict + expression** — the call-strength posture plus explanatory research context:
-  `not_yet` through `starter_entry` / `core_entry` / `flip_only` / `managing` (§5/§8 of
-  `CALL_LOGIC.md` decide). The legacy `expression` wire string is not sizing, instrument, or execution guidance.
-- **The two keys, explicit** — Conviction and Confirmation, the arming model made visible. A turned-but-
-  weak confirmation (momentum-only, flip-grade) renders **amber, not green** — the loudest element on the
-  card must not overstate a starter.
-- **Setup-strength bar** (wire field `confidence`) — Armed-only (§7): the backend nulls it for a not-yet
-  card, so a Warming card never wears the Armed card's bar. It is an experimental relative indicator, not
-  a success probability; forward Scoreboard outcomes must support calibration.
-- **Triggers fired** — each with its ticker, grade, and a **clickable source link** (the Form 4, the 8-K —
-  provenance is a feature, #6). **Still missing** names what hasn't fired; **Risk signals** ride with a
-  warning glyph and no grade.
-- **Counter-case** — deterministic: active risk signals + the authored kill criteria + the missing
-  triggers.
-- **Catalysts through exit-by** — the card's `catalyst_surface`: the dated binary events the assembler keeps
-  inside the `exit_by` window (it keeps every dated entry on or before it, so a date already past rides along),
-  listed soonest-first with a day count from the action day on a live view (a date equal to it reads "today"; one
-  before it is "passed"; a past view counts from its as-of), a past one grayed and marked "passed". Ambient context beside the clocks
-  it sits between; an empty surface draws no panel. (`safe_sleeve` is not rendered — the assembler never fills it.)
-- **The two clocks** (sticky-on-confirmation, §6): `arm_until` — the **entry window** (confirmation's
-  clock; on an Armed card it's an act-by deadline, "act within Nd", plus "· entry window closing" when the
-  headline member's `entry_window_closing` is set; informational decay otherwise; counted from the action day on
-  a live view, F2) — and
-  `exit_by` — the **signal-validity horizon** (conviction's clock and post-fill monitoring/scoring yardstick,
-  not a mandatory exit or sell-by date).
-- **Decision capture — the action row** (`DecisionActions`): every button **logs**, nothing routes (#5).
-  State-appropriate: Armed → the loud **"Act — log the fill"** (name select defaults to the platform's
-  headline pick); Managing → the current **"Log exit"** control, which records a close the operator already
-  decided rather than instructing one; a not-yet state shows **the gate** — friction copy plus
-  "Override — log an early entry", and the take is logged with the platform's stance riding the row
-  (*"the platform's verdict is not-yet — logging this take as an override"*). **"Pass (logged)"** is
-  quiet and available at every state. The **decision log strip** lists recent rows (action · date ·
-  size/price · reason · `platform: <stance>`); voided rows gray with a tag — visible, never vanished —
-  and **undo** appends a `void` (reversibility: the inverse is an append, nothing is deleted). Note: the
-  stance on a row is read from the **latest call-of-record at logging time**, which can lag the live
-  card until the next cron tick — the record, not the recompute, is attribution's source. A logged take
-  derives the position that flips the thesis to **Managing** on the next read; a close returns it to the
-  signals-driven state (`CALL_LOGIC.md` §2, the Managing row).
-- **The advisory line** — "order routing never; every act, pass, and override above is a logged decision
-  (the Scoreboard's operator record)." Execution, sizing, and portfolio risk remain in the firm's OMS /
-  execution / risk systems.
+### Decision capture
 
-## The MemberMenu — the ranked basket (themes only)
+The action row (`DecisionActions.tsx`) logs decisions the user made elsewhere; nothing routes or blocks
+(invariant 5).
 
-Below the card, when a theme has more than one moving name: the **ranked armed rows** (the headline is
-[0]; ranking = freshness band on the liveness runway first, grade within — `CALL_LOGIC.md`; `lapsing`
-flags a member below the freshness dial — its runway reads "hold clock closing · ‹date›"; an
-"entry window closing" chip marks `entry_window_closing`; `theme-armed` marks one armed via the theme-conviction fallback
-rather than its own conviction) and the quiet **watch tier** ("moving, no conviction yet"). A single-name
-thesis IS its headline card — the menu self-hides. The menu stays the ranked *summary*; the per-name
-panel (above) is the deep view — the thesis-wide lists are no longer the only per-member read.
+- Armed: "Act — log the fill" (the name defaults to the headline) and "Pass (logged)". Managing: "Log exit"
+  and "Note a pass". Other states show the gate: friction copy and "Override — log an early entry".
+- `POST /theses/{id}/decisions` appends take, pass, close or void. One open position per card; a future
+  date is refused. Undo appends a void; voided rows gray and stay.
+- A row's stance comes from the latest call of record at logging time, which can lag the live card until
+  the next pass: the record, not the recompute, is attribution's source ([SCOREBOARD](SCOREBOARD.md)).
+- A take moves the card to Managing on the next read; a take on a name makes it the Managing member.
 
-## The nightly rhythm
+### Notifications
 
-At 22:30 ET (the `cron` compose service — on by default, no profile; it fires for the INTENDED night with the
-target as-of fixed at schedule time and waits in wall-clock slices, `CRON_SIDECAR.md`), for every **non-archived** thesis:
-ingest (incremental Form 4 + EOD, with the **re-version pass** — a split re-base self-heals in one tick)
-→ assemble today's call → **transition detection** (state/verdict vs the prior as-of's call-of-record —
-the material-change line; churn is not a transition) → append the call-of-record only if it changed.
-Transitions print in a loud `TRANSITIONS:` block **only when there are any**, and emit through the notify
-seam (`backend/notify`: Slack when `SLACK_WEBHOOK_URL` is set, else a log line). **Push loudness follows the
-Board's (#7, the Q13 push policy, `FEED_LOOP.md` §Notifications):** only a real arm is loud — a thesis
-ENTERING Armed, or an armed thesis that genuinely strengthened (its grade rose or more names armed, nothing
-fell). A weaker or mixed move while armed is a quiet, honestly worded push ("still armed, weaker: core → flip;
-4 → 3 names"); names that arm inside an already-armed thesis ride ONE quiet digest per pass (first-time
-arms before the marked re-arms; every name listed, never a count); a de-arm and
-every pre-Armed move are recorded, never pushed — Incubating never nags. The next morning's Board is the
-first thing the platform already checked without the operator.
+The nightly pass (machine) records a call only when it changed and pushes a transition to the card's workspace
+([FEED_LOOP](FEED_LOOP.md), step 3). The destination is per workspace (`notifier_for_workspace`):
 
-## Known gaps and limits (this surface)
+1. every enabled user's own Slack webhook, set on the Settings page, each reached once per push;
+2. else the deployment's `SLACK_WEBHOOK_URL`, only when the workspace holds an enabled super admin;
+3. else the log only.
 
-Documented, not hidden: each is either unmeasured, a deliberate simplification, or a choice the operator has not
-yet confirmed. Nothing here changes a call, and none of it touches the edition engine (all frontend).
+A plain user's workspace never reaches the deployment's channel. How loud a push is follows `notify/policy.py`
+(invariant 7): entering Armed or an armed upgrade is loud, a weaker armed move quiet, and a de-arm or any move
+short of Armed is recorded, never pushed.
 
-**The derived cells — `Off 52w high`, `ADV 20d`, the `Tape` chips (data flags)**
-- **They are not named by the server's flag vocabulary** (`domain/data_flags.py`), so each borrows the flag state
-  of the named cells whose bar window contains its own (`DERIVED_CELL_REACH`, above). The one under-warning gap: a
-  split or step in the oldest ~10 of the 52w window's ~262 bars is not reached by `1Y`'s 252, so `Off 52w high`
-  can show a normal-looking number that rests on mixed-scale bars. Rare (it needs the step in those ~10 sessions
-  *and* the pre-step bars to hold the high), but silent when it happens.
-- **It over-warns elsewhere, on purpose** (the safe direction): `ADV 20d` grays on a `30d` flag even when the step
-  sits outside its 20 bars; a coil / RS lead grays on a `90d` flag though they read ~65 bars.
-- **The containment is reasoned, not enforced.** It rests on the server's *current* window sizes (`BAR_WINDOWS`);
-  `DERIVED_CELL_REACH` is hand-kept in the frontend and nothing fails if the server widens or narrows a window
-  later (the server pins its own windows against the display members; no test crosses the language line).
-- **The row's ⚑ hover lists only the server's cells** ("affects 1Y, SMA"); a grayed 52w / ADV / Tape cell carries
-  its own reason on hover, but the mark does not name it.
-- **On a ⚑ row, an absent Tape mark means "can't tell", not "quiet"** — the detectors ran over data the platform
-  flags, so a missing chip is not evidence of a quiet tape.
-- **Not measured on real data.** These cells are covered by fixture tests only (the cloud session has no
-  database); how often a derived cell grays on prod — and the 26-of-688 mark rate above — is not re-measured for them.
-- **The fix, not built:** name the three cells in `domain/data_flags.py` (moves the engine fingerprint, so it rides
-  one deliberate backend change and its single trial run), or test the 52w window directly against the flags' own
-  `dates` (the affected bar dates, present even on a flag that names no cell) — frontend-only, but not yet
-  verified against a real flag.
+## Contracts
 
-**The `Last close` column**
-- **It is an end-of-day close, never a live price** — a quote that has moved since the last bar is not here, and
-  the platform has no intraday (out of scope for v1).
-- **"Lagging" is relative to the basket's newest bar.** If *every* name's feed is behind (a global stall), no row
-  is older than the newest and no date is shown; the Scoreboard's freshness line and Admin are what say the whole
-  feed is late. A thin OTC name that simply did not trade for a few days will show its date too — informative, but
-  on a basket full of such names the dates are common rather than rare.
-- **It reads the SMA member's `close`**, so a name with no bars inside that member's 600-day lookback reads "—".
-- **A flag-blanked cell still sorts by its underlying price** (as every column here does — the sort reads the
-  member's number, not the flag): a row shown "—" for a known-wrong flag keeps its rank. Pre-existing, now one
-  more column it applies to.
+- **Display only.** Buckets, lenses, the moving line, sorting, data flags, display signals and the fund
+  launches line read the call; the call never reads them (invariant 4). No display state is stored.
+- **No silent loudness.** Anything loud (the queue, `CALL READY`, a warm clock, the failed-calls strip)
+  marks an exception that needs the user; the common case stays quiet (invariant 7, WB#3).
+- **Keep it visible.** Every basket row lands in a bucket; failed calls, archived cards, voided decisions
+  and past catalysts stay on screen (WB#2).
+- **Sole writers.** Archive, meta index, the catalyst list, its counting entries and the kill criteria each
+  have one route; the Workbench's promote never writes them.
 
-**The `Tape` column**
-- **The three marks and the 30-day cross recency (`TAPE_CROSS_DAYS`) were picked by the builder, not specified**:
-  they are display dials awaiting operator confirmation. Only golden / death crosses are marks — the
-  price-vs-50d / price-vs-200d flips stay in the panel.
-- **It does not replace the panel.** The per-name panel's *Indicators* section is unchanged: it still lists every
-  event each member emits (the last flip of each kind, however old). A 12-week-old golden cross is in the panel
-  and is deliberately *not* a Tape chip.
+## Who can do what
 
-**Keyboard stepping**
-- Arrows act only while a basket **row** has focus: not from inside the panel, no Home / End / PageUp / PageDown,
-  no j / k. The stepped-to row is scrolled clear of the sticky header by a fixed `scroll-margin-top: 40px` — an
-  estimate of that header's height, not a measurement.
+Every router here is mounted behind `require_user` (`app/main.py`; `tests/app/test_auth_gate.py`). Thesis
+routes load the card from the caller's workspace (`app.deps.get_thesis_or_404`), so another workspace's card
+is a 404 (`tests/app/test_workspace_isolation.py::test_every_thesis_id_operation_answers_404_to_b`); the
+steward sees only their own (`::test_the_super_admin_sees_no_other_workspace_theses`).
 
-**The Decision Queue**
-- **Folded, the strip shows few items — the count does the work.** An item is wide (ticker, grade, verdict, name,
-  act-by clock: measured 410–640 px on the 2026-10-29 dev copy, 40 armed), so two rows hold about **2 items at
-  900 px, 4 at 1440 px, 6 at 1920 px**; the rest sit behind "+N more". Open, the strip is capped at 50% of the
-  window height and scrolls inside itself (40 items ≈ 20 rows at 1440 px), so the columns keep their room; the
-  scrollbar is the cue. The open/closed state is plain component state — it folds again on a reload.
-- **A long thesis name is cut at 260 px with an ellipsis** (the full name is the span's `title` and on the
-  card) — an 840 px item otherwise wrapped alone onto a row and left the rest of it blank. A display choice,
-  not a spec'd one.
-- **Verified in a real browser, not by jsdom.** jsdom does no layout, so the tests lay the strip out themselves
-  (`perRow` items to a row); the real wrap, the count at each width and the live re-count on a window resize were
-  checked by eye against the dev copy.
-- A theme shows only the **headline** name's clock (the card's `arm_until`); the other armed names' clocks are on
-  the rail's ranked menu. The queue's order is deliberately unchanged (it does not rank theses by deadline, #4).
+| Route, control or job | Who | Enforced by; test |
+|---|---|---|
+| Reads: `GET /theses`, `/theses/{id}`, `/call`, `/display-signals`, `/scored`, `/data-flags`, `/fund-launches`, `/clock` | user, own workspace | `get_workspace`, `get_thesis_or_404` |
+| `POST /theses/{id}/archive`, `/unarchive` | user; restore within the workspace caps | `app/workspace_caps.py`; `tests/app/test_archive_api.py`, `test_workspace_caps.py` |
+| `PUT /theses/{id}/meta-index` | user | `tests/app/test_meta_index_api.py` |
+| `PUT /theses/{id}/catalysts` | user | wipe guard; `tests/app/test_catalyst_wipe_guard.py` |
+| `PUT /theses/{id}/catalysts/{entry_id}/counting` | user; never a model | `tests/app/test_thesis_catalyst_counting.py`, `tests/repositories/test_thesis_catalyst_writers.py` |
+| `PUT /theses/{id}/kill-criteria` | user | `tests/app/test_thesis_lists_api.py` |
+| `POST`, `GET /theses/{id}/decisions` | user | `tests/app/test_decisions_api.py` |
+| "+ add to ETFs": `POST /radar/funds/attach`, `/detach` | user, for a fund already in the shared company list (else 404), one `price_pull` allowance unit, within the company cap; the steward may add a new fund to the list | `user.is_super_admin` branch; `tests/app/test_shared_master_writes.py` |
+| Own Slack webhook: `/account/notifications/slack-webhook` | user, own only | `tests/app/test_account.py` |
+| Nightly call and push | machine (cron) | `pipeline/daily.py`; `tests/notify/test_fanout.py` |
 
-**The CallCard's catalyst panel**
-- It shows the assembler's `catalyst_surface`, which keeps only **dated** catalysts on or before `exit_by` with no
-  lower bound: a fuzzy entry ("~Q3", a label with no date) never reaches the rail (it lives in the Cockpit's
-  calendar), and a past-dated one keeps showing as "passed" until the operator removes it. The Cockpit calendar has the same
-  property ("Nd ago"): nothing archives a past event, so a long-lived thesis's calendar grows until the operator
-  prunes it in the editor, which lists in authoring order, not the calendar's date order.
+## Settings
 
-## What the Board never does (decisions, not gaps)
+| Knob | Owner | Passed by compose? |
+|---|---|---|
+| `SLACK_WEBHOOK_URL` (the deployment's channel) | `domain/settings.py` | yes, backend and cron |
+| `ALPHADECK_CRON_AT` (the pass time, which sets the current night) | `domain/settings.py` (`cron_run_at`) | yes |
+| `headline_lapsing_soon_days`, `entry_window_closing_sessions` | `domain/config.py` (`CallConfig`) | no, code dials |
+| `DQ_ROWS`, `TAPE_CROSS_DAYS`, `DERIVED_CELL_REACH` | `board/Board.tsx`, `cockpit/tapeMarks.ts`, `cockpit/dataFlags.ts` | no, frontend constants |
 
-- **No execution, ever** (#5) — the gate withholds a go-signal and logs overrides; it never blocks and
-  never trades. The operator logs their own fills; Alpha Deck hands off to the firm's OMS / execution /
-  sizing / portfolio-risk systems and does not replace them.
-- **No persisted display state** — columns, queue, and card all re-derive from facts on every read
-  (Option B; a fact correction propagates automatically).
-- **No thesis-vs-thesis ranking** (#4) — the board organizes by lifecycle and times entries; it has no
-  opinion on which *idea* is better.
-- **No silent loudness** — anything loud (the queue, `CALL READY`, a `TRANSITIONS:` block, a
-  `RE-VERSIONED` line) marks an exception that wants the operator's eyes; the common case stays quiet.
+## Known limits
+
+- `DERIVED_CELL_REACH` is kept by hand; no test checks it against the server's `BAR_WINDOWS`. A step in the
+  oldest bars of the 52-week window lies outside `1Y`, so `Off 52w high` can read normal on mixed-scale bars;
+  elsewhere it over-warns. On a flagged row a missing Tape mark means "cannot tell", not "quiet".
+- The Warming bucket also holds a member whose keys are live and co-located but whose arm a risk signal
+  withholds or a breakdown undid, under the hint "conviction in · awaiting confirmation".
+- Readiness pips read the card-level keys, computed across the whole basket when nothing is armed, so a
+  Warming card can show both pips lit.
+- `Last close` dates a row against the basket's newest bar, so a stall of the whole feed shows no dates. A
+  flag-blanked cell still sorts by its number.
+- Nothing archives a past catalyst; it stays on the calendar and the rail until the user removes it.
+- The queue and the clocks count calendar days; `entry_window_closing` counts sessions. The queue's fold
+  resets on reload.
+- "your tag" on a business type marks the steward's re-tag of the shared company list, not the user's.
+  "Size weight (yours)" is stored, but no control sets it.
+
+## Related
+
+[CALL_LOGIC](CALL_LOGIC.md) (the call), [INVARIANTS](INVARIANTS.md), [FEED_LOOP](FEED_LOOP.md) (the nightly
+pass), [DISPLAY_SIGNALS](DISPLAY_SIGNALS.md), [DASHBOARDS](DASHBOARDS.md), [SCOREBOARD](SCOREBOARD.md) (the
+record), [WORKBENCH](WORKBENCH.md) (the Workbench and the basket), [AUTH](AUTH.md) (Settings page, allowances, caps).

@@ -1044,7 +1044,7 @@ export interface paths {
          *     what landed; ``failed`` → an operator-facing ``error`` (VISIBLE, never silent — the nightly cron
          *     remains the backstop that ingests everything regardless). An unexpected fault reads as a fixed sentence
          *     and a reference, and a partial failure names each failed ticker and its legs plus a reference; a steward
-         *     also sees the underlying error (docs/AUTH.md §Errors). **404** if the job is unknown / expired,
+         *     also sees the underlying error (docs/SECURITY.md §Errors). **404** if the job is unknown / expired,
          *     or the registry was wiped by a restart — the FE shows a visible "lost from view" line (never an
          *     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
          */
@@ -1174,8 +1174,8 @@ export interface paths {
          *     draft, #9); a benign fail-open (no key / the model declined) is a *done* job with an empty draft. RESPONSE-ONLY
          *     (the job writes only its in-memory result — no fact, no promote). A completed job additionally dumps a
          *     WRITE-ONLY run-of-record artifact (``data/draft_runs/`` — the DISCOVER stage's ``calls``-log analogue:
-         *     the term set as used, the dials, the full draft); nothing in the app reads it, and a failed write is
-         *     logged + swallowed, never a failed draft.
+         *     the term set as used, the dials, the full draft); only the run loader reads it back, when
+         *     ``run_loader_enabled`` is on (off by default), and a failed write is logged + swallowed, never a failed draft.
          *
          *     The OPTIONAL body carries the draft SCOPE (``DraftChainIn``): absent body (the FE today) or absent field
          *     = ``full`` — byte-identical to the pre-scope draft; ``seeds_only`` is the fast lane (SIGNAL-seeds-only
@@ -1204,7 +1204,7 @@ export interface paths {
          * Get Draft Chain Job
          * @description POLL a kicked-off draft job. ``done`` → the ``result`` (a ChainDraftOut); ``failed`` → an operator-facing
          *     ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). An unexpected fault reads as a
-         *     fixed sentence and a reference; a steward also sees the underlying error (docs/AUTH.md §Errors). **404** if the job is
+         *     fixed sentence and a reference; a steward also sees the underlying error (docs/SECURITY.md §Errors). **404** if the job is
          *     unknown / expired, or the registry was wiped by a restart — the FE shows a visible "draft was lost" (never an
          *     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
          */
@@ -20191,11 +20191,13 @@ export interface components {
          * TrackRecordOut
          * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies with a price-reaching
          *     flag and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
-         *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the late policy is the
+         *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the late policy are the
          *     Scoreboard's own (``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
-         *     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
-         *     ``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the
-         *     record. ``market_source`` = whose bar dates are the market's session clock;
+         *     edition, which has no such rows). ``edition`` is the one READ: the one the request named, else the Scoreboard's
+         *     default (the newest published edition, the record when none is published, unless the server's
+         *     ``scoreboard_default_edition`` pins another). ``newest_edition`` is the newest PUBLISHED edition (``null`` when
+         *     none is), which the page offers beside the record. ``market_source`` = whose bar dates are the market's session
+         *     clock;
          *     ``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit
          *     behind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read
          *     at. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.

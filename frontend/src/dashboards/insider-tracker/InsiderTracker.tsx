@@ -61,7 +61,7 @@ import { RecordStartNote } from "../RecordStartNote";
 // much, whether others bought too, whether a recorded insider trigger carries it, and what the tape did since.
 // Display only, and no aggregate: the Track Record page slices outcomes by market-cap tier. Every row and count is
 // computed server-side; this page groups (filing week, name, card), filters and words them. The trading set's tape
-// look (docs/dashboards/hot-board.md §Look): dense rows, mono figures, ONE accent (the cluster word, the Leaders
+// look (docs/DASHBOARDS.md §Looks): dense rows, mono figures, ONE accent (the cluster word, the Leaders
 // page's cluster tone), the sign tone only on the signed since-values, nothing bold but the ticker.
 
 const SLOW = "Reading every counted name's filings — the first load after a run or a basket edit can take a while.";

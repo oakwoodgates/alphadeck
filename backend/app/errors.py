@@ -1,4 +1,4 @@
-"""The API's ERROR CONTRACT (security hardening PR 2, docs/AUTH.md §Errors): what a failed request answers.
+"""The API's ERROR CONTRACT (security hardening PR 2, docs/SECURITY.md §Errors): what a failed request answers.
 
 An error the code did not word itself never reaches a plain user's screen. Every failure answers a FIXED sentence
 for its class plus a short REFERENCE id (``Reference 1a2b3c4d.``); the exception, with that id, goes to the log

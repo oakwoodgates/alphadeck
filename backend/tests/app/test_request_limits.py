@@ -1,4 +1,4 @@
-"""The request input limits, route by route (security hardening PR 3, docs/AUTH.md §Request limits).
+"""The request input limits, route by route (security hardening PR 3, docs/SECURITY.md §Request limits).
 
 For each class of field and each collection: a value AT its limit is accepted and one PAST it is a 422 that names
 the field and the limit, and writes nothing. Plus: trimming is the only change made to a value; numbers are finite and

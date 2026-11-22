@@ -1,5 +1,5 @@
 /* Trigger Log (docs/dashboards/trigger-log.md) — its own sheet, imported by the component, never index.css
-   (docs/DASHBOARDS.md rule 8). The trading set's tape look (docs/dashboards/hot-board.md §Look): dense rows, mono
+   (docs/DASHBOARDS.md rule 8). The trading set's tape look (docs/DASHBOARDS.md §Looks): dense rows, mono
    figures, a sticky header with the group headers sticky under it, no cards, a hairline between rows, the work
    line quiet under the table. Loudness marks the exception only (#7 / WB#3): entry triggers and risk signals share
    one gray (the role is a glyph); the Board's state colors sit on a state word only; the sign tone (the app's

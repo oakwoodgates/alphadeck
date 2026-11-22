@@ -8,8 +8,8 @@
 > surfaces, and v1 scope live in `README.md`; build conventions + invariants in `CLAUDE.md`; the **file-by-file
 > repo layout** in `docs/PROJECT_LAYOUT.md`; where data lives at runtime in `docs/DATA_FLOW.md`; **how the platform
 > feeds itself** in `docs/FEED_LOOP.md`; the front door (narrative → chain) in `docs/DISCOVERY.md` (how the names
-> are found — EDGAR-first) + `docs/CHAIN_DRAFTER.md` (the authoring / ratify / promote surface); the SURFACE stage
-> in `docs/WORKBENCH_EXTRACTION.md` + `docs/WORKBENCH_ENRICHMENT.md`, basket crafting in `docs/TRIAGE.md`; the live
+> are found — EDGAR-first) + `docs/WORKBENCH.md` (the authoring / ratify / promote surface); the SURFACE stage
+> in `docs/WORKBENCH_EXTRACTION.md` + `docs/DISCOVERY.md` (identity), basket crafting in `docs/WORKBENCH.md`; the live
 > sequencing in `docs/ROADMAP.md`.
 >
 > **Status — the MVP is COMPLETE.** Both halves on one spine are built: the **front-half loop closes**
@@ -74,7 +74,7 @@ after the operator enters, through the signal-validity window.
 
 A structured, versioned record containing:
 - **Narrative** — the story / conviction (operator's words, preserved).
-- **Basket** — the specific instruments chosen, grouped into value-chain links. Business type is derived display identity on the security master, with a steward re-tag; the old per-member archetype was retired (`WORKBENCH_ENRICHMENT.md`).
+- **Basket** — the specific instruments chosen, grouped into value-chain links. Business type is derived display identity on the security master, with a steward re-tag; the old per-member archetype was retired (`DISCOVERY.md`).
 - **Evidence** — linked filings and data points (immutable references).
 - **Catalysts** — dated events that should move it.
 - **Signals** — the quantitative triggers being monitored.

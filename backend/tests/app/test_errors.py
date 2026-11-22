@@ -1,4 +1,4 @@
-"""The API's error contract (security hardening PR 2, ``app/errors.py``, docs/AUTH.md §Errors).
+"""The API's error contract (security hardening PR 2, ``app/errors.py``, docs/SECURITY.md §Errors).
 
 - A database error on a request answers a fixed sentence per class plus a short reference id, never the driver's
   text: ``DataError`` 422, ``UniqueViolation`` 409, ``CheckViolation`` / ``ForeignKeyViolation`` /

@@ -74,7 +74,8 @@ _ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 # filing's last signature date, when the filing has a readable one. No acceptance -> only the two year
 # conditions, as before: that residual is the one the year anchor always named (MEASURED 2026-09-16: 38 rows
 # dated after their own ``accepted`` within the same year; ``accepted`` is NULL on ~47% of raw rows, 0.67% of
-# facts on the latest-version grain, ``docs/BACKTEST.md``), now closed wherever the acceptance is stored.
+# facts on the latest-version grain, ``git show 8094406a:docs/BACKTEST.md``), now closed wherever the
+# acceptance is stored.
 # ``pipeline.repair_impossible_txn_dates`` (which DELETES stored rows) keeps calling
 # the rule without an acceptance, so it never deletes an after-filing row: those are HELD, and the read
 # decides when they count (``domain.insider_holds``).

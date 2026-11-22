@@ -1,212 +1,163 @@
-# REPLAY.md — the replay / backtest harness (Phase 1, the trust instrument)
+# Replay
 
-> Repo path: `docs/REPLAY.md`. Phase 1, **Step 1**: the instrument that makes the back half trustworthy
-> before the front half is built. It is **not** the recalibration pass (Step 2, which *consumes* this to tune
-> the dials) and **not** the production cut (Step 3). No new detectors, no new dials, no logic change — an
-> instrument. Code lives in `backend/replay/`; install with `pip install -e ".[replay]"` (duckdb + pyarrow).
+The replay engine re-runs the real call pipeline as of past dates over a Parquet mirror of the facts, turns
+each thesis's call timeline into arm episodes, and scores them against realized prices in a separate pass.
+It is the shared engine under the Scoreboard (episodes and scoring of the recorded calls), editions
+(re-runs over a public-clock mirror) and the backtest (runs, nulls, sweeps). It has no page of its own; the
+machine and the CLIs above it call it. Read this doc before you change `backend/replay/` or reason about
+no-lookahead in research. What a run may claim, the clocks and the mirror hash are in
+[BACKTEST](BACKTEST.md).
 
----
+## Code
 
-## What it does
+Paths are under `backend/`.
 
-Sweep an as-of date **T** across history; at each T run the **real** call pipeline to produce each thesis's
-call; record the per-thesis call **timeline**; then — in a **strictly separate pass** — score the recorded
-calls against **realized forward prices**. It is uniquely possible because the platform is deterministic and
-Option-B: the call is a pure function of `(thesis, events, asof, cfg)` and events are a pure function of the
-facts known as-of, so history replays honestly.
+| Piece | Module |
+|---|---|
+| Export Postgres to the mirror, on the record or the public clock | `replay/export.py` (`export_snapshot`, `_EXPORT_ORDER`, `AUX_TABLES`, `HOLD_TABLES`) |
+| As-of reader over the mirror | `replay/pit.py` (`ReplayPointInTimeData`, `connect_mirror`) |
+| Replay loop and the per-session roster | `replay/harness.py` (`replay_all`, `RosterSource`, `trading_sessions`) |
+| Arm episodes and close reasons | `replay/episodes.py` |
+| Forward scorer | `replay/scoring.py` (`RealizedPrices`) |
+| Metric set | `replay/metrics.py` (`MIN_N`) |
+| Snapshot, episode and outcome models | `replay/schema.py` (`CallSnapshot`, `Episode`, `Outcome`) |
+| Which key-1 detector turned an arm | `replay/key1.py` |
+| Bare engine CLI | `replay/run.py` |
+| A dial-variant comparer | `replay/compare.py`, imported only by `tests/replay/test_compare.py` |
 
-```
-SoR (Postgres, bitemporal) --export--> Parquet mirror --DuckDB--> ReplayPointInTimeData(asof=T, known_at=PIN)
-                                                                          │  (the SAME detectors + assemble_call)
-                                                                          ▼
-                                                              pipeline.core.assemble_from_pit  --> CallSnapshot
-   per-thesis timeline ──> arm Episodes ──(separate pass)──> RealizedPrices(forward) ──> Outcomes ──> Metrics
-```
+Consumers: `scoreboard/record.py`, `scoreboard/assemble.py`, `scoreboard/diff.py`; `editions/engine.py`,
+`editions/nightly.py`, `editions/preview.py`; `backtest/`. The engine needs the `.[replay]` extra (duckdb,
+pyarrow).
 
-## The integrity heart — the lookahead boundary (structural, not by convention)
+## How it works
 
-At as-of **T** the detectors see **only** facts with `valid_from <= T AND recorded_at <= PIN`. The scorer,
-separately, reads the **forward** window (`valid_from in (T, exit_by]`) to compute outcomes. There is **no read
-path** by which the scorer's forward data can reach an as-of call, because:
+### The lookahead boundary
 
-- **`ReplayPointInTimeData`** (`replay/pit.py`) is **as-of-capped, constructor-bound**: every accessor query
-  filters `valid_from <= asof AND recorded_at <= known_at` (mirroring `db.bitemporal._as_of`, latest-per-
-  identity by `recorded_at DESC, id DESC`). No accessor can widen `asof`. It is the **only** reader the replay
-  loop uses.
-- **`RealizedPrices`** (`replay/scoring.py`) is a **different class** with a disjoint method set, **forward-
-  windowed**, with **no** `asof`/`known_at` cap. It is the **only** reader the scorer uses. The scorer's
-  signature takes no pit — one cannot be passed.
-- The two readers have **opposite, non-overlapping time semantics** (`<= T` vs `> T`) and no shared base, so
-  the boundary is a type-level fact, enforced by an **import-graph test** (`scoring.py` must not import
-  `replay.pit`; the loop must not import `RealizedPrices`).
+At as-of T the detectors see only facts with `valid_from <= T` and `recorded_at <= known_at`. The scorer
+reads the forward window `(T, exit_by]`. No read path carries the scorer's data into an as-of call:
 
-**The trust anchor — parity.** `tests/replay/test_pit_parity.py` asserts the DuckDB/Parquet mirror's accessors
-equal the live Postgres `as_of` row-for-row (after a value normalizer — numeric→float, timestamptz→UTC, jsonb
-`terms`→dict — over the **full** column set, so a dropped column *fails* the gate). Two no-lookahead mirror
-tests (`test_pit_lookahead.py`) clone the bitemporal honesty tests against the mirror on both axes. Parity +
-both no-lookahead tests green **is** the integrity bar. The fundamentals read's D3a first-knowability annotation
-(`knowable_from` / `knowable_accession`, `CALL_LOGIC.md` §2) is computed on BOTH engines by one shared pure function
-(`db.bitemporal.first_knowable_versions`) over every visible version, and `test_pit_first_knowability.py` holds the
-mirror to it row-for-row and event-for-event on real version histories, at `known_at` pins between filings as
-well as after them — under the pre-0057 backdated stamp AND the honest one (migration 0057: the date and the
-pick are on the filing, so a history written under one store-instant stamp reads exactly like the backdated one,
-at every pin on a public-clock mirror). The insider read's Form 4/A resolution (R8-A, `CALL_LOGIC.md` §3) is the
-same pattern: the mirror also carries four small AUX tables (`insider_amendment`, `insider_amendment_link`,
-`insider_amendment_decision`, and `security_cik` — every CIK a security has been known by, identity materialized
-at export), read once per mirror connection, and the ONE pure resolver (`domain.insider_amendments`) runs on both
-engines; `test_pit_insider_amendments.py` holds the mirror to Postgres row-for-row at pins before the links, at
-them, before and after the operator's decisions, on both read shapes. A mirror exported before R8-A has no aux
-files and reads unresolved (exactly what it held); a partial aux set refuses to open.
+- `ReplayPointInTimeData` is as-of capped and constructor-bound: every accessor filters on its `asof` and
+  `known_at`, latest version per identity, as `db.bitemporal` does live. No accessor can widen `asof`. It is
+  the only reader the replay loop uses, and it feeds the same detectors and `assemble_call` as the live
+  path (`pipeline.core.assemble_from_pit`).
+- `RealizedPrices` is a different class with a disjoint method set, forward-windowed and uncapped. It is
+  the only reader the scorer uses, and the scorer's signature takes no point-in-time reader.
+- The two readers have opposite time semantics and no shared base.
+  `tests/replay/test_scoring.py::test_lookahead_boundary_is_structural` reads the import graph: the scorer
+  never imports `replay.pit`, and the loop never imports `RealizedPrices`.
 
-## Determinism pin + the mirror
+### Parity is the integrity bar
 
-A run pins `known_at = PIN` (the `recorded_at` ceiling) — and the pin only gates transaction time when it sits
-in the PAST: `replay.run --pin` is explicit, but the Scoreboard's replay-snapshot CLI (`scoreboard.replay_snapshot`,
-retired with its panel by editions S8 on 2026-10-23 — a stored edition replaced it) pinned `now`, so that panel was
-honest by LABELING (a recompute, never the record), not by gating to the past — the
-same knowledge-horizon caveat the serve path closes for a past view with the public clock (`serve_view`,
-`INVARIANTS.md` #1). **That CLI also
-passes an explicit `cfg` and stamps its fingerprint (F2):** it used to omit `cfg` entirely and silently take
-`DEFAULT_CONFIG`, so the artifact could not name the dials behind the panel. It now carries `config_hash` (the
-same `domain.config.config_hash` the `calls` rows carry, so lab and record are comparable on policy) and the
-image `code_sha`; the banner and the collapsed header both show the 8-char prefix. The Parquet export is a **one-shot, truncate-and-
-rewrite** snapshot of the SoR (all columns, all rows for the tenant — rebuildable, **never authoritative**; the
-PIN is a read-time filter, so the mirror reproduces the SoR's `as_of` for any `known_at`). Same
-`(snapshot, PIN, window, cfg)` → **value-identical** timeline + scores (the honest, achievable form of
-"byte-reproducible"; Parquet byte-identity across writer versions is brittle and not the point). `cfg` is a
-**swept parameter** of the harness functions, so Step 2 can compare outcomes across dial settings.
+The mirror is trusted only because tests hold it equal to the live read:
 
-## The scoring unit — the arm episode
+- `tests/replay/test_pit_parity.py`: the mirror's accessors equal the live `as_of` read row for row over the
+  full column set, after a value normalizer, so a dropped column fails.
+- `tests/replay/test_pit_lookahead.py`: the bitemporal no-lookahead tests, run against the mirror on both
+  axes.
+- `tests/replay/test_pit_first_knowability.py`: the fundamentals first-knowability annotation comes from one
+  pure function on both engines (`db.bitemporal.first_knowable_versions`).
+- `tests/replay/test_pit_insider_amendments.py`: Form 4/A resolution runs the one pure resolver
+  (`domain.insider_amendments`) on both engines over the mirrored amendment tables. A mirror with none of
+  those tables reads unresolved; a partial set refuses to open.
+- `tests/replay/test_public_clock.py`: a public mirror is row for row the live public-clock read.
+- `tests/replay/test_thesis_catalyst_mirror.py`: the counting catalysts on both clocks.
 
-Armed is **sticky**, so per-`(thesis, asof)` would multi-count one decision. The unit is the **arm episode**:
-a contiguous run in which one basket **member** is in `armed_members`, keyed `(thesis_id, security_id,
-arm_date)` — **per member** (not just the headline), so name-selection is scorable. Measured over
-`[arm_date, exit_by]` (the system's own **signal-validity horizon** — an honest scoring yardstick, not a
-mandatory trade exit) on realized closes. Re-arm = a new episode; never-armed theses → **0 episodes**
-(Warming-forever is a non-event). Close reasons:
-`arm_until_lapsed` · `conviction_aged_out` · `managing` · `window_end` · `dearmed_other`. A clock counts as run out
-on the de-arm night when that night's NEXT session is past it — the call path's own lapse test (F3, CALL_LOGIC §6
-"the next-session rule"), so the de-arm night can be `arm_until`'s own night, or the Friday before a weekend end.
-**`managing` is
-expected-zero in pure replay** (no operator fills exist in historical facts); it denotes an
-operator-entered position being monitored, not portfolio risk management.
+Parity and the two no-lookahead suites passing is the bar for any change to `replay/`.
 
-## The metric set — tied to the claim (not generic hit-rate)
+### The mirror and the pin
 
-The claim: **opinionated on timing, deferential on thesis; preserve the edge (early narrative), patch the flaw
-(timing + name-selection).** There is deliberately **no** "was the thesis right" metric. Each carries `n` +
-`insufficient_n`. `MIN_N = 5` is a presentation safeguard against over-reading tiny aggregates, not an
-evidence threshold; clearing it does not validate a metric or turn setup strength into a probability.
+`export_snapshot` writes a one-shot, truncate-and-rewrite snapshot of every fact table for the workspace and
+the data tenant: rebuildable, never authoritative. On the record clock it keeps every row and version with
+`recorded_at` untouched, in `_EXPORT_ORDER`; the public clock is in [BACKTEST](BACKTEST.md). A mirror
+exported before a later fact table existed opens with that table empty (`pit._LATE_FACT_TABLES`).
+
+The pin is the `known_at` ceiling, applied at read time, so one mirror reproduces the live `as_of` read for
+any pin. The roster resolves per session at `known_at_for_asof(T, now=pin)`. On the record clock the facts
+stay capped at the one pin, so the roster can be older knowledge than the facts, never newer. On the public
+clock both are capped per session (`lockstep`).
+
+The same mirror, pin, window and `cfg` give value-identical timelines and scores; byte identity across
+Parquet writer versions is not promised. `cfg` is a parameter of every harness function, so a sweep varies
+only the dials.
+
+The mirror reader ports the live reader's per-request memo, basket prefetch and read bounds. An equivalence
+test on this path must assert row counts per security, not that the read ran: the mirror stores uuid columns
+as VARCHAR, so a `str` versus `UUID` key mismatch returns nothing and looks fast
+(`tests/replay/test_pit_prefetch_equivalence.py`).
+
+### The arm episode
+
+Armed is sticky, so scoring per thesis and as-of would count one decision many times. The unit is the arm
+episode: a contiguous run in which one basket member is armed, keyed `(thesis_id, security_id, arm_date)`.
+It is per member, so name selection can be scored. An episode is measured over `[arm_date, exit_by]` on
+realized closes; `exit_by` is the signal-validity horizon, not a sell instruction. A re-arm is a new
+episode, and a thesis that never arms has none.
+
+`episodes._close_reason` assigns one of `arm_until_lapsed`, `conviction_aged_out`, `managing`,
+`window_end` and `dearmed_other`. A clock has run out on the de-arm night when that night's next session is
+past it, the call path's own lapse test (`signals.common.entry_signal_is_live`). `managing` is expected to
+be zero in pure replay: historical facts carry no user fills.
+
+### The metric set
+
+Each metric tests part of the product's claim: timing, preserving the early edge, name selection. There is
+no "was the thesis right" metric, by design.
 
 | Metric | Tests |
 |---|---|
-| `arm_timing_forward_return` | **Timing** (the flaw patched): realized return over the signal-validity window from the arm. |
-| `early_vs_armed_delta` | **Preserve the edge**: warm-return − arm-return; large positive ⇒ the gate clips the early edge. |
-| `grade_confidence_calibration` | **Discrimination** (legacy metric slug): do higher-grade / higher-setup-strength (`confidence` wire field) arms track better outcomes monotonically? This tests a future calibration hypothesis; it does not treat setup strength as probability. |
-| `name_selection_lift` | **Name-selection** (the flaw patched): did the ranked headline beat the rest of the basket? |
-| `false_arm_rate` | **Timing precision**: arms whose realized return was adverse (the gate firing wrongly). |
-| `withheld_arm_counterfactual` | **Timing's false-negative side**: the move during windows the gate withheld. |
-| `exit_by_vs_rollover` | **Signal-window persistence**: does the edge persist to the `exit_by` validity endpoint, or decay earlier? (the liveness dials; not a sell instruction). |
+| `arm_timing_forward_return` | the return over the validity window from the arm |
+| `early_vs_armed_delta` | warm-entry return minus arm-entry return: does the gate clip the early edge? |
+| `grade_confidence_calibration` | do higher grades and setup strength track better outcomes? A hypothesis to test, never a probability |
+| `name_selection_lift` | did the ranked headline beat the rest of the basket? |
+| `false_arm_rate` | arms whose realized return was adverse |
+| `withheld_arm_counterfactual` | the move during windows the gate withheld |
+| `exit_by_vs_rollover` | does the edge persist to `exit_by` or decay earlier? |
 
-**Instrument, not a claim.** On the seed only **UNH** is a long forward arc (the mid-May-2025 CEO-led insider
-cluster → the Aug-2025 volume-backed breakout → aged out by 2026). The deliverable is the instrument + UNH as
-the worked example; metrics flagged `insufficient_n` (calibration, name-selection at N≈1) are scaffold for
-Step 2, which runs against real history at scale.
+Every metric carries `n` and `insufficient_n`. `MIN_N` is a presentation safeguard against over-reading tiny
+aggregates, not an evidence threshold; clearing it validates nothing. Calibration needs `MIN_N` in each of
+at least two grade buckets.
 
-## ⚠️ KNOWN LIMITATION — the ROSTER is replayed point-in-time; the rest of the definition is not
+## Contracts
 
-**The roster half is CLOSED (F4).** At every session T the harness re-resolves each thesis's basket through
-`thesis_repo.get_asof` at `known_at = min(pin, known_at_for_asof(T))` — the same **night cap** every
-history view uses (since F6, 2026-10-31: the last instant before 06:00 ET on the next weekday, EDGAR's
-next open — not midnight; a Friday's runs to Monday 06:00) (`domain.market_time.serve_view`, `INVARIANTS.md` #1), never the run's bare pin. The
-per-session clock is the load-bearing part: the harness pins ONE `known_at` for the sweep, so resolving the
-roster once at that pin would return **today's** basket for any caller that pins `now` (the retired
-`scoreboard.replay_snapshot` CLI did) and the lookahead would have survived the fix. A member added after T is now invisible at T.
+- `replay/schema.py` models are the Scoreboard's episode vocabulary; the Scoreboard and editions build
+  their records from them.
+- Every artifact is written on every run, an empty run included, with a schema declared from the models
+  (`replay.run.arrow_schema`). A field type with no declared Arrow type raises, so changing an artifact's
+  shape is a deliberate edit.
+- Export files are written in a total order (`_EXPORT_ORDER`); the hash this enables is defined in
+  [BACKTEST](BACKTEST.md).
 
-**Two honest residuals stay, and both are labeled rather than assumed away:**
+## Who can do what
 
-1. **Snapshot history begins 2026-09-15** (migration 0043). A window reaching further back has no qualifying
-   snapshot, so the **live roster stands in** — the right call (#9: never replay a thesis with an empty
-   basket for want of its history) and never a silent one. `replay_all` returns a `ReplayResult` carrying a
-   per-thesis `RosterSource(source, fallback_days, total_days)`; `replay.run` prints the fallback line and the
-   `/backtest` run's manifest card names it. That is the backtest's "counterfactual universe" label, not a bug.
-2. **The rest of the thesis definition and `security_master` are still read from the CURRENT SoR** —
-   narrative, catalysts, kill criteria, and every identity mapping. Only the roster is versioned.
+| CLI | Who | Enforced by |
+|---|---|---|
+| `python -m replay.run` (flags: `--help`) | anyone with the replay extra, from `backend/` or in the sig stack's backend container. It reads the database in `DATABASE_URL`, exports a record-clock mirror and writes only `--out` | nothing in the app; `db/session.py` defaults to the prod database, so name another. An agent opens no database connection outside pytest (`CLAUDE.md`) |
 
-**On the record clock the fact axis is capped at the run's single pin**, so the roster can be *older*
-knowledge than the facts — deliberate and conservative (it can never invent a member the thesis did not have).
-The backtest's public-clock mode moves the fact axis onto the same per-T cap (`known_at_mode = lockstep`), so
-the two are lockstep there — and since 2026-10-21 the public clock is THE history clock (`INVARIANTS.md` #1):
-its per-table definition is `db/public_clock.py`, shared verbatim with the product's history views.
+`replay.run` is the bare engine: a mirror, `episodes.parquet`, `outcomes.parquet` and `metrics.json`, and
+no identity, nulls or registry row. Numbers to quote come from `backtest.run` and `backtest.sweep`.
 
-The *roster* gap was never replay's alone — it sits under every past-`asof` recompute (the
-Board/Cockpit/Workbench scrub-back, `INVARIANTS.md` #1) and under `pipeline.backfill`'s reconstruction of a
-missed night (`FEED_LOOP.md`), which is why a reconstructed row is reported, never scored (`SCOREBOARD.md`).
-The canonical statement, and the one surface immune to it (the Scoreboard's record path), live in
-`INVARIANTS.md` §Known gaps; this section records only replay's own exposure.
+## Settings
 
-## Run it
+| Knob | Owner | Passed by compose? |
+|---|---|---|
+| Detector switches for a lab run (`--<switch>`, `--no-<switch>`) | the switch table in `replay/run.py`; defaults in `domain/config.py` | no; a bare run inherits the production defaults |
 
-```powershell
-# from backend\, venv active, infra Postgres up + seeded
-python -m replay.run --start 2025-04-01 --end 2026-06-30 --pin 2027-01-01 --out ..\.replay-out
-# writes: <out>/{fact_*.parquet (mirror), outcomes.parquet, episodes.parquet, metrics.json}; prints the metrics
-```
+## Known limits
 
-**Every artifact is written on every run, including an empty one.** A run that produces zero episodes writes
-an EMPTY `episodes.parquet` / `outcomes.parquet` carrying the full schema — it used to skip the write, which
-left the *previous* run's files beside a fresh `metrics.json` and silently reported last run's arms as this
-run's. The schema is DECLARED from the `Episode` / `Outcome` models (`replay/run.arrow_schema`) rather than
-inferred, and is applied to the populated path too, so the empty and populated files always agree column for
-column; an unmapped field type raises rather than defaulting, so adding a model field is a deliberate change
-to the artifact's shape. Re-running into the same `--out` is safe and unchanged: the mirror, both tables and
-`metrics.json` are all rewritten.
+### Known limitation: the thesis definition is read as it is now
 
-> **Windows note:** the lab used to pay a ~5x tax from DuckDB's failed `import pandas` probe (per bound parameter, per query;
-> CPython never caches a failed import, so each probe re-walked `sys.path` — a stat storm). `replay/pit.py` now short-circuits it when pandas is absent.
+- The roster replays point-in-time: each session resolves the basket through `thesis_repo.get_asof`. The
+  snapshot history (`basket_snapshot`) begins 2026-09-15; earlier sessions use the live roster, never an
+  empty basket, and `RosterSource` reports each thesis's fallback days.
+- The counting catalysts are a mirrored fact table (`fact_thesis_catalyst`), so they replay point-in-time.
+- The narrative, the thesis's catalyst list (`Thesis.catalysts`, which feeds the card's catalyst surface),
+  the kill criteria and the security master are read from the current store.
 
-Tests (`backend/tests/replay/`): `pytest tests/replay` — the parity gate, both no-lookahead mirror tests, the
-UNH arc end-to-end, episode derivation, the scorer + the import-graph boundary guard, reproducibility, and the
-cfg-sweep. Parity + the two no-lookahead tests are the gate.
+The canonical statement is in [INVARIANTS](INVARIANTS.md) "Known gaps".
 
-## The run layer above this harness — `docs/BACKTEST.md`
+## Related
 
-This module is the ENGINE: it knows how to replay one window once. It does not know what a RUN is.
-`backend/backtest/` owns that — an immutable, addressable artifact per run (its own directory, a manifest
-naming the code / dials / clock / pin / rosters, and a registry row so trials can be counted), the
-`clock=public` mirror mode, the two null models, the pooled algorithm-level report, the dial sweep, and the
-`/backtest` surface that serves them. Anything about what a replay is ALLOWED TO CLAIM — the labels, the
-nulls, the no-leaderboard rule, the cost numbers — lives there, not here.
-
-Two pieces of this harness are now read by that layer and should not be changed casually:
-
-- **`replay/export.py::export_snapshot(clock=...)`** — `"record"` writes every row and every version with
-  `recorded_at` untouched, and is the mode the original Postgres-vs-Parquet parity gate runs on. Since
-  2026-11-13 every record file is written in `(recorded_at, id)` order (`_EXPORT_ORDER`, a total order: `id` is
-  the primary key), so the same stored rows give the same bytes whatever plan Postgres picks. Before that the
-  fact files came out in plan order, so a fresh record export of unchanged data can quote a different mirror
-  hash from one made before the fix, once (same rows, new order). The public mode is unchanged. `"public"` runs the SAME SQL as
-  the live history read (`db/public_clock.public_versions_sql` — ONE per-table definition: a Form 4 at its
-  acceptance, a bar's first version at its session settle and a re-version at its own publication, a filing at
-  its `filed` date, the ratified / sampled tables at their ratification / sampling), rewrites `recorded_at` to
-  that public instant (the honest one rides as `ingested_at`), resolves the version pile-up partitioned by
-  `(identity, public instant)`, and writes the 4/A tables whole with a `public_at` column the reader gates on
-  (an operator decision from when it was made). So a public mirror read is row-for-row the live
-  `PointInTimeData(clock="public")` read — its own parity gate
-  (`tests/replay/test_public_clock.py::test_the_public_mirror_is_row_for_row_the_live_public_read`). The one
-  named asymmetry: a Form 4 with no acceptance on any version is excluded + counted here, shown by the live
-  history read from the first time we held it. A mirror exported before 2026-10-21 carries the older
-  definition (every bar version at its date; standing 4/A decisions stamped at the acceptance) — its manifest
-  does not say which, so re-export rather than compare across that line.
-- **`replay/pit.py`'s memo + basket prefetch + bounds** — the port of the live PIT's rule, MEASURED at 25.5×
-  with byte-identical snapshots. An equivalence test on this path must assert row COUNTS per security: the
-  mirror stores uuid columns as VARCHAR, so a `str`/`UUID` key mismatch reads as "fast" while returning
-  nothing (it did once).
-
-## Out of scope (later)
-
-Step 2 (recalibration — tuning the dials); Step 3 (the production-tenant cut). The live **Scoreboard** is now
-built from the reusable record/scoring models (`replay/schema.py`: `CallSnapshot`, `Episode`, `Outcome`), but
-its implementation is not part of this replay harness. Bitemporal thesis-definition versioning (the
-limitation above). A `recorded_at`-staggered correction dataset beyond the one test fixture; multi-PIN
-comparison runs.
+- [BACKTEST](BACKTEST.md): runs, clocks, nulls, sweeps and the mirror hash.
+- [SCOREBOARD](SCOREBOARD.md): the record scored with these models.
+- [INVARIANTS](INVARIANTS.md): invariant 1 (no lookahead on the public clock).
+- `db/public_clock.py`: the per-table public instant.

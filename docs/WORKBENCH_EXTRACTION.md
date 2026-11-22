@@ -8,11 +8,11 @@
 > `backend/app/routers/workbench.py` + `backend/ingest/*`; the LLM seam: `backend/llm/`.
 >
 > **Status: BUILT** — hybrid-1 extractor (PR #55), hybrid-2a ratify endpoint (#56), hybrid-2b facts panel
-> (#57), the flag-explanation drafter (#59). The narrative→chain drafter (S5, the SECOND LLM seam) is now BUILT — see `CHAIN_DRAFTER.md`.
+> (#57), the flag-explanation drafter (#59). The narrative→chain drafter (S5, the SECOND LLM seam) is now BUILT — see `DISCOVERY.md`.
 > **The SURFACE shift (#109/#110/#111) then flipped the default** — facts went from blank-until-extracted to
 > **recommended-until-confirmed** (the section below), adding computed-on-read estimates, the `vouched` provenance
 > marker, and the **grounded purity-estimate seam** (the THIRD grounded LLM seam). This doc is the **SURFACE**
-> stage's scoring-fact side; identity enrichment is its sibling, `WORKBENCH_ENRICHMENT.md` (see `STAGE_MODEL.md`).
+> stage's scoring-fact side; identity enrichment is its sibling, `DISCOVERY.md` "Identity enrichment" (see `STAGE_MODEL.md`).
 >
 > **Legend:** `[BUILT]` shipped · `[FILED]` deferred.
 
@@ -688,7 +688,7 @@ interface only"). This seam establishes it: `LLMClient` (Anthropic tool-use for 
 network) + `flag_explanation` (the prompt + the structured-output schema + `explain_flag`). The dials live in
 `CallConfig` (`llm_model = claude-haiku-4-5-…`, `llm_max_tokens = 256`, `llm_timeout_s = 10`). S5 (the
 narrative→chain drafter) extends this same interface — now BUILT (`backend/llm/chain_decomposition.py`); see
-`CHAIN_DRAFTER.md`.
+`DISCOVERY.md`.
 
 ### THE BOUND — structural, not merely prompted (INVARIANT #3)
 

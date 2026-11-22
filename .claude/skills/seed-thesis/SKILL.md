@@ -1,99 +1,87 @@
 ---
 name: seed-thesis
 description: >-
-  Seed a thesis on the DEV stack from a spec — create → term set → run the
-  draft-chain → grade — by replaying through the app's own writers (the promote
-  endpoint + the narrow repo writers + draft-chain). Trigger on "seed a thesis",
-  "stand up a thesis", "seed <name> on dev", "run the draft for X". Writes to
-  dev; a prod seed needs the operator's explicit go. Prod DB stays read-only
-  except the app's own writes.
+  Use when seeding a thesis card on the dev stack from a spec: create it, set its term set, run the chain draft
+  and grade the result through the app's routes with a dev token. Prod needs the operator's go.
 ---
 
-# Seed a thesis — spec → discovery draft (on DEV)
+# Seed a thesis on dev
 
-Authoritative depth: `docs/DISCOVERY.md` (EDGAR-first discovery + the term tiers),
-`docs/CHAIN_DRAFTER.md` (the narrative→chain draft), `docs/WORKBENCH_EXTRACTION.md`.
-This skill is the executable checklist — follow it top to bottom, STOP on any failed
-precondition (report, don't guess). Copying a seeded thesis dev→prod is a DIFFERENT job and
-has no skill (it is a prod write): stop and ask the operator. The same wipe-guard (step 2) applies to any replay.
+## Guardrails
 
-## Guardrails (never violate)
-- **DEV, unless the operator says prod.** Creating a thesis is a WRITE and the draft
-  spends API (the Opus tail-sweep) — a prod seed needs the operator's explicit go.
-  The dev API is `:8001`; prod is `:8000`.
-- **Never seed the floodgate terms** — bare `bitcoin` / `crypto` / `digital asset` /
-  2–4-char tickers-and-units / any term at EFTS's ~10,000 ceiling. A capped SIGNAL
-  term is a recall hole wearing a discriminating name. **SIGNAL** = discriminating (a
-  single hit PLACES the filer); **BROAD** = collision-prone (corroboration only).
-- **Recall over speed (#9).** Don't trim discovery for cost; caps are PER-TIER
-  (SIGNAL deep / BROAD shallow — the default) and stay visible (`⚠ capped`), never a
-  silent drop.
-- **Stack ops from the MAIN checkout**, never a worktree.
+- Dev (`:8001`) unless the operator says prod (`:8000`). Creating a card is a write, and a draft spends model calls.
+- Every route except `/health` needs a token: send `-H "Authorization: Bearer $TOKEN"` on every call. The card is
+  created in the token user's workspace, taken from the token and never from the body; another workspace's card
+  answers 404.
+- Mint the token inside the dev backend container, never on the host (the host's default database URL is prod), and
+  keep it out of the transcript.
+- A plain user's calls spend daily allowances: `term_run` (produce terms, recommend tiers), `chain_draft` (each
+  draft) and `price_pull` (each new company a save loads at once). A steward is not counted, and a steward's draft
+  also writes identity to the shared master.
+- Workspace caps (live cards, companies, terms per card) refuse a save or term edit that would rise past them: 409,
+  nothing written.
+- Never seed a floodgate term as SIGNAL: a bare generic word (`bitcoin`, `crypto`), a two-to-four-character ticker or
+  unit, any term near EFTS's result ceiling. A SIGNAL hit places a company on its own; collision-prone terms are BROAD.
+- Recall over speed (invariant 9): never trim terms or caps to save cost. Caps are per tier and a capped term is
+  flagged, never silently cut.
+- Run stack commands from the main checkout, never a worktree. Copying a card to prod has no skill: stop and ask.
 
-## Steps (dev, `:8001`)
-Every route except `/health` needs a sign-in: send `-H "Authorization: Bearer $TOKEN"` on each call
-below. `$TOKEN` is a dev-stack user's token, and the thesis is created in THAT user's workspace (the
-workspace comes from the token, never the body); a thesis in another workspace answers 404. Mint one
-in the dev backend, keeping it out of the transcript (`pipeline.users list` names the users; run it in
-the container, because on the host the default database URL is PROD):
-```
-TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <dev user> --name seed | sed -n 's/^token (shown once): //p' | tr -d '\r')
-```
+## Steps
 
-1. **Create the thesis** — `POST /workbench/theses` (the promote writer):
+1. Mint the token (`python -m pipeline.users list` in the same container names the users):
+
+   ```bash
+   TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <dev user> --name seed | sed -n 's/^token (shown once): //p' | tr -d '\r')
    ```
-   {"id": null,            # or a UUID to PRESERVE the id (aligns the draft_runs dir)
-    "name": "...", "narrative": "...",
-    "ticker": null,        # null = a multi-name theme; else the anchor ticker
-    "basket": [], "segments": [], "identity_overrides": []}
-   ```
-   Returns the `ThesisDetail` with the id. Promote is the PURE structured writer — it
-   does **NOT** carry `term_set` / `catalysts` / `kill_criteria` / `exclusions` (the
-   wipe-guard); each needs its own narrow writer below. For a plain user a promote that adds
-   names spends one `price_pull` allowance unit per new name (when today's allowance cannot cover
-   them, the names wait for the onboarding queue instead of failing), and a card that would pass
-   the workspace's live-card or company cap is refused with a 409 and nothing is written.
-2. **Seed the term set (THE WIPE-GUARD STEP — promote dropped it).** Either
-   `PUT /workbench/theses/{id}/terms/edit` with `{"terms":[{"term":"...","tier":"signal|broad"}]}`
-   (stamps `operator_set` — fine for a fresh seed), OR the narrow
-   `thesis_repo.set_term_set(conn, id, [TermSetEntry(**e) …]); conn.commit()` in the
-   backend container (preserves EXACT authorship — use this when migrating). Read the
-   set back and confirm the count + the signal/broad split.
-3. **(Optional) catalysts / kill_criteria / exclusions** — via their narrow writers
-   (`set_catalysts` / `set_kill_criteria` / `set_exclusions`, each with `tenant_id=` the thesis's
-   `tenant_id`); promote drops these too.
-4. **Run the draft** — `POST /workbench/theses/{id}/draft-chain` → **202 + `{job_id}`**;
-   poll `GET /workbench/theses/{id}/draft-chain/jobs/{job_id}` until `done`/`failed`
-   (minutes: EDGAR discovery → Opus tail-sweep → decompose → narrate). **RESPONSE-ONLY**
-   — it saves a run under `data/draft_runs/<id>/` and persists NO basket; the operator
-   triages/promotes. The LLM seams need `ANTHROPIC_API_KEY` (fail-open without → an
-   empty draft, surfaced not silent). A plain user's kick-off spends one `chain_draft` allowance
-   unit (429 once the day's is spent; a steward is never counted), the kick-off also answers 429
-   while the server's draft capacity is full, and a plain user's draft never writes the shared
-   security master.
-5. **Grade the run** (from the job result / the run JSON): placed vs verify vs
-   ambiguous/absent; the segments built; `capped_terms` + coverage (retry a DEGRADED
-   run before trusting it — a gap scored as truth is the silent-drop failure). Then:
-   the **recall floor** (did the expected spine PLACE?), the **tail** (names beyond
-   your key — the payoff of clean SIGNAL seeds), and the **flood check** (ETPs a
-   minority, not the bulk). Against a committed answer key → the `recall-rescore` skill.
 
-## Traps (all hit in practice)
-- **`GET /workbench/theses/{id}` is NOT a route → 404.** Read the thesis via
-  `thesis_repo.get(conn, id, workspace=WORKSPACE_ANY)` in the backend container (`workspace=` is
-  required; `WORKSPACE_ANY` is in `domain.scopes`), or `GET .../scored` — never a bare GET.
-  (A 404 body parses as all-null fields — don't mistake it for "empty thesis".)
-- **The double-stdin trap:** `docker exec -i <c> python < script.py` uses stdin for the
-  SCRIPT — you canNOT also pipe data via stdin (it silently arrives empty). Embed the
-  data as a literal in the generated script, or `docker cp` a file into the container.
-- **The cap↔decompose coupling:** a big discovery universe (a high cap) truncates the
-  decompose/organize LLM at its `max_tokens` ceiling (8000 default → 0 segments →
-  "draft timed out" when the reaper fires). Raising the discovery cap must co-raise
-  `llm_decompose_max_tokens` (env `ALPHADECK_LLM_DECOMPOSE_MAX_TOKENS`) AND
-  `draft_job_running_ttl_s` — the cap is not a standalone dial.
-- **Per-tier caps** (`ALPHADECK_DISCOVERY_HIT_CAP` = SIGNAL, `ALPHADECK_DISCOVERY_BROAD_HIT_CAP`
-  = BROAD): a high GLOBAL cap buys collision NOISE (deep pages of BROAD terms), not
-  recall — keep SIGNAL deep, BROAD shallow. Seed-term TIERING is the operator's to get
-  right (a collision token mis-tiered SIGNAL floods PLACED).
-- **Cost thread:** cheap-cut first (triage on visible row data, zero API) BEFORE
-  marking anything for data — a large draft is a lot of rows and a lot of EFTS pages.
+2. Create the card with `POST /workbench/theses`, body
+   `{"id": null, "name": "...", "narrative": "...", "ticker": null, "basket": [], "segments": []}`, and keep the
+   returned `id`. The save never carries the term set, catalysts, kill criteria or exclusions; each has its own route.
+
+   ```bash
+   curl -s -X POST http://localhost:8001/workbench/theses -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d @thesis.json
+   ```
+
+3. Set the term set with `PUT /workbench/theses/{id}/terms/edit`, body
+   `{"terms": [{"term": "...", "tier": "signal"}, {"term": "...", "tier": "broad"}]}` (no model call, no allowance).
+   To add keyword proposals on top, `POST /workbench/theses/{id}/terms` with `{"seeds": [...]}` (spends `term_run`).
+   Read it back with `GET /theses/{id}` and confirm the count and the SIGNAL/BROAD split.
+
+4. Optional lists: `PUT /theses/{id}/catalysts`, `PUT /theses/{id}/kill-criteria`, `PUT /theses/{id}/exclusions`.
+5. Start the draft with `POST /workbench/theses/{id}/draft-chain` (no body for a full draft, or
+   `{"scope": "seeds_only"}`). It answers 202 with a `job_id`. Poll
+   `GET /workbench/theses/{id}/draft-chain/jobs/{job_id}` every few seconds until `done` or `failed`; a full draft
+   takes minutes. The draft saves no basket; the completed run is written under `data/draft_runs/<id>/`.
+
+   ```bash
+   curl -s -X POST http://localhost:8001/workbench/theses/$ID/draft-chain -H "Authorization: Bearer $TOKEN"
+   curl -s http://localhost:8001/workbench/theses/$ID/draft-chain/jobs/$JOB -H "Authorization: Bearer $TOKEN"
+   ```
+
+6. Grade the run (see Checks). The user prunes and saves in the Workbench.
+
+## Checks
+
+- Counts: PLACED, VERIFY, AMBIGUOUS and ABSENT, and the segments built. No segments and every name in Discovered on
+  a large universe means the organizer hit its token ceiling.
+- The report: coverage, `failed_terms`, `capped_terms`, `empty_terms`, the tail-sweep state and the narration fill.
+  Re-run a degraded draft before trusting it: a gap graded as truth is a silent drop.
+- Recall floor: did the expected core companies place? Tail: names beyond your key. Flood: funds and other
+  exchange-traded products should be a minority.
+- With a committed answer key, run the `recall-rescore` skill.
+- No drafted sentence states a number.
+- `GET /workbench/theses/{id}` is not a route (404); read the card with `GET /theses/{id}`.
+
+## Stop and ask when
+
+- The target is prod, or the token's workspace is not the one you expected.
+- A call answers 429 (an allowance or the draft capacity) or 409 (a workspace cap or a running draft); do not loop.
+- The draft fails with "discovery unavailable" twice, or failed pages remain after a re-run.
+- A SIGNAL term reaches its cap.
+- You want to raise a discovery cap or a model dial (`llm_decompose_max_tokens`, `draft_job_running_ttl_s`). Compose
+  does not pass the model dials, and a bigger universe needs the organizer ceiling and the job TTL raised with it.
+
+## Model
+
+[docs/DISCOVERY.md](../../../docs/DISCOVERY.md): the term set, the draft pipeline and its report. What a user does
+with the draft: [docs/WORKBENCH.md](../../../docs/WORKBENCH.md).

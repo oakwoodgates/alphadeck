@@ -26,7 +26,7 @@ from repositories import thesis_repo
 # CONSTANTS (not per-variant), so ONLY `cfg` varies between variants and the delta is real, not noise
 # (the harness is value-identical). Vary a dial via `DEFAULT_CONFIG.model_copy(update={dial: v})`.
 #
-# The canonical pinned run (matches docs/REPLAY.md + tests/replay/test_run.py).
+# The canonical pinned run (matches tests/replay/test_run.py).
 START = date(2025, 4, 1)
 END = date(2026, 6, 30)
 PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)

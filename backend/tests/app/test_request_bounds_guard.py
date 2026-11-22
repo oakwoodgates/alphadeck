@@ -29,7 +29,7 @@ from domain.text_types import Bounded
 # Fields that legitimately carry no limit of their own. Keep it SHORT; each entry says why.
 EXEMPT: dict[str, str] = {
     # steward only (super admin, trusted): the date a steward ratifies for a held insider row; the route checks it
-    # against the filing. Steward routes are outside PR 3's scope (docs/AUTH.md §Request limits).
+    # against the filing. Steward routes are outside PR 3's scope (docs/SECURITY.md §Request limits).
     "AdminHoldApproveIn.ratified_date": "steward-only; checked against the filing by the route",
     # steward only: the Backtest sweep page's selectors, compared against the names of stored sweep files and
     # never used to build a path (backtest/store.py).

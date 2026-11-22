@@ -88,7 +88,7 @@ app = FastAPI(
 # underlying error and a plain user only the fixed sentence and its reference.
 _USER = [Depends(require_user), Depends(errors.note_caller)]
 _STEWARD = [Depends(require_super_admin), Depends(errors.note_caller)]
-# The error contract (docs/AUTH.md §Errors): a fixed sentence + a reference id per class of failure.
+# The error contract (docs/SECURITY.md §Errors): a fixed sentence + a reference id per class of failure.
 errors.install(app)
 # /auth decides per route: POST /auth/login is open, the rest carry require_user on their own decorators.
 app.include_router(auth.router)

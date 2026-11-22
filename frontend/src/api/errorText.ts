@@ -1,5 +1,5 @@
 // What the API said, as one plain line for an error line on screen. A route's own refusal is a sentence in `detail`;
-// a request over an input limit (security hardening PR 3, docs/AUTH.md §Request limits) is FastAPI's 422 LIST
+// a request over an input limit (security hardening PR 3, docs/SECURITY.md §Request limits) is FastAPI's 422 LIST
 // (`[{loc, msg, type}]`), shown as its FIRST message with the field it names: "name: String should have at most 200
 // characters."
 

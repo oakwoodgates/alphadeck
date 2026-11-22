@@ -1,4 +1,4 @@
-"""Fixed error text at the routes a user can reach (security hardening PR 2, item 2; docs/AUTH.md §Errors).
+"""Fixed error text at the routes a user can reach (security hardening PR 2, item 2; docs/SECURITY.md §Errors).
 
 A route that catches an upstream, file or configuration failure answers a fixed sentence for that failure plus a
 reference id, through the one helper ``app.errors.fail``; the exception is logged under that id. A plain user sees
@@ -216,7 +216,7 @@ def test_run_daily_unreachable_database_is_a_fixed_sentence(client, monkeypatch)
     assert "OperationalError" in detail  # a steward still sees it (the route is steward-only)
 
 
-# --- a background job's failure, on its poll (security cleanup Part B item 2; docs/AUTH.md §Errors) ------------------
+# --- a background job's failure, on its poll (security cleanup Part B item 2; docs/SECURITY.md §Errors) ------------------
 
 
 def _draft_failed(thesis_id: uuid.UUID) -> str:
