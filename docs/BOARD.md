@@ -451,13 +451,13 @@ panel (above) is the deep view — the thesis-wide lists are no longer the only 
 ## The nightly rhythm
 
 At 22:30 ET (the `cron` compose service — on by default, no profile; it fires for the INTENDED night with the
-target as-of fixed at schedule time and waits in wall-clock slices, `FEED_LOOP.md`), for every **non-archived** thesis:
+target as-of fixed at schedule time and waits in wall-clock slices, `CRON_SIDECAR.md`), for every **non-archived** thesis:
 ingest (incremental Form 4 + EOD, with the **re-version pass** — a split re-base self-heals in one tick)
 → assemble today's call → **transition detection** (state/verdict vs the prior as-of's call-of-record —
 the material-change line; churn is not a transition) → append the call-of-record only if it changed.
 Transitions print in a loud `TRANSITIONS:` block **only when there are any**, and emit through the notify
 seam (`backend/notify`: Slack when `SLACK_WEBHOOK_URL` is set, else a log line). **Push loudness follows the
-Board's (#7, the Q13 push policy, `FEED_LOOP.md` §"The push policy"):** only a real arm is loud — a thesis
+Board's (#7, the Q13 push policy, `FEED_LOOP.md` §Notifications):** only a real arm is loud — a thesis
 ENTERING Armed, or an armed thesis that genuinely strengthened (its grade rose or more names armed, nothing
 fell). A weaker or mixed move while armed is a quiet, honestly worded push ("still armed, weaker: core → flip;
 4 → 3 names"); names that arm inside an already-armed thesis ride ONE quiet digest per pass (first-time

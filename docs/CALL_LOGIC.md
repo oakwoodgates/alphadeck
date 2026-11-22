@@ -269,7 +269,7 @@ appearing, or the vendor re-scaling a bar so the step moves a session).
   public clock a split counts from its own filing or first session). A company that JOINS a basket gets its
   older splits listed too (2026-10-24, `pipeline/split_history.py`: the S1 backfill scoped to it, run by the
   staged onboarding job — before it, a joiner's splits older than S4's 30/60-day look-back were never listed;
-  `FEED_LOOP.md` §The split list). What the SEC side reads changed the same day — the restatement screen on
+  `INGEST.md` §Cold names). What the SEC side reads changed the same day — the restatement screen on
   6-Ks and charter 8-Ks, and the targeted wide-form reader for a split with no agreeing filing
   (`DATA_SOURCES.md` §SEC split filings); the confirm rule (two sources agreeing exactly) is unchanged.
 - **Released.** After three sessions the hold lifts on its own. A step that NO list row of any status sits near
@@ -401,7 +401,7 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   matches (IBKR's 4/A adds an omitted sale beside two real same-day sales). An unaccounted original STANDS
   (MRCY's 4/A adds only an omitted grant — both its sales stand); an unmatched amendment row is an addition.
   **Leftovers** — an unaccounted original and an unmatched amendment row of the same owner AND code — are settled
-  by **the filer's own words** (remarks + footnotes; deterministic phrase lists, `FEED_LOOP.md` §R8-B): FIX words
+  by **the filer's own words** (remarks + footnotes; deterministic phrase lists, `domain/insider_amendments.py`): FIX words
   → the amendment's rows replace them (MRAM, BKSY); ADD words → every original stays and the amendment's rows are
   added (IBKR); neither → **unresolved**: not applied, owed to the operator, the original standing meanwhile
   (YYAI); both → FIX when, in every leftover group, the amendment re-reports at least as many rows as the
@@ -424,7 +424,7 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   `insider_amendment_review_horizon_days` pins a flat window instead). Any of them outside it is listed quietly
   as "unresolved — historical (no call reads these rows)": the originals stand, it never pages, and the operator
   can still decide it. An ambiguous link whose every trade matches ONE candidate by shares + price is settled by
-  the system's pick (rule 2b, `system:sole-match` — `FEED_LOOP.md` §the system's pick), undoable by the operator. The operator has **three verdicts**, each with
+  the system's pick (rule 2b, `system:sole-match` — `domain/insider_amendments.py` `sole_match`), undoable by the operator. The operator has **three verdicts**, each with
   its exact Undo: *Use the correction* (the amendment's rows replace the whole original; for a void, it is
   hidden), *Keep the original*, *Add to the original* (every original row stays and the amendment's rows are
   added — `replaced_rows = []`, basis `operator:add`). The signal code set is derived in ONE place from the
@@ -440,7 +440,7 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   owner* of another company's stock (Honeywell buying Garrett Motion, Novartis selling Aileron) — is screened (keep-and-screen;
   the 147 such rows on prod are kept, not deleted). Every input is gated on its own `recorded_at` (the link,
   each decision): a replay pinned before them reads the original exactly as stored (#1). Examples on prod
-  (MEASURED 2026-10-17, see `docs/FEED_LOOP.md`): FLS's cancelled $164k director buy stops being a CORE
+  (MEASURED 2026-10-17, see `docs/DATA_SOURCES.md` §Form 4/A): FLS's cancelled $164k director buy stops being a CORE
   trigger (pending void); ATCH's five `A`→`P` recodes restore a missed CORE (5 insiders, $162,524); ARBE's
   50→50,000-share fix adds a FLIP; TDG's triplicated sells count once.
   **Joint reports — one trade several persons reported, counted ONCE (operator-approved 2026-10-21).** After the

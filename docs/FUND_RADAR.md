@@ -121,7 +121,7 @@ python -m pipeline.fund_radar --report [--window-days 90] [--include-private]   
 and the name hits (company, token, fund), counted by **filing and by sponsor, not by fund** so one batch cannot look
 like a wave; then the totals: new funds in the window, matched, unmatched, and private-to-public held back.
 
-The nightly runs it as a passenger leg right after the SPAC radar (`FEED_LOOP.md` §"The fund launch radar"):
+The nightly runs it as a passenger leg right after the SPAC radar (`FEED_LOOP.md` §"The pass, in order"):
 `allow_live` only, its own connection, `timed("fund_radar")`, fail-open.
 
 ## What you see (PR 2: the display)

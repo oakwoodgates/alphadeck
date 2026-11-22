@@ -153,7 +153,7 @@ available when `ALPHADECK_PUBLIC_ORIGIN` is set (`docs/CONNECTORS.md`).
 end to end on real data: **create from a new narrative → draft the value chain (the LLM seam) → ratify the
 names + facts → promote → the back half ingests insider + price → it WARMS/ARMS → the daily cron logs the
 call-of-record.** *(Freshness caveat: "feeds itself" was literally true only after #196 — the EDGAR cache
-froze insider data for ~11 days until the key-classed 12h TTL; see `docs/POSTMORTEM_CRON_FREEZE_2026-07.md`.)*
+froze insider data for ~11 days until the key-classed 12h TTL; see `docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`.)*
 
 Built: the domain spine + the bitemporal Postgres foundation; the SEC brick + the detectors + the
 golden-tested call-assembler (`GET /theses/{id}/call?asof=` → computed, evidence-linked Armed calls); the
