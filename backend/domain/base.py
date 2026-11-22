@@ -8,7 +8,7 @@ class DomainModel(BaseModel):
 
     Strict by default (``extra="forbid"``): an unknown field is an error, never silently dropped —
     a typo'd detector field (e.g. ``liveness`` for ``alpha_liveness_days``) must fail loudly, not
-    quietly null the value. The core schemas are the backend↔frontend contract (CLAUDE.md).
+    quietly null the value. The core schemas are the backend↔frontend contract (backend/CLAUDE.md).
     """
 
     model_config = ConfigDict(extra="forbid")

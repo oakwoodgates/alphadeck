@@ -279,4 +279,4 @@ ingests running at once.
 - [WORKBENCH_SCORING](WORKBENCH_SCORING.md): the meters.
 - [PLATFORM_VALUES](PLATFORM_VALUES.md), [EXTRACTOR](EXTRACTOR.md), [VALUE_FLAGS](VALUE_FLAGS.md).
 - [CALL_LOGIC](CALL_LOGIC.md) section 1 and [BOARD](BOARD.md): what the silent links and roles mean downstream.
-- [AUTH](AUTH.md): allowances and caps. The interaction principles WB#1-3: `CLAUDE.md`.
+- [AUTH](AUTH.md): allowances and caps. The interaction principles WB#1-3: `frontend/CLAUDE.md`.

@@ -1,14 +1,9 @@
 ---
 name: alphadeck-agent
 description: >-
-  Read Alpha Deck through its MCP server (alphadeck-prod = the operator's record on :8000, alphadeck-dev = the dev
-  stack on :8001) and run its guided reads: the morning brief (what changed last night, what is due, what is hot or
-  forming), the Decision Queue review, explaining one card's call, checking what a company is on (ticker check),
-  comparing the Rotation Map across two dates, what is left to set on a card, what a card's discovery run found,
-  the splits review (a steward's read of the split list). Trigger on "morning brief", "what changed last night", "review the board", "review the queue", "explain this call",
-  "what is <ticker> on", "ticker check", "compare the rotation map", "card data check", "what is left to set",
-  "discovery review", "what did discovery find", "splits review", "review the splits", "use the alphadeck MCP".
-  Read-only; the nightly window and the privacy rule apply.
+  Use when reading Alpha Deck through its MCP tools or recipes: morning brief, review the board, explain this call,
+  ticker check, compare the rotation map, card data check, discovery review, splits review, review the splits.
+  Read-only; nightly window applies.
 argument-hint: "[morning-brief|board-review|explain-call|ticker-check|compare-rotation|card-data-check|discovery-review|splits-review] [the recipe's arguments]"
 ---
 

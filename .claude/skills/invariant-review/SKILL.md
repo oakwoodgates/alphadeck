@@ -10,7 +10,8 @@ description: >-
 
 The project-specific overlay a generic code review cannot do; it complements `/code-review` (bugs) and does not
 replace it. Read the relevant sections of `docs/INVARIANTS.md` during the review rather than working from memory;
-its "Former numbers" table decodes an old cite. The interaction principles WB#1 to WB#3 are in `CLAUDE.md`.
+its "Former numbers" table decodes an old cite. The interaction principles WB#1 to WB#3 are in
+`frontend/CLAUDE.md`.
 
 ## Guardrails
 
