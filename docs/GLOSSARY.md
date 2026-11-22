@@ -121,7 +121,7 @@ Each domain term: what it means, its owning module, and the doc with the rules. 
 - **Dashboard, Board, Cockpit**: a dashboard is a display-only page over many cards; the Board is the home dashboard,
   the Cockpit one card. [DASHBOARDS](DASHBOARDS.md), [BOARD](BOARD.md).
 - **Stage**: SEED, DISCOVER, SURFACE, TRIAGE, MONITOR, SCORE, each a recommend-then-confirm handoff.
-  [README](../README.md).
+  [README](../README.md#core-concepts).
 
 ## Naming guards
 

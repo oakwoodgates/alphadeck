@@ -41,8 +41,6 @@
     {"file": "CLAUDE.md", "check": "pointers", "severity": "fail", "key": "docs/V2_CUTOVER.md", "count": 4},
     {"file": "CLAUDE.md", "check": "pointers", "severity": "fail", "key": "docs/WORKBENCH_ENRICHMENT.md", "count": 1},
     {"file": "CLAUDE.md", "check": "pointers", "severity": "fail", "key": "docs/WORKBENCH_EXTRACTION.md", "count": 2},
-    {"file": "README.md", "check": "links", "severity": "fail", "key": "docs/CLI.md", "count": 1},
-    {"file": "README.md", "check": "links", "severity": "fail", "key": "docs/GLOSSARY.md", "count": 2},
     {"file": "backend/app/routers/radar.py", "check": "pointers", "severity": "fail", "key": "docs/temp/spac-radar-options.md", "count": 1},
     {"file": "backend/db/migrations/0030_spac_radar.sql", "check": "pointers", "severity": "report", "key": "docs/temp/spac-radar-options.md", "count": 1},
     {"file": "backend/pipeline/daily.py", "check": "pointers", "severity": "fail", "key": "docs/temp/spac-radar-options.md", "count": 1},
