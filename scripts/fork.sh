@@ -53,10 +53,12 @@ envkey() { sed -n "s/^$2=//p" "$1" | tail -1 | tr -d '\r'; }
 
 # FAIL-CLOSED name guard (mirrors refresh-fork.sh — both scripts stand alone): an empty/reserved name, a
 # non-[a-z0-9_] name, or anything resolving to prod's project/DB dies loudly BEFORE any Docker call.
+# Reserved: prod, dev, sig, and any name starting with `test` (its database alphadeck_test... would match the
+# test-database pattern `alphadeck_test%` that the cleanup drops).
 guard_name() { # $1 = candidate fork name
   case "$1" in
     "")                 fail "FORK_NAME is empty" ;;
-    prod|dev|sig|test)  fail "FORK_NAME='$1' is reserved (a real tier) — refusing" ;;
+    prod|dev|sig|test*) fail "FORK_NAME='$1' is reserved (a real tier, or a name starting with 'test') — refusing" ;;
   esac
   echo "$1" | grep -Eq '^[a-z0-9_]+$' || fail "FORK_NAME='$1' must match ^[a-z0-9_]+\$ (compose project/DB safe)"
   [ "alphadeck_$1" != "$PROD_PROJECT" ] || fail "resolved project collides with prod — refusing"

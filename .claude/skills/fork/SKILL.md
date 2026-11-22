@@ -15,8 +15,8 @@ sig hold slots 0 to 2, so forks use 3 to 9.
 ## Guardrails
 
 - `init` runs from the main checkout; `up`, `down`, `refresh` and `destroy` run from the fork's worktree.
-- The scripts refuse an empty name, `prod`, `dev`, `sig`, `test` and anything outside `[a-z0-9_]` before any Docker
-  call. Do not edit `.env.fork` to get around that.
+- The scripts refuse an empty name, `prod`, `dev`, `sig`, any name starting with `test` and anything outside
+  `[a-z0-9_]` before any Docker call. Do not edit `.env.fork` to get around that.
 - The fork has no SEC User-Agent by design: `/health` reads degraded and live pulls are skipped. Setting one is the
   operator's decision.
 - A restored fork holds every prod user's Slack webhook. Clear them right after `init` and after every

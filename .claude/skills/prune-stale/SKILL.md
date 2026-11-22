@@ -14,8 +14,8 @@ Agent builds and old sessions leave worktrees, branches and per-worktree test da
 
 - Drop only test databases: `alphadeck_test_` plus 8 hex characters and an optional `_gw<N>` (`db/testdb.py`).
   Never drop `alphadeck`, `alphadeck_dev`, `alphadeck_sig` or a fork's `alphadeck_<name>`. Why the exact pattern:
-  `scripts/fork.sh` reserves only the name `test`, so a fork named `testbed` owns a real database
-  `alphadeck_testbed` that `LIKE 'alphadeck_test%'` also matches.
+  `scripts/fork.sh` now refuses names starting with `test`, but a fork made before that guard (say `testbed`)
+  owns a real database `alphadeck_testbed` that `LIKE 'alphadeck_test%'` also matches.
 - Plain `DROP DATABASE`, never `WITH (FORCE)`; check `pg_stat_activity` first. A database in use belongs to a
   live run.
 - Keep the live worktrees' databases: compute their names before dropping.
