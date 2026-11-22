@@ -24,10 +24,15 @@ _PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _START, _END = date(2025, 4, 1), date(2026, 6, 1)
 
 
-@pytest.mark.slow  # one UNH sweep through the full export -> replay -> score -> metrics path
+@pytest.mark.slow  # one UNH sweep through the full export -> replay -> score -> metrics -> rebench path
 @pytest.mark.timeout(300)
-def test_a_run_leaves_a_complete_addressable_artifact(db, tmp_path):
-    """The B1 claim in one test: a run is a directory that can be handed to someone else."""
+def test_a_bare_run_produces_addressable_artifacts_manifest_and_rebench(db, tmp_path):
+    """One bare UNH ``execute()`` run proving:
+    1. B1/B6 complete addressable artifact directory (including serving JSONs + ledger).
+    2. Manifest thesis/roster metadata (``roster_source``, ``member_ids`` re-hashing to ``roster_hash``).
+    3. Retroactive ``rebench()`` off the frozen mirror bytes alone reproduces forward returns, exits,
+       and excess-vs-basket mean/median without consulting Postgres.
+    """
     seed_unh(db)
     db.commit()
     outcome = execute(db, start=_START, end=_END, pin=_PIN, root=tmp_path)
@@ -71,52 +76,21 @@ def test_a_run_leaves_a_complete_addressable_artifact(db, tmp_path):
         sid = next(e.episode.security_id for t in ledger.snapshot.theses for e in t.episodes)
         assert ledger.securities[str(sid)].ticker == "UNH"
 
-
-@pytest.mark.slow
-@pytest.mark.timeout(300)
-def test_the_manifest_names_the_theses_and_whose_roster_they_replayed_on(db, tmp_path):
-    """``roster_source`` is the honest half: ``basket_snapshot`` history begins 2026-09-15, so a 2025
-    window replays on TODAY's basket and the manifest has to say so rather than imply a point-in-time
-    roster it never read."""
-    seed_unh(db)
-    db.commit()
-    m = execute(db, start=_START, end=_END, pin=_PIN, root=tmp_path).manifest
+    # Manifest thesis + roster provenance (basket_snapshot history begins 2026-09-15, so 2025 falls back)
     assert m.theses, "the seeded thesis should appear"
     entry = next(t for t in m.theses if t.total_days > 0)
     assert entry.roster_source in ("snapshot", "live_fallback")
     assert entry.roster_hash and len(entry.roster_hash) == 64
     assert entry.basket_size >= 1
     assert m.n_theses == len(m.theses)
-    # B — the ROSTER ITSELF, not only its fingerprint, so a finished run's benchmark can be rebuilt
-    # later without asking a live database what the basket is today. The two are written from ONE list
-    # and this is what pins that: the recorded ids must re-hash to the recorded hash.
     assert entry.member_ids and len(entry.member_ids) == entry.basket_size
     assert (
         mf.roster_hash([uuid.UUID(x) if x else None for x in entry.member_ids]) == entry.roster_hash
     )
 
-
-@pytest.mark.slow
-@pytest.mark.timeout(300)
-def test_a_finished_run_can_be_REBENCHED_from_its_own_bytes(db, tmp_path):
-    """B — the retroactive recompute, end to end on a REAL run.
-
-    The claim being tested is not "the median is computed" (a unit test covers the arithmetic) but that a
-    recompute off the frozen mirror REPRODUCES the run it claims to describe. If `forward_return`,
-    `exit_date` and the mean-based excess do not come back identical, the new median-based figure beside
-    them is worth nothing — which is exactly how the population rule was caught while this was built (the
-    run's own null pass skips episodes with no horizon; a recompute that kept them moved a window's
-    median by 0.22 pp).
-
-    No database is consulted: the manifest now carries `member_ids`, so the roster reads as `recorded`.
-    """
-    seed_unh(db)
-    db.commit()
-    outcome = execute(db, start=_START, end=_END, pin=_PIN, root=tmp_path)
+    # Retroactive rebench off the frozen mirror bytes alone (no database consulted)
     run_dir = store.run_dir(outcome.manifest.run_id, tmp_path)
     assert run_dir is not None
-
-    # a standalone run exports its mirror INTO its own directory
     result = rebench([run_dir], run_dir, None)
     assert result.refused == {}, result.refused
     assert result.n_scored > 0, "a vacuous rebench proves nothing"
@@ -125,16 +99,17 @@ def test_a_finished_run_can_be_REBENCHED_from_its_own_bytes(db, tmp_path):
     stored = json.loads((run_dir / "pooled.json").read_text("utf-8"))["metrics"][0]["excess"]
     if stored["median"] is not None:
         assert result.excess_vs_basket_mean.median == pytest.approx(stored["median"], abs=TOLERANCE)
-    # and the new figure is really there beside it
     assert result.excess_vs_basket_median.n == result.excess_vs_basket_mean.n
 
 
 @pytest.mark.slow
 @pytest.mark.timeout(300)
-def test_a_run_is_registered_and_names_the_dials_it_moved(db, tmp_path):
+def test_a_run_is_registered_names_moved_dials_and_rebuilds_stored_config(db, tmp_path):
+    """Overlay run, end to end: the registry row names moved dials and values, and the stored manifest
+    config alone rebuilds the exact CallConfig threaded through the run."""
     seed_unh(db)
     db.commit()
-    cfg = apply_overlay({"insider_core_alpha_liveness_days": 90})
+    cfg = apply_overlay({"insider_core_alpha_liveness_days": 90, "breakout_min_return": 0.2})
     outcome = execute(
         db,
         start=_START,
@@ -148,14 +123,17 @@ def test_a_run_is_registered_and_names_the_dials_it_moved(db, tmp_path):
     rows = store.list_runs(tmp_path)
     assert [r.run_id for r in rows] == [outcome.run_id]
     row = rows[0]
-    assert row.dials_moved == ["insider_core_alpha_liveness_days"]
+    assert set(row.dials_moved) == {"insider_core_alpha_liveness_days", "breakout_min_return"}
     # B — the SIBLING of `dials_moved`: the registry row also names the VALUE the moved dial took, so the
     # picker can label this run's arm off the row alone (never opening the manifest).
-    assert row.dial_values == {"insider_core_alpha_liveness_days": 90}
+    assert row.dial_values == {"insider_core_alpha_liveness_days": 90, "breakout_min_return": 0.2}
     assert row.hypothesis == "H5: the horizon is the lever"
     assert row.decision_rule == "plateau, not argmax"
     assert row.config_hash == config_hash(cfg)
     assert outcome.manifest.overlay_diff["insider_core_alpha_liveness_days"]["run"] == 90
+    rebuilt = CallConfig.model_validate(outcome.manifest.config)
+    assert config_hash(rebuilt) == config_hash(cfg)
+    assert json.loads(outcome.manifest.config_canonical_json) == outcome.manifest.config
 
 
 def test_no_test_runs_two_executes_on_one_root_without_pinning_now():
@@ -173,11 +151,10 @@ def test_no_test_runs_two_executes_on_one_root_without_pinning_now():
 
     offenders: list[str] = []
     for f in sorted(Path(__file__).resolve().parents[1].rglob("test_*.py")):
-        for fn in [
-            n
-            for n in ast.walk(ast.parse(f.read_text(encoding="utf-8")))
-            if isinstance(n, ast.FunctionDef)
-        ]:
+        text = f.read_text(encoding="utf-8")
+        if "backtest" not in text or "execute" not in text:
+            continue
+        for fn in [n for n in ast.walk(ast.parse(text)) if isinstance(n, ast.FunctionDef)]:
             calls = []
             for c in ast.walk(fn):
                 if not isinstance(c, ast.Call):
@@ -204,24 +181,23 @@ def test_no_test_runs_two_executes_on_one_root_without_pinning_now():
     )
 
 
-@pytest.mark.slow
-@pytest.mark.timeout(300)
 def test_two_runs_are_two_addressable_trials_not_an_overwrite(db, tmp_path):
     """A re-run must never overwrite: a run id in a PR description identifies ONE set of numbers."""
     seed_unh(db)
     db.commit()
+    short_start, short_end = date(2026, 5, 25), date(2026, 6, 1)
     a = execute(
         db,
-        start=_START,
-        end=_END,
+        start=short_start,
+        end=short_end,
         pin=_PIN,
         root=tmp_path,
         now=datetime(2026, 9, 18, 4, 0, 0, tzinfo=timezone.utc),
     )
     b = execute(
         db,
-        start=_START,
-        end=_END,
+        start=short_start,
+        end=short_end,
         pin=_PIN,
         root=tmp_path,
         now=datetime(2026, 9, 18, 4, 0, 1, tzinfo=timezone.utc),
@@ -229,19 +205,6 @@ def test_two_runs_are_two_addressable_trials_not_an_overwrite(db, tmp_path):
     assert a.run_id != b.run_id
     assert a.path != b.path and a.path.is_dir() and b.path.is_dir()
     assert len(store.list_runs(tmp_path)) == 2
-
-
-@pytest.mark.slow
-@pytest.mark.timeout(300)
-def test_the_stored_config_rebuilds_the_exact_run_config(db, tmp_path):
-    """Reproducibility, end to end: the manifest alone rebuilds the CallConfig the run was threaded with."""
-    seed_unh(db)
-    db.commit()
-    cfg = apply_overlay({"insider_flip_alpha_liveness_days": 30, "breakout_min_return": 0.2})
-    m = execute(db, start=_START, end=_END, pin=_PIN, cfg=cfg, root=tmp_path).manifest
-    rebuilt = CallConfig.model_validate(m.config)
-    assert config_hash(rebuilt) == config_hash(cfg)
-    assert json.loads(m.config_canonical_json) == m.config
 
 
 # --- the CLI's own guards (no DB, no replay) -------------------------------------------------------

@@ -255,7 +255,7 @@ def test_fact_catalyst_correction_is_bitemporal(db, security_id):
 
 
 def _make_thesis_row(db) -> uuid.UUID:
-    """A bare thesis row so a thesis-scoped fact (fact_theme_conviction) has something to reference."""
+    """A bare thesis row so a thesis-scoped fact (fact_thesis_catalyst) has something to reference."""
     tid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(
@@ -266,33 +266,36 @@ def _make_thesis_row(db) -> uuid.UUID:
     return tid
 
 
-def _theme(thesis_id, *, source_ref, valid_from, recorded_at, grade="flip"):
+def _thesis_catalyst(thesis_id, *, entry_id, valid_from, recorded_at, grade="flip", counts=True):
     return {
         "tenant_id": DEFAULT_TENANT_ID,
         "thesis_id": thesis_id,
+        "entry_id": entry_id,
+        "counts": counts,
+        "security_ids": [],
         "grade": grade,
-        "label": "small-scale-nuclear theme conviction",
-        "source": "ratified",
-        "source_ref": source_ref,
-        "ratified_by": "operator",
+        "label": "small-scale-nuclear theme catalyst",
+        "citation": "https://example.test/catalyst",
+        "source": "thesis_catalyst",
+        "entered_at": recorded_at,
         "valid_from": valid_from,
         "recorded_at": recorded_at,
     }
 
 
-def test_fact_theme_conviction_is_append_only(db):
-    """The theme-conviction fact is append-only too — an UPDATE raises (a re-ratification is a NEW row)."""
+def test_fact_thesis_catalyst_is_append_only(db):
+    """The thesis-catalyst fact is append-only too — an UPDATE raises (an edit is a NEW row)."""
     tid = _make_thesis_row(db)
     t = datetime(2026, 1, 20, tzinfo=timezone.utc)
     fid = append_fact(
         db,
-        "fact_theme_conviction",
-        _theme(tid, source_ref="th-1", valid_from=date(2026, 1, 15), recorded_at=t),
+        "fact_thesis_catalyst",
+        _thesis_catalyst(tid, entry_id=uuid.uuid4(), valid_from=date(2026, 1, 15), recorded_at=t),
     )
     db.commit()
     with pytest.raises(psycopg.errors.RaiseException):
         with db.cursor() as cur:
-            cur.execute("UPDATE fact_theme_conviction SET grade = 'core' WHERE id = %s", (fid,))
+            cur.execute("UPDATE fact_thesis_catalyst SET counts = false WHERE id = %s", (fid,))
     db.rollback()
 
 
@@ -351,31 +354,32 @@ def test_fact_fund_shares_correction_is_bitemporal(db, security_id):
     assert at_t2[0]["source"] == "globalx"  # provenance rides the winning version (#6)
 
 
-def test_theme_conviction_as_of_thesis_is_thesis_scoped_and_bitemporal(db):
-    """``as_of_thesis`` reads a THESIS-scoped fact (a theme conviction is basket-level, not co-located on
-    a security) and honors transaction time: a re-ratification (a NEW row) is invisible until known.
+def test_thesis_catalyst_as_of_thesis_is_thesis_scoped_and_bitemporal(db):
+    """``as_of_thesis`` reads a THESIS-scoped fact (a counting thesis catalyst lives on the card, not on
+    a single security) and honors transaction time: a newer version is invisible until known.
     """
     tid = _make_thesis_row(db)
+    eid = uuid.uuid4()
     t1 = datetime(2026, 1, 20, tzinfo=timezone.utc)
     t2 = datetime(2026, 3, 1, tzinfo=timezone.utc)
     append_fact(
         db,
-        "fact_theme_conviction",
-        _theme(tid, source_ref="th-X", valid_from=date(2026, 1, 15), recorded_at=t1),
+        "fact_thesis_catalyst",
+        _thesis_catalyst(tid, entry_id=eid, valid_from=date(2026, 1, 15), recorded_at=t1),
     )
-    # a re-ratification (same source_ref, a fresher event date) learned at t2
+    # a newer version (same entry_id, a fresher event date) learned at t2
     append_fact(
         db,
-        "fact_theme_conviction",
-        _theme(tid, source_ref="th-X", valid_from=date(2026, 2, 1), recorded_at=t2),
+        "fact_thesis_catalyst",
+        _thesis_catalyst(tid, entry_id=eid, valid_from=date(2026, 2, 1), recorded_at=t2),
     )
     db.commit()
     common = dict(thesis_id=tid, asof=date(2026, 6, 5), tenant_id=DEFAULT_TENANT_ID)
-    at_t1 = as_of_thesis(db, "fact_theme_conviction", known_at=t1, **common)
-    at_t2 = as_of_thesis(db, "fact_theme_conviction", known_at=t2, **common)
+    at_t1 = as_of_thesis(db, "fact_thesis_catalyst", known_at=t1, **common)
+    at_t2 = as_of_thesis(db, "fact_thesis_catalyst", known_at=t2, **common)
     assert len(at_t1) == 1 and at_t1[0]["valid_from"] == date(
         2026, 1, 15
-    )  # re-ratification not yet known
+    )  # newer version not yet known
     assert len(at_t2) == 1 and at_t2[0]["valid_from"] == date(
         2026, 2, 1
     )  # by t2 the newer one is live
@@ -463,29 +467,30 @@ def test_fact_exists_refuses_an_unknown_table_or_a_non_identity_column(db, secur
 
 
 def test_fact_exists_thesis_is_thesis_scoped(db):
-    """The THESIS-scoped sibling — a theme conviction is basket-level, so it keys off ``thesis_id``."""
+    """The THESIS-scoped sibling — a counting thesis catalyst lives on the card, so it keys off ``thesis_id``."""
     tid = _make_thesis_row(db)
+    eid = uuid.uuid4()
     assert not fact_exists_thesis(
-        db, "fact_theme_conviction", thesis_id=tid, tenant_id=DEFAULT_TENANT_ID, source_ref="th-X"
+        db, "fact_thesis_catalyst", thesis_id=tid, tenant_id=DEFAULT_TENANT_ID, entry_id=eid
     )
     append_fact(
         db,
-        "fact_theme_conviction",
-        _theme(
+        "fact_thesis_catalyst",
+        _thesis_catalyst(
             tid,
-            source_ref="th-X",
+            entry_id=eid,
             valid_from=date(2026, 1, 15),
             recorded_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
         ),
     )
     db.commit()
     assert fact_exists_thesis(
-        db, "fact_theme_conviction", thesis_id=tid, tenant_id=DEFAULT_TENANT_ID, source_ref="th-X"
+        db, "fact_thesis_catalyst", thesis_id=tid, tenant_id=DEFAULT_TENANT_ID, entry_id=eid
     )
     assert not fact_exists_thesis(
         db,
-        "fact_theme_conviction",
+        "fact_thesis_catalyst",
         thesis_id=uuid.uuid4(),
         tenant_id=DEFAULT_TENANT_ID,
-        source_ref="th-X",
+        entry_id=eid,
     )

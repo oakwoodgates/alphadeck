@@ -32,7 +32,9 @@ from replay.pit import connect_mirror
 from repositories import thesis_repo
 
 _PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
-_START, _END = date(2025, 4, 1), date(2026, 6, 1)
+# Four weeks straddling ``added_at = 2025-09-01`` inside UNH's active armed/watch window (~20 sessions
+# instead of all ~290 sessions of the 14-month arc).
+_START, _END = date(2025, 8, 18), date(2025, 9, 15)
 
 
 def _snapshot(db, thesis_id, *, taken_at: datetime, members: list[dict]) -> None:

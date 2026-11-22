@@ -1,5 +1,5 @@
-"""The ``card-data-check`` prompt's call plan on the 79-member card (V2 W5d: was ``ratify-queue``), run through the REAL
-stdio client against a loopback fake API: ``get_triage`` once, ``get_thesis`` once and
+"""The ``card-data-check`` prompt's call plan on the 79-member card (V2 W5d: was ``ratify-queue``), run through the
+in-process MCP SDK client against a fake API: ``get_triage`` once, ``get_thesis`` once and
 ``get_discovery(section="ambiguous")`` because the card has a saved run. At most 3 calls and 24,000 characters in all,
 on the synthetic card; ``get_extract`` is never called (it spends). No prompt tells anyone to ratify a share count or
 a cash value: those are shared values, set by the platform and the steward; a user flags one in the Workbench.
@@ -7,19 +7,15 @@ a cash value: those are shared values, set by the platform and the steward; a us
 
 from __future__ import annotations
 
-import asyncio
-import sys
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("mcp")
 
-from mcp import ClientSession, StdioServerParameters  # noqa: E402
-from mcp.client.stdio import stdio_client  # noqa: E402
-
 from tests.agent_tools import research_fixtures as rfx  # noqa: E402
-from tests.agent_tools.fake_api import FakeApi, LoopbackServer  # noqa: E402
+from tests.agent_tools.fake_api import FakeApi  # noqa: E402
+from tests.agent_tools.mcp_session import run_in_process  # noqa: E402
 
 MAX_CALLS = 3
 MAX_CHARS = 24_000
@@ -31,34 +27,25 @@ def test_the_card_data_check_call_plan_costs_at_most_three_calls_and_24000_chara
     spent: list[tuple[str, int]] = []
     api = FakeApi()
 
-    async def go(base: str):
-        params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "agent_tools", "--backend-base", base],
-            cwd=Path(__file__).resolve().parents[2],
+    async def steps(session):
+        prompt = await session.get_prompt(
+            "card-data-check", {"thesis": rfx.THESIS_ID, "asof": rfx.ASOF}
         )
-        async with stdio_client(params) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream, read_timeout_seconds=30) as session:
-                await session.initialize()
-                prompt = await session.get_prompt(
-                    "card-data-check", {"thesis": rfx.THESIS_ID, "asof": rfx.ASOF}
-                )
 
-                async def read(tool: str, **args):
-                    result = await session.call_tool(tool, args)
-                    assert not result.is_error, result.content[0].text
-                    spent.append((tool, len(result.content[0].text)))
-                    return result.structured_content
+        async def read(tool: str, **args):
+            result = await session.call_tool(tool, args)
+            assert not result.is_error, result.content[0].text
+            spent.append((tool, len(result.content[0].text)))
+            return result.structured_content
 
-                triage = await read("get_triage", thesis=rfx.THESIS_ID, asof=rfx.ASOF)  # 1
-                thesis = await read("get_thesis", thesis=rfx.THESIS_ID)  # 2
-                ambiguous = await read(  # 3: the card has a saved run
-                    "get_discovery", thesis=rfx.THESIS_ID, section="ambiguous"
-                )
-                return prompt.messages[0].content.text, triage, thesis, ambiguous
+        triage = await read("get_triage", thesis=rfx.THESIS_ID, asof=rfx.ASOF)  # 1
+        thesis = await read("get_thesis", thesis=rfx.THESIS_ID)  # 2
+        ambiguous = await read(  # 3: the card has a saved run
+            "get_discovery", thesis=rfx.THESIS_ID, section="ambiguous"
+        )
+        return prompt.messages[0].content.text, triage, thesis, ambiguous
 
-    with LoopbackServer(api) as fake:
-        prompt, triage, thesis, ambiguous = asyncio.run(go(fake.base))
+    prompt, triage, thesis, ambiguous = run_in_process(api, steps)
     assert rfx.THESIS_ID in prompt and rfx.ASOF in prompt and "{{" not in prompt
     assert len(prompt) <= 2_000
     assert len(spent) <= MAX_CALLS, spent

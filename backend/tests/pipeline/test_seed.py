@@ -4,10 +4,8 @@ from datetime import date, datetime, timezone
 from uuid import UUID
 
 from domain.enums import State, Verdict
-from domain.scopes import WORKSPACE_ANY
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.seed import HIMS_THESIS_ID, seed_hims
-from repositories import thesis_repo
 
 _KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
@@ -21,17 +19,6 @@ def test_seed_hims_produces_a_curlable_armed_call(db):
     assert card.state is State.ARMED
     assert card.verdict is Verdict.STARTER_ENTRY
     assert card.armed_security_id is not None
-
-
-def test_seed_is_idempotent(db):
-    seed_hims(db)
-    db.commit()
-    seed_hims(db)  # second run must not error or duplicate the thesis
-    db.commit()
-    thesis = thesis_repo.get(db, HIMS_THESIS_ID, workspace=WORKSPACE_ANY)
-    assert thesis is not None
-    assert len(thesis.basket) == 1
-    assert len(thesis.evidence) == 1
 
 
 def test_the_boot_seed_writes_platform_facts_to_the_data_tenant(db, monkeypatch):

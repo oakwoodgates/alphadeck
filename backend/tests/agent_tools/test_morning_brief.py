@@ -1,41 +1,29 @@
-"""The ``morning-brief`` prompt's call plan, run through the REAL stdio client against a loopback fake API (as the
-Phase 1 scale tests do): at most 5 tool calls and 36,000 characters in all, on the synthetic dashboards.
+"""The ``morning-brief`` prompt's call plan, run through the in-process MCP SDK client against a fake API: at most 5
+tool calls and 36,000 characters in all, on the synthetic dashboards.
 """
 
 from __future__ import annotations
 
-import asyncio
-import sys
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("mcp")
 
-from mcp import ClientSession, StdioServerParameters  # noqa: E402
-from mcp.client.stdio import stdio_client  # noqa: E402
-
 from tests.agent_tools import dashboard_fixtures as dfx  # noqa: E402
-from tests.agent_tools.fake_api import FakeApi, LoopbackServer  # noqa: E402
+from tests.agent_tools.fake_api import FakeApi  # noqa: E402
+from tests.agent_tools.mcp_session import run_in_process  # noqa: E402
 
 MAX_CALLS = 5
 MAX_CHARS = 36_000
 
 
-def _run(base: str, steps):
-    async def go():
-        params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "agent_tools", "--backend-base", base],
-            cwd=Path(__file__).resolve().parents[2],
-        )
-        async with stdio_client(params) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream, read_timeout_seconds=30) as session:
-                await session.initialize()
-                prompt = await session.get_prompt("morning-brief", {"asof": dfx.ASOF})
-                return prompt.messages[0].content.text, await steps(session)
+def _run(steps):
+    async def go(session):
+        prompt = await session.get_prompt("morning-brief", {"asof": dfx.ASOF})
+        return prompt.messages[0].content.text, await steps(session)
 
-    return asyncio.run(go())
+    return run_in_process(FakeApi(), go)
 
 
 def test_the_morning_brief_call_plan_costs_at_most_five_calls_and_36000_characters():
@@ -66,8 +54,7 @@ def test_the_morning_brief_call_plan_costs_at_most_five_calls_and_36000_characte
             tape = await read(dashboard="daily-digest", asof=dfx.ASOF, section="tape")
         return changed, digest, due, insider, tape
 
-    with LoopbackServer(FakeApi()) as fake:
-        prompt, (changed, digest, due, insider, tape) = _run(fake.base, steps)
+    prompt, (changed, digest, due, insider, tape) = _run(steps)
     assert dfx.ASOF in prompt and len(prompt) <= 1_500
     assert len(spent) <= MAX_CALLS, spent
     assert sum(chars for _, chars in spent) <= MAX_CHARS, spent

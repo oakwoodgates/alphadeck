@@ -37,6 +37,28 @@ def pytest_configure(config):
         pass  # Postgres down -> the _migrated fixture SKIPs cleanly (unchanged)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _fast_argon2_for_tests():
+    """Use a fast real Argon2id profile for the suite (1 MiB, 1 iteration vs RFC 9106's 64 MiB x 3).
+
+    Every password hash/verify still runs real argon2id and produces real ``$argon2id$`` PHC strings, while
+    avoiding hundreds of CPU-seconds spent hashing test passwords. Production's default ``PasswordHasher()``
+    parameters are pinned in ``tests/app/test_auth_gate.py::test_prod_argon2_uses_rfc9106_defaults``.
+    """
+    from argon2 import PasswordHasher
+
+    from app import auth
+
+    orig_hasher = auth._HASHER
+    auth._HASHER = PasswordHasher(time_cost=1, memory_cost=1024, parallelism=1)
+    auth._DUMMY_HASH = None
+    try:
+        yield orig_hasher
+    finally:
+        auth._HASHER = orig_hasher
+        auth._DUMMY_HASH = None
+
+
 @pytest.fixture(scope="session")
 def _migrated():
     """Apply migrations once; skip every DB-backed test if Postgres isn't reachable."""

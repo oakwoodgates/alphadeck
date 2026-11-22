@@ -528,6 +528,12 @@ def test_a_revoked_token_is_401(anon, db):
     assert anon.get("/auth/me", headers=h).status_code == 401
 
 
+def test_prod_argon2_uses_rfc9106_defaults(_fast_argon2_for_tests):
+    """Production's password hasher keeps RFC 9106 defaults even though the test session uses a fast profile."""
+    assert _fast_argon2_for_tests.memory_cost >= 65536
+    assert _fast_argon2_for_tests.time_cost >= 3
+
+
 def test_only_hashes_are_stored(anon, db):
     uid = _user(db, "hash@test.invalid")
     _login(anon, "hash@test.invalid")

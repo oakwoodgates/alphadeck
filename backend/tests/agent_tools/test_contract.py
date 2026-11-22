@@ -50,11 +50,17 @@ def test_a_setting_it_does_not_take_is_rejected(c):
     assert err.message == f"`{c.name}` does not take not_a_setting; " + c.accepted()
 
 
-@pytest.mark.parametrize("c", CONTRACTS, ids=ids(CONTRACTS))
+_WITH_MISSING_NARROW = [
+    c for c in CONTRACTS if any(n not in c.narrows for n in tool_args.NARROWING_ORDER)
+]
+_WITH_SECTION_NEEDS = [c for c in CONTRACTS if any(c.needs_of(s) for s in c.section_names())]
+_WITH_RULED_SETTINGS = [c for c in CONTRACTS if any(s.validate is not None for s in c.settings)]
+
+
+@pytest.mark.parametrize("c", _WITH_MISSING_NARROW, ids=ids(_WITH_MISSING_NARROW))
 def test_a_narrowing_it_does_not_take_is_rejected(c):
     missing = [n for n in tool_args.NARROWING_ORDER if n not in c.narrows]
-    if not missing:
-        pytest.skip("takes every narrowing")
+    assert missing
     for name in missing:
         err = reject(c, narrows={name: "x"})
         assert err.message == f"`{c.name}` does not take {name}; " + c.accepted()
@@ -66,11 +72,10 @@ def test_an_unknown_section_is_rejected(c):
     assert err.message == f"Unknown section 'nope'; `{c.name}` has: {', '.join(c.section_names())}."
 
 
-@pytest.mark.parametrize("c", CONTRACTS, ids=ids(CONTRACTS))
+@pytest.mark.parametrize("c", _WITH_SECTION_NEEDS, ids=ids(_WITH_SECTION_NEEDS))
 def test_a_section_whose_need_is_missing_is_rejected(c):
     needing = [(s, c.needs_of(s)) for s in c.section_names() if c.needs_of(s)]
-    if not needing:
-        pytest.skip("no section needs a thesis or a group")
+    assert needing
     for section, need in needing:
         err = reject(c, section=section, narrows={})
         what = {
@@ -86,11 +91,10 @@ def test_a_section_whose_need_is_missing_is_rejected(c):
         tool_args.check(c, asof=None, section=section, narrows={need: "x"}, given={})
 
 
-@pytest.mark.parametrize("c", CONTRACTS, ids=ids(CONTRACTS))
+@pytest.mark.parametrize("c", _WITH_RULED_SETTINGS, ids=ids(_WITH_RULED_SETTINGS))
 def test_a_settings_own_value_rule_is_enforced(c):
     ruled = [s for s in c.settings if s.validate is not None]
-    if not ruled:
-        pytest.skip("no setting carries a value rule")
+    assert ruled
     for s in ruled:
         err = reject(c, given={s.name: "definitely not valid"})
         assert err.message == s.validate("definitely not valid")

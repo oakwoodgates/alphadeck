@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
-from domain.enums import State, Verdict
+from domain.enums import Grade, State, Verdict
 from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
@@ -27,6 +27,9 @@ from tests.form4a_fixtures import as_issuer
 _SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"
 _KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _WELLS_ACCESSION = "0001773751-26-000086"
+# The Wells Form 4's acceptance, stated as a test input (the committed XML carries none): 17:00 ET on 05-28.
+_WELLS_ACCEPTED = datetime(2026, 5, 28, 21, 0, tzinfo=timezone.utc)
+_WELLS_PUBLIC_NIGHT = date(2026, 5, 28)
 
 
 def _seed_hims_thesis(db, security_id) -> uuid.UUID:
@@ -38,6 +41,7 @@ def _seed_hims_thesis(db, security_id) -> uuid.UUID:
         security_id,
         (_SEED / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8"),
         _WELLS_ACCESSION,
+        accepted=_WELLS_ACCEPTED,
     )
     ingest_prices(
         db,
@@ -89,9 +93,23 @@ def test_call_for_thesis_warms_then_arms_and_logs(db, security_id):
     armed = call_for_thesis(db, tid, date(2026, 6, 1), known_at=_KNOWN)
     assert armed.state is State.ARMED
     assert armed.verdict is Verdict.STARTER_ENTRY
+    assert armed.conviction_grade is Grade.CORE
+    assert armed.entry_grade is Grade.FLIP
+    assert armed.confirmation_grade is Grade.FLIP
+    assert armed.key_conviction.turned and armed.key_confirmation.turned
+    assert armed.confidence <= DEFAULT_CONFIG.starter_confidence_cap
+    assert "momentum-only" in armed.counter_case.lower() and "volume" in armed.counter_case.lower()
+    assert "momentum-only" in armed.key_confirmation.detail.lower()
     assert armed.armed_security_id == security_id
     refs = [p.ref for t in armed.triggers_fired for p in t.sources]
     assert _WELLS_ACCESSION in refs  # the working Form 4 source link survives persistence
+    hold_horizon = _WELLS_PUBLIC_NIGHT + timedelta(
+        days=DEFAULT_CONFIG.insider_core_alpha_liveness_days
+    )
+    assert armed.exit_by == hold_horizon
+    (insider,) = [t for t in armed.triggers_fired if t.kind.value == "insider"]
+    assert insider.event_date == _WELLS_PUBLIC_NIGHT and "(traded 2026-05-26)" in insider.label
+    assert armed.arm_until == date(2026, 6, 11)  # entry window: 06-01 breakout + 10d
     # the real ~$402.5M convertible-notes overhang rides the counter-case (non-blocking, stays Armed)
     assert "convertible notes" in armed.counter_case.lower()
     assert "dilution" in armed.counter_case.lower()

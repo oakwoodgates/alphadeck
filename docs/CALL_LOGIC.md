@@ -282,7 +282,7 @@ them ([BOARD](BOARD.md)); the field stays on the recorded card.
 
 ### 9. Worked example (HIMS)
 
-`tests/calls/test_hims_armed_call.py` runs the real fixtures: director David Wells' $1.17M open-market buy,
+`tests/pipeline/test_call_for_thesis.py` runs the real fixtures: director David Wells' $1.17M open-market buy,
 traded 2026-05-26, with its Form 4 acceptance stated by the test as 17:00 ET on 05-28 (the committed XML carries
 none), and the HIMS price bars.
 
