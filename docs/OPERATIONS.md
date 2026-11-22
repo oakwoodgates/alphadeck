@@ -85,8 +85,8 @@ prod. `scripts/fork.sh init <name> --slot N` runs from the main checkout and cre
 the stack and seeds it; `up`, `down`, `refresh` and `destroy` run from the fork's worktree. Steps: the `fork` skill.
 
 - **Identity is `.env.fork`.** `FORK_NAME` sets the project, database and volumes; the slot sets three ports.
-  `fork.sh` and `refresh-fork.sh` each refuse an empty name, `prod`, `dev`, `sig`, `test`, anything outside
-  `[a-z0-9_]`, and anything resolving to prod's project, before any Docker call.
+  `fork.sh` and `refresh-fork.sh` each refuse an empty name, `prod`, `dev`, `sig`, any `test*` name, anything
+  outside `[a-z0-9_]`, and anything resolving to prod's project, before any Docker call.
 - **Refresh is reset only.** `refresh --reset` drops the fork's database and restores prod's newest dump, wiping the
   fork's own cards, decisions and calls. The flag is required so the bare command can never silently change meaning.
 - **No live SEC by default.** `.env.fork` scaffolds an empty `ALPHADECK_USER_AGENT`, so `/health` reads degraded and

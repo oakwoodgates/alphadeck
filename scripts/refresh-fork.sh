@@ -22,7 +22,9 @@
 #
 # Identity comes from ./.env.fork at the worktree root (scaffolded by `fork.sh init`), and the guards are
 # FAIL-CLOSED: an empty/reserved FORK_NAME, or anything resolving to prod's project/DB, dies loudly BEFORE
-# any Docker call — a misconfigured fork must never be able to touch prod.
+# any Docker call — a misconfigured fork must never be able to touch prod. Reserved names: prod, dev, sig, and
+# any name starting with `test` (its database alphadeck_test... would match the test-database pattern
+# `alphadeck_test%` that the cleanup drops); fork.sh refuses the same names.
 #
 # Agent-legible by contract: non-interactive (no prompts), idempotent (drop-create-restore each run),
 # exit-code-clean (0 = ok, non-zero = fail), greppable (--> progress + a terminal OK:/FAIL: line).
@@ -108,7 +110,7 @@ re-clones prod, wiping the fork's own theses). The app-preserving data mode is d
 FORK_NAME="$(envkey FORK_NAME)"
 case "$FORK_NAME" in
   "")                 fail "FORK_NAME is empty in .env.fork" ;;
-  prod|dev|sig|test)  fail "FORK_NAME='$FORK_NAME' is reserved (a real tier) — refusing" ;;
+  prod|dev|sig|test*) fail "FORK_NAME='$FORK_NAME' is reserved (a real tier, or a name starting with 'test') — refusing" ;;
 esac
 echo "$FORK_NAME" | grep -Eq '^[a-z0-9_]+$' \
   || fail "FORK_NAME='$FORK_NAME' must match ^[a-z0-9_]+\$ (compose project/DB safe)"
