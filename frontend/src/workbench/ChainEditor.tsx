@@ -2496,7 +2496,7 @@ export function ChainEditor({
       </div>
 
       {/* ===== Results buckets (post-draft IA): PLACED · TO REVIEW · COULDN'T RESOLVE. Three distinct
-              questions, never conflated (see docs/mockups/mockup_workbench_results.html). Scoped under
+              questions, never conflated (as in the original results mockup). Scoped under
               .wb-results so the mock's class names don't collide with ScoredRow's .nmrow/.fit etc. ===== */}
       <div className="wb-results">
         {/* PLACED — the ONE basket, shown flat until a partition discriminates, then as up to three display

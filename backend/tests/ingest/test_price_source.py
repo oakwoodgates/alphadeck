@@ -123,7 +123,7 @@ def test_cache_miss_fetches_even_without_force(tmp_path, monkeypatch):
 
 def test_yahoo_adapter_matches_fetch_eod_exactly(tmp_path):
     """Characterization: the Yahoo adapter yields IDENTICAL normalized bars to the pre-seam fetch_eod for
-    the same input — the seam doesn't drift the bars (the n=19 trust-validated path is unchanged).
+    the same input — the seam doesn't drift the bars (the existing fetch path is unchanged).
     """
     _write_cache(tmp_path, _STALE)
     via_adapter = YahooPriceSource(cache_dir=tmp_path).get_bars("DEVCO", allow_live=False)
