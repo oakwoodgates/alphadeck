@@ -44,7 +44,7 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   after it (a Form 4 accepted later, a vendor correction made later); a fact public by then but ingested
   late by our database is NOT hidden for it (`GET /theses/{id}/call?asof=` threads `serve_view(asof)` —
   `(known_at_for_asof(asof), "public")` for an as-of before the current night, `(None, "record")` from the
-  current night on; `INVARIANTS.md` #4, `db/public_clock.py`). A fill the operator logged after a past as-of
+  current night on; `INVARIANTS.md` #1, `db/public_clock.py`). A fill the operator logged after a past as-of
   stays invisible too (an operator decision counts from when it was made). The past board says so in one quiet line — "Recomputed
   as of <date> — today's rules on what was public then, not the recorded call" (F11). The remaining caveat:
   the roster is point-in-time only from 2026-09-15 (`basket_snapshot`; before that today's basket stands in —

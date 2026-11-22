@@ -62,7 +62,7 @@ def trading_sessions(
 #
 #     known_at = min(pin, known_at_for_asof(T))      == known_at_for_asof(T, now=pin)
 #
-# the SAME night cap the serve path adopted for its scrub-back (`domain.market_time`, INVARIANTS #4):
+# the SAME night cap the serve path adopted for its scrub-back (`domain.market_time`, INVARIANTS #1):
 # the end of T's night (EDGAR's next open, 06:00 ET the next weekday, F6), never later than the run's own
 # pin. One definition of "what was knowable by the end of that night", shared with `serve_known_at`
 # rather than re-derived here.

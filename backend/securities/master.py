@@ -175,7 +175,7 @@ def populate_universe(
     - ``is_primary`` — the CIK's ONE canonical instrument (``sec_tickers.flag_primaries``, the composite rank
       validated against every multi-row CIK). ``ids_for_ciks`` resolves to it; promote re-asserts it.
 
-    INVARIANT #2 by construction: only EXACT SEC mappings are written, never a fuzzy guess
+    INVARIANT #11 by construction: only EXACT SEC mappings are written, never a fuzzy guess
     (the ``search`` discovery net still only suggests; the operator still picks the exact id). Identity is
     keyed on the stable CIK (the extractor keys on CIK; renames preserve it). The seeded names reconcile for
     free — their ``(cik, ticker)`` is already present, so their ids are reused, never duplicated, and their
@@ -216,7 +216,7 @@ def enrich(
 
     ``source`` is the ENRICHMENT BASIS stored alongside (e.g. ``submissions:CIK0001849056``). Identity carries
     a basis, NEVER the facts' ``ratified_by`` — so machine-parsed identity can't masquerade as an
-    operator-vouched fact (#1/#3: identity is not a number on a call card). ``identity.former_names`` is NOT
+    operator-vouched fact (#3: identity is not a number on a call card). ``identity.former_names`` is NOT
     persisted here — its planned consumer (the identity bridge) was dropped.
 
     Returns whether a row was updated: a foreign/unknown id under this tenant updates nothing (fail-closed, the
@@ -297,7 +297,7 @@ def set_price_symbol(
     identity-basis discipline — never a fact's ``ratified_by`` (#3: a resolved symbol is identity, not a number).
 
     IDENTITY, not a fact: ``price_symbol`` never enters a fact_* table, never feeds a number on a call card,
-    and never gates the call path (#1/#3/#4). Returns whether a row was updated: a foreign/unknown id under
+    and never gates the call path (#3/#4). Returns whether a row was updated: a foreign/unknown id under
     this tenant updates nothing (fail-closed, the same write-side boundary as ``exists`` / ``mark_instrument_kind``).
     The caller commits."""
     with conn.cursor() as cur:
@@ -484,7 +484,7 @@ def set_business_type(
     discipline — never a fact's ``ratified_by`` (#3).
 
     IDENTITY, not a fact: never enters a fact_* table, never feeds a number on a call card, never
-    gates the call path (#1/#3/#4 — MONITOR display only). Returns whether a row was updated: a
+    gates the call path (#3/#4 — MONITOR display only). Returns whether a row was updated: a
     foreign/unknown id under this tenant updates nothing (fail-closed, the same write-side boundary
     as ``exists`` / ``set_price_symbol``). The caller commits."""
     stored: str | None = None
@@ -536,7 +536,7 @@ def identity_for(
 ) -> dict[UUID, dict[str, str | bool | None]]:
     """Map security ids -> display identity (company ``name`` + the enrichment strings ``sector`` /
     ``exchange`` / ``category`` + the derived ``origin``) for READ surfaces — the scored view joins it so a
-    row shows who the company IS, not just its ticker. Display-only (#2): never promoted onto a
+    row shows who the company IS, not just its ticker. Display-only (#11): never promoted onto a
     ``BasketMember``; ids with no master row are omitted.
 
     ``origin`` is DERIVED ON READ via ``resolve_origin`` from the stored 0028 locator ingredients — the same
@@ -551,7 +551,7 @@ def identity_for(
     ``price_symbol`` is the STORED resolved vendor symbol (migration 0032) — carried verbatim (NOT derived):
     the exception symbol a name is priced under when it differs from the canonical ticker (FDCT -> "FDCTD"),
     or ``None`` (priced under the canonical ticker — the healthy common case). Display identity like the
-    above, never a call input (#1/#3): the FE renders a "Priced under {price_symbol}" note only when set.
+    above, never a call input (#3): the FE renders a "Priced under {price_symbol}" note only when set.
 
     ``business_type`` / ``business_supersector`` / ``royalty`` are DERIVED ON READ via
     ``resolve_business_type`` (Business-Type M1) — the two-level MONITOR characterization over the stored
@@ -647,7 +647,7 @@ def ids_for_ciks(
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> dict[str, UUID]:
     """Map CIKs -> their CANONICAL security id (the inverse of ``ciks_for``). The EDGAR-first discovery path:
-    EFTS returns the CIKs of US filers in a theme; this resolves each to an EXACT master member (INVARIANT #2,
+    EFTS returns the CIKs of US filers in a theme; this resolves each to an EXACT master member (INVARIANT #11,
     the cleanest form — CIK is the stable identity, so a rename / DBA / ticker change can't break the match).
 
     One id per CIK: the ``is_primary`` row (``sec_tickers.flag_primaries`` — the composite rank: instrument
@@ -686,7 +686,7 @@ def all_cik_primary_ids(
     resolves to the instrument the operator actually trades). The identity-enrich command's ``--universe``
     scope resolver: identity is COMPANY-level (one submissions doc per CIK), so enrichment targets one row
     per CIK — the primary, the row every CIK->id read resolves to. Tenant-scoped like every master read
-    (invariant #5: scope resolution stays inside the tenant-filtered accessors, never a raw query).
+    (invariant #12: scope resolution stays inside the tenant-filtered accessors, never a raw query).
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -793,7 +793,7 @@ def search(
     company-list refresh renamed it in place) — the Workbench company search sets it, so typing "SVAC" finds
     the company SEC now lists as GFUZ.
 
-    INVARIANT #2 by construction — "fuzzy is a discovery net, never a decider": every row returned is an
+    INVARIANT #11 by construction — "fuzzy is a discovery net, never a decider": every row returned is an
     EXACT master member; the operator picks the exact ``security_id``. **Read-only** — it never ingests
     (cf. ``resolve``'s ``allow_live`` live path) and never conjures an unknown ticker into existence. A
     blank query matches all (capped at ``limit``); no match returns ``[]``. Tenant-scoped like every

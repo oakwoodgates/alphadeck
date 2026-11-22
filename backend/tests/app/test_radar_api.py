@@ -13,7 +13,7 @@ from domain.thesis import Thesis
 from radar import repo
 from repositories import thesis_repo
 
-# Option (b), INVARIANTS.md §6: "today" is the `pinned_today` fixture (tests/conftest.py), the PRODUCTION
+# Option (b), INVARIANTS.md §13: "today" is the `pinned_today` fixture (tests/conftest.py), the PRODUCTION
 # clock pinned for the test, so these test dates and the tape's request-time window
 # (`market_today() - days`) agree by construction. Never an ambient date.today() (drifts on a runner whose
 # zone leads market time; CI runs UTC), and never a module-level read at import (stale once a run

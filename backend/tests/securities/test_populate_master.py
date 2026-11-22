@@ -154,7 +154,7 @@ def test_populate_skips_rows_missing_cik_or_ticker(db):
         ],
     )
     db.commit()
-    assert counts["inserted"] == 1  # only the exact, complete row is written (INVARIANT #2)
+    assert counts["inserted"] == 1  # only the exact, complete row is written (INVARIANT #11)
     assert [r["ticker"] for r in _rows(db)] == ["AAPL"]
 
 

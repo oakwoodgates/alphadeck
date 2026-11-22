@@ -269,7 +269,7 @@ def test_asof_before_any_filing_is_a_404_not_a_leak(client, db, offline_sec):
     assert "as of 2020-01-01" in r.json()["detail"]
 
 
-# --- response-only (#2): the endpoint writes NOTHING -------------------------------------------------
+# --- response-only (#11): the endpoint writes NOTHING -------------------------------------------------
 
 
 def test_etf_holdings_get_writes_nothing(client, db, offline_sec):

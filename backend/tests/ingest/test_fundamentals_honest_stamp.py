@@ -2,7 +2,7 @@
 
 ``fact_fundamentals.recorded_at`` used to be backdated to ``filed 00:00 UTC`` (MEASURED: all 120,876 prod rows);
 the writer now stamps the database instant it stored the row — honest bookkeeping, never the history gate (the
-public clock judges history; INVARIANTS.md §4). Those existing rows are kept as written. The read side keeps
+public clock judges history; INVARIANTS.md §1). Those existing rows are kept as written. The read side keeps
 every call where it was: a quarter dates by its FILING (``knowable_from``) and the pick is the latest FILING, so
 a whole history written under ONE honest stamp reads exactly like the per-filing backdated stamps.
 

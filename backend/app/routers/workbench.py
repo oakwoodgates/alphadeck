@@ -259,7 +259,7 @@ def search_securities(
     tenant_id: UUID = Depends(get_workspace),
 ) -> list[SecurityMatchOut]:
     """Search the current tenant's security master for names to PLACE into a basket (the authoring
-    typeahead, Slice 4b). A DISCOVERY NET (INVARIANT #2): exact master rows for the operator to pick from
+    typeahead, Slice 4b). A DISCOVERY NET (INVARIANT #11): exact master rows for the operator to pick from
     — never a fuzzy decision, never an ingest (no ``allow_live``). No match -> ``[]``; the operator's pick
     carries the exact ``security_id``. Tenant from the deployment resolver (which universe to author in).
     """
@@ -457,7 +457,7 @@ def etf_holdings(
     it the overlap is empty. Never the master ``cusip`` column (effectively always NULL — a silent
     nothing).
 
-    RESPONSE-ONLY (#2): no fact, no basket write, nothing persisted — recomputed per click; the
+    RESPONSE-ONLY (#11): no fact, no basket write, nothing persisted — recomputed per click; the
     include-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.
     NO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.
     RECALL-SAFE (#9): the three buckets PARTITION every holding — ``unresolved`` (no ticker AND no
@@ -1024,7 +1024,7 @@ def promote(
     via ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment
     resolver, NOT the body. Scores are never sent and never persist — they re-derive on read.
 
-    Write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body for the two live member
+    Write-side guards (INVARIANT #11): ``authored_by`` is HONORED from the body for the two live member
     values — ``system_drafted`` (the description is the model's draft) or ``operator_edited`` (the operator
     edited it — "your words") — so a drafted description stays honestly drafted until the operator actually
     changes it. The RETIRED ``operator_set`` (pre-S1 accept/hand-add) is legacy-TRANSLATED, never stored:
@@ -1032,7 +1032,7 @@ def promote(
     accept meant ENDORSED, and the text stays the model's). ``signed_off`` itself round-trips as a marker:
     it never gates promotion and never feeds the call (#4). Every
     placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed — a caller-supplied
-    id is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft
+    id is never trusted), the single point where invariant #11 is enforced now that the S5 drafter returns a draft
     and writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign
     ordinary / warrant / dual-class sibling the draft happened to surface) is re-pointed to the CIK's primary
     instrument before the spine write (``master.canonicalize_ids`` — the same pick as ``ids_for_ciks``), so
@@ -1104,7 +1104,7 @@ def promote(
             ticker=req.ticker,
             # `authored_by` is honored, not coerced: Pydantic has already validated each value against the
             # `Authorship` enum (an out-of-enum value is a 422 at parse time), so the field IS the authorship
-            # seam. INVARIANT #1 is held by the membership check below + the LLM never writing — never by
+            # seam. INVARIANT #3 is held by the membership check below + the LLM never writing — never by
             # flattening authorship here.
             basket=members,
             segments=segments,
@@ -1124,7 +1124,7 @@ def promote(
             thesis.basket[i] = m.model_copy(
                 update={"authored_by": Authorship.SYSTEM_DRAFTED, "signed_off": True}
             )
-    # Bound #2, fail-closed: a placed security must be an EXACT member of this tenant's master (mirrors the
+    # Invariant #11, fail-closed: a placed security must be an EXACT member of this tenant's master (mirrors the
     # ratify write-side check). The id is caller-supplied — the operator's pick or an S5 draft's resolved
     # placement — so a foreign / hallucinated id must NEVER reach the spine. A null id (unplaced name) is OK.
     for m in thesis.basket:
@@ -1166,7 +1166,7 @@ def promote(
     # shown ticker STILL disagrees with its bound master row is either another company's label riding the id
     # (cross-company — how KLAC's label rode LRCX's security_id) or a label no current row carries
     # (label-drift). Persisting that pair silently would corrupt every downstream read (facts pull by the
-    # bound id; the operator reads the label), and choosing a side is not promote's judgment to make (#2) —
+    # bound id; the operator reads the label), and choosing a side is not promote's judgment to make (#11) —
     # so it 422s NAMING BOTH IDENTITIES, unless the operator explicitly listed the member's security_id in
     # ``identity_overrides`` (per-member, logged — the gate idiom: friction + a record, never a silent
     # pass). A SIBLING disagreement (same CIK, another line's label) is ALIGNED instead, mirroring the
@@ -1616,7 +1616,7 @@ def execute_draft(
     ORGANIZES the stable name set into segments — structure + assignment only, no per-name prose; it never
     enumerates). Then ``resolve_discovered_chain`` reconciles the organizer's layout against the discovered
     universe PER CIK: a matched name is PLACED / VERIFY by its CIK's exact membership (the cleanest INVARIANT
-    #2), an off-universe name falls to the master resolver, and every discovered CIK the organizer dropped is
+    #11), an off-universe name falls to the master resolver, and every discovered CIK the organizer dropped is
     appended to a 'Discovered' bucket — completeness is the deterministic layer's, never the organizer's to
     lose. A final fail-open narration step then authors ALL thesis-fit prose (the prose reroute: organizer-placed
     and reconciler-appended names alike arrive prose-less, so EVERY placed/verify name gets its reasoning from
@@ -1630,7 +1630,7 @@ def execute_draft(
     ``start_draft_chain``; ``run_research``'s own guard is harmless defense-in-depth and owns the TTL cache.)
 
     RESPONSE-ONLY for the THESIS SPINE: it returns a draft and persists no basket member / fact / number — the
-    operator's promote is the only spine writer (INVARIANT #2/#3). For a STEWARD's draft (``steward=True``) it
+    operator's promote is the only spine writer (INVARIANT #11/#3). For a STEWARD's draft (``steward=True``) it
     DOES enrich the discovered names' MASTER identity columns (sector / exchange / status, machine-parsed from
     submissions with an enrichment basis, Slice 2) — an operational universe write that touches no spine, no
     fact, and no number, and lets the chain reconciler's status-gate read a fresh listing status. A plain user's
@@ -1663,7 +1663,7 @@ def execute_draft(
     # submissions, BEFORE resolution — so the chain reconciler's status-gate reads a fresh listing status.
     # Per-CIK fail-visible (a miss leaves a row un-enriched → abstains); the network stays OUT of the pure
     # resolver. A STEWARD's draft stores it on the master's identity columns (machine-parsed, an enrichment basis
-    # — no thesis spine, no fact, no number, #1/#3). A plain user's draft never writes the SHARED master (security
+    # — no thesis spine, no fact, no number, #3). A plain user's draft never writes the SHARED master (security
     # hardening PR 1b): the same identity rides this response only, laid over the master rows at resolution.
     discovered = {**universe.placed, **universe.verify}
     identity = None

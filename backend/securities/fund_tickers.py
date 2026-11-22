@@ -56,7 +56,7 @@ def resolve(
     """Resolve a fund ticker to its ``FundIdentity`` from the SEC MF table. Cache-first.
 
     Returns ``None`` if the symbol isn't in the (cached) table — the honest "not an SEC-registered
-    fund" answer, never a guess (INVARIANT #2: exact mappings only). Raises ``CacheMiss`` if the table
+    fund" answer, never a guess (INVARIANT #11: exact mappings only). Raises ``CacheMiss`` if the table
     itself isn't cached and live pulls are disabled.
     """
     ticker = ticker.upper()

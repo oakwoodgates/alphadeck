@@ -285,7 +285,7 @@ def _target_scopes(
     deep walk — the expensive pagination is spent on the names the operator's surfaces actually show.
     NARROWING ONLY: an excluded security's rows are untouched and stay NULL and visible, never dropped (#9).
 
-    THE TWO TENANT SCOPES (``domain.scopes``, invariant #5): the Form 4 rows are DATA and a basket is a
+    THE TWO TENANT SCOPES (``domain.scopes``, invariant #12): the Form 4 rows are DATA and a basket is a
     WORKSPACE's, so the narrowed worklist is the DATA tenant's rows of the securities ANY workspace holds in a
     basket (the nightly walks every workspace's baskets). A row stored under a workspace tenant (a stray —
     the feed never writes one) never enters it: ``security_master.id`` carries no tenant, so nothing at the

@@ -25,7 +25,7 @@ The version is skipped BEFORE the pick and before D3a's first-knowability walk, 
 later filing's restatement of the same period, or a same-filing re-parse — falls back to the earlier one, as if
 the bad row had never been stored. It applies at EVERY asof: the screen judges a row only against filings on or
 before the row's own filing, so setting it aside is exactly what the ingest screen would have done the day the
-row was filed — no lookahead, nothing decided by a later filing (INVARIANTS.md §4).
+row was filed — no lookahead, nothing decided by a later filing (INVARIANTS.md §1).
 
 What it never does: delete or rewrite a fact (the table is append-only and keeps every row), or hide a version
 from the WRITERS — the ingest's idempotency map (``ingest.fundamentals.held_versions``) still sees every stored

@@ -111,13 +111,13 @@ def _cache_path(cache_dir: Path | None) -> Path:
 def rows_from_raw(raw: dict) -> list[dict[str, str | None]]:
     """The SEC ``company_tickers_exchange.json`` payload (``{fields, data}``) as normalized row dicts
     (``cik``/``ticker``/``name``/``exchange``), IN FILE ORDER (the rank's final tiebreak). Rows missing a CIK
-    or a ticker are skipped (exact mappings only — never a fuzzy guess, INVARIANT #2). Pure."""
+    or a ticker are skipped (exact mappings only — never a fuzzy guess, INVARIANT #11). Pure."""
     idx = {f: i for i, f in enumerate(raw["fields"])}
     out: list[dict[str, str | None]] = []
     for r in raw["data"]:
         cik, ticker = r[idx["cik"]], r[idx["ticker"]]
         if cik is None or not ticker:
-            continue  # exact mappings only — never a fuzzy guess (INVARIANT #2)
+            continue  # exact mappings only — never a fuzzy guess (INVARIANT #11)
         out.append(
             {
                 "cik": f"{int(cik):010d}",
@@ -270,7 +270,7 @@ def load_all(
     ``cik`` zero-padded to 10 digits, ``ticker`` upper-cased, ``exchange`` the SEC's PER-INSTRUMENT venue
     (Nasdaq/NYSE/CBOE/OTC/None — the discriminator the ADR/foreign-ordinary pair needs). Same cache-first +
     ``ALPHADECK_USER_AGENT`` fetch as ``cik_for`` — ONE GET for the whole ~10k-row file. Rows missing a ticker
-    or CIK are skipped (exact mappings only — INVARIANT #2). A CIK may appear under several tickers
+    or CIK are skipped (exact mappings only — INVARIANT #11). A CIK may appear under several tickers
     (dual-class / ADR pairs / derivatives), preserved here."""
     return [
         (r["cik"], r["ticker"], r["name"], r["exchange"])

@@ -24,7 +24,7 @@ Freshness needs NO flag here: ``submissions/*`` is a mutable cache class on the 
 under ``--live`` a doc older than 12h re-fetches and a newer one serves (``ingest/edgar/client.py``).
 ``--live`` is opt-in (cache-first default, the ``populate_master`` convention); offline, an uncached CIK
 raises ``CacheMiss`` inside the per-CIK try -> counted ``skipped``, visible on the receipt, never a false
-write. Machine-parsed identity only: no fact row, no number, no LLM, never promoted onto a member (#2/#3).
+write. Machine-parsed identity only: no fact row, no number, no LLM, never promoted onto a member (#11/#3).
 
 Exit codes: 0 on a normal run; 1 when a ``--live`` run enriched NOTHING while skipping names (the
 ``audit_identity`` scriptable-health precedent — that shape is a network/UA fault, not a quiet no-op).
@@ -81,7 +81,7 @@ def resolve_baskets_scope(
 
     Walks each thesis's RESOLVED basket members (``security_id`` set — an unresolved placement has no
     exact member to enrich; the ``ingest_thesis`` skip), reads each id through the tenant-scoped master
-    accessor (#2/#5 — ``master.get_many``, never a raw query, never a fresh fuzzy resolve), and keys the
+    accessor (#11/#12 — ``master.get_many``, never a raw query, never a fresh fuzzy resolve), and keys the
     map on the row's CIK. A member with no CIK-bearing row under its tenant (an OpenFIGI-era ``resolve()``
     row, or an ETF sleeve — a fund-trust series has no operating-company CIK) is counted ``unenrichable``:
     there is no submissions doc to parse, and inventing one is exactly what this layer never does.

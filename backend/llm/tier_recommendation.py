@@ -21,7 +21,7 @@ from llm.keyword_gen import _clean
 from llm.prompt_loader import load_prompt
 
 # Structured-output contract — the model MUST call this tool; we read back its validated input. A tier label +
-# a SHORT reason per term: no number, no company/ticker anywhere in the schema (INVARIANT #1/#3). The reason is
+# a SHORT reason per term: no number, no company/ticker anywhere in the schema (INVARIANT #3). The reason is
 # the feature's value — DEMAND a specific WHY (what makes the term collision-prone vs discriminating), never a
 # bare tier restatement.
 TIER_REC_TOOL: dict[str, Any] = {

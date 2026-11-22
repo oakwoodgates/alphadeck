@@ -1222,7 +1222,7 @@ export function ChainEditor({
   }, [jobStatus, jobQ.isError, jobId]);
 
   // An AMBIGUOUS name enters the basket ONLY here, by an explicit pick — the operator commits the exact
-  // security_id (the membership decision, INVARIANT #2). It lands `system_drafted` (the prose is still
+  // security_id (the membership decision, INVARIANT #11). It lands `system_drafted` (the prose is still
   // drafted) for the operator to accept / edit, like any drafted placement.
   const pickAmbiguous = (p: ResolvedPlacement, c: SecurityCandidate) => {
     d.addMember({
@@ -1241,7 +1241,7 @@ export function ChainEditor({
 
   // A VERIFY name is already RESOLVED (in your universe by exact CIK) but matched on a single broad keyword,
   // so the deterministic discovery surfaces it LOWER-confidence and never auto-places it (the same discipline
-  // as AMBIGUOUS — a single match is never auto-membership, INVARIANT #2). One explicit "add" commits its known
+  // as AMBIGUOUS — a single match is never auto-membership, INVARIANT #11). One explicit "add" commits its known
   // security_id; it lands `system_drafted` (still unscored) for the operator to accept / edit / drop.
   const addVerify = (p: ResolvedPlacement) => {
     if (!p.security_id) return;

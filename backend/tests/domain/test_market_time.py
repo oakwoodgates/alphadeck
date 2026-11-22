@@ -1,4 +1,4 @@
-"""market_time — "today" is a DOMAIN fact, not an ambient one (INVARIANTS.md §6).
+"""market_time — "today" is a DOMAIN fact, not an ambient one (INVARIANTS.md §13).
 
 The production bug this closes: a manual ``pipeline.daily`` in a UTC container at ~02:xx UTC computed
 ``date.today() = 2026-07-18`` and recorded TOMORROW's ``asof`` — and ``asof`` is a LIVENESS PARAMETER, not
@@ -159,11 +159,11 @@ _WHY = (
     "Use domain.market_time.market_today() / market_now() instead.\n"
     "  WHY: date.today() and datetime.now() read the PROCESS's ambient timezone, so the same code\n"
     "  answers a different question depending on where it runs. The trading day is a DOMAIN fact, not\n"
-    "  an environment fact (INVARIANTS.md #6). This is not hypothetical: a UTC container after ~20:00\n"
+    "  an environment fact (INVARIANTS.md #13). This is not hypothetical: a UTC container after ~20:00\n"
     "  ET derived TOMORROW's trading day and recorded a materially DIFFERENT call — asof is a liveness\n"
     "  PARAMETER, not a label, so a signal whose window closed that day silently dropped out.\n"
     "  NOT covered by this rule: datetime.now(timezone.utc). That is TRANSACTION time (recorded_at) and\n"
-    "  is correctly UTC — keep it (INVARIANTS.md #4).\n"
+    "  is correctly UTC — keep it (INVARIANTS.md #1).\n"
     "  Do NOT satisfy this test by extending _ALLOWED; the allowlist is for the helper itself."
 )
 
@@ -248,7 +248,7 @@ def test_the_scan_actually_walks_the_backend():
     assert not any(r.startswith("tests/") for r in rel)
 
 
-# --- the durability guard: the option-(b) discipline, enforced (INVARIANTS.md §6) ---
+# --- the durability guard: the option-(b) discipline, enforced (INVARIANTS.md §13) ---
 #
 # The production guard above deliberately SKIPS tests/ (a test may legitimately construct a naive clock).
 # But the fix has a SECOND half: a test that asserts a PRODUCTION date contract must read the same
@@ -278,7 +278,7 @@ def _test_files() -> list[Path]:
 
 
 def test_no_test_module_reads_the_ambient_clock():
-    """No test reads the ambient clock either (option (b), INVARIANTS.md #6): a production-date-contract
+    """No test reads the ambient clock either (option (b), INVARIANTS.md #13): a production-date-contract
     test must read ``market_today()`` so it can never disagree with the route it exercises. The AST helper
     ignores the ``date.today()`` / ``datetime.now()`` that appear in THIS file's prose and string fixtures
     (they are not Calls), so the allowlist stays honestly empty."""
@@ -292,7 +292,7 @@ def test_no_test_module_reads_the_ambient_clock():
         "ambient clock read(s) in tests:\n  "
         + "\n  ".join(found)
         + "\n  Use domain.market_time.market_today() / market_now() so the test and the production path\n"
-        "  agree by construction (option (b), INVARIANTS.md #6). Add to _TEST_ALLOWED (with a one-line\n"
+        "  agree by construction (option (b), INVARIANTS.md #13). Add to _TEST_ALLOWED (with a one-line\n"
         "  reason) ONLY if the test genuinely does not care which calendar day it is."
     )
 

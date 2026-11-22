@@ -116,7 +116,7 @@ without its multiple-comparisons context, so the count sits on the manifest card
 
 Three clocks exist: **event time** (`valid_from`), **public time** (when anyone could have known —
 `accepted` / `filed` / the settled session), **system time** (`recorded_at`, when THIS system learned it).
-Since the operator's 2026-10-21 rule (`INVARIANTS.md` §4) the public clock judges ALL history, not just the
+Since the operator's 2026-10-21 rule (`INVARIANTS.md` §1) the public clock judges ALL history, not just the
 backtest: the past-asof Board / Cockpit / Workbench recompute, the Scoreboard drawer, the missed-night
 backfill. So the per-table definition lives ONCE in `db/public_clock.py` (`PUBLIC_TIME`) and
 `clock=public` in `replay/export.py` runs the SAME SQL the live history read runs (`public_versions_sql`):

@@ -5,7 +5,7 @@ the located segment-footnote passage the operator can see, with the thesis narra
 counts. It is an UNVERIFIED estimate the operator confirms/overrides — never a fact, never auto-accepted (the
 #10 pattern; purity stays the operator's edge — the model PROPOSES, the operator DECIDES).
 
-THE BOUND (INVARIANT #1/#3 — the operator's hard requirement): the model may propose a % ONLY from segment
+THE BOUND (INVARIANT #3 — the operator's hard requirement): the model may propose a % ONLY from segment
 revenue figures that appear IN the passage (segment $ / total $); it must NOT recall the company's revenue mix
 from memory. "Read this footnote and propose 20%" is fine; "I know the company is ~20% nuclear" is a
 model-sourced number and is forbidden. Enforced two ways:

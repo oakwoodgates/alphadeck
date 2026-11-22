@@ -26,7 +26,7 @@ The Workbench scores each basket name from the **point-in-time facts**; the engi
   numbers, never a stale snapshot. Only the chain **structure** persists (operationally, on the thesis spine
   — see `ROADMAP.md` "the persistence seam"); the scores are recomputed every read.
 - **Every figure comes from a tenant-filtered as-of read** (`PointInTimeData`), so no-lookahead and tenant
-  isolation hold for free (`INVARIANTS.md` #4, #5) — on the PUBLIC clock: a past `asof` on the scored read
+  isolation hold for free (`INVARIANTS.md` #1, #12) — on the PUBLIC clock: a past `asof` on the scored read
   (`serve_view`) reads each fact as it was public by the end of that night (EDGAR's next open, F6). A
   RATIFIED scoring fact
   (purity, runway, shares) counts from its ratification — its `valid_from` is the filing period / cover date,
@@ -67,7 +67,7 @@ overfitting to n=4. Instead:
    pure-play — the bar wasn't moved to make LEU look any particular way.)
 3. All cutoffs live in `CallConfig` (`backend/domain/config.py`), never hardcoded — enforced by a
    **behavioral** magic-number test (a changed cutoff changes a pip) **and** a **lexical** float-literal scan
-   of the scorer (`INVARIANTS.md` #7; `tests/workbench/test_scoring.py`).
+   of the scorer (`INVARIANTS.md` #14; `tests/workbench/test_scoring.py`).
 
 ## The cutoffs, with their grounding
 
@@ -95,7 +95,7 @@ purity drives the base read (`pure-play` / `core exposure` / `partial exposure` 
 
 ## Provenance chips ("behind the scores")
 
-Every meter traces to a fact or a computation (`INVARIANTS.md` #3): **purity** → the `fact_revenue_mix`
+Every meter traces to a fact or a computation (`INVARIANTS.md` #6): **purity** → the `fact_revenue_mix`
 `source`/`source_ref` (10-K) + `note`; **runway** → the `fact_cash_burn` `source_ref` (10-Q) + `note`;
 **catalysts** → each live `fact_catalyst.source_ref`; **dilution** → the convert accession + the computed
 overhang; **market cap** → the price ref + the shares `source_ref`. Filing refs resolve to clickable EDGAR
@@ -192,5 +192,5 @@ count, not Class A alone.
 ### The through-line on the scorer
 Each meter is factored on **its own driving property** — purity on revenue-mix %, runway on cash/burn,
 catalysts on live-count + grade, dilution on overhang % — with **no `if kind ==` branching anywhere in the
-engine**. This is the back-half through-line (`INVARIANTS.md` #7) applied to the Workbench: behavior is keyed
+engine**. This is the back-half through-line (`INVARIANTS.md` #14) applied to the Workbench: behavior is keyed
 on the property that drives it, never on a kind literal.

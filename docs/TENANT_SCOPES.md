@@ -1,7 +1,7 @@
 # TENANT_SCOPES.md — the two tenant scopes over the one `tenant_id` column
 
 > Repo path: `docs/TENANT_SCOPES.md`. Replaces `PRODUCTION_TENANT.md` (the Phase-1 "production is a second tenant
-> with its own master" model). Siblings: `INVARIANTS.md` §5 (the load-bearing rule and its standing obligations),
+> with its own master" model). Siblings: `INVARIANTS.md` §12 (the load-bearing rule and its standing obligations),
 > `FEED_LOOP.md` (the writers), `REPLAY.md` (the mirror), `AUTH.md` (users and sessions). The code:
 > `backend/domain/scopes.py` (the map), migration `0076_tenant_kind.sql` (the `tenant.kind` marker), migration
 > `0078_founding_workspace.sql` (the founding workspace and the move out of the data tenant).

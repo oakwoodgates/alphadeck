@@ -30,7 +30,7 @@ stores SEC's acceptance (``accepted``) when it is trusted (``ingest.edgar.accept
 acceptance is not part of the compare surface; ``pipeline.repair_filing_dates`` re-dates stored rows. A
 re-version for another reason carries the stored acceptance forward when this pass resolves none.
 
-``recorded_at`` is left to the DB's ``now()``, NEVER backdated (invariant #4). The natural-key
+``recorded_at`` is left to the DB's ``now()``, NEVER backdated (invariant #1). The natural-key
 constraint carries ``security_id`` (migration 0038 — the 0037 lesson), so an issuer held as two
 master rows stores the same filing once per security scope without same-instant collisions.
 
@@ -132,7 +132,7 @@ def ingest_form8k(
     ``filed`` an ISO date string and ``items`` a ``list[str] | None`` (None = not-yet-resolved —
     stored as NULL and re-versioned by a later run once it resolves). A filing whose surface matches
     the stored latest version appends nothing (count-the-table idempotent). ``recorded_at`` is a
-    TEST seam only — production leaves it to the DB's ``now()`` (never backdated, #4).
+    TEST seam only — production leaves it to the DB's ``now()`` (never backdated, #1).
 
     F7: an appended row's ``accepted`` / ``valid_from`` come from ``filing_acceptance`` / ``public_date``
     (module docstring); ``cache_dir`` is where a filing's cached header is looked up (never fetched).

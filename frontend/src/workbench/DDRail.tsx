@@ -419,7 +419,7 @@ export function DDRail({
       />
       <div className="dd-body">
         {/* WHO this is — the company name + the machine-parsed identity (master enrichment; display-only,
-            never promoted, #2). The rail is where the operator decides, so it says who it's deciding about. */}
+            never promoted, #11). The rail is where the operator decides, so it says who it's deciding about. */}
         {(member.name || member.sector || member.exchange || member.category) && (
           <div className="dd-ident">
             {member.name && <span className="dd-co">{member.name}</span>}

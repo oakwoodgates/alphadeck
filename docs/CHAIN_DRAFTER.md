@@ -6,7 +6,7 @@
 > term set → deterministic PLACED/VERIFY classify → the per-CIK reconciler → batched narration + matched-term
 > tags → the tail-sweep) lives in its own home, **`DISCOVERY.md`** — read it first; this doc picks up where the
 > draft lands. Companions: `DISCOVERY.md` (discovery), `WORKBENCH_EXTRACTION.md` (the per-name extract → ratify
-> side + the FIRST LLM seam), `WORKBENCH_SCORING.md` (what the ratified facts SCORE to), `INVARIANTS.md` (#2
+> side + the FIRST LLM seam), `WORKBENCH_SCORING.md` (what the ratified facts SCORE to), `INVARIANTS.md` (#11
 > exact membership, #3 no model-sourced numbers, #9 recall is sacred), `ROADMAP.md` (sequencing). Engines: the
 > reconciler/resolver `backend/workbench/chain_draft.py`; the organize+narrate seams
 > `backend/llm/chain_decomposition.py`; the endpoint + the promote guard `backend/app/routers/workbench.py`;
@@ -48,7 +48,7 @@ create-thesis front door.
 A freshly drafted name is **UNSCORED** (its meters read "—") until the operator runs the extract → ratify loop
 on it. *Narrative is the operator's, structure is a draft, numbers are facts.*
 
-## Membership decides (INVARIANT #2) — the reconciler + the master-resolver fallback
+## Membership decides (invariant 11) — the reconciler + the master-resolver fallback
 
 **A model name is a discovery suggestion; exact membership decides** — the model proposing "Oklo" does NOT
 resolve Oklo; a placed `security_id` is only ever the master row's, never the model's string. With EDGAR-first
@@ -96,7 +96,7 @@ second focused call NARRATES:
 - **The off-thesis flag (#117).** `narrate_placements` also emits a per-name **`off_thesis` bool** — surfacing the
   "doesn't fit the thesis" judgment the narrator already makes in its prose (a boilerplate term-collision) as a
   structured bit. It is set at the narration MERGE (`execute_draft`) onto `ResolvedPlacement.off_thesis`, **display-
-  only** like `matched_terms` / `discovery_source` (never a number #3, **never promoted onto a `BasketMember` #2**,
+  only** like `matched_terms` / `discovery_source` (never a number #3, **never promoted onto a `BasketMember` #11**,
   never on the call path). It **RECOMMENDS (#10), the name STAYS PLACED (#9)** — membership is deterministic
   exact-CIK, so a flagged name is never a silent drop; the operator prunes it (the TRIAGE include-uncheck).
   **Coverage = every placed/verify name** (since the prose reroute the narrator judges organizer-placed and
@@ -181,7 +181,7 @@ term set → `run_discovery` (EFTS → classify) → `research_tail_sweep` → `
   CLI `--workers 2` with no env var is the guard's stated blind spot — the pinned CMD is the production
   mitigation). `--workers>1` would need a shared (DB-backed) job store first.
 
-## The promote guard — bound #2 at the single writer
+## The promote guard — invariant 11 at the single writer
 
 Because the drafter returns a draft and writes nothing, **promote (`POST /workbench/theses`) is the single
 place exact membership is enforced** — relocated there from the (never-built) S5 write path:
@@ -234,7 +234,7 @@ decisions).
     `off_thesis` bool (below); a flagged row shows the ⚑ + reason and **stays placed** (the operator unchecks to
     exclude). TRIAGE/basket crafting over these buckets is `TRIAGE.md`.
   - **TO REVIEW** — **VERIFY** (in-universe by CIK, broad-only) + tail-sweep names merged, one action: a
-    **"check to add" checkbox** that commits the known `security_id` (the same #2 discipline as AMBIGUOUS) and
+    **"check to add" checkbox** that commits the known `security_id` (the same invariant-11 discipline as AMBIGUOUS) and
     **moves the row up to Placed** (no "skip" — a candidate is only added or left in the queue). They're
     **promotable**, so they carry thesis-fit prose; the recommended segment rides the provenance line. See
     `TRIAGE.md` for the keeper / off-thesis / ticker-less partition.

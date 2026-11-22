@@ -662,7 +662,7 @@ export interface paths {
         /**
          * Search Securities
          * @description Search the current tenant's security master for names to PLACE into a basket (the authoring
-         *     typeahead, Slice 4b). A DISCOVERY NET (INVARIANT #2): exact master rows for the operator to pick from
+         *     typeahead, Slice 4b). A DISCOVERY NET (INVARIANT #11): exact master rows for the operator to pick from
          *     — never a fuzzy decision, never an ingest (no ``allow_live``). No match -> ``[]``; the operator's pick
          *     carries the exact ``security_id``. Tenant from the deployment resolver (which universe to author in).
          */
@@ -748,7 +748,7 @@ export interface paths {
          *     it the overlap is empty. Never the master ``cusip`` column (effectively always NULL — a silent
          *     nothing).
          *
-         *     RESPONSE-ONLY (#2): no fact, no basket write, nothing persisted — recomputed per click; the
+         *     RESPONSE-ONLY (#11): no fact, no basket write, nothing persisted — recomputed per click; the
          *     include-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.
          *     NO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.
          *     RECALL-SAFE (#9): the three buckets PARTITION every holding — ``unresolved`` (no ticker AND no
@@ -943,7 +943,7 @@ export interface paths {
          *     via ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment
          *     resolver, NOT the body. Scores are never sent and never persist — they re-derive on read.
          *
-         *     Write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body for the two live member
+         *     Write-side guards (INVARIANT #11): ``authored_by`` is HONORED from the body for the two live member
          *     values — ``system_drafted`` (the description is the model's draft) or ``operator_edited`` (the operator
          *     edited it — "your words") — so a drafted description stays honestly drafted until the operator actually
          *     changes it. The RETIRED ``operator_set`` (pre-S1 accept/hand-add) is legacy-TRANSLATED, never stored:
@@ -951,7 +951,7 @@ export interface paths {
          *     accept meant ENDORSED, and the text stays the model's). ``signed_off`` itself round-trips as a marker:
          *     it never gates promotion and never feeds the call (#4). Every
          *     placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed — a caller-supplied
-         *     id is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft
+         *     id is never trusted), the single point where invariant #11 is enforced now that the S5 drafter returns a draft
          *     and writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign
          *     ordinary / warrant / dual-class sibling the draft happened to surface) is re-pointed to the CIK's primary
          *     instrument before the spine write (``master.canonicalize_ids`` — the same pick as ``ids_for_ciks``), so
@@ -7480,7 +7480,7 @@ export interface components {
          *
          *     Derived on read from the master's stored ``sector`` (EDGAR ``sicDescription``) via the editable
          *     data files in ``securities/business_type/`` — descriptive IDENTITY like ``sector``/``origin``
-         *     (#1/#3 govern numbers, not identity strings): never a fact, never a call input, never fires/arms/
+         *     (#3 governs numbers, not identity strings): never a fact, never a call input, never fires/arms/
          *     vetoes/grades. ``OTHER`` is the visible tail (an unmapped-but-present sector — never a silent
          *     drop, #9); an un-enriched row derives ``None`` (unclassified — the honest abstain). This enum is
          *     the TYPE CONTRACT; the SIC→leaf DATA lives in ``sic_map.csv`` (operator-editable).
@@ -7831,7 +7831,7 @@ export interface components {
         /**
          * ChainDraftOut
          * @description The narrative→chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name
-         *     resolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides — INVARIANT #2).
+         *     resolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides — INVARIANT #11).
          *
          *     RESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING — a
          *     placed name is UNSCORED until the operator extract→ratifies it, and the operator's promote is the only
@@ -11030,7 +11030,7 @@ export interface components {
          * EtfHoldingsOut
          * @description A ``fund`` sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) — RESPONSE-ONLY
          *     discovery context, recomputed per click, never persisted (the operator's promote stays the only
-         *     spine writer, #2).
+         *     spine writer, #11).
          *
          *     ``report_date`` is the holdings VINTAGE (N-PORT is quarter-end, ~60 days lagged — fine for a
          *     discovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The
@@ -17789,12 +17789,12 @@ export interface components {
          *     sweep-augmented context. **It is NOT a hard claim the tail-sweep's web-search sourced the name** (``decompose``
          *     may surface an off-universe name from its own knowledge) — it means only "off the deterministic universe,"
          *     never "tail-sweep found this." Display-only like ``matched_terms``: never a number (#3), never promoted onto a
-         *     ``BasketMember`` (#2). Defaults ``"edgar"`` (the conservative no-pill state) and is set ``"off_universe"`` in
+         *     ``BasketMember`` (#11). Defaults ``"edgar"`` (the conservative no-pill state) and is set ``"off_universe"`` in
          *     exactly ONE place — the ``_match_discovered_cik`` fork — so a stray construction can never over-claim.
          *
          *     ``sector`` / ``exchange`` / ``listing_status`` / ``category`` are machine-parsed IDENTITY carried from the master (enriched
          *     just-in-time from EDGAR submissions before resolution) — display-only like ``matched_terms``: never a number
-         *     (#3), never promoted onto a ``BasketMember`` (#2). ``listing_status`` is a LISTING-PRESENCE heuristic
+         *     (#3), never promoted onto a ``BasketMember`` (#11). ``listing_status`` is a LISTING-PRESENCE heuristic
          *     (``"active"`` / ``"inactive"``), NOT a delisting verdict: a PLACED name whose master row reads ``"inactive"``
          *     is DOWNGRADED to AMBIGUOUS (never auto-placed) with its own row as the single pick — a frictionless rescue,
          *     surfaced with a HEDGED flag ("no current listing found in EDGAR"), so a false-inactive costs one extra click,
@@ -17802,8 +17802,8 @@ export interface components {
          *
          *     ``off_thesis`` surfaces the NARRATOR's already-made "this name doesn't fit the thesis" opinion as a bit (the
          *     ``prose`` is the why) — display-only like ``matched_terms`` / ``discovery_source``: never a number (#3), never
-         *     promoted onto a ``BasketMember`` (#2), never on the call path. It RECOMMENDS, never removes: a flagged name
-         *     STAYS placed (membership is deterministic exact-CIK, #2 / #9 — never a silent drop) with a ``remove`` the
+         *     promoted onto a ``BasketMember`` (#11), never on the call path. It RECOMMENDS, never removes: a flagged name
+         *     STAYS placed (membership is deterministic exact-CIK, #11 / #9 — never a silent drop) with a ``remove`` the
          *     OPERATOR clicks (#10). Set at the narration MERGE (``app.routers.workbench.execute_draft``), not at resolution
          *     — so it defaults ``False`` on every construction path here. COVERAGE = every placed/verify name: since the
          *     prose reroute the organizer emits structure + assignment only, so organizer-placed and reconciler-appended
@@ -18823,7 +18823,7 @@ export interface components {
          * SecurityMatchOut
          * @description A security-master match for the Workbench's add-a-name typeahead (Slice 4b) AND the surface-ETF
          *     resolve receipt (ETF Sleeve, Slice 1). The operator picks the exact row; its ``security_id`` is then
-         *     placed into the basket. A discovery net over the EXISTING per-tenant master (INVARIANT #2) — every match
+         *     placed into the basket. A discovery net over the EXISTING per-tenant master (INVARIANT #11) — every match
          *     is a real member, nothing is ingested or guessed.
          *
          *     ``instrument_kind`` is what the row IS — ``equity`` (the typeahead default) or ``etf`` (returned by the

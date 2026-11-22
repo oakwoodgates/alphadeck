@@ -42,7 +42,7 @@ MANIFEST_NAME = "manifest.json"
 # --- THE PUBLIC CLOCK — one definition, shared with every history view ---------------------------------
 # "When could ANYONE have known this?", per table. The platform has three clocks — event time
 # (``valid_from``: when it happened), public time (when it was disclosed), system time (``recorded_at``: when
-# THIS system ingested it). Since the operator's 2026-10-21 rule (INVARIANTS §4) HISTORY is judged on the public
+# THIS system ingested it). Since the operator's 2026-10-21 rule (INVARIANTS §1) HISTORY is judged on the public
 # clock everywhere — the backtest AND the product's history views (the past-asof Board/Cockpit/Workbench
 # recompute, the missed-night backfill, the Scoreboard drawer). So the registry no longer lives here: it is
 # ``db.public_clock.PUBLIC_TIME``, and this exporter runs the SAME SQL (``public_versions_sql``) the live

@@ -81,7 +81,7 @@ def test_a_narrative_edit_promote_cannot_wipe_the_pruning(client, db, security_i
 
 
 def test_unknown_security_is_rejected_fail_closed(client, db):
-    """Bound #2 (the promote route's own guard, applied here): a caller-supplied id that isn't in
+    """Invariant #11 (the promote route's own guard, applied here): a caller-supplied id that isn't in
     this tenant's master 404s BEFORE any write — never a junk row behind an FK error."""
     t = _thesis(db)
     r = client.put(

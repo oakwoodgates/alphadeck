@@ -5,7 +5,7 @@
 > day's **call-of-record** per thesis — so the platform *feeds itself*. This is the M2 subsystem (the MVP's
 > second half). Companion to `CHAIN_DRAFTER.md` (the front door — narrative → chain), `CALL_LOGIC.md` (what the
 > facts ARM into), `DATA_SOURCES.md` (the price/EDGAR sources + the Yahoo split-adjustment finding),
-> `DATA_FLOW.md` (where data lives), `INVARIANTS.md` (#1 no-lookahead, #2 exact membership, the calls log).
+> `DATA_FLOW.md` (where data lives), `INVARIANTS.md` (#1 no-lookahead, #11 exact membership, the calls log).
 > Engines: `backend/pipeline/ingest_thesis.py` · `backend/pipeline/daily.py` · `backend/ingest/prices/source.py`
 > · `backend/repositories/calls_repo.py` (`record_if_changed` / `_canonical`) · the `cron` sidecar in
 > `docker-compose.yml` + `backend/scripts/daily_cron.sh` · `backend/pipeline/backfill.py` (a missed night,
@@ -55,7 +55,7 @@ no LLM on this path).
 ingests insider + price facts — and, for an ETF sleeve member, a fund shares-outstanding sample — for each
 **resolved** basket member. CLI: `python -m pipeline.ingest_thesis --thesis <id>`.
 
-- **Exact membership (#2).** It loops the thesis's basket and resolves each member by its already-resolved
+- **Exact membership (invariant 11).** It loops the thesis's basket and resolves each member by its already-resolved
   `security_id` via **`master.get`** (issuer ticker + CIK) — **never a fresh fuzzy resolve.** An unresolved
   member (`security_id` is null) is skipped; a placed id not in the tenant's master is reported, not guessed.
 - **Three legs, each fail-visible.** The Form 4 leg, the price leg, and the fund-shares leg (ETF net flow —
@@ -458,7 +458,7 @@ post-settle noise.
 ## Honest stamps — the fundamentals write path (migration 0057, 2026-10-21)  `[BUILT]`
 
 The acceptance bar: facts dated by when they were first knowable, and no
-backdated `recorded_at` on the live path. Under the operator's public-clock rule (`INVARIANTS.md` §4,
+backdated `recorded_at` on the live path. Under the operator's public-clock rule (`INVARIANTS.md` §1,
 2026-10-21) `recorded_at` is honest BOOKKEEPING — when this system stored a row, stamped now, never backdated —
 and history is judged on the PUBLIC clock. `fact_fundamentals` was the last writer that backdated it:
 `ingest.fundamentals.store_quarters` stamped `recorded_at = filed 00:00 UTC`.
@@ -788,7 +788,7 @@ the thesis's workspace. The pass refuses to start without the data tenant (`scop
 - **Option B intact.** The cron ingests **FACTS** and appends the **call-of-record** accountability log.
   `/theses/{id}/call` still re-derives from facts; `/theses?with_call=true&asof=` reads the recorded call instead.
   Scoreboard Edition 0 reads `calls`, while editions ≥ 1 read separate stored re-runs (`SCOREBOARD.md`).
-  None of these is a mutable signal cache (`INVARIANTS.md` #6; `DATA_FLOW.md`).
+  None of these is a mutable signal cache (`INVARIANTS.md` #13; `DATA_FLOW.md`).
 - **Scoreboard-ready, not coupled.** One clean versioned row per (thesis, day); same-day re-runs collapse via
   `calls_repo.latest_for_thesis`'s `DISTINCT ON (asof)`. That is exactly what the built Scoreboard reads —
   with zero Scoreboard code in the cron.
@@ -2876,7 +2876,7 @@ first.
   clock: TODAY's knowledge, including filings published after the night (MEASURED on dev: one thesis
   backfilled as ARMED on four missed nights while the real nightly runs around them recorded INCUBATING).
   The backfill instead reads every fact on the PUBLIC clock (operator decision 2026-10-21, `INVARIANTS.md`
-  #4; `db/public_clock.py`): a Form 4 from its SEC acceptance, a bar from its session settle (a vendor
+  #1; `db/public_clock.py`): a Form 4 from its SEC acceptance, a bar from its session settle (a vendor
   correction from its own publication), an 8-K / 13D from its SEC acceptance (F7; else the start of its
   filing date), a share count from its filing's acceptance (F9; else its ratification) — up to the END of
   the night (`reconstruction_known_at` = `known_at_for_asof`: since F6 the last instant before 06:00 ET on
