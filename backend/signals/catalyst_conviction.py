@@ -61,7 +61,7 @@ def score(
     insider buy). Its grade — core (binding: PPA / operating license / loan guarantee) vs flip
     (provisional: MOU / LOI / selection / attention) — is carried on the FACT, never decided here
     (invariant #3), and sets entry SIZE. Liveness is the catalyst's relevance HORIZON (the agreement
-    term), DECOUPLED from grade (§7 / docs/CATALYST_CONVICTION.md option A). The fire date is the
+    term), DECOUPLED from grade (docs/DETECTORS.md, catalyst_conviction). The fire date is the
     event date; it stays live to its horizon, re-derived from the facts on every read. Arming still
     needs a co-located confirmation (a fresh breakout), so a still-on-the-books catalyst arms nothing
     on its own.

@@ -396,7 +396,7 @@ def test_a_sweep_with_WORKERS_and_a_SHARED_MIRROR_matches_the_serial_sweep(db, t
     of this test used the UNH seed alone and was green for that reason.
 
     THE DIAL VALUES ARE BOTH >= 180, also deliberately. At 90 days the UNH cluster lapses before the
-    August breakout and the thesis legitimately does not arm (RECALIBRATION part B: "shortening to 90d
+    August breakout and the thesis legitimately does not arm (docs/CALL_LOGIC.md "Changing a rule or a dial": "shortening to 90d
     makes UNH fail to arm"), so a sweep through 90 would assert zero episodes and call a documented
     behavior a bug. That first draft did exactly that.
 

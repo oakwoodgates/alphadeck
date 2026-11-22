@@ -9,7 +9,7 @@ manage the portfolio; after an operator-entered position is logged, it keeps mon
 
 > Working codename: **Alpha Deck**. US equities first; commodities / crypto / prediction markets later.
 > **The organizing frame — the pipeline of stages (SEED → DISCOVER → SURFACE → TRIAGE → MONITOR → SCORE): [`docs/STAGE_MODEL.md`](docs/STAGE_MODEL.md) (read first).**
-> The live plan: [`docs/ROADMAP.md`](docs/ROADMAP.md). Design rationale: [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md). Agent working-agreements: [`CLAUDE.md`](CLAUDE.md). The decision logic: [`docs/CALL_LOGIC.md`](docs/CALL_LOGIC.md). The catalyst conviction key: [`docs/CATALYST_CONVICTION.md`](docs/CATALYST_CONVICTION.md). Data sourcing: [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md). Implementation invariants: [`docs/INVARIANTS.md`](docs/INVARIANTS.md). The post-MVP tuning agenda: [`docs/RECALIBRATION.md`](docs/RECALIBRATION.md). UI mockups in [`docs/mockups/`](docs/mockups/).
+> The live plan: [`docs/ROADMAP.md`](docs/ROADMAP.md). Design rationale: [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md). Agent working-agreements: [`CLAUDE.md`](CLAUDE.md). The decision logic: [`docs/CALL_LOGIC.md`](docs/CALL_LOGIC.md). What each detector fires: [`docs/DETECTORS.md`](docs/DETECTORS.md). Data sourcing: [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md). Implementation invariants: [`docs/INVARIANTS.md`](docs/INVARIANTS.md). The post-MVP tuning agenda: [`docs/RECALIBRATION.md`](docs/RECALIBRATION.md). UI mockups in [`docs/mockups/`](docs/mockups/).
 
 ---
 
