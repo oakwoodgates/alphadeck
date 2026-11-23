@@ -292,6 +292,11 @@ function CockpitRoute() {
       onSelectName={onSelectName}
       railOpen={railOpen}
       onRailChange={onRailChange}
+      onSelectThesis={(id, nameKey) =>
+        navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
+          state: { from },
+        })
+      }
     />
   );
 }

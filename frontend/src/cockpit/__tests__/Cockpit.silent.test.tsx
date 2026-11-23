@@ -64,6 +64,8 @@ vi.mock("../../api/hooks", () => ({
   usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   useDecisions: () => ({ data: [], isLoading: false, error: null }),
+  useMemberPanel: () => ({ data: undefined, isLoading: false, isPending: false, isError: false, isPlaceholderData: false }),
+  useEpisodePriceWindow: () => ({ data: undefined, isLoading: false, isError: false }),
   usePostDecision: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
 }));
 

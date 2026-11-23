@@ -14,6 +14,5 @@ export const entry: DashboardEntry = {
   status: "core",
   asofAware: true,
   layout: "fill",
-  openCompanyInCockpit: true,
   component: lazy(() => import("./BoardDashboard")),
 };

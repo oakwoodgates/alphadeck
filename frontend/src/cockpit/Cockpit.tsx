@@ -44,7 +44,7 @@ import {
   type BucketRow,
 } from "./buckets";
 import { nextSort, sortRenderRows, type SortColId, type SortState } from "./sortBasket";
-import { NamePanel } from "./NamePanel";
+import { CompanyDrawer } from "../dashboards/CompanyDrawer";
 import { FundLaunchesLine } from "./FundLaunchesLine";
 import { RotationStrip } from "./RotationStrip";
 import { exportKeptNames, exportWatchlist, toExportedName } from "../util/exportNames";
@@ -78,6 +78,8 @@ interface Props {
    *  dial and the name selection — so a collapse survives a reload without touching storage. */
   railOpen: boolean;
   onRailChange: (open: boolean) => void;
+  /** Optional cross-card navigation when clicking a sibling card chip inside the CompanyDrawer. */
+  onSelectThesis?: (thesisId: string, nameKey?: string) => void;
 }
 
 /** The Entry-by cell: the entry-window (confirmation) clock. This is the clock that actually
@@ -170,6 +172,7 @@ export function Cockpit({
   onSelectName,
   railOpen,
   onRailChange,
+  onSelectThesis,
 }: Props) {
   const thesisQ = useThesis(thesisId);
   // F2 — the catalyst calendar below counts down from the action day on a live view (the as-of on a past one)
@@ -1143,23 +1146,35 @@ export function Cockpit({
       </div>
 
       {selected && (
-        <NamePanel
-          row={selected.row}
-          def={selected.def}
-          card={card}
-          thesisId={thesisId}
-          position={thesis?.position}
-          display={
-            displayQ.data?.members.find(
-              (m) => m.security_id === selected.row.member.security_id,
-            ) ?? null
-          }
-          dataFlags={flagsFor(selected.row.member.security_id)}
-          sharedValues={
-            (sharedQ.data?.members ?? []).find((m) => m.security_id === selected.row.member.security_id) ?? null
-          }
+        <CompanyDrawer
+          selection={{
+            thesisId,
+            nameKey: selected.row.member.security_id ?? selected.row.member.ticker,
+          }}
           asof={asof}
+          nonModal
           onClose={() => onSelectName(null)}
+          onSwitchCard={(nextThesisId, nextNameKey) => {
+            if (nextThesisId === thesisId) onSelectName(nextNameKey);
+            else onSelectThesis?.(nextThesisId, nextNameKey);
+          }}
+          preload={{
+            thesisName: thesis?.name ?? "",
+            row: selected.row,
+            def: selected.def,
+            card,
+            position: thesis?.position ?? null,
+            display:
+              displayQ.data?.members.find(
+                (m) => m.security_id === selected.row.member.security_id,
+              ) ?? null,
+            dataFlags: flagsFor(selected.row.member.security_id),
+            sharedValues:
+              (sharedQ.data?.members ?? []).find(
+                (m) => m.security_id === selected.row.member.security_id,
+              ) ?? null,
+            cardCatalysts: catalysts,
+          }}
         />
       )}
     </div>

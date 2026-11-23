@@ -1836,6 +1836,8 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 
 /* -------- The slide-out Drawer + the episode scorecard it hosts (Slice 1) ---------------------- */
 .drawer-overlay { position: fixed; inset: 0; z-index: 60; }
+.drawer-overlay.non-modal { pointer-events: none; }
+.drawer-overlay.non-modal .drawer-panel { pointer-events: auto; }
 .drawer-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
 .drawer-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 600px; max-width: 100vw; background: var(--bg-2); border-left: 1px solid var(--line-2); box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45); overflow-y: auto; padding: 0 20px 40px; animation: drawer-in 0.18s ease-out; transition: width 0.16s ease; }
 .drawer-panel.expanded { width: 100vw; }

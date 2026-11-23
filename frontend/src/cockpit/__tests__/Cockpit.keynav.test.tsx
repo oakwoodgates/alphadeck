@@ -56,6 +56,8 @@ vi.mock("../../api/hooks", () => ({
   useDisplaySignals: () => ({ data: undefined, isLoading: false, error: null }),
   useThesisDataFlags: () => ({ data: undefined, isLoading: false, error: null }),
   useDecisions: () => ({ data: [], isLoading: false, error: null }),
+  useMemberPanel: () => ({ data: undefined, isLoading: false, isPending: false, isError: false, isPlaceholderData: false }),
+  useEpisodePriceWindow: () => ({ data: undefined, isLoading: false, isError: false }),
   usePostDecision: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
@@ -82,7 +84,7 @@ function Harness({ thesisId }: { thesisId: string }) {
 
 const rowOf = (tk: string, nth = 0) =>
   screen.getAllByText(tk, { selector: "td.tk" })[nth].closest("tr") as HTMLElement;
-const panelTicker = (c: HTMLElement) => c.querySelector(".npanel .np-tk")?.textContent ?? null;
+const panelTicker = (c: HTMLElement) => c.querySelector(".drawer-panel .np-tk")?.textContent ?? null;
 // fireEvent returns false when the handler called preventDefault
 const key = (el: HTMLElement, k: string, mods: Record<string, boolean> = {}) =>
   fireEvent.keyDown(el, { key: k, ...mods });
@@ -105,7 +107,7 @@ describe("Cockpit — arrow-key stepping through the basket", () => {
     key(rowOf("D"), "ArrowUp");
     expect(document.activeElement).toBe(rowOf("C"));
     // stepping alone never opens the panel — Enter does that
-    expect(container.querySelector(".npanel")).toBeNull();
+    expect(container.querySelector(".drawer-panel")).toBeNull();
     rowOf("A").focus();
     key(rowOf("A"), "ArrowUp"); // the first row
     expect(document.activeElement).toBe(rowOf("A"));
@@ -125,10 +127,10 @@ describe("Cockpit — arrow-key stepping through the basket", () => {
     expect(panelTicker(container)).toBe("B");
     // Enter acts on the FOCUSED row — the one the panel now shows — so it closes it
     key(rowOf("B"), "Enter");
-    expect(container.querySelector(".npanel")).toBeNull();
+    expect(container.querySelector(".drawer-panel")).toBeNull();
     // and stepping with the panel closed no longer opens one
     key(rowOf("B"), "ArrowDown");
-    expect(container.querySelector(".npanel")).toBeNull();
+    expect(container.querySelector(".drawer-panel")).toBeNull();
   });
 
   it("skips a folded group — it stays mounted, but is not a stop", () => {
