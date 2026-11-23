@@ -9,7 +9,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("../../../api/client", () => ({ api: { GET: h.get } }));
 
-import { fetchResolve, resolveKey, useResolveTicker, useTickerLookup } from "../useTickerLookup";
+import {
+  fetchResolve,
+  resolveKey,
+  useResolveTicker,
+  useTickerLookup,
+  useTickerLookupPriceWindow,
+} from "../useTickerLookup";
 
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -78,6 +84,23 @@ describe("useTickerLookup", () => {
     await waitFor(() => expect(h.get).toHaveBeenCalledTimes(2));
     expect(h.get).toHaveBeenLastCalledWith("/dashboards/ticker-lookup/{security_id}", {
       params: { path: { security_id: "s1" }, query: { asof: "2026-06-05" } },
+    });
+  });
+});
+
+describe("useTickerLookupPriceWindow", () => {
+  it("waits for a company, then GETs its price-window at the as-of", async () => {
+    h.get.mockResolvedValue({ data: { security_id: "s1", bars: [] }, error: undefined });
+    const { result, rerender } = renderHook(
+      ({ asof, id }: { asof: string; id: string | null }) => useTickerLookupPriceWindow(asof, id),
+      { wrapper, initialProps: { asof: "2026-10-28", id: null as string | null } },
+    );
+    expect(h.get).not.toHaveBeenCalled();
+
+    rerender({ asof: "2026-10-28", id: "s1" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(h.get).toHaveBeenLastCalledWith("/dashboards/ticker-lookup/{security_id}/price-window", {
+      params: { path: { security_id: "s1" }, query: { asof: "2026-10-28" } },
     });
   });
 });

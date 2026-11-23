@@ -1,7 +1,27 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ColorType, LineStyle, createChart, type IChartApi, type SeriesMarker, type Time } from "lightweight-charts";
 
-import { businessTypeLabel, supersectorLabel } from "../../util/format";
+import { useAppClock, useCountdownOrigin } from "../../clock";
+import { ExternalLink, isSecLink } from "../../components/ExternalLink";
+import { ProvenanceSources } from "../../components/ProvenanceSources";
+import { lowerFirst, reasonClause } from "../../components/valueWords";
+import { PriceSparkline } from "../../scoreboard/PriceSparkline";
+import type { ChartSpan, OverlayEvent } from "../../scoreboard/overlay";
+import {
+  businessTypeLabel,
+  dayCount,
+  daysFrom,
+  fmtDate,
+  isPastAsof,
+  supersectorLabel,
+} from "../../util/format";
+import {
+  meterValueLabel,
+  runwayCashWords,
+  runwayNotApplicable,
+  runwayPaceWords,
+} from "../../workbench/format";
+import { Meter } from "../../workbench/Meter";
 import type { DashboardProps } from "../registry";
 import {
   FILING_WINDOWS,
@@ -42,8 +62,8 @@ import type {
   LookupFilingDay,
   LookupTrigger,
   TickerLookupOut,
+  TickerLookupPriceWindowOut,
 } from "./useTickerLookup";
-import { ExternalLink, isSecLink } from "../../components/ExternalLink";
 
 // The Ticker Lookup's seven sections (docs/dashboards/ticker-lookup.md), each stating the n it rests on. Display
 // only: every figure arrives computed; these draw it. Loudness marks the exception only (#7 / WB#3): the one accent
@@ -75,11 +95,22 @@ export function Section({
 }
 
 /** Compact section jump strip directly under Identity so long dossiers are one click to navigate. */
-export function SectionNav({ d, filingRows }: { d: TickerLookupOut; filingRows: number }) {
+export function SectionNav({
+  d,
+  filingRows,
+  eventCount = 0,
+}: {
+  d: TickerLookupOut;
+  filingRows: number;
+  eventCount?: number;
+}) {
+  const hasFundamentals = d.scored != null || d.shared_values != null;
   const items = [
+    { id: "tl-sec-chart", label: "Chart", count: eventCount > 0 ? eventCount : null },
+    { id: "tl-sec-tape", label: "Tape", count: null },
+    ...(hasFundamentals ? [{ id: "tl-sec-fundamentals", label: "Fundamentals", count: null }] : []),
     { id: "tl-sec-cards", label: "Cards", count: d.cards.rows.length },
     { id: "tl-sec-triggers", label: "Triggers", count: d.triggers.events.length },
-    { id: "tl-sec-tape", label: "Tape", count: null },
     { id: "tl-sec-filings", label: "Filings", count: filingRows },
     { id: "tl-sec-catalysts", label: "Catalysts", count: d.card_catalysts.length + d.catalyst_facts.length },
     { id: "tl-sec-decisions", label: "Decisions", count: d.decisions.length },
@@ -615,7 +646,118 @@ function TapeChart({ d, flagged }: { d: TickerLookupOut; flagged: boolean }) {
   );
 }
 
-export function TapeSection({ d }: { d: TickerLookupOut }) {
+const CHART_SPANS: ChartSpan[] = ["3M", "6M", "1Y", "ALL"];
+
+export function ChartPanel({
+  d,
+  priceWindow,
+  priceWindowLoading,
+  priceWindowError,
+  events,
+  span,
+  onSpan,
+  activeN,
+  onActivate,
+}: {
+  d: TickerLookupOut;
+  priceWindow: TickerLookupPriceWindowOut | undefined;
+  priceWindowLoading: boolean;
+  priceWindowError: boolean;
+  events: OverlayEvent[];
+  span: ChartSpan;
+  onSpan: (s: ChartSpan) => void;
+  activeN: number | null;
+  onActivate: (n: number | null) => void;
+}) {
+  const [mode, setMode] = useState<"events" | "iwm">("events");
+  const flagged = d.identity.flag != null;
+  const bars = priceWindow?.bars ?? [];
+  const hasBars = bars.length >= 2;
+  const spark = d.tape.sparkline;
+  const hasSpark = Boolean(
+    spark && spark.dates.length >= 2 && (spark.stock.some((v) => v != null) || spark.iwm.some((v) => v != null)),
+  );
+  // Default to Price & events when bars are loaded or loading; fall back to vs IWM if only sparkline exists.
+  const showEvents = mode === "events" && (hasBars || priceWindowLoading || !hasSpark);
+
+  if (!hasBars && !priceWindowLoading && !priceWindowError && !hasSpark) return null;
+
+  return (
+    <section
+      id="tl-sec-chart"
+      className={`tl-sec tl-chart-panel${flagged ? " flagged" : ""}`}
+      aria-label="Price chart"
+    >
+      <div className="tl-chart-head">
+        <h2 className="tl-h tl-chart-title">
+          {showEvents ? "Price & events" : "Relative to IWM"}
+          {showEvents && events.length > 0 && <span className="tl-n">{plural(events.length, "event", "events")}</span>}
+        </h2>
+        <div className="tl-chart-controls">
+          {hasSpark && (hasBars || priceWindowLoading) && (
+            <div className="tl-seg" role="group" aria-label="Chart mode">
+              <button
+                type="button"
+                className={`tl-seg-btn${showEvents ? " on" : ""}`}
+                aria-pressed={showEvents}
+                onClick={() => setMode("events")}
+              >
+                Price &amp; events
+              </button>
+              <button
+                type="button"
+                className={`tl-seg-btn${!showEvents ? " on" : ""}`}
+                aria-pressed={!showEvents}
+                onClick={() => setMode("iwm")}
+              >
+                vs IWM
+              </button>
+            </div>
+          )}
+          {showEvents && hasBars && (
+            <div className="tl-seg" role="group" aria-label="Chart range">
+              {CHART_SPANS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`tl-seg-btn${span === s ? " on" : ""}`}
+                  aria-pressed={span === s}
+                  onClick={() => onSpan(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {showEvents ? (
+        <>
+          <PriceSparkline
+            span={span}
+            bars={bars}
+            events={events}
+            activeN={activeN}
+            onActivate={onActivate}
+            loading={priceWindowLoading}
+            error={priceWindowError}
+            hideIngest
+          />
+          {priceWindow && (
+            <div className="tl-spark-cap">
+              tape: {priceWindow.source} · loaded from {fmtDate(priceWindow.start)} · as-of {fmtDate(priceWindow.asof)}
+              {flagged ? " · price data flag active" : ""}
+            </div>
+          )}
+        </>
+      ) : (
+        <TapeChart d={d} flagged={flagged} />
+      )}
+    </section>
+  );
+}
+
+export function TapeSection({ d, hideChart = false }: { d: TickerLookupOut; hideChart?: boolean }) {
   const tape = d.tape;
   const flagged = d.identity.flag != null;
   const rangeInfo = useMemo(() => rangeTrackInfo(tape.figures), [tape.figures]);
@@ -636,7 +778,7 @@ export function TapeSection({ d }: { d: TickerLookupOut }) {
         </div>
       ) : (
         <div className="tl-tape">
-          <TapeChart d={d} flagged={flagged} />
+          {!hideChart && <TapeChart d={d} flagged={flagged} />}
           {GROUPS.map(({ group, label, price }) => {
             const figs = figuresOf(tape.figures, group);
             if (figs.length === 0) return null;
@@ -722,6 +864,138 @@ export function TapeSection({ d }: { d: TickerLookupOut }) {
           ))}
         </ul>
       )}
+    </Section>
+  );
+}
+
+// --- 4b. fundamentals, dilution & shared values ------------------------------------------------------------------
+
+export function FundamentalsSection({ d }: { d: TickerLookupOut }) {
+  const { currentNight } = useAppClock();
+  const scored = d.scored ?? null;
+  const values = d.shared_values ?? null;
+  if (!scored && !values) return null;
+
+  const isLive = !isPastAsof(d.asof, currentNight);
+  const sharedNotes: string[] = [];
+  if (isLive && values) {
+    for (const [title, v] of [
+      ["Share count", values.shares],
+      ["Cash", values.cash_burn],
+    ] as const) {
+      if (v.state === "awaiting_steward") sharedNotes.push(`${title}: awaiting the steward`);
+      else if (v.state === "no_value" && v.reason !== "cash-generative")
+        sharedNotes.push(`${title}: no value yet (${reasonClause(v)})`);
+      else if (v.pending) sharedNotes.push(`${title}: ${lowerFirst(v.pending.line)}`);
+    }
+  }
+  if (isLive && scored && scored.instrument_kind !== "etf" && scored.purity.value == null) {
+    sharedNotes.push("Purity: not set yet (yours to set in the Workbench)");
+  }
+
+  return (
+    <Section
+      id="tl-sec-fundamentals"
+      title="Fundamentals & dilution"
+      n={scored?.fit && scored.fit !== "unrated" ? scored.fit : undefined}
+    >
+      <div className="tl-fund-grid" data-testid="tl-fundamentals">
+        {scored && (
+          <div className="tl-fund-meters">
+            <div className="np-meters">
+              {(
+                [
+                  ["Runway", "runway", false],
+                  ["Dilution", "dilution", true],
+                  ["Catalysts", "catalysts", false],
+                  ["Purity", "purity", false],
+                ] as const
+              ).map(([label, key, risk]) => {
+                const pace = key === "runway" ? runwayPaceWords(scored[key]) : null;
+                const cash = key === "runway" ? runwayCashWords(scored[key]) : null;
+                const na = key === "runway" ? runwayNotApplicable(scored[key]) : null;
+                return (
+                  <Fragment key={key}>
+                    <div className="np-meter-row">
+                      <Meter
+                        label={label}
+                        figure={scored[key]}
+                        risk={risk}
+                        title={na ?? undefined}
+                        notApplicable={na != null ? "n/a" : undefined}
+                      />
+                      <span className="val">{meterValueLabel(key, scored[key])}</span>
+                    </div>
+                    {na && (
+                      <div className="np-pace" data-testid="tl-runway-na">
+                        {na}
+                      </div>
+                    )}
+                    {cash && (
+                      <div className="np-pace" data-testid="tl-runway-cash">
+                        {cash}
+                      </div>
+                    )}
+                    {pace && (
+                      <div className="np-pace" data-testid="tl-runway-pace">
+                        {pace.ytd}
+                      </div>
+                    )}
+                    {pace?.caveat && (
+                      <div className="np-pace" data-testid="tl-runway-caveat">
+                        {pace.caveat}
+                      </div>
+                    )}
+                    <ProvenanceSources sources={scored[key].provenance ?? []} label={`${label} provenance`} />
+                  </Fragment>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div className="tl-fund-meta">
+          {values && (
+            <dl className="tl-fund-shared">
+              {(
+                [
+                  ["Shares", values.shares],
+                  ["Cash & burn", values.cash_burn],
+                ] as const
+              ).map(([title, v]) => (
+                <div key={title} className="tl-fund-row">
+                  <dt>{title}</dt>
+                  <dd>
+                    <span>{v.label}</span>
+                    {v.value?.source_url && (
+                      <ExternalLink className="tl-fsrc" href={v.value.source_url}>
+                        {isSecLink(v.value.source_url) ? "EDGAR" : "source"} ↗
+                      </ExternalLink>
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {scored && (scored.market_cap.provenance?.length ?? 0) > 0 && (
+            <ProvenanceSources sources={scored.market_cap.provenance ?? []} label="Market cap provenance" />
+          )}
+          {scored?.thin_price_history && (
+            <div className="np-thinflag">⚠ thin price history — history-window signals may be starved</div>
+          )}
+          {scored?.price_feed_limitation && (
+            <div className="np-feednote" title={scored.price_feed_limitation}>
+              price history limited: vendor serves no history
+            </div>
+          )}
+          {sharedNotes.length > 0 && (
+            <div className="tl-fund-notes">
+              {sharedNotes.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </Section>
   );
 }
@@ -939,6 +1213,7 @@ export function FilingsSection({
 // --- 6. catalysts ------------------------------------------------------------------------------------------------
 
 export function CatalystsSection({ d, onSelectThesis }: { d: TickerLookupOut; onSelectThesis: OpenThesis }) {
+  const origin = useCountdownOrigin(d.asof);
   const facts = d.catalyst_facts;
   const cards = d.card_catalysts;
   return (
@@ -954,17 +1229,27 @@ export function CatalystsSection({ d, onSelectThesis }: { d: TickerLookupOut; on
         </div>
       ) : (
         <ul className="tl-clist">
-          {cards.map((c, i) => (
-            <li key={`${c.thesis_id}|${c.label}|${i}`} className={c.passed ? "passed" : undefined} data-testid="tl-catalyst">
-              <span className="tl-num">{c.when_date ? fmtDay(c.when_date) : (c.when_label ?? "undated")}</span>
-              <span className="tl-clabel">{c.label}</span>
-              {c.kind && <span className="tl-quiet">{c.kind}</span>}
-              {c.passed && <span className="tl-quiet">passed</span>}
-              <button type="button" className="tl-card" onClick={() => onSelectThesis(c.thesis_id, d.identity.ticker)}>
-                {c.thesis_name}
-              </button>
-            </li>
-          ))}
+          {cards.map((c, i) => {
+            const delta = daysFrom(origin, c.when_date);
+            const soon = !c.passed && delta !== null && delta >= 0 && delta <= 21;
+            const cls = [c.passed ? "passed" : "", soon ? "soon" : ""].filter(Boolean).join(" ") || undefined;
+            return (
+              <li key={`${c.thesis_id}|${c.label}|${i}`} className={cls} data-testid="tl-catalyst">
+                <span className="tl-num tl-cat-when">
+                  {c.when_date ? fmtDay(c.when_date) : (c.when_label ?? "undated")}
+                  {!c.passed && delta !== null && delta >= 0 && (
+                    <span className="tl-cat-cd"> · {dayCount(delta)}</span>
+                  )}
+                </span>
+                <span className="tl-clabel">{c.label}</span>
+                {c.kind && <span className="tl-quiet">{c.kind}</span>}
+                {c.passed && <span className="tl-quiet">passed</span>}
+                <button type="button" className="tl-card" onClick={() => onSelectThesis(c.thesis_id, d.identity.ticker)}>
+                  {c.thesis_name}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
       <h3 className="tl-gh">Its own catalyst facts</h3>
@@ -977,13 +1262,18 @@ export function CatalystsSection({ d, onSelectThesis }: { d: TickerLookupOut; on
           {facts.map((f, i) => {
             const ratified = ratifiedWords(f);
             return (
-              <li key={`${f.accession ?? f.headline}|${i}`} data-testid="tl-catalyst-fact">
+              <li
+                key={`${f.accession ?? f.headline}|${i}`}
+                className={f.live ? "live" : undefined}
+                data-testid="tl-catalyst-fact"
+              >
                 <span className="tl-num">{fmtDay(f.date)}</span>
-                <span className="tl-clabel">{f.headline}</span>
+                <span className="tl-clabel">
+                  {f.headline}
+                  {f.live && <span className="tl-cat-live">live</span>}
+                </span>
                 {ratified && <span className="tl-quiet">{ratified}</span>}
-                {f.url && (
-                  <ExternalLink href={f.url}>source ↗</ExternalLink>
-                )}
+                {f.url && <ExternalLink href={f.url}>source ↗</ExternalLink>}
               </li>
             );
           })}

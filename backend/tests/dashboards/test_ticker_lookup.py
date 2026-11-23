@@ -1241,6 +1241,7 @@ def stub_client(monkeypatch):
     CACHE.clear()
     monkeypatch.setattr(router_mod, "read_lookup", fake_read)
     monkeypatch.setattr(router_mod, "read_live_entries", fake_live)
+    monkeypatch.setattr(router_mod, "read_company_extras", lambda *a, **kw: (None, None, set()))
     monkeypatch.setattr(
         router_mod.master, "get", lambda conn, sid, **kw: object() if sid in known else None
     )
@@ -1303,6 +1304,8 @@ def test_the_router_wire_shape(stub_client):
         "card_catalysts",
         "decisions",
         "decisions_voided",
+        "scored",
+        "shared_values",
         "cache",
         "compute_ms",
     ]
@@ -1835,3 +1838,72 @@ def test_db_a_decision_or_a_card_edit_shows_at_once_while_the_heavy_page_stays_c
     finally:
         CACHE.clear()
     assert all(d["decision_date"] != "2026-06-04" for d in past["decisions"])
+
+
+def test_db_price_window_works_for_company_on_no_card_and_caps_at_asof(db, pinned_today):
+    """Company-scoped price window returns SMA-annotated bars and dated overlays without needing a
+    thesis_id, caps strictly at asof (invariant #1), and 404s on an unknown security_id."""
+    loner = _security(db, "LONER", cik="0009998887", name="Loner Biotech")
+    # 70 weekdays ending on PAST (enough for 50d SMA) + 1 bar after PAST
+    d = PAST
+    seeded = 0
+    while seeded < 70:
+        if d.weekday() < 5:
+            _price(db, loner, d, 10.0 + seeded * 0.1)
+            seeded += 1
+        d -= timedelta(days=1)
+    _price(db, loner, LATER, 99.0)
+    append_fact(
+        db,
+        "fact_cash_burn",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": loner,
+            "cash_usd": 120_000_000.0,
+            "quarterly_burn_usd": 10_000_000.0,
+            "source": "10-q",
+            "source_ref": "0009998887-26-000010",
+            "valid_from": date(2026, 5, 1),
+            "recorded_at": datetime(2026, 5, 2, 14, tzinfo=UTC),
+        },
+    )
+    append_fact(
+        db,
+        "fact_catalyst",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": loner,
+            "catalyst_type": "clinical_readout",
+            "grade": "core",
+            "label": "Phase 2 topline",
+            "source": "8-k",
+            "source_ref": "0009998887-26-000011",
+            "valid_from": date(2026, 5, 28),
+            "recorded_at": datetime(2026, 5, 28, 14, tzinfo=UTC),
+        },
+    )
+    db.commit()
+
+    pw = _get(db, f"{loner}/price-window", asof=PAST.isoformat())
+    assert pw.status_code == 200, pw.text
+    body = pw.json()
+    assert body["security_id"] == str(loner)
+    assert body["asof"] == PAST.isoformat()
+    assert len(body["bars"]) >= 65
+    assert all(b["d"] <= PAST.isoformat() for b in body["bars"])
+    assert LATER.isoformat() not in {b["d"] for b in body["bars"]}
+    assert body["bars"][-1]["sma50"] is not None
+
+    missing = _get(db, f"{uuid.uuid4()}/price-window", asof=PAST.isoformat())
+    assert missing.status_code == 404
+
+    CACHE.clear()
+    try:
+        page = _get(db, str(loner), asof=PAST.isoformat()).json()
+    finally:
+        CACHE.clear()
+    assert page["scored"]["runway"]["value"] == 36.0
+    assert page["shared_values"]["security_id"] == str(loner)
+    assert page["shared_values"]["cash_burn"]["value"]["cash_usd"] == 120_000_000.0
+    assert len(page["catalyst_facts"]) == 1
+    assert page["catalyst_facts"][0]["live"] is True

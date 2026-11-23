@@ -3889,6 +3889,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/ticker-lookup/{security_id}/price-window": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ticker Lookup Price Window
+         * @description As-of-capped daily price tape with 50d/200d SMAs and dated event overlays (insider buys/sells,
+         *     8-K corporate events, 13D/G stakes) for one company, independent of whether it sits on any thesis
+         *     card. Display only; 404 for an unknown id.
+         */
+        get: operations["ticker_lookup_price_window_dashboards_ticker_lookup__security_id__price_window_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/ticker-lookup/{security_id}": {
         parameters: {
             query?: never;
@@ -3901,9 +3923,9 @@ export interface paths {
          * @description Everything the platform holds about one company at the as-of: its identity and approximate market cap, the
          *     counted cards it sits on and its part in each (the recorded call in effect), the triggers the recorded calls
          *     show on it over the last 365 days, its tape (the display members' readings), its filings and catalyst facts,
-         *     the catalysts of its cards and the operator's logged decisions on it. A past as-of reads what was public by the
-         *     end of that date (a roster row added or a filing filed after it never appears). Display only; 404 for an
-         *     unknown id.
+         *     the catalysts of its cards, its Workbench scoring meters and shared platform values, and the operator's logged
+         *     decisions on it. A past as-of reads what was public by the end of that date (a roster row added or a filing
+         *     filed after it never appears). Display only; 404 for an unknown id.
          */
         get: operations["ticker_lookup_dashboards_ticker_lookup__security_id__get"];
         put?: never;
@@ -19741,6 +19763,11 @@ export interface components {
             set_by: ("you" | "steward" | "carried") | null;
             /** Ratified On */
             ratified_on: string | null;
+            /**
+             * Live
+             * @default false
+             */
+            live: boolean;
         };
         /**
          * TickerLookupFilingsOut
@@ -19856,9 +19883,10 @@ export interface components {
          * TickerLookupOut
          * @description The whole page for one company. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
          *     public by the end of that date). ``catalyst_facts`` = the company's own catalyst facts (also rows of the
-         *     filing reader, listed here once); ``card_catalysts`` = the thesis-level catalysts of the cards it counts on.
-         *     ``cache`` / ``compute_ms`` = whether the page came from the shared dashboard cache and how long it took when
-         *     computed.
+         *     filing reader, listed here once); ``card_catalysts`` = the thesis-level catalysts of the cards it counts on;
+         *     ``scored`` = Workbench scoring meters (runway, dilution overhang, catalysts, purity, market-cap provenance);
+         *     ``shared_values`` = platform share-count and cash/burn status with provenance. ``cache`` / ``compute_ms`` =
+         *     whether the page came from the shared dashboard cache and how long it took when computed.
          */
         TickerLookupOut: {
             /**
@@ -19884,6 +19912,8 @@ export interface components {
             decisions: components["schemas"]["TickerLookupDecisionOut"][];
             /** Decisions Voided */
             decisions_voided: number;
+            scored?: components["schemas"]["ScoredMemberOut"] | null;
+            shared_values?: components["schemas"]["UserCompanyValuesOut"] | null;
             /**
              * Cache
              * @enum {string}
@@ -19916,6 +19946,62 @@ export interface components {
             turns: string[];
             /** Live Risks */
             live_risks: number;
+        };
+        /**
+         * TickerLookupPriceWindowOut
+         * @description As-of-capped daily price tape with 50d/200d SMAs and dated event overlays for one company
+         *     (works even when the company sits on no card). Uses the same two-axis no-lookahead contract as
+         *     the Scoreboard price window (public clock on past as-ofs, record clock live).
+         */
+        TickerLookupPriceWindowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Source
+             * @default fact_price_eod
+             * @constant
+             */
+            source: "fact_price_eod";
+            /** Bars */
+            bars: components["schemas"]["PriceBar"][];
+            /**
+             * Insider Buys
+             * @default []
+             */
+            insider_buys: components["schemas"]["InsiderBuyOut"][];
+            /**
+             * Insider Sells
+             * @default []
+             */
+            insider_sells: components["schemas"]["InsiderSellOut"][];
+            /**
+             * Corporate Events
+             * @default []
+             */
+            corporate_events: components["schemas"]["CorporateEventOut"][];
+            /**
+             * Activist Stakes
+             * @default []
+             */
+            activist_stakes: components["schemas"]["ActivistStakeOut"][];
         };
         /**
          * TickerLookupResolveOut
@@ -26152,6 +26238,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TickerLookupResolveOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ticker_lookup_price_window_dashboards_ticker_lookup__security_id__price_window_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing public after it is read */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TickerLookupPriceWindowOut"];
                 };
             };
             /** @description Validation Error */

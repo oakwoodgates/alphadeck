@@ -5,10 +5,14 @@
 ## What it shows
 
 What the platform holds about one company at the as-of, on one screen. Each section is a reading another page
-already makes, scoped to one `security_id`; nothing is new data or ranked. Seven sections, each with its n:
-identity (the approximate cap and tier, the data flags on its price); cards (one row per card holding it, with the
-name's place on the call in effect); the record's triggers on it; tape; filings; catalysts; the user's logged
-decisions. The ticker rides the URL as `?t=`; Enter resolves an exact ticker first.
+already makes, scoped to one `security_id`; nothing is new data or ranked. Core standing page (`status: "core"`),
+also linked directly from the dashboard `CompanyDrawer`. Sections, each with its n: identity (the approximate cap
+and tier, the data flags on its price); interactive price & events chart (`PriceSparkline` with `3M / 6M / 1Y / ALL`
+spans, synced with a filterable `EventLedger`, and a one-click `vs IWM` indexed toggle); tape; fundamentals &
+dilution (Workbench scoring meters and shared platform value status with provenance); cards (one row per card
+holding it, with the name's place on the call in effect); the record's triggers on it; filings; catalysts (with
+relative countdowns and `live` markers); the user's logged decisions. The ticker rides the URL as `?t=`; Enter
+resolves an exact ticker first.
 
 ## Who counts
 
@@ -23,7 +27,7 @@ decisions. The ticker rides the URL as `?t=`; Enter resolves an exact ticker fir
 | Piece | Where |
 |---|---|
 | Compute | `backend/dashboards/ticker_lookup.py` |
-| Route | `GET /dashboards/ticker-lookup/{security_id}`; `.../resolve?t=` |
+| Route | `GET /dashboards/ticker-lookup/{security_id}`; `.../{security_id}/price-window`; `.../resolve?t=` |
 | Shared readers | `baskets`, `filings`, `series.aligned`, `market_cap.cap_cell` (the shared cap rule) |
 | Cache key | `(str(security_id), clock)`, plus the counted cards as `("cards", clock)`. Not warmed |
 | Frontend | `frontend/src/dashboards/ticker-lookup/` |

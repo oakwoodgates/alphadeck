@@ -197,7 +197,43 @@ tr.voided td { color: var(--txt-4); }
 .tl-clist li.passed { color: var(--txt-4); }
 .tl-clist .tl-num { min-width: 86px; font-size: 11px; }
 .tl-clist a { color: var(--txt-2); text-underline-offset: 3px; font-family: var(--mono); font-size: 10.5px; }
-.tl-clabel { flex: 1 1 260px; min-width: 0; }
+.tl-clabel { flex: 1 1 260px; min-width: 0; display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+.tl-cat-when { min-width: 145px; white-space: nowrap; }
+.tl-cat-cd { color: var(--txt-3); font-size: 10px; }
+.tl-clist li.soon .tl-cat-when, .tl-clist li.soon .tl-cat-cd { color: var(--warm); }
+.tl-cat-live { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--pos); border: 1px solid color-mix(in srgb, var(--pos) 40%, var(--line-2)); border-radius: 4px; padding: 0 5px; line-height: 15px; }
+
+/* interactive price & events chart + two-column dossier workspace */
+.tl-chart-panel { border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--panel) 65%, transparent); padding: 10px 12px 8px; }
+.tl-chart-panel .tl-spark { border: 0; background: transparent; padding: 0; margin: 0; }
+.tl-chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 6px; }
+.tl-chart-title { border-bottom: 0; padding-bottom: 0; margin: 0; }
+.tl-chart-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+
+.tl-dossier-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px 20px; margin-top: 6px; }
+.tl-dossier-grid.single { grid-template-columns: minmax(0, 1fr); }
+.tl-ledger-col { min-width: 0; display: flex; flex-direction: column; }
+.tl-ledger-col .cd-evledger { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.tl-ledger-col .evled-scroll { flex: 1 1 auto; max-height: 460px; }
+.tl-tape-col { min-width: 0; }
+.tl-tape-col > .tl-sec { margin-top: 0; }
+
+@media (min-width: 1040px) {
+  .tl-dossier-grid:not(.single) { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: stretch; }
+  .tl-dossier-grid:not(.single) .tl-ledger-col { position: relative; min-height: 280px; }
+  .tl-dossier-grid:not(.single) .tl-ledger-col .cd-evledger { position: absolute; inset: 0; }
+  .tl-dossier-grid:not(.single) .tl-ledger-col .evled-scroll { max-height: none; min-height: 240px; }
+  .tl-dossier-grid:not(.single) .tl-tape { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px 18px; }
+}
+
+/* fundamentals, dilution & shared values */
+.tl-fund-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px 24px; padding-top: 4px; }
+.tl-fund-meters, .tl-fund-meta { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.tl-fund-shared { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.tl-fund-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-height: 24px; border-bottom: 1px solid var(--line); }
+.tl-fund-row dt { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); white-space: nowrap; }
+.tl-fund-row dd { margin: 0; display: inline-flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--txt-2); text-align: right; }
+.tl-fund-notes { font-size: 11px; color: var(--txt-3); display: flex; flex-direction: column; gap: 2px; }
 
 .tl-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .tl-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
@@ -205,6 +241,7 @@ tr.voided td { color: var(--txt-4); }
 /* a phone: the box fills the line, the filing's form, dollar hint and link sit on the first line and the headline
    wraps under them, the tables scroll sideways with the card column pinned */
 @media (max-width: 640px) {
+  .tl-fund-grid { grid-template-columns: 1fr; }
   .tl-input { width: 100%; }
   .tl-boxwrap { flex: 1 1 100%; }
   .tl-facts { grid-template-columns: 1fr; }

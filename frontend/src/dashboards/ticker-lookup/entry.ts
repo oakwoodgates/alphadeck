@@ -11,7 +11,7 @@ export const entry: DashboardEntry = {
   label: "Ticker Lookup",
   description: "Type a ticker: every card the company sits on and its part in each, the record's triggers on it, its tape, its filings and your decisions on it, at the as-of.",
   group: "fundamentals",
-  status: "experimental",
+  status: "core",
   asofAware: true,
   readsRecord: true,
   openCompanyInCockpit: true,

@@ -23,7 +23,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.types.json import Json
 from pydantic import BaseModel, ConfigDict
 
+from app.auth import CurrentUser, require_user
 from app.deps import get_conn, get_workspace
+from app.routers.platform_values import UserCompanyValuesOut, company_out
+from app.schemas_api import (
+    ActivistStakeOut,
+    CorporateEventOut,
+    InsiderBuyOut,
+    InsiderSellOut,
+    PriceBar,
+    ScoredMemberOut,
+)
 from dashboards.baskets import cards_as_of, per_company, price_flags
 from dashboards.baskets import with_live_entries as cards_with_live_entries
 from dashboards.cache import cached
@@ -53,22 +63,48 @@ from dashboards.ticker_lookup import (
     trigger_log,
     with_live_entries,
 )
+from db.clock import db_now
 from domain.call import CallCard
+from domain.config import DEFAULT_CONFIG
 from domain.links import HttpUrlOut
-from domain.market_time import countdown_origin, market_clock, market_tz, serve_view
+from domain.market_time import (
+    countdown_origin,
+    known_at_for_asof,
+    market_clock,
+    market_tz,
+    serve_view,
+    view_day,
+)
 from domain.platform_values import pick_current
 from domain.scopes import DATA_TENANT_ID
-from domain.splits import ListedSplit, listed_from_row
+from domain.splits import ListedSplit, listed_from_row, tape_scale
 from domain.text_types import AsofDate
-from domain.thesis import Thesis
+from domain.thesis import BasketMember, Thesis
+from ingest.prices.eod_loader import recent_distinct_bar_counts
 from pipeline.backfill import thesis_existed_on
-from repositories import thesis_repo
+from platform_values import user_view
+from repositories import price_feed_repo, split_repo, thesis_repo
+from scoreboard.overlays import (
+    SMA_WARMUP_DAYS,
+    annotate_sma,
+    episode_activist_stakes,
+    episode_corporate_events,
+    episode_insider_buys,
+    episode_insider_sells,
+)
+from scoreboard.prices import PgRealizedPrices
 from securities import master
+from securities.price_history_health import is_thin_history
+from signals import catalyst_conviction
 from signals.base import PointInTimeData
+from signals.common import entry_signal_is_live
 from signals.display import etf_flow, price_path, registered_display_members
 from signals.display.base import DisplaySignal
+from workbench.scoring import score_member, scored_bounds
 
 router = APIRouter(prefix="/ticker-lookup")
+
+PRICE_WINDOW_DAYS = 730  # 2-year loaded horizon so 3M / 6M / 1Y / ALL spans have full history
 
 
 # --- the reads (SELECT only) -------------------------------------------------------------------------------
@@ -395,6 +431,66 @@ def read_live_entries(
     )
 
 
+def read_company_extras(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    asof: date,
+    known_at: datetime | None,
+    clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
+    user_id: UUID,
+) -> tuple[ScoredMemberOut | None, UserCompanyValuesOut | None, set[tuple[date, str]]]:
+    """Single-company Workbench scoring meters (runway, dilution overhang, catalyst density, purity,
+    market-cap provenance), shared platform values (shares + cash/burn status with provenance), and
+    the ``(valid_from, headline)`` keys of currently LIVE company catalysts at ``asof``. Read live
+    so a recent ratify, steward verification, or value flag shows immediately.
+    """
+    sec = master.get(conn, security_id)
+    if sec is None:
+        return None, None, set()
+    pit = PointInTimeData(
+        conn,
+        asof=asof,
+        known_at=known_at,
+        data_tenant=DATA_TENANT_ID,
+        workspace=workspace,
+        basket={security_id},
+        bounds=scored_bounds(),
+        clock=clock,
+    )
+    sec_ids = {security_id}
+    ident_for = master.identity_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+    applies = bool(ident_for.get(security_id, {}).get("runway_applies", True))
+    member = BasketMember(ticker=sec.ticker or "", role="", security_id=security_id)
+    scored = score_member(pit, member, DEFAULT_CONFIG, runway_applies=applies)
+    cik_for = master.ciks_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+    ticker_for = master.tickers_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+    bar_counts = recent_distinct_bar_counts(conn, sec_ids, asof=asof, tenant_id=DATA_TENANT_ID)
+    thin_for = {security_id: is_thin_history(bar_counts.get(security_id, 0))}
+    limited_for = {
+        k: mark.reason
+        for k, mark in price_feed_repo.limited_history_marks(
+            conn, sec_ids, tenant_id=DATA_TENANT_ID
+        ).items()
+    }
+    scored_out = ScoredMemberOut.from_scored(
+        scored, cik_for, ticker_for, ident_for, thin_for, limited_for
+    )
+    cv = user_view.values_for(conn, [security_id], user_id=user_id).get(security_id)
+    shared_values = company_out(cv) if cv is not None else None
+    live_catalysts: set[tuple[date, str]] = set()
+    for f in pit.catalyst_facts(security_id):
+        vf = f.get("valid_from")
+        if vf is None:
+            continue
+        if entry_signal_is_live(vf, catalyst_conviction.liveness(f, DEFAULT_CONFIG), asof):
+            ctype = str(f.get("catalyst_type") or "catalyst").replace("_", " ")
+            headline = f"{ctype}: {f.get('label') or 'no label stated'}"
+            live_catalysts.add((vf, headline))
+    return scored_out, shared_values, live_catalysts
+
+
 # --- the wire ----------------------------------------------------------------------------------------------
 
 
@@ -637,6 +733,7 @@ class TickerLookupFilingOut(_Wire):
     usd: float | None
     set_by: Literal["you", "steward", "carried"] | None
     ratified_on: date | None
+    live: bool = False
 
 
 class TickerLookupFilingDayOut(_Wire):
@@ -698,12 +795,30 @@ class TickerLookupDecisionOut(_Wire):
     voids: UUID | None
 
 
+class TickerLookupPriceWindowOut(BaseModel):
+    """As-of-capped daily price tape with 50d/200d SMAs and dated event overlays for one company
+    (works even when the company sits on no card). Uses the same two-axis no-lookahead contract as
+    the Scoreboard price window (public clock on past as-ofs, record clock live)."""
+
+    security_id: UUID
+    start: date
+    end: date
+    asof: date
+    source: Literal["fact_price_eod"] = "fact_price_eod"
+    bars: list[PriceBar]
+    insider_buys: list[InsiderBuyOut] = []
+    insider_sells: list[InsiderSellOut] = []
+    corporate_events: list[CorporateEventOut] = []
+    activist_stakes: list[ActivistStakeOut] = []
+
+
 class TickerLookupOut(_Wire):
     """The whole page for one company. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
     public by the end of that date). ``catalyst_facts`` = the company's own catalyst facts (also rows of the
-    filing reader, listed here once); ``card_catalysts`` = the thesis-level catalysts of the cards it counts on.
-    ``cache`` / ``compute_ms`` = whether the page came from the shared dashboard cache and how long it took when
-    computed."""
+    filing reader, listed here once); ``card_catalysts`` = the thesis-level catalysts of the cards it counts on;
+    ``scored`` = Workbench scoring meters (runway, dilution overhang, catalysts, purity, market-cap provenance);
+    ``shared_values`` = platform share-count and cash/burn status with provenance. ``cache`` / ``compute_ms`` =
+    whether the page came from the shared dashboard cache and how long it took when computed."""
 
     asof: date
     clock: Literal["record", "public"]
@@ -716,6 +831,8 @@ class TickerLookupOut(_Wire):
     card_catalysts: list[TickerLookupCardCatalystOut]
     decisions: list[TickerLookupDecisionOut]
     decisions_voided: int
+    scored: ScoredMemberOut | None = None
+    shared_values: UserCompanyValuesOut | None = None
     cache: Literal["hit", "computed"]
     compute_ms: int
 
@@ -754,19 +871,105 @@ def ticker_lookup_resolve(
     )
 
 
+@router.get("/{security_id}/price-window", response_model=TickerLookupPriceWindowOut)
+def ticker_lookup_price_window(
+    security_id: UUID,
+    asof: AsofDate = Query(..., description="as-of date; nothing public after it is read"),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> TickerLookupPriceWindowOut:
+    """As-of-capped daily price tape with 50d/200d SMAs and dated event overlays (insider buys/sells,
+    8-K corporate events, 13D/G stakes) for one company, independent of whether it sits on any thesis
+    card. Display only; 404 for an unknown id."""
+    if master.get(conn, security_id) is None:
+        raise HTTPException(status_code=404, detail="no company with this id")
+    tenant = DATA_TENANT_ID
+    reader = PgRealizedPrices(conn, tenant_id=tenant, cap=asof)
+    floor_anchor = asof - timedelta(days=PRICE_WINDOW_DAYS)
+    warmup = reader.bars_between(security_id, floor_anchor - timedelta(days=SMA_WARMUP_DAYS), asof)
+    floor = max(floor_anchor, warmup[0]["d"]) if warmup else floor_anchor
+    annotated = annotate_sma(warmup)
+    window_bars = [b for b in annotated if b["d"] >= floor]
+    day_lows = {b["d"]: b["low"] for b in warmup if b.get("low") is not None}
+    price_scale = tape_scale(
+        split_repo.as_of_rows(
+            conn, tenant_id=tenant, security_ids=[security_id], known_at=reader.known_at
+        )[security_id],
+        through=view_day(reader.known_at),
+    )
+    known_at = known_at_for_asof(asof, now=db_now(conn))
+    _, clock = serve_view(asof)
+    buys = episode_insider_buys(
+        conn,
+        tenant_id=tenant,
+        security_id=security_id,
+        start=floor,
+        end=asof,
+        asof=asof,
+        known_at=known_at,
+        clock=clock,
+        day_lows=day_lows,
+        price_scale=price_scale,
+    )
+    sells = episode_insider_sells(
+        conn,
+        tenant_id=tenant,
+        security_id=security_id,
+        start=floor,
+        end=asof,
+        asof=asof,
+        known_at=known_at,
+        clock=clock,
+        day_lows=day_lows,
+        price_scale=price_scale,
+    )
+    corp_events = episode_corporate_events(
+        conn,
+        tenant_id=tenant,
+        security_id=security_id,
+        start=floor,
+        end=asof,
+        asof=asof,
+        known_at=known_at,
+        clock=clock,
+    )
+    stakes = episode_activist_stakes(
+        conn,
+        tenant_id=tenant,
+        security_id=security_id,
+        start=floor,
+        end=asof,
+        asof=asof,
+        known_at=known_at,
+        clock=clock,
+    )
+    return TickerLookupPriceWindowOut(
+        security_id=security_id,
+        start=floor,
+        end=asof,
+        asof=asof,
+        source="fact_price_eod",
+        bars=[PriceBar(**b) for b in window_bars],
+        insider_buys=[InsiderBuyOut(**b) for b in buys],
+        insider_sells=[InsiderSellOut(**s) for s in sells],
+        corporate_events=[CorporateEventOut(**e) for e in corp_events],
+        activist_stakes=[ActivistStakeOut(**s) for s in stakes],
+    )
+
+
 @router.get("/{security_id}", response_model=TickerLookupOut)
 def ticker_lookup(
     security_id: UUID,
     asof: AsofDate = Query(..., description="as-of date; nothing public after it is read"),
     conn: psycopg.Connection = Depends(get_conn),
     workspace: UUID = Depends(get_workspace),
+    user: CurrentUser = Depends(require_user),
 ) -> TickerLookupOut:
     """Everything the platform holds about one company at the as-of: its identity and approximate market cap, the
     counted cards it sits on and its part in each (the recorded call in effect), the triggers the recorded calls
     show on it over the last 365 days, its tape (the display members' readings), its filings and catalyst facts,
-    the catalysts of its cards and the operator's logged decisions on it. A past as-of reads what was public by the
-    end of that date (a roster row added or a filing filed after it never appears). Display only; 404 for an
-    unknown id."""
+    the catalysts of its cards, its Workbench scoring meters and shared platform values, and the operator's logged
+    decisions on it. A past as-of reads what was public by the end of that date (a roster row added or a filing
+    filed after it never appears). Display only; 404 for an unknown id."""
     mclock = market_clock()
     known_at, clock = serve_view(asof, night=mclock.night)
     if master.get(conn, security_id) is None:
@@ -783,16 +986,24 @@ def ticker_lookup(
         lambda: read_lookup(conn, security_id, asof, known_at, clock, workspace=workspace),
         workspace=workspace,
     )
-    # the exclusions, card catalysts and decisions are not snapshotted: read them now, not from the cache
+    # the exclusions, card catalysts, decisions, scoring meters, and shared values are read live on every request
     excluded, catalysts, decisions = read_live_entries(
         conn, security_id, asof, known_at, clock, origin, workspace=workspace
     )
     page = with_live_entries(got.value, excluded, catalysts, decisions)
+    scored_out, shared_values, live_catalysts = read_company_extras(
+        conn, security_id, asof, known_at, clock, workspace=workspace, user_id=user.id
+    )
+    payload = asdict(page)
+    for cf in payload["catalyst_facts"]:
+        cf["live"] = (cf["date"], cf["headline"]) in live_catalysts
     return TickerLookupOut.model_validate(
         {
-            **asdict(page),
+            **payload,
             "asof": asof,
             "clock": clock,
+            "scored": scored_out,
+            "shared_values": shared_values,
             "cache": got.status,
             "compute_ms": got.compute_ms,
         }
