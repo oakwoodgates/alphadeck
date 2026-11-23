@@ -247,6 +247,22 @@ def read_thesis_data_flags(
     )
 
 
+def read_member_data_flags(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    asof: date,
+    *,
+    view: tuple[datetime | None, Literal["record", "public"]],
+) -> MemberDataFlagsOut | None:
+    """Single-company counterpart to ``read_thesis_data_flags`` — returns ``None`` when the company has no
+    active flags, splits, or notes at ``asof`` (the common case)."""
+    out = _read(conn, tenant_id=DATA_TENANT_ID, ids=[security_id], asof=asof, view=view)
+    m = out[security_id]
+    if not (m.flags or m.splits or m.notes):
+        return None
+    return _member_out(m)
+
+
 @router.get("/data-flags", response_model=DataFlagsResponse)
 def get_data_flags(
     asof: AsofDate = Query(..., description="as-of date; the flags use no data public after it"),

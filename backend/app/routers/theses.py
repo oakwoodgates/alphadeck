@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from app import workspace_caps
 from app.auth import CurrentUser, require_user
 from app.deps import get_conn, get_thesis_or_404, get_workspace
+from app.routers.data_flags import MemberDataFlagsOut, read_member_data_flags
+from app.routers.platform_values import UserCompanyValuesOut, company_out
+from app.routers.workbench import read_scored_member
 from app.schemas_api import (
     CallCardResponse,
     CatalystCountingIn,
@@ -22,9 +26,12 @@ from app.schemas_api import (
     MemberDisplaySignalsOut,
     MetaIndexIn,
     RecordedCallSummary,
+    ScoredMemberOut,
     ThesisDetail,
     ThesisSummary,
 )
+from domain.config import DEFAULT_CONFIG
+from domain.links import HttpUrlOut, edgar_company_url, source_url
 from domain.market_time import (
     MarketClock,
     market_clock,
@@ -33,12 +40,15 @@ from domain.market_time import (
     serve_view,
 )
 from domain.scopes import DATA_TENANT_ID
-from domain.text_types import AsofDate
-from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
+from domain.text_types import AsofDate, Line
+from domain.thesis import BasketMember, Catalyst, ExcludedName, KillCriterion, Position, Thesis
 from pipeline.call_for_thesis import call_for_thesis
+from platform_values import user_view
 from repositories import calls_repo, decisions_repo, thesis_catalyst_repo, thesis_repo
 from securities import master
+from signals import catalyst_conviction
 from signals.base import PointInTimeData
+from signals.common import entry_signal_is_live
 from signals.display import registered_display_members, relative_strength, theme_breadth
 from signals.horizons import display_bounds
 
@@ -336,6 +346,243 @@ def read_display_signals(
     sector_rs = relative_strength.sector_rs_for(pit, sids, supersector_by_sid)
     return DisplaySignalsResponse(
         thesis_id=thesis.id, asof=asof, breadth=breadth, sector_rs=sector_rs, members=members
+    )
+
+
+class MemberCardRefOut(BaseModel):
+    """Another (or current) card in the caller's workspace holding this security — feeds the drawer's card switcher."""
+
+    thesis_id: UUID
+    thesis_name: str
+    ticker: str
+    archived: bool = False
+
+
+class MemberCatalystFactOut(BaseModel):
+    """One stored company catalyst fact visible at ``asof`` (no-lookahead), with live flag and safe source link."""
+
+    date: date
+    label: str
+    catalyst_type: str | None = None
+    grade: str | None = None
+    live: bool = False
+    source: str | None = None
+    url: HttpUrlOut = None
+
+
+class MemberPanelResponse(BaseModel):
+    """Single-member read for the dashboard company overlay (mirrors the Cockpit's ``NamePanel`` without
+    computing display signals, scores, or data flags for the rest of a large basket)."""
+
+    thesis_id: UUID
+    thesis_name: str
+    asof: date
+    member: BasketMember
+    cik: str | None = None
+    edgar_url: HttpUrlOut = None
+    position: Position | None = None
+    card: CallCardResponse
+    scored: ScoredMemberOut | None = None
+    display: MemberDisplaySignalsOut | None = None
+    data_flags: MemberDataFlagsOut | None = None
+    shared_values: UserCompanyValuesOut | None = None
+    decisions: list[DecisionOut] = []
+    catalyst_facts: list[MemberCatalystFactOut] = []
+    card_catalysts: list[Catalyst] = []
+    cards: list[MemberCardRefOut] = []
+
+
+def _resolve_member(thesis: Thesis, name: str) -> BasketMember | None:
+    """Resolve a ``?name=`` key to one basket row — exact ``security_id`` first, else case-insensitive
+    ticker, ties broken by authored basket order (mirrors ``frontend/src/cockpit/buckets.ts``)."""
+    for m in thesis.basket:
+        if m.security_id is not None and str(m.security_id) == name:
+            return m
+    low = name.lower()
+    for m in thesis.basket:
+        if m.ticker.lower() == low:
+            return m
+    return None
+
+
+def read_member_display_signals(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    sid: UUID,
+    asof: date,
+    *,
+    view: tuple[datetime | None, Literal["record", "public"]],
+) -> MemberDisplaySignalsOut:
+    """Single-member counterpart to ``read_display_signals`` — scopes PIT prefetch to ``[sid]`` and skips
+    thesis-wide breadth and sector-RS rollups."""
+    known_at, clock = view
+    pit = PointInTimeData(
+        conn,
+        asof=asof,
+        known_at=known_at,
+        data_tenant=DATA_TENANT_ID,
+        workspace=thesis.tenant_id,
+        basket=[sid],
+        bounds=display_bounds(),
+        clock=clock,
+    )
+    ticker_for = master.tickers_for(conn, {sid}, tenant_id=DATA_TENANT_ID)
+    return MemberDisplaySignalsOut(
+        security_id=sid,
+        ticker=ticker_for.get(sid),
+        signals=[
+            sig
+            for member in registered_display_members()
+            if (sig := member(pit, sid, asof)) is not None
+        ],
+    )
+
+
+def read_member_cards(
+    conn: psycopg.Connection, thesis: Thesis, member: BasketMember
+) -> list[MemberCardRefOut]:
+    """All live (non-archived) cards in the caller's workspace holding this security, plus the current card
+    when it is archived. Scoped strictly to ``thesis.tenant_id`` (invariant #12)."""
+    sid = member.security_id
+    if sid is None:
+        return [
+            MemberCardRefOut(
+                thesis_id=thesis.id,
+                thesis_name=thesis.name,
+                ticker=member.ticker,
+                archived=thesis.archived_at is not None,
+            )
+        ]
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (t.name, t.id) t.id, t.name, b.ticker "
+            "FROM basket_member b "
+            "JOIN thesis t ON t.id = b.thesis_id "
+            "WHERE t.tenant_id = %s AND t.archived_at IS NULL AND b.security_id = %s "
+            "ORDER BY t.name, t.id",
+            (thesis.tenant_id, sid),
+        )
+        rows = cur.fetchall()
+    out = [
+        MemberCardRefOut(thesis_id=r["id"], thesis_name=r["name"], ticker=r["ticker"]) for r in rows
+    ]
+    if all(c.thesis_id != thesis.id for c in out):
+        out.append(
+            MemberCardRefOut(
+                thesis_id=thesis.id,
+                thesis_name=thesis.name,
+                ticker=member.ticker,
+                archived=thesis.archived_at is not None,
+            )
+        )
+    return out
+
+
+def read_member_catalysts(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    sid: UUID,
+    cik: str | None,
+    asof: date,
+    *,
+    view: tuple[datetime | None, Literal["record", "public"]],
+) -> list[MemberCatalystFactOut]:
+    """Company catalyst facts visible at ``asof`` (newest first), with liveness and safe source URL."""
+    known_at, clock = view
+    pit = PointInTimeData(
+        conn,
+        asof=asof,
+        known_at=known_at,
+        data_tenant=DATA_TENANT_ID,
+        workspace=thesis.tenant_id,
+        basket=[sid],
+        bounds={"fact_catalyst": None},
+        clock=clock,
+    )
+    facts = sorted(pit.catalyst_facts(sid), key=lambda f: f["valid_from"], reverse=True)
+    return [
+        MemberCatalystFactOut(
+            date=f["valid_from"],
+            label=f["label"],
+            catalyst_type=f.get("catalyst_type"),
+            grade=f.get("grade"),
+            live=entry_signal_is_live(
+                f["valid_from"], catalyst_conviction.liveness(f, DEFAULT_CONFIG), asof
+            ),
+            source=f.get("source"),
+            url=source_url(f.get("source_ref"), cik),
+        )
+        for f in facts
+    ]
+
+
+@router.get("/{thesis_id}/member-panel", response_model=MemberPanelResponse)
+def get_member_panel(
+    name: Annotated[
+        Line,
+        Query(
+            min_length=1,
+            description="member key: security_id (exact) or ticker (case-insensitive)",
+        ),
+    ],
+    asof: AsofDate = Query(
+        ...,
+        description="as-of date; every fact read uses no data knowable after it",
+    ),
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+    user: CurrentUser = Depends(require_user),
+) -> MemberPanelResponse:
+    """Read-only single-member payload for the dashboard company overlay (mirrors the Cockpit's per-name
+    panel). Computes display signals, scoring meters, data flags, and shared platform values for the one
+    resolved member instead of the entire basket, and lists every active card in the caller's workspace
+    holding that company for in-drawer card switching."""
+    member = _resolve_member(thesis, name)
+    if member is None:
+        raise HTTPException(status_code=404, detail="member not found on thesis")
+    mclock = market_clock()
+    view = serve_view(asof, night=mclock.night)
+    card = read_call(conn, thesis, asof, mclock=mclock, view=view)
+    position = decisions_repo.effective_position(conn, thesis, asof=market_today(), known_at=None)
+    sid = member.security_id
+    scored = read_scored_member(conn, thesis, member, asof, view=view) if sid is not None else None
+    display = (
+        read_member_display_signals(conn, thesis, sid, asof, view=view) if sid is not None else None
+    )
+    flags = read_member_data_flags(conn, sid, asof, view=view) if sid is not None else None
+    shared_values = None
+    if sid is not None:
+        got = user_view.values_for(conn, [sid], user_id=user.id)
+        cv = got.get(sid)
+        if cv is not None:
+            shared_values = company_out(cv)
+    decisions = (
+        [d for d in read_decisions(conn, thesis) if d.security_id == sid] if sid is not None else []
+    )
+    cik = (
+        master.ciks_for(conn, {sid}, tenant_id=DATA_TENANT_ID).get(sid) if sid is not None else None
+    )
+    catalyst_facts = (
+        read_member_catalysts(conn, thesis, sid, cik, asof, view=view) if sid is not None else []
+    )
+    cards = read_member_cards(conn, thesis, member)
+    return MemberPanelResponse(
+        thesis_id=thesis.id,
+        thesis_name=thesis.name,
+        asof=asof,
+        member=member,
+        cik=cik,
+        edgar_url=edgar_company_url(cik),
+        position=position,
+        card=card,
+        scored=scored,
+        display=display,
+        data_flags=flags,
+        shared_values=shared_values,
+        decisions=decisions,
+        catalyst_facts=catalyst_facts,
+        card_catalysts=list(thesis.catalysts),
+        cards=cards,
     )
 
 

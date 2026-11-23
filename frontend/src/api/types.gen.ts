@@ -468,6 +468,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/theses/{thesis_id}/member-panel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Member Panel
+         * @description Read-only single-member payload for the dashboard company overlay (mirrors the Cockpit's per-name
+         *     panel). Computes display signals, scoring meters, data flags, and shared platform values for the one
+         *     resolved member instead of the entire basket, and lists every active card in the caller's workspace
+         *     holding that company for in-drawer card switching.
+         */
+        get: operations["get_member_panel_theses__thesis_id__member_panel_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses/{thesis_id}/catalysts": {
         parameters: {
             query?: never;
@@ -14733,6 +14756,52 @@ export interface components {
             triggers: components["schemas"]["TriggerRefOut"][];
         };
         /**
+         * MemberCardRefOut
+         * @description Another (or current) card in the caller's workspace holding this security — feeds the drawer's card switcher.
+         */
+        MemberCardRefOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /**
+             * Archived
+             * @default false
+             */
+            archived: boolean;
+        };
+        /**
+         * MemberCatalystFactOut
+         * @description One stored company catalyst fact visible at ``asof`` (no-lookahead), with live flag and safe source link.
+         */
+        MemberCatalystFactOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Label */
+            label: string;
+            /** Catalyst Type */
+            catalyst_type?: string | null;
+            /** Grade */
+            grade?: string | null;
+            /**
+             * Live
+             * @default false
+             */
+            live: boolean;
+            /** Source */
+            source?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /**
          * MemberDataFlagsOut
          * @description One name's flags, quiet markers and split rows. ``marked`` = some flag reaches a cell on its row (the
          *     row mark); a marker never sets it.
@@ -14777,6 +14846,56 @@ export interface components {
              * @default []
              */
             signals: components["schemas"]["DisplaySignal"][];
+        };
+        /**
+         * MemberPanelResponse
+         * @description Single-member read for the dashboard company overlay (mirrors the Cockpit's ``NamePanel`` without
+         *     computing display signals, scores, or data flags for the rest of a large basket).
+         */
+        MemberPanelResponse: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            member: components["schemas"]["BasketMember"];
+            /** Cik */
+            cik?: string | null;
+            /** Edgar Url */
+            edgar_url?: string | null;
+            position?: components["schemas"]["Position"] | null;
+            card: components["schemas"]["CallCardResponse"];
+            scored?: components["schemas"]["ScoredMemberOut"] | null;
+            display?: components["schemas"]["MemberDisplaySignalsOut"] | null;
+            data_flags?: components["schemas"]["MemberDataFlagsOut"] | null;
+            shared_values?: components["schemas"]["UserCompanyValuesOut"] | null;
+            /**
+             * Decisions
+             * @default []
+             */
+            decisions: components["schemas"]["DecisionOut"][];
+            /**
+             * Catalyst Facts
+             * @default []
+             */
+            catalyst_facts: components["schemas"]["MemberCatalystFactOut"][];
+            /**
+             * Card Catalysts
+             * @default []
+             */
+            card_catalysts: components["schemas"]["Catalyst"][];
+            /**
+             * Cards
+             * @default []
+             */
+            cards: components["schemas"]["MemberCardRefOut"][];
         };
         /**
          * MetaIndexIn
@@ -21750,6 +21869,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DisplaySignalsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_member_panel_theses__thesis_id__member_panel_get: {
+        parameters: {
+            query: {
+                /** @description member key: security_id (exact) or ticker (case-insensitive) */
+                name: string;
+                /** @description as-of date; every fact read uses no data knowable after it */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberPanelResponse"];
                 };
             };
             /** @description Validation Error */

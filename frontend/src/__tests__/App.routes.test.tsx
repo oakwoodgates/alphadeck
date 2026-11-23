@@ -39,6 +39,18 @@ vi.mock("../api/hooks", () => ({
   useClock: () => h.clock,
   useMe: () => h.me,
   useLogout: () => ({ isPending: false, mutate: () => undefined }),
+  useMemberPanel: () => ({
+    isLoading: false,
+    isPending: false,
+    isError: false,
+    isPlaceholderData: false,
+    data: undefined,
+  }),
+  useEpisodePriceWindow: () => ({
+    isLoading: false,
+    isError: false,
+    data: undefined,
+  }),
 }));
 
 const STEWARD = {
@@ -535,11 +547,15 @@ describe("App routes — the Dashboards (docs/DASHBOARDS.md)", () => {
     expect(screen.queryByLabelText("as-of")).not.toBeInTheDocument();
   });
 
-  it("onSelectThesis opens the Cockpit (asof + name carried) and Back returns to the dashboard", async () => {
+  it("a company click opens the overlay drawer, Open in Cockpit navigates (asof + name carried), and Back returns to the dashboard", async () => {
     const user = userEvent.setup();
     h.dashboards.push(FAKE);
     renderAt("/dashboards/fake-dash?asof=2026-06-01");
     await user.click(await screen.findByText("dash-select"));
+    // Company click keeps the user on the dashboard with the modal drawer open
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("FAKE BODY")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Open in Cockpit/i }));
     expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-9");
     expect(screen.getByTestId("cp-name")).toHaveTextContent("HIMS");
     expect(screen.getByTestId("cp-asof")).toHaveTextContent("2026-06-01");

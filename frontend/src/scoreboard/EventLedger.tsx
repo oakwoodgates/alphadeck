@@ -1,8 +1,10 @@
+import { useMemo, useState } from "react";
+
 import type { DisplaySignal } from "../api/hooks";
 import { DisplayHeadlineRow } from "../cockpit/DisplaySignalsSection";
 import { fmtDate } from "../util/format";
 import { type IdentityCell, ledgerRow } from "./ledger";
-import { eventSetAside, type OverlayEvent } from "./overlay";
+import { eventSetAside, legendEntries, type OverlayEvent, type OverlayFamily } from "./overlay";
 import { ExternalLink } from "../components/ExternalLink";
 
 // The per-episode event LEDGER (Slice B) — the tabular companion to the drawer chart. It lists the SAME
@@ -20,28 +22,83 @@ export interface EventLedgerProps {
   events: OverlayEvent[];
   activeN: number | null;
   onActivate: (n: number | null) => void;
-  identity: IdentityCell[];
-  signals: DisplaySignal[];
+  identity?: IdentityCell[];
+  signals?: DisplaySignal[];
   /** Set (to the drawer's asof) for a CLOSED/matured episode → the "current tape · as-of X" caption, so a
    *  name-current 90d figure isn't misread as the episode's own period. Null for a still-open episode. */
   tapeAsof?: string | null;
   /** Editions S4: a re-run edition's drawer — drop the "ingested Nd later" lines (our fetch timing). */
   hideIngest?: boolean;
+  /** When false, renders only the cross-highlighting event table (used by CompanyDrawer, which shows
+   *  identity and headlines in dedicated hero/context sections). Default true (Scoreboard). */
+  showCockpitStrip?: boolean;
+  /** Optional heading override (default "Event ledger"). */
+  heading?: string;
+  /** When true and 2+ event families exist, renders quiet reversible family filter chips above the table
+   *  (row #N numbers stay fixed to match the chart chips). Default false (Scoreboard). */
+  filterable?: boolean;
 }
 
 export function EventLedger({
   events,
   activeN,
   onActivate,
-  identity,
-  signals,
+  identity = [],
+  signals = [],
   tapeAsof,
   hideIngest = false,
+  showCockpitStrip = true,
+  heading = "Event ledger",
+  filterable = false,
 }: EventLedgerProps) {
+  const [familyFilter, setFamilyFilter] = useState<OverlayFamily | null>(null);
+
+  const familyChips = useMemo(() => {
+    if (!filterable) return [];
+    const counts = new Map<OverlayFamily, number>();
+    for (const e of events) counts.set(e.family, (counts.get(e.family) ?? 0) + 1);
+    return legendEntries(events).map((entry) => ({
+      ...entry,
+      count: counts.get(entry.family) ?? 0,
+    }));
+  }, [events, filterable]);
+
   if (events.length === 0) return null; // no drawn events yet → no table (mirrors the chart's empty state)
+
+  const activeFilter =
+    familyFilter != null && familyChips.some((c) => c.family === familyFilter) ? familyFilter : null;
+  const visibleEvents = activeFilter ? events.filter((e) => e.family === activeFilter) : events;
+
   return (
-    <section className="sc-lens sb-evledger">
-      <div className="sc-h">Event ledger</div>
+    <section className={showCockpitStrip ? "sc-lens sb-evledger" : "cd-evledger"}>
+      {heading && <div className={showCockpitStrip ? "sc-h" : "cd-sec-h"}>{heading}</div>}
+      {filterable && familyChips.length >= 2 && (
+        <div className="cd-ev-filters" role="group" aria-label="Filter event ledger by type">
+          <button
+            type="button"
+            className={`cd-ev-chip${activeFilter === null ? " active" : ""}`}
+            aria-pressed={activeFilter === null}
+            onClick={() => setFamilyFilter(null)}
+          >
+            All <span className="n">{events.length}</span>
+          </button>
+          {familyChips.map((c) => {
+            const on = activeFilter === c.family;
+            return (
+              <button
+                key={c.family}
+                type="button"
+                className={`cd-ev-chip${on ? " active" : ""}`}
+                aria-pressed={on}
+                onClick={() => setFamilyFilter(on ? null : c.family)}
+              >
+                <span className={`ov-dot ${c.cls}`} aria-hidden="true" />
+                {c.label} <span className="n">{c.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="evled-scroll">
         <table className="evled-tbl">
           <thead>
@@ -53,7 +110,7 @@ export function EventLedger({
             </tr>
           </thead>
           <tbody>
-            {events.map((e) => {
+            {visibleEvents.map((e) => {
               const r = ledgerRow(e, hideIngest);
               // A set-aside row (screened buy/sell, passive 13G) is MUTED, never removed (WB #2) —
               // the type cell keeps its family label; the gray + the detail's screen line carry the
@@ -92,26 +149,26 @@ export function EventLedger({
         </table>
       </div>
 
-      {/* The Cockpit strip: the identity line + present-only signal headlines (reusing the Cockpit's
-          DisplayHeadlineRow). In expanded mode the CSS floats this beside the table — no new prop. */}
-      <div className="evled-cockpit">
-        <div className="evled-identity">
-          {identity.map((c) => (
-            <span className="evled-idcell" key={c.label}>
-              <span className="k">{c.label}</span>
-              <span className="v">{c.value}</span>
-            </span>
-          ))}
-        </div>
-        {tapeAsof && <div className="evled-tape">current tape · as-of {fmtDate(tapeAsof)}</div>}
-        {signals.length > 0 && (
-          <div className="np-headlines evled-headlines">
-            {signals.map((s) => (
-              <DisplayHeadlineRow key={s.kind} headline={s.headline!} />
+      {showCockpitStrip && (
+        <div className="evled-cockpit">
+          <div className="evled-identity">
+            {identity.map((c) => (
+              <span className="evled-idcell" key={c.label}>
+                <span className="k">{c.label}</span>
+                <span className="v">{c.value}</span>
+              </span>
             ))}
           </div>
-        )}
-      </div>
+          {tapeAsof && <div className="evled-tape">current tape · as-of {fmtDate(tapeAsof)}</div>}
+          {signals.length > 0 && (
+            <div className="np-headlines evled-headlines">
+              {signals.map((s) => (
+                <DisplayHeadlineRow key={s.kind} headline={s.headline!} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

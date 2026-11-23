@@ -1837,13 +1837,13 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 /* -------- The slide-out Drawer + the episode scorecard it hosts (Slice 1) ---------------------- */
 .drawer-overlay { position: fixed; inset: 0; z-index: 60; }
 .drawer-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
-.drawer-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 600px; max-width: 100vw; background: var(--bg-2); border-left: 1px solid var(--line-2); box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45); overflow-y: auto; padding: 16px 20px 40px; animation: drawer-in 0.18s ease-out; transition: width 0.16s ease; }
+.drawer-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 600px; max-width: 100vw; background: var(--bg-2); border-left: 1px solid var(--line-2); box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45); overflow-y: auto; padding: 0 20px 40px; animation: drawer-in 0.18s ease-out; transition: width 0.16s ease; }
 .drawer-panel.expanded { width: 100vw; }
 @keyframes drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
-.drawer-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.drawer-title { font-family: var(--mono); font-weight: 800; font-size: 15px; letter-spacing: 0.02em; }
+.drawer-head { position: sticky; top: 0; z-index: 12; display: flex; align-items: center; gap: 10px; padding: 14px 20px 10px; margin: 0 -20px 10px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
+.drawer-title { font-family: var(--mono); font-weight: 800; font-size: 15px; letter-spacing: 0.02em; min-width: 0; flex: 1; }
+.drawer-controls { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .drawer-expand, .drawer-close { font: inherit; color: var(--txt-3); background: none; border: 1px solid var(--line-2); border-radius: 7px; width: 26px; height: 26px; cursor: pointer; line-height: 1; }
-.drawer-expand { margin-left: auto; }
 .drawer-expand:hover, .drawer-close:hover { color: var(--txt); }
 @media (max-width: 880px) { .drawer-panel { width: min(600px, 92vw); } }
 

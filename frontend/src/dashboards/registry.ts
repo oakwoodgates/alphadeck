@@ -42,6 +42,10 @@ export type DashboardEntry = {
   /** true = the page reads the calls history, so it carries the shared `RecordStartNote` (a workspace's record
    *  starts on its first honest night; W8c). The sweep test in dashboards/__tests__/RecordStartNote.test.tsx holds the list. */
   readsRecord?: true;
+  /** true = company clicks (`onSelectThesis(id, nameKey)`) navigate straight to the Cockpit instead of opening
+   *  the dashboard company overlay. Used where jumping to the Cockpit IS the action (the Board's Decision Queue,
+   *  and Ticker Lookup, which is already a full-page company dossier). */
+  openCompanyInCockpit?: true;
   /** React.lazy(() => import("./<Component>")) — the component file default-exports its body. */
   component: LazyExoticComponent<ComponentType<DashboardProps>>;
 };
