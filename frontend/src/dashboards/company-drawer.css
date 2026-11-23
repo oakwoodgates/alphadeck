@@ -1,0 +1,458 @@
+/* Dashboard company overlay — Trading-set dossier (600px default slide-over -> 100vw expanded two-column view).
+   Uses app color tokens only; bucket accent (--gc) marks the call state; quiet mono tabular figures everywhere. */
+
+/* ---- Sticky header title stack ---- */
+.cd-head-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cd-title-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.cd-head-price {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--txt-2);
+  font-variant-numeric: tabular-nums;
+}
+.cd-head-sub {
+  font-family: var(--sans, inherit);
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--txt-3);
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cd-head-sub .sep {
+  margin: 0 5px;
+  color: var(--txt-4);
+}
+.cd-cockpit {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--txt-2);
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  padding: 4px 10px;
+  cursor: pointer;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s;
+}
+.cd-cockpit:hover {
+  color: var(--txt);
+  border-color: var(--txt-3);
+}
+
+/* ---- Card context / switcher strip ---- */
+.cd-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--txt-3);
+}
+.cd-cards-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--txt-4);
+  margin-right: 2px;
+}
+.cd-card-name {
+  color: var(--txt-2);
+  font-weight: 500;
+}
+.cd-card-chip {
+  font: inherit;
+  font-size: 11px;
+  color: var(--txt-3);
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  line-height: 1.45;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.cd-card-chip:hover {
+  color: var(--txt);
+  border-color: var(--txt-3);
+}
+.cd-card-chip.active {
+  color: var(--txt);
+  border-color: var(--txt-2);
+  background: var(--panel-2);
+  font-weight: 600;
+}
+.cd-card-arch {
+  margin-left: 4px;
+  font-size: 9.5px;
+  color: var(--txt-4);
+}
+
+/* ---- Shell & responsive 600px -> 100vw layout ---- */
+.cd-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cd-body.recomputing {
+  opacity: 0.55;
+  transition: opacity 0.12s ease;
+}
+.cd-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+/* Default (600px): wrappers dissolve so children stack in exact trader read order (1..9). */
+.cd-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cd-top,
+.cd-cols,
+.cd-main,
+.cd-side {
+  display: contents;
+}
+.cd-slot-call       { order: 1; }
+.cd-slot-tape       { order: 2; }
+.cd-slot-chart      { order: 3; }
+.cd-slot-signals    { order: 4; }
+.cd-slot-thesis     { order: 5; }
+.cd-slot-ledger     { order: 6; }
+.cd-slot-identity   { order: 7; }
+.cd-slot-indicators { order: 8; }
+.cd-slot-decisions  { order: 9; }
+
+/* Expanded (100vw, wide desktop): full-width chart + tape strip on top, two independent columns below. */
+@media (min-width: 1020px) {
+  .drawer-panel.expanded .cd-body {
+    max-width: 1560px;
+    margin: 0 auto;
+    gap: 16px;
+  }
+  .drawer-panel.expanded .cd-top {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .drawer-panel.expanded .cd-slot-chart { order: 1; }
+  .drawer-panel.expanded .cd-slot-tape  { order: 2; }
+
+  .drawer-panel.expanded .cd-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(350px, 0.75fr);
+    gap: 24px;
+    align-items: start;
+  }
+  .drawer-panel.expanded .cd-main,
+  .drawer-panel.expanded .cd-side {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+  .drawer-panel.expanded .cd-slot-call,
+  .drawer-panel.expanded .cd-slot-signals,
+  .drawer-panel.expanded .cd-slot-ledger,
+  .drawer-panel.expanded .cd-slot-decisions,
+  .drawer-panel.expanded .cd-slot-thesis,
+  .drawer-panel.expanded .cd-slot-identity,
+  .drawer-panel.expanded .cd-slot-indicators {
+    order: 0;
+  }
+  .drawer-panel.expanded .cd-signals-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .drawer-panel.expanded .cd-evledger .evled-scroll {
+    max-height: 460px;
+  }
+}
+
+/* ---- Shared section heading ---- */
+.cd-sec-h {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--txt-4);
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cd-sec-h::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.cd-sec-count {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--txt-3);
+  letter-spacing: 0.04em;
+}
+
+/* ---- Call & Clocks Hero ---- */
+.cd-hero {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gc, var(--line-2));
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cd-hero-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+}
+.cd-hero-verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cd-hero-conf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--txt-3);
+}
+.cd-hero-conf .bar {
+  width: 96px;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.cd-hero-conf .fill {
+  height: 100%;
+  background: var(--gc);
+}
+.cd-hero-conf .pct {
+  color: var(--txt-2);
+  font-weight: 700;
+}
+.cd-hero-grades {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--txt-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  align-items: center;
+}
+.cd-clocks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+}
+.cd-pos {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--manage);
+  background: color-mix(in srgb, var(--manage) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--manage) 30%, transparent);
+  border-radius: 6px;
+  padding: 5px 9px;
+}
+
+/* ---- Tape Snapshot Strip ---- */
+.cd-tape {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cd-tape-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  gap: 8px 10px;
+}
+.cd-tcell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cd-tcell .k {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--txt-4);
+}
+.cd-tcell .v {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--txt-2);
+  white-space: nowrap;
+}
+.cd-tape-headlines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+.cd-tape-headlines .np-ind-headline {
+  margin-bottom: 0;
+}
+
+/* ---- Interactive Chart Panel ---- */
+.cd-chart-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 10px 12px 10px;
+}
+.cd-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.cd-chart-head .cd-sec-h {
+  margin: 0;
+  flex: 1;
+}
+.cd-spans {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.cd-span-btn {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--txt-3);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.cd-span-btn:hover {
+  color: var(--txt-2);
+}
+.cd-span-btn.active {
+  color: var(--txt);
+  background: var(--panel-2);
+  border-color: var(--line-2);
+}
+.cd-chart-panel .sc-spark {
+  margin-top: 4px;
+}
+
+/* ---- Signals (Triggers & Risks) ---- */
+.cd-signals-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cd-signal-pane {
+  min-width: 0;
+}
+
+/* ---- Thesis Fit & Scoring ---- */
+.cd-thesis-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---- Event Ledger inside CompanyDrawer ---- */
+.cd-evledger .evled-scroll {
+  max-height: 280px;
+}
+
+/* ---- Collapsible full indicators ---- */
+.cd-details {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px 12px;
+}
+.cd-details summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  user-select: none;
+}
+.cd-details summary::-webkit-details-marker {
+  display: none;
+}
+.cd-details summary::before {
+  content: "▸";
+  font-size: 11px;
+  color: var(--txt-4);
+  transition: transform 0.12s;
+}
+.cd-details[open] summary::before {
+  transform: rotate(90deg);
+}
+.cd-details summary:hover {
+  color: var(--txt-2);
+}
+.cd-details-body {
+  margin-top: 10px;
+}
+.cd-details-body .np-h:first-child {
+  display: none;
+}
+
+/* ---- Footer note ---- */
+.cd-footer {
+  color: var(--txt-4);
+  font-size: 10.5px;
+  line-height: 1.45;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}

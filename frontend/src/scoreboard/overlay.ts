@@ -3,6 +3,7 @@ import type {
   CorporateEventOut,
   DataFlagOut,
   DataFlagSplitOut,
+  DecisionOut,
   DisplayEvent,
   DisplaySignal,
   EpisodeOperatorOut,
@@ -35,7 +36,22 @@ import { safeHttpUrl } from "../components/ExternalLink";
 // to reach earlier dots (no "+N earlier" affordance — the dots are real and reachable).
 export const DEFAULT_VISIBLE_TRADING_DAYS = 130;
 
+export type ChartSpan = "3M" | "6M" | "1Y" | "ALL";
+const SPAN_TRADING_DAYS: Record<Exclude<ChartSpan, "ALL">, number> = {
+  "3M": 63,
+  "6M": DEFAULT_VISIBLE_TRADING_DAYS,
+  "1Y": 252,
+};
+
 type Bar = Pick<PriceBar, "d" | "close">;
+
+/** Visible range for the trailing N trading days up to the last loaded bar (`ALL` -> null = fitContent). */
+export function visibleRangeForSpan(bars: Bar[], span: ChartSpan): { from: string; to: string } | null {
+  if (bars.length === 0 || span === "ALL") return null;
+  const days = SPAN_TRADING_DAYS[span];
+  const fromIdx = Math.max(0, bars.length - 1 - days);
+  return { from: bars[fromIdx].d, to: bars[bars.length - 1].d };
+}
 
 /** The default visible range = `[arm − 130 trading days, last bar]`, in bar-index terms (trading days,
  *  not calendar). Null when there are no bars. The chart sets this once via `setVisibleRange` (not
@@ -256,9 +272,8 @@ export interface ActivistChipEvent extends ChipBase {
 export interface TriggerChipEvent extends ChipBase {
   family: "trigger";
   trigger: TriggerRefOut;
-  /** The arm this trigger fed — carried so the tooltip can name the linkage when the chip's own date
-   *  sits away from it (`date !== armDate`). The chip's x is VALID time; this is the call's time. */
-  armDate: string;
+  /** The arm this trigger fed (Scoreboard episode context) — omitted in live company drawer views. */
+  armDate?: string | null;
 }
 /** Slice C: a fired RISK signal off the recorded daily cards (`ep.risk_events` — member-filtered,
  *  deduped server-side). The call's own risk tape, DISTINCT from the sell/filing FACT families: a
@@ -469,6 +484,110 @@ export function buildOverlayEvents(
 
   const visible = raw.filter((e) => e.date <= last); // nothing sits past the last drawn bar
   visible.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)); // stable → insertion breaks ties
+  return visible.map((e, i) => ({ ...e, n: i + 1 }) as OverlayEvent);
+}
+
+/** Episode-free counterpart to `buildOverlayEvents` for the dashboard company overlay: builds the exact
+ *  same stable 1..N `OverlayEvent[]` universe for ANY company (armed, warming, watch, quiet, managing, or
+ *  silent) from its live triggers/risks, recorded SEC facts (buys/sells/8-Ks/13D-G/splits), non-voided
+ *  logged decisions, and allow-listed display-signal tape events. */
+export function buildMemberOverlayEvents(opts: {
+  bars: Bar[];
+  triggers?: readonly TriggerRefOut[];
+  risks?: readonly TriggerRefOut[];
+  decisions?: readonly DecisionOut[];
+  insiderBuys?: readonly InsiderBuyOut[];
+  sells?: readonly InsiderSellOut[];
+  filings?: readonly CorporateEventOut[];
+  stakes?: readonly ActivistStakeOut[];
+  splits?: readonly DataFlagSplitOut[];
+  tape?: { signals: DisplaySignal[]; asof: string };
+}): OverlayEvent[] {
+  const { bars } = opts;
+  if (bars.length === 0) return [];
+  const first = bars[0].d;
+  const last = bars[bars.length - 1].d;
+  const lastClose = bars[bars.length - 1].close;
+  const closeAt = (d: string) => closeOnDate(bars, d);
+  const raw: RawEvent[] = [];
+
+  for (const t of opts.triggers ?? []) {
+    if (!t.event_date || t.event_date < first) continue;
+    raw.push({ family: "trigger", date: t.event_date, trigger: t, armDate: null, closeThatDay: closeAt(t.event_date) });
+  }
+  for (const r of opts.risks ?? []) {
+    if (!r.event_date || r.event_date < first) continue;
+    raw.push({ family: "risk", date: r.event_date, trigger: r, closeThatDay: closeAt(r.event_date) });
+  }
+  for (const b of opts.insiderBuys ?? []) {
+    const c = closeAt(b.d);
+    raw.push({
+      family: "insider",
+      date: b.d,
+      buy: b,
+      closeThatDay: c,
+      pctVsNow: c != null && c !== 0 ? (lastClose - c) / c : null,
+    });
+  }
+  for (const s of opts.sells ?? []) {
+    const c = closeAt(s.d);
+    raw.push({
+      family: "sell",
+      date: s.d,
+      sell: s,
+      closeThatDay: c,
+      pctVsNow: c != null && c !== 0 ? (lastClose - c) / c : null,
+    });
+  }
+  for (const f of opts.filings ?? [])
+    raw.push({ family: "filing", date: f.d, event: f, closeThatDay: closeAt(f.d) });
+  for (const st of opts.stakes ?? [])
+    raw.push({ family: "activist", date: st.d, stake: st, closeThatDay: closeAt(st.d) });
+  for (const sp of opts.splits ?? []) {
+    const at = firstBarOnOrAfter(bars, sp.effective_date);
+    if (at == null) continue;
+    raw.push({ family: "split", date: at, split: sp, closeThatDay: closeAt(at) });
+  }
+  for (const d of opts.decisions ?? []) {
+    if (d.voided) continue;
+    if (d.action !== "take" && d.action !== "pass") continue;
+    if (d.decision_date < first) continue;
+    raw.push({
+      family: "operator",
+      date: d.decision_date,
+      op: {
+        action: d.action === "take" ? "took" : "passed",
+        decision_id: d.id,
+        decision_date: d.decision_date,
+        entry_price: d.action === "take" ? (d.price ?? null) : null,
+        entry_inferred: false,
+        exit_date: null,
+        exit_price: null,
+        exit_inferred: false,
+        operator_return: null,
+        running: false,
+        reason: d.reason ?? null,
+        thesis_level: false,
+      },
+      closeThatDay: closeAt(d.decision_date),
+    });
+  }
+  for (const s of opts.tape?.signals ?? []) {
+    for (const ev of s.events ?? []) {
+      if (ev.date < first) continue;
+      raw.push({
+        family: "signal",
+        date: ev.date,
+        event: ev,
+        signalKind: s.kind,
+        asof: opts.tape!.asof,
+        closeThatDay: closeAt(ev.date),
+      });
+    }
+  }
+
+  const visible = raw.filter((e) => e.date <= last);
+  visible.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   return visible.map((e, i) => ({ ...e, n: i + 1 }) as OverlayEvent);
 }
 
@@ -742,9 +861,8 @@ function triggerTooltip(e: TriggerChipEvent): TooltipContent {
   // UI entirely; a recorded fact is named, never dropped (#6/#9). At its own date the line is redundant.
   if (t.event_date != null && t.event_date !== e.date)
     lines.push(`fired ${t.event_date} (before the loaded window)`);
-  // The arm linkage — ONLY when the chip sits away from the arm. At the arm it would restate the chip's
-  // own x on every trigger, and a line true of every row carries no information (#7, honest loudness).
-  if (e.date !== e.armDate) lines.push(`→ fed the ${e.armDate} arm`);
+  // The arm linkage — ONLY when an episode armDate is carried and the chip sits away from it.
+  if (e.armDate && e.date !== e.armDate) lines.push(`→ fed the ${e.armDate} arm`);
   const sources = t.sources ?? [];
   for (const p of sources.slice(0, PROVENANCE_LINES)) lines.push(`${p.source}: ${p.ref}`);
   const hidden = sources.length - PROVENANCE_LINES;

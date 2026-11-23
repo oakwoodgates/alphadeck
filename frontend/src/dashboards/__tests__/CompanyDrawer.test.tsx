@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClockProvider, browserClock } from "../../clock";
+import { buildMemberOverlayEvents, visibleRangeForSpan } from "../../scoreboard/overlay";
 import { DashboardShell } from "../DashboardShell";
 import type { DashboardEntry, DashboardProps } from "../registry";
 
@@ -20,7 +21,58 @@ vi.mock("../../AppHeader", () => ({
   AppHeader: () => <header data-testid="app-header" />,
 }));
 
+// Canvas-free stub for lightweight-charts inside jsdom — PriceSparkline's real overlay + ledger logic still runs.
+vi.mock("../../scoreboard/PriceSparkline", () => ({
+  PriceSparkline: ({
+    bars,
+    events,
+    span,
+  }: {
+    bars: unknown[];
+    events: { n: number }[];
+    span?: string;
+  }) => (
+    <div data-testid="mock-sparkline" data-bars={bars.length} data-events={events.length} data-span={span ?? ""} />
+  ),
+}));
+
 const fig = (pips: number | null, value: number | null) => ({ pips, value, provenance: [] });
+
+function makePriceWindow() {
+  return {
+    thesis_id: "t-glp",
+    security_id: "s-rytm",
+    start: "2025-11-22",
+    end: "2026-11-22",
+    asof: "2026-11-22",
+    source: "fact_price_eod",
+    bars: [
+      { d: "2026-11-17", open: 108, high: 110, low: 107, close: 109.5, volume: 420000, sma50: 104, sma200: 95 },
+      { d: "2026-11-18", open: 110, high: 115, low: 109, close: 114.2, volume: 680000, sma50: 104.5, sma200: 95.3 },
+      { d: "2026-11-19", open: 113, high: 116, low: 112, close: 112.5, volume: 510000, sma50: 105, sma200: 95.6 },
+      { d: "2026-11-20", open: 112, high: 114, low: 111, close: 112.56, volume: 490000, sma50: 105.4, sma200: 96 },
+    ],
+    insider_buys: [
+      {
+        d: "2026-11-18",
+        disclosed: "2026-11-19",
+        ingested: "2026-11-19",
+        insider_name: "Jane Director",
+        insider_role: "Director",
+        shares: 5000,
+        price: 114,
+        usd: 570000,
+        character: "open_market",
+        internal_transfer_with: null,
+        private_note: null,
+        private_passage: null,
+      },
+    ],
+    insider_sells: [],
+    corporate_events: [],
+    activist_stakes: [],
+  };
+}
 
 function makePayload(overrides?: Partial<Record<string, unknown>>) {
   return {
@@ -136,10 +188,21 @@ function makePayload(overrides?: Partial<Record<string, unknown>>) {
         {
           kind: "sma_position",
           label: "Moving averages",
-          headline: { direction: "up", text: "50d over 200d · rising", detail: "" },
-          chips: [{ label: "50d", value: "$105.00" }],
+          headline: { key: "above_rising", glyph: "up", label: "50d over 200d · rising", detail: "" },
+          metrics: [{ key: "close", label: "Close", value: 112.56, unit: "price" }],
           events: [],
-          basis: "Daily closes",
+          basis: { source: "fact_price_eod", window_end: "2026-11-20" },
+        },
+        {
+          kind: "trailing_returns",
+          label: "Trailing returns",
+          headline: null,
+          metrics: [
+            { key: "ret_1d", label: "1d", value: -3.8, unit: "pct", tone: "neg" },
+            { key: "ret_7d", label: "7d", value: 8.2, unit: "pct", tone: "pos" },
+          ],
+          events: [],
+          basis: { source: "fact_price_eod" },
         },
       ],
     },
@@ -177,6 +240,17 @@ function makePayload(overrides?: Partial<Record<string, unknown>>) {
     ],
     ...overrides,
   };
+}
+
+function mockMemberAndWindow(payloadOverrides?: Partial<Record<string, unknown>>) {
+  const payload = makePayload(payloadOverrides);
+  const priceWindow = makePriceWindow();
+  apiGet.mockImplementation((path: string) => {
+    if (path === "/scoreboard/price-window") {
+      return Promise.resolve({ data: priceWindow, error: undefined, response: { status: 200 } });
+    }
+    return Promise.resolve({ data: payload, error: undefined, response: { status: 200 } });
+  });
 }
 
 function makeEntry(
@@ -217,13 +291,13 @@ function renderShell(entry: DashboardEntry, onSelectThesis = vi.fn()) {
   };
 }
 
-describe("DashboardShell CompanyDrawer", () => {
+describe("DashboardShell CompanyDrawer (Phase 2 redesigned dossier)", () => {
   beforeEach(() => {
     apiGet.mockReset();
   });
 
-  it("opens full NamePanel in Drawer on company click and leaves thesis clicks navigating to Cockpit", async () => {
-    apiGet.mockResolvedValue({ data: makePayload(), error: undefined, response: { status: 200 } });
+  it("opens redesigned company dossier with chart, range pills, event ledger, tape strip, and call details", async () => {
+    mockMemberAndWindow();
     const onEscapeBehind = vi.fn();
 
     function FakeDashboard({ onSelectThesis }: DashboardProps) {
@@ -264,15 +338,29 @@ describe("DashboardShell CompanyDrawer", () => {
       expect(within(dialog).getByText("RHYTHM PHARMACEUTICALS, INC.")).toBeTruthy();
     });
 
-    // Full NamePanel sections are rendered (nothing cut off)
+    // Core call, tape strip, triggers, risks, thesis fit, scoring, decision log
     expect(within(dialog).getByText(/CORE entry/i)).toBeTruthy();
     expect(within(dialog).getByText("88%")).toBeTruthy();
+    const tapeStrip = within(dialog).getByRole("region", { name: "Tape snapshot" });
+    expect(within(tapeStrip).getByText("+8.2%")).toBeTruthy();
+    expect(within(tapeStrip).getByText("-3.8%")).toBeTruthy();
     expect(within(dialog).getByText("52-week breakout on RYTM")).toBeTruthy();
     expect(within(dialog).getByText("Fast breakdown on RYTM")).toBeTruthy();
     expect(within(dialog).getByText(/Rhythm Pharmaceuticals treats rare genetic obesity/)).toBeTruthy();
     expect(within(dialog).getByText("Scoring snapshot")).toBeTruthy();
     expect(within(dialog).getByText("Decision log · this name")).toBeTruthy();
-    expect(within(dialog).getByText(/starter entry/)).toBeTruthy();
+
+    // Phase 2: chart + range pills + event ledger wired with trigger, risk, insider buy, and decision
+    const chart = await within(dialog).findByTestId("mock-sparkline");
+    expect(chart).toHaveAttribute("data-bars", "4");
+    expect(chart).toHaveAttribute("data-events", "4");
+    expect(chart).toHaveAttribute("data-span", "6M");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "1Y" }));
+    expect(chart).toHaveAttribute("data-span", "1Y");
+
+    expect(within(dialog).getByText("Event ledger")).toBeTruthy();
+    expect(within(dialog).getByText(/Jane Director/)).toBeTruthy();
 
     // Multi-card switcher renders both cards and switches in place
     const switcher = within(dialog).getByRole("group", { name: "Switch thesis card" });
@@ -281,17 +369,9 @@ describe("DashboardShell CompanyDrawer", () => {
       "true",
     );
     const secondCard = within(switcher).getByRole("button", { name: "Rare Genetic Disease Platforms" });
-    apiGet.mockResolvedValueOnce({
-      data: makePayload({
-        thesis_id: "t-rare",
-        thesis_name: "Rare Genetic Disease Platforms",
-      }),
-      error: undefined,
-      response: { status: 200 },
-    });
     fireEvent.click(secondCard);
     await waitFor(() => {
-      expect(apiGet).toHaveBeenLastCalledWith("/theses/{thesis_id}/member-panel", {
+      expect(apiGet).toHaveBeenCalledWith("/theses/{thesis_id}/member-panel", {
         params: {
           path: { thesis_id: "t-rare" },
           query: { name: "s-rytm", asof: "2026-11-22" },
@@ -308,19 +388,15 @@ describe("DashboardShell CompanyDrawer", () => {
   });
 
   it("navigates to Cockpit from the Drawer's Open in Cockpit action and hides switcher on single-card companies", async () => {
-    apiGet.mockResolvedValue({
-      data: makePayload({
-        cards: [
-          {
-            thesis_id: "t-glp",
-            thesis_name: "Beyond GLP-1: Obesity & Peptide Drugs",
-            ticker: "RYTM",
-            archived: false,
-          },
-        ],
-      }),
-      error: undefined,
-      response: { status: 200 },
+    mockMemberAndWindow({
+      cards: [
+        {
+          thesis_id: "t-glp",
+          thesis_name: "Beyond GLP-1: Obesity & Peptide Drugs",
+          ticker: "RYTM",
+          archived: false,
+        },
+      ],
     });
 
     function FakeDashboard({ onSelectThesis }: DashboardProps) {
@@ -343,7 +419,6 @@ describe("DashboardShell CompanyDrawer", () => {
     expect(within(dialog).queryByRole("group", { name: "Switch thesis card" })).toBeNull();
     expect(within(dialog).getByText("Beyond GLP-1: Obesity & Peptide Drugs")).toBeTruthy();
 
-    // Open in Cockpit closes drawer and calls parent onSelectThesis
     fireEvent.click(within(dialog).getByRole("button", { name: /Open in Cockpit/i }));
     expect(onSelectThesis).toHaveBeenCalledWith("t-glp", "RYTM");
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -384,5 +459,46 @@ describe("DashboardShell CompanyDrawer", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /Open card in Cockpit/i }));
     expect(onSelectThesis).toHaveBeenCalledWith("t-glp", null);
+  });
+});
+
+describe("buildMemberOverlayEvents and visibleRangeForSpan", () => {
+  it("numbers triggers, risks, insider buys, and non-voided decisions chronologically and skips voided or future rows", () => {
+    const bars = [
+      { d: "2026-11-17", close: 10 },
+      { d: "2026-11-18", close: 11 },
+      { d: "2026-11-19", close: 12 },
+    ];
+    const events = buildMemberOverlayEvents({
+      bars,
+      triggers: [
+        { label: "Breakout", kind: "technical_breakout", grade: "core", ticker: "X", event_date: "2026-11-18", sources: [] },
+        { label: "Too old", kind: "insider", grade: "core", ticker: "X", event_date: "2026-01-01", sources: [] },
+      ],
+      risks: [
+        { label: "Breakdown", kind: "technical_breakdown", grade: null, ticker: "X", event_date: "2026-11-19", sources: [] },
+      ],
+      decisions: [
+        { id: "d1", action: "take", decision_date: "2026-11-17", security_id: "s1", shares: 10, price: 10, reason: "go", voids: null, call_state: null, call_verdict: null, recorded_at: "2026-11-17T12:00:00Z", voided: false },
+        { id: "d2", action: "take", decision_date: "2026-11-18", security_id: "s1", shares: 10, price: 11, reason: "voided", voids: null, call_state: null, call_verdict: null, recorded_at: "2026-11-18T12:00:00Z", voided: true },
+      ],
+    });
+    expect(events.map((e) => [e.n, e.family, e.date])).toEqual([
+      [1, "operator", "2026-11-17"],
+      [2, "trigger", "2026-11-18"],
+      [3, "risk", "2026-11-19"],
+    ]);
+  });
+
+  it("computes trailing trading-day ranges and returns null for ALL", () => {
+    const bars = Array.from({ length: 100 }, (_, i) => ({
+      d: `2026-01-${String(i + 1).padStart(2, "0")}`,
+      close: 10 + i,
+    }));
+    expect(visibleRangeForSpan(bars, "ALL")).toBeNull();
+    expect(visibleRangeForSpan(bars, "3M")).toEqual({
+      from: bars[100 - 1 - 63].d,
+      to: bars[99].d,
+    });
   });
 });

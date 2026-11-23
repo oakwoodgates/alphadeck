@@ -46,6 +46,11 @@ vi.mock("../api/hooks", () => ({
     isPlaceholderData: false,
     data: undefined,
   }),
+  useEpisodePriceWindow: () => ({
+    isLoading: false,
+    isError: false,
+    data: undefined,
+  }),
 }));
 
 const STEWARD = {

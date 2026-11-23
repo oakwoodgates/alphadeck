@@ -20,28 +20,35 @@ export interface EventLedgerProps {
   events: OverlayEvent[];
   activeN: number | null;
   onActivate: (n: number | null) => void;
-  identity: IdentityCell[];
-  signals: DisplaySignal[];
+  identity?: IdentityCell[];
+  signals?: DisplaySignal[];
   /** Set (to the drawer's asof) for a CLOSED/matured episode → the "current tape · as-of X" caption, so a
    *  name-current 90d figure isn't misread as the episode's own period. Null for a still-open episode. */
   tapeAsof?: string | null;
   /** Editions S4: a re-run edition's drawer — drop the "ingested Nd later" lines (our fetch timing). */
   hideIngest?: boolean;
+  /** When false, renders only the cross-highlighting event table (used by CompanyDrawer, which shows
+   *  identity and headlines in dedicated hero/context sections). Default true (Scoreboard). */
+  showCockpitStrip?: boolean;
+  /** Optional heading override (default "Event ledger"). */
+  heading?: string;
 }
 
 export function EventLedger({
   events,
   activeN,
   onActivate,
-  identity,
-  signals,
+  identity = [],
+  signals = [],
   tapeAsof,
   hideIngest = false,
+  showCockpitStrip = true,
+  heading = "Event ledger",
 }: EventLedgerProps) {
   if (events.length === 0) return null; // no drawn events yet → no table (mirrors the chart's empty state)
   return (
-    <section className="sc-lens sb-evledger">
-      <div className="sc-h">Event ledger</div>
+    <section className={showCockpitStrip ? "sc-lens sb-evledger" : "cd-evledger"}>
+      {heading && <div className={showCockpitStrip ? "sc-h" : "cd-sec-h"}>{heading}</div>}
       <div className="evled-scroll">
         <table className="evled-tbl">
           <thead>
@@ -92,26 +99,26 @@ export function EventLedger({
         </table>
       </div>
 
-      {/* The Cockpit strip: the identity line + present-only signal headlines (reusing the Cockpit's
-          DisplayHeadlineRow). In expanded mode the CSS floats this beside the table — no new prop. */}
-      <div className="evled-cockpit">
-        <div className="evled-identity">
-          {identity.map((c) => (
-            <span className="evled-idcell" key={c.label}>
-              <span className="k">{c.label}</span>
-              <span className="v">{c.value}</span>
-            </span>
-          ))}
-        </div>
-        {tapeAsof && <div className="evled-tape">current tape · as-of {fmtDate(tapeAsof)}</div>}
-        {signals.length > 0 && (
-          <div className="np-headlines evled-headlines">
-            {signals.map((s) => (
-              <DisplayHeadlineRow key={s.kind} headline={s.headline!} />
+      {showCockpitStrip && (
+        <div className="evled-cockpit">
+          <div className="evled-identity">
+            {identity.map((c) => (
+              <span className="evled-idcell" key={c.label}>
+                <span className="k">{c.label}</span>
+                <span className="v">{c.value}</span>
+              </span>
             ))}
           </div>
-        )}
-      </div>
+          {tapeAsof && <div className="evled-tape">current tape · as-of {fmtDate(tapeAsof)}</div>}
+          {signals.length > 0 && (
+            <div className="np-headlines evled-headlines">
+              {signals.map((s) => (
+                <DisplayHeadlineRow key={s.kind} headline={s.headline!} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

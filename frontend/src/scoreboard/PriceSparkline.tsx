@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ColorType, createChart, type ISeriesApi, type Time } from "lightweight-charts";
+import { ColorType, createChart, type IChartApi, type ISeriesApi, type Time } from "lightweight-charts";
 
 import type { PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
 import {
+  type ChartSpan,
   defaultVisibleRange,
   episodeMarkers,
   eventSetAside,
@@ -14,6 +15,7 @@ import {
   overlayTooltip,
   type PriceMarkerKind,
   stackChips,
+  visibleRangeForSpan,
   volumeData,
   withoutIngestLines,
 } from "./overlay";
@@ -92,7 +94,8 @@ interface BandRect {
 const NO_BANDS: FlagBand[] = [];
 
 export function PriceSparkline({
-  ep,
+  ep = null,
+  span,
   bars,
   events,
   bands = NO_BANDS,
@@ -104,8 +107,11 @@ export function PriceSparkline({
 }: {
   /** Editions S4: a re-run edition's drawer — the tooltip drops the "ingested Nd later" lines. */
   hideIngest?: boolean;
-  ep: ScoreboardEpisodeOut;
-  /** The whole loaded price window [floor, end], fetched by the parent (EpisodeScorecard). */
+  /** Optional episode (Scoreboard scorecard); omitted for general company overlays (no arm/exit/peak markers). */
+  ep?: ScoreboardEpisodeOut | null;
+  /** Optional trailing window preset ("3M" | "6M" | "1Y" | "ALL"); changes the visible range without rebuilding the canvas. */
+  span?: ChartSpan;
+  /** The whole loaded price window [floor, end], fetched by the parent. */
   bars: PriceBar[];
   /** The unified numbered events, built ONCE in the parent so this chart and the ledger share the array. */
   events: OverlayEvent[];
@@ -122,6 +128,7 @@ export function PriceSparkline({
   const hasPath = bars.length >= 2;
 
   const boxRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null); // for priceToCoordinate on hover (guide-line)
   const plotWRef = useRef(320); // the plot width, for clamping chips + the tooltip inside the chart
   const [chips, setChips] = useState<Chip[]>([]);
@@ -214,27 +221,27 @@ export function PriceSparkline({
     });
     series.setData(data.map((b) => ({ time: b.d as Time, value: b.close })));
     seriesRef.current = series;
+    chartRef.current = chart;
 
-    // A2: the un-numbered OUTCOME markers (entry/exit/peak) ride the pinned close series. The
-    // marker-autoscale trap does not bite here: in v4 marker margins enter the autoscale only through
-    // the series' DEFAULT computation, and the close series' `autoscaleInfoProvider` above REPLACES
-    // that wholesale (it ignores the `original` callback) — so markers can never re-inflate the
-    // y-axis, and at close prices they sit inside the pinned band. Selection is pure (episodeMarkers,
-    // tested); only this mapping to the lib's shape lives on the canvas side.
-    series.setMarkers(
-      episodeMarkers(ep, data).map((m) => ({
-        time: m.time as Time,
-        position: m.position,
-        shape: m.shape,
-        text: m.text,
-        color: MARKER_COLOR[m.kind],
-        size: 1,
-      })),
-    );
+    // A2: the un-numbered OUTCOME markers (entry/exit/peak) ride the pinned close series when an episode is present.
+    if (ep) {
+      series.setMarkers(
+        episodeMarkers(ep, data).map((m) => ({
+          time: m.time as Time,
+          position: m.position,
+          shape: m.shape,
+          text: m.text,
+          color: MARKER_COLOR[m.kind],
+          size: 1,
+        })),
+      );
+    }
 
-    // R2: DEFAULT the visible range to the recent episode (not fitContent-to-all) — earlier dots stay
+    // R2: DEFAULT the visible range to the recent episode / span (not fitContent-to-all) — earlier dots stay
     // loaded, left of view, reached by panning.
-    const vis = defaultVisibleRange(data, ep.arm_date);
+    const vis = span
+      ? visibleRangeForSpan(data, span)
+      : defaultVisibleRange(data, ep ? ep.arm_date : data[data.length - 1].d);
     if (vis) chart.timeScale().setVisibleRange({ from: vis.from as Time, to: vis.to as Time });
     else chart.timeScale().fitContent();
 
@@ -329,15 +336,25 @@ export function PriceSparkline({
       ro?.disconnect();
       chart.timeScale().unsubscribeVisibleTimeRangeChange(reposition);
       chart.remove(); // dispose — lightweight-charts leaks its canvas otherwise
+      chartRef.current = null;
       seriesRef.current = null;
       setChips([]);
       setOverflow([]);
       setBandRects([]);
     };
     // `bars` + `events` + `bands` are referentially stable per fetch (parent memoizes them off
-    // react-query's stable q.data). ep is stable per drawer-open. `activeN` is DELIBERATELY absent — it
-    // drives only the chip-class render below, never a canvas rebuild (the anti-storm invariant).
+    // react-query's stable q.data). ep is stable per drawer-open. `activeN` and `span` are DELIBERATELY
+    // absent — `activeN` drives only the chip-class render, and `span` updates the timeScale in place below.
   }, [bars, events, bands, ep]);
+
+  // Apply range-preset clicks (`3M` / `6M` / `1Y` / `ALL`) smoothly without rebuilding the canvas.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !span || bars.length < 2) return;
+    const vis = visibleRangeForSpan(bars, span);
+    if (vis) chart.timeScale().setVisibleRange({ from: vis.from as Time, to: vis.to as Time });
+    else chart.timeScale().fitContent();
+  }, [span, bars]);
 
   if (error) return <div className="sc-spark sc-spark-empty">price path unavailable</div>;
   if (!hasPath)

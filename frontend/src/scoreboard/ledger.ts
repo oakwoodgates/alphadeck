@@ -111,7 +111,7 @@ export function ledgerRow(e: OverlayEvent, hideIngest = false): LedgerRow {
     const links = triggerLinks(e.trigger);
     return {
       ...base,
-      type: "arm trigger",
+      type: e.armDate ? "arm trigger" : "trigger",
       detail: [tip.title, ...tip.lines].join(" · "),
       ...(links.length > 0 ? { links } : {}),
     };
