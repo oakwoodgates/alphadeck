@@ -14776,6 +14776,32 @@ export interface components {
             archived: boolean;
         };
         /**
+         * MemberCatalystFactOut
+         * @description One stored company catalyst fact visible at ``asof`` (no-lookahead), with live flag and safe source link.
+         */
+        MemberCatalystFactOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Label */
+            label: string;
+            /** Catalyst Type */
+            catalyst_type?: string | null;
+            /** Grade */
+            grade?: string | null;
+            /**
+             * Live
+             * @default false
+             */
+            live: boolean;
+            /** Source */
+            source?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /**
          * MemberDataFlagsOut
          * @description One name's flags, quiet markers and split rows. ``marked`` = some flag reaches a cell on its row (the
          *     row mark); a marker never sets it.
@@ -14840,6 +14866,10 @@ export interface components {
              */
             asof: string;
             member: components["schemas"]["BasketMember"];
+            /** Cik */
+            cik?: string | null;
+            /** Edgar Url */
+            edgar_url?: string | null;
             position?: components["schemas"]["Position"] | null;
             card: components["schemas"]["CallCardResponse"];
             scored?: components["schemas"]["ScoredMemberOut"] | null;
@@ -14851,6 +14881,16 @@ export interface components {
              * @default []
              */
             decisions: components["schemas"]["DecisionOut"][];
+            /**
+             * Catalyst Facts
+             * @default []
+             */
+            catalyst_facts: components["schemas"]["MemberCatalystFactOut"][];
+            /**
+             * Card Catalysts
+             * @default []
+             */
+            card_catalysts: components["schemas"]["Catalyst"][];
             /**
              * Cards
              * @default []

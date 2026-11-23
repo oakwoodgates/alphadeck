@@ -32901,6 +32901,75 @@
         "title": "MemberCardRefOut",
         "description": "Another (or current) card in the caller's workspace holding this security \u2014 feeds the drawer's card switcher."
       },
+      "MemberCatalystFactOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "catalyst_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalyst Type"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "live": {
+            "type": "boolean",
+            "title": "Live",
+            "default": false
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "label"
+        ],
+        "title": "MemberCatalystFactOut",
+        "description": "One stored company catalyst fact visible at ``asof`` (no-lookahead), with live flag and safe source link."
+      },
       "MemberDataFlagsOut": {
         "properties": {
           "security_id": {
@@ -33013,6 +33082,28 @@
           "member": {
             "$ref": "#/components/schemas/BasketMember"
           },
+          "cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cik"
+          },
+          "edgar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edgar Url"
+          },
           "position": {
             "anyOf": [
               {
@@ -33072,6 +33163,22 @@
             },
             "type": "array",
             "title": "Decisions",
+            "default": []
+          },
+          "catalyst_facts": {
+            "items": {
+              "$ref": "#/components/schemas/MemberCatalystFactOut"
+            },
+            "type": "array",
+            "title": "Catalyst Facts",
+            "default": []
+          },
+          "card_catalysts": {
+            "items": {
+              "$ref": "#/components/schemas/Catalyst"
+            },
+            "type": "array",
+            "title": "Card Catalysts",
             "default": []
           },
           "cards": {

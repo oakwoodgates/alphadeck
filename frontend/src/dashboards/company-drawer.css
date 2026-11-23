@@ -54,6 +54,10 @@
   color: var(--txt);
   border-color: var(--txt-3);
 }
+.cd-action-quiet {
+  color: var(--txt-3);
+  background: none;
+}
 
 /* ---- Card context / switcher strip ---- */
 .cd-cards {
@@ -141,11 +145,12 @@
 .cd-slot-tape       { order: 2; }
 .cd-slot-chart      { order: 3; }
 .cd-slot-signals    { order: 4; }
-.cd-slot-thesis     { order: 5; }
-.cd-slot-ledger     { order: 6; }
-.cd-slot-identity   { order: 7; }
-.cd-slot-indicators { order: 8; }
-.cd-slot-decisions  { order: 9; }
+.cd-slot-catalysts  { order: 5; }
+.cd-slot-thesis     { order: 6; }
+.cd-slot-ledger     { order: 7; }
+.cd-slot-identity   { order: 8; }
+.cd-slot-indicators { order: 9; }
+.cd-slot-decisions  { order: 10; }
 
 /* Expanded (100vw, wide desktop): full-width chart + tape strip on top, two independent columns below. */
 @media (min-width: 1020px) {
@@ -177,6 +182,7 @@
   }
   .drawer-panel.expanded .cd-slot-call,
   .drawer-panel.expanded .cd-slot-signals,
+  .drawer-panel.expanded .cd-slot-catalysts,
   .drawer-panel.expanded .cd-slot-ledger,
   .drawer-panel.expanded .cd-slot-decisions,
   .drawer-panel.expanded .cd-slot-thesis,
@@ -420,6 +426,97 @@
 /* ---- Event Ledger inside CompanyDrawer ---- */
 .cd-evledger .evled-scroll {
   max-height: 280px;
+}
+.cd-ev-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.cd-ev-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt-3);
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 2px 7px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+.cd-ev-chip .n {
+  color: var(--txt-4);
+}
+.cd-ev-chip:hover {
+  color: var(--txt-2);
+  border-color: var(--txt-3);
+}
+.cd-ev-chip.active {
+  color: var(--txt);
+  background: var(--panel-2);
+  border-color: var(--txt-2);
+}
+.cd-ev-chip.active .n {
+  color: var(--txt-2);
+}
+
+/* ---- Catalysts (company facts + card calendar) ---- */
+.cd-cat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px 11px;
+}
+.cd-cat-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  padding: 2px 0;
+}
+.cd-cat-when {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--txt-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cd-cat-row.soon .cd-cat-when {
+  color: var(--warm);
+}
+.cd-cat-row.passed {
+  opacity: 0.55;
+}
+.cd-cat-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--txt-2);
+}
+.cd-cat-kind {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--txt-4);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cd-cat-more {
+  font-size: 10.5px;
+  color: var(--txt-4);
+  font-style: italic;
+  padding-top: 2px;
 }
 
 /* ---- Collapsible full indicators ---- */

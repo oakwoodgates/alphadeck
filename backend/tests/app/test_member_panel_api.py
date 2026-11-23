@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.scopes import DATA_TENANT_ID
-from domain.thesis import BasketMember, Segment, Thesis
+from domain.thesis import BasketMember, Catalyst, Segment, Thesis
 from domain.trading_days import closure_name
 from repositories import decisions_repo, thesis_repo
 
@@ -47,6 +47,7 @@ def _create_thesis(
     name: str,
     basket: list[BasketMember],
     segments: list[Segment] | None = None,
+    catalysts: list[Catalyst] | None = None,
     workspace: uuid.UUID = DEFAULT_TENANT_ID,
     archived: bool = False,
 ) -> Thesis:
@@ -57,8 +58,11 @@ def _create_thesis(
         narrative=f"Narrative for {name}",
         basket=basket,
         segments=segments or [],
+        catalysts=catalysts or [],
     )
     thesis_repo.upsert(db, t)
+    if catalysts:
+        thesis_repo.set_catalysts(db, t.id, catalysts, tenant_id=workspace)
     if archived:
         thesis_repo.set_archived(db, t.id, True)
     db.commit()
@@ -71,6 +75,29 @@ def test_member_panel_resolves_ticker_and_security_id(client, db, security_id):
         db,
         name="Alpha Card",
         basket=[BasketMember(ticker="DEVCO", role="core", security_id=security_id)],
+        catalysts=[
+            Catalyst(
+                id=uuid.uuid4(),
+                label="FDA PDUFA review",
+                kind="regulatory",
+                when_date=date(2026, 6, 15),
+            )
+        ],
+    )
+    append_fact(
+        db,
+        "fact_catalyst",
+        {
+            "tenant_id": DATA_TENANT_ID,
+            "security_id": security_id,
+            "catalyst_type": "clinical_readout",
+            "grade": "core",
+            "label": "Phase 3 readout",
+            "source": "8-k",
+            "source_ref": "0001234567-26-000011",
+            "valid_from": date(2026, 5, 25),
+            "recorded_at": _knowable_on(date(2026, 5, 25)),
+        },
     )
     # Log one decision on this member and one thesis-level decision (no security_id):
     # only the member's own decision should return in `decisions`.
@@ -115,6 +142,17 @@ def test_member_panel_resolves_ticker_and_security_id(client, db, security_id):
     assert len(body["decisions"]) == 1
     assert body["decisions"][0]["security_id"] == str(security_id)
     assert body["position"]["security_id"] == str(security_id)
+    assert body["cik"] == "0001234567"
+    assert (
+        body["edgar_url"]
+        == "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001234567"
+    )
+    assert len(body["catalyst_facts"]) == 1
+    assert body["catalyst_facts"][0]["label"] == "Phase 3 readout"
+    assert body["catalyst_facts"][0]["live"] is True
+    assert body["catalyst_facts"][0]["url"].startswith("https://www.sec.gov/Archives/edgar/data/")
+    assert len(body["card_catalysts"]) == 1
+    assert body["card_catalysts"][0]["label"] == "FDA PDUFA review"
     assert body["cards"] == [
         {"thesis_id": str(t.id), "thesis_name": "Alpha Card", "ticker": "DEVCO", "archived": False}
     ]

@@ -53,6 +53,15 @@ HttpUrlOut = Annotated[str | None, HTTP_URL_RULE]
 # --- a stored source reference as a link (one resolver for every surface) ---
 
 _ACCESSION = re.compile(r"\d{18}")
+EDGAR_COMPANY_URL = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK="
+
+
+def edgar_company_url(cik: str | None) -> str | None:
+    """The EDGAR browse-company page for ``cik``, or ``None`` when CIK is missing or malformed."""
+    if not cik:
+        return None
+    digits = re.sub(r"\D", "", str(cik))
+    return f"{EDGAR_COMPANY_URL}{digits}" if digits else None
 
 
 def filing_index_url(cik: str | None, accession: str | None) -> str | None:

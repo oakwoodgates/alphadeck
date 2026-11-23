@@ -1,4 +1,5 @@
 import { Fragment, lazy, Suspense, useMemo, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import type {
   DisplaySignal,
@@ -23,8 +24,10 @@ import {
 } from "../cockpit/DisplaySignalsSection";
 import { TriggerRow } from "../components/CallCard";
 import { Drawer } from "../components/Drawer";
+import { ExternalLink, isSecLink } from "../components/ExternalLink";
 import { ProvenanceSources } from "../components/ProvenanceSources";
 import { lowerFirst, reasonClause } from "../components/valueWords";
+import { ASOF, validAsof } from "../nav";
 import { EventLedger } from "../scoreboard/EventLedger";
 import {
   buildMemberOverlayEvents,
@@ -35,6 +38,7 @@ import {
 import {
   businessTypeLabel,
   byEventDateDesc,
+  byWhenDateAsc,
   dayCount,
   daysFrom,
   fmtDate,
@@ -112,6 +116,9 @@ export function CompanyDrawer({
   const q = useMemberPanel(selection.thesisId, selection.nameKey, asof);
   const data = q.data ?? null;
   const origin = useCountdownOrigin(asof);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const asofParam = validAsof(searchParams.get(ASOF));
 
   const [span, setSpan] = useState<ChartSpan>("6M");
   const [activeN, setActiveN] = useState<number | null>(null);
@@ -248,15 +255,37 @@ export function CompanyDrawer({
     </div>
   );
 
+  const lookupTicker = member?.ticker ?? null;
+  const openTickerLookup = () => {
+    if (!lookupTicker) return;
+    const sp = new URLSearchParams();
+    sp.set("t", lookupTicker);
+    if (asofParam) sp.set(ASOF, asofParam);
+    onClose();
+    navigate(`/dashboards/ticker-lookup?${sp.toString()}`);
+  };
+
   const actions = (
-    <button
-      type="button"
-      className="cd-cockpit"
-      title="Open this company in the Cockpit"
-      onClick={() => onOpenCockpit(selection.thesisId, member?.ticker ?? selection.nameKey)}
-    >
-      Open in Cockpit ↗
-    </button>
+    <>
+      {lookupTicker && (
+        <button
+          type="button"
+          className="cd-cockpit cd-action-quiet"
+          title={`Open ${lookupTicker} in Ticker Lookup (full filings and cross-card dossier)`}
+          onClick={openTickerLookup}
+        >
+          Ticker Lookup ↗
+        </button>
+      )}
+      <button
+        type="button"
+        className="cd-cockpit"
+        title="Open this company in the Cockpit"
+        onClick={() => onOpenCockpit(selection.thesisId, member?.ticker ?? selection.nameKey)}
+      >
+        Open in Cockpit ↗
+      </button>
+    </>
   );
 
   const switching = Boolean(data && q.isPlaceholderData);
@@ -290,12 +319,26 @@ export function CompanyDrawer({
           (scored.business_type_override ? " · your tag" : "")
         : "—";
 
+  const cik = data?.cik ?? null;
+  const cikCell: ReactNode =
+    cik && data?.edgar_url ? (
+      <ExternalLink
+        href={data.edgar_url}
+        title={isSecLink(data.edgar_url) ? "Open the company on EDGAR" : "Open the stored source"}
+      >
+        {cik} ↗
+      </ExternalLink>
+    ) : (
+      (cik ?? "—")
+    );
+
   const identityCells: [string, ReactNode][] = member
     ? [
         ["Type", btype],
         ["Segment", member.segment ?? "—"],
         ["Sector", scored?.sector ?? "—"],
         ["Exchange", scored?.exchange ?? "—"],
+        ["CIK", cikCell],
         ["Category", scored?.category ?? "—"],
         ["Origin", originText ?? "—"],
         [
@@ -309,6 +352,13 @@ export function CompanyDrawer({
       ]
     : [];
   if (scored?.price_symbol) identityCells.push(["Priced under", scored.price_symbol]);
+
+  const catalystFacts = data?.catalyst_facts ?? [];
+  const cardCatalysts = useMemo(
+    () => [...(data?.card_catalysts ?? [])].sort(byWhenDateAsc),
+    [data?.card_catalysts],
+  );
+  const hasCatalysts = catalystFacts.length > 0 || cardCatalysts.length > 0;
 
   const trailByKey = new Map((trailSig?.metrics ?? []).map((m) => [m.key, m]));
   const hasTapeStrip = Boolean(smaSig || trailSig || rangeSig || rvolSig || volSig || headlines.length > 0);
@@ -427,6 +477,7 @@ export function CompanyDrawer({
                       onActivate={setActiveN}
                       loading={windowQ.isLoading}
                       error={windowQ.isError}
+                      hideIngest
                     />
                   </Suspense>
                 )}
@@ -647,6 +698,69 @@ export function CompanyDrawer({
                   </div>
                 </section>
 
+                {/* Upcoming & recent Catalysts (company catalyst facts + card calendar) */}
+                {hasCatalysts && (
+                  <section className="cd-slot-catalysts" aria-label="Catalysts">
+                    <div className="cd-sec-h">
+                      Catalysts
+                      <span className="cd-sec-count">
+                        {catalystFacts.length + cardCatalysts.length}
+                      </span>
+                    </div>
+                    <div className="cd-cat-list">
+                      {catalystFacts.slice(0, 6).map((f, i) => (
+                        <div className={`cd-cat-row${f.live ? " live" : ""}`} key={`cf-${i}`}>
+                          <span className="cd-cat-when">{fmtDate(f.date)}</span>
+                          <span className="cd-cat-body">
+                            <span className="cd-cat-lbl">{f.label}</span>
+                            {f.live && f.grade && (
+                              <span className={`grade ${gradeClass(f.grade)}`}>
+                                {f.grade.toUpperCase()}
+                              </span>
+                            )}
+                            {f.catalyst_type && (
+                              <span className="cd-cat-kind">
+                                {f.catalyst_type.replace(/_/g, " ")}
+                              </span>
+                            )}
+                            {f.url && (
+                              <ExternalLink className="evled-link" href={f.url}>
+                                {isSecLink(f.url) ? "filing" : "source"} ↗
+                              </ExternalLink>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                      {catalystFacts.length > 6 && (
+                        <div className="cd-cat-more">
+                          +{catalystFacts.length - 6} more company catalyst
+                          {catalystFacts.length - 6 === 1 ? "" : "s"}
+                        </div>
+                      )}
+                      {cardCatalysts.map((c) => {
+                        const d = daysFrom(origin, c.when_date);
+                        const soon = d !== null && d >= 0 && d <= 21;
+                        const passed = d !== null && d < 0;
+                        const when = c.when_date
+                          ? `${fmtDate(c.when_date)}${d === null ? "" : d >= 0 ? ` · ${dayCount(d)}` : ` · ${-d}d ago`}`
+                          : (c.when_label ?? "—");
+                        return (
+                          <div
+                            className={`cd-cat-row card${soon ? " soon" : ""}${passed ? " passed" : ""}`}
+                            key={c.id}
+                          >
+                            <span className="cd-cat-when">{when}</span>
+                            <span className="cd-cat-body">
+                              <span className="cd-cat-lbl">{c.label}</span>
+                              <span className="cd-cat-kind">{c.kind || "card"}</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
                 {/* Cross-highlighted Event Ledger (row #N <-> chip #N) */}
                 {events.length > 0 && (
                   <div className="cd-slot-ledger">
@@ -656,6 +770,8 @@ export function CompanyDrawer({
                       onActivate={setActiveN}
                       showCockpitStrip={false}
                       heading="Event ledger"
+                      hideIngest
+                      filterable
                     />
                   </div>
                 )}

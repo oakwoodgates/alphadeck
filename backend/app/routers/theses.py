@@ -30,6 +30,8 @@ from app.schemas_api import (
     ThesisDetail,
     ThesisSummary,
 )
+from domain.config import DEFAULT_CONFIG
+from domain.links import HttpUrlOut, edgar_company_url, source_url
 from domain.market_time import (
     MarketClock,
     market_clock,
@@ -44,7 +46,9 @@ from pipeline.call_for_thesis import call_for_thesis
 from platform_values import user_view
 from repositories import calls_repo, decisions_repo, thesis_catalyst_repo, thesis_repo
 from securities import master
+from signals import catalyst_conviction
 from signals.base import PointInTimeData
+from signals.common import entry_signal_is_live
 from signals.display import registered_display_members, relative_strength, theme_breadth
 from signals.horizons import display_bounds
 
@@ -354,6 +358,18 @@ class MemberCardRefOut(BaseModel):
     archived: bool = False
 
 
+class MemberCatalystFactOut(BaseModel):
+    """One stored company catalyst fact visible at ``asof`` (no-lookahead), with live flag and safe source link."""
+
+    date: date
+    label: str
+    catalyst_type: str | None = None
+    grade: str | None = None
+    live: bool = False
+    source: str | None = None
+    url: HttpUrlOut = None
+
+
 class MemberPanelResponse(BaseModel):
     """Single-member read for the dashboard company overlay (mirrors the Cockpit's ``NamePanel`` without
     computing display signals, scores, or data flags for the rest of a large basket)."""
@@ -362,6 +378,8 @@ class MemberPanelResponse(BaseModel):
     thesis_name: str
     asof: date
     member: BasketMember
+    cik: str | None = None
+    edgar_url: HttpUrlOut = None
     position: Position | None = None
     card: CallCardResponse
     scored: ScoredMemberOut | None = None
@@ -369,6 +387,8 @@ class MemberPanelResponse(BaseModel):
     data_flags: MemberDataFlagsOut | None = None
     shared_values: UserCompanyValuesOut | None = None
     decisions: list[DecisionOut] = []
+    catalyst_facts: list[MemberCatalystFactOut] = []
+    card_catalysts: list[Catalyst] = []
     cards: list[MemberCardRefOut] = []
 
 
@@ -458,6 +478,44 @@ def read_member_cards(
     return out
 
 
+def read_member_catalysts(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    sid: UUID,
+    cik: str | None,
+    asof: date,
+    *,
+    view: tuple[datetime | None, Literal["record", "public"]],
+) -> list[MemberCatalystFactOut]:
+    """Company catalyst facts visible at ``asof`` (newest first), with liveness and safe source URL."""
+    known_at, clock = view
+    pit = PointInTimeData(
+        conn,
+        asof=asof,
+        known_at=known_at,
+        data_tenant=DATA_TENANT_ID,
+        workspace=thesis.tenant_id,
+        basket=[sid],
+        bounds={"fact_catalyst": None},
+        clock=clock,
+    )
+    facts = sorted(pit.catalyst_facts(sid), key=lambda f: f["valid_from"], reverse=True)
+    return [
+        MemberCatalystFactOut(
+            date=f["valid_from"],
+            label=f["label"],
+            catalyst_type=f.get("catalyst_type"),
+            grade=f.get("grade"),
+            live=entry_signal_is_live(
+                f["valid_from"], catalyst_conviction.liveness(f, DEFAULT_CONFIG), asof
+            ),
+            source=f.get("source"),
+            url=source_url(f.get("source_ref"), cik),
+        )
+        for f in facts
+    ]
+
+
 @router.get("/{thesis_id}/member-panel", response_model=MemberPanelResponse)
 def get_member_panel(
     name: Annotated[
@@ -501,12 +559,20 @@ def get_member_panel(
     decisions = (
         [d for d in read_decisions(conn, thesis) if d.security_id == sid] if sid is not None else []
     )
+    cik = (
+        master.ciks_for(conn, {sid}, tenant_id=DATA_TENANT_ID).get(sid) if sid is not None else None
+    )
+    catalyst_facts = (
+        read_member_catalysts(conn, thesis, sid, cik, asof, view=view) if sid is not None else []
+    )
     cards = read_member_cards(conn, thesis, member)
     return MemberPanelResponse(
         thesis_id=thesis.id,
         thesis_name=thesis.name,
         asof=asof,
         member=member,
+        cik=cik,
+        edgar_url=edgar_company_url(cik),
         position=position,
         card=card,
         scored=scored,
@@ -514,6 +580,8 @@ def get_member_panel(
         data_flags=flags,
         shared_values=shared_values,
         decisions=decisions,
+        catalyst_facts=catalyst_facts,
+        card_catalysts=list(thesis.catalysts),
         cards=cards,
     )
 

@@ -89,6 +89,28 @@ function makePayload(overrides?: Partial<Record<string, unknown>>) {
       conviction: 4,
       authored_by: "system_drafted",
     },
+    cik: "0001649904",
+    edgar_url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001649904",
+    catalyst_facts: [
+      {
+        date: "2026-11-12",
+        label: "FDA sNDA accepted for priority review",
+        catalyst_type: "fda_clearance",
+        grade: "core",
+        live: true,
+        source: "8-k",
+        url: "https://www.sec.gov/Archives/edgar/data/1649904/000164990426000012/",
+      },
+    ],
+    card_catalysts: [
+      {
+        id: "cat-1",
+        label: "Obesity symposium interim readout",
+        kind: "conference",
+        when_date: "2026-12-05",
+        when_label: null,
+      },
+    ],
     position: null,
     card: {
       thesis_id: "t-glp",
@@ -361,6 +383,25 @@ describe("DashboardShell CompanyDrawer (Phase 2 redesigned dossier)", () => {
 
     expect(within(dialog).getByText("Event ledger")).toBeTruthy();
     expect(within(dialog).getByText(/Jane Director/)).toBeTruthy();
+    // hideIngest strips backfill noise ("ingested Nd later") from ledger details
+    expect(within(dialog).queryByText(/ingested \d+d later/i)).toBeNull();
+    // Event ledger family filter chips narrow rows without renumbering, and reset via All
+    const filterBar = within(dialog).getByRole("group", { name: "Filter event ledger by type" });
+    fireEvent.click(within(filterBar).getByRole("button", { name: /insider buy/i }));
+    expect(within(dialog).getByText(/Jane Director/)).toBeTruthy();
+    expect(within(dialog).queryByText("52-week breakout on RYTM")).toBeTruthy(); // still in Triggers section
+    fireEvent.click(within(filterBar).getByRole("button", { name: /All/i }));
+
+    // Catalysts (company fact + card calendar) and EDGAR CIK + Ticker Lookup links
+    const catSec = within(dialog).getByRole("region", { name: "Catalysts" });
+    expect(within(catSec).getByText("FDA sNDA accepted for priority review")).toBeTruthy();
+    expect(within(catSec).getByText("Obesity symposium interim readout")).toBeTruthy();
+    expect(within(dialog).getByRole("link", { name: /0001649904/ })).toHaveAttribute(
+      "href",
+      "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001649904",
+    );
+    expect(within(dialog).getByRole("button", { name: /Ticker Lookup/i })).toBeTruthy();
+
     const indicatorsDetails = dialog.querySelector("details.cd-details");
     expect(indicatorsDetails).toHaveAttribute("open");
 
