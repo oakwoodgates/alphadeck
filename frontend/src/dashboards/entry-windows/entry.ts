@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 200,
   label: "Entry Windows",
   description: "Each Armed card's entry window and hold horizon on one date axis, where the as-of sits in them, and what the armed names have done since the arm night.",
+  group: "daily",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

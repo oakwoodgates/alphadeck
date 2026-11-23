@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 150,
   label: "Peer Table",
   description: "The names across your cards side by side: size, revenue, runway, dilution, purity, tape and insider buying, grouped by business type, link or card, with every blank counted.",
+  group: "fundamentals",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./PeerTable")),

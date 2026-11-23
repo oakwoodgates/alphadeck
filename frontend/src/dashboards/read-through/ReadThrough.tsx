@@ -17,9 +17,12 @@ import {
   catalystWords,
   chipLinks,
   chipWords,
+  filingFormOptions,
   filingWords,
   filterRows,
   filtersActive,
+  fmtDay,
+  fmtPct,
   inTab,
   nextSort,
   plural,
@@ -84,13 +87,36 @@ function SortTh({
   );
 }
 
-function TapeTd({ row, which, spy }: { row: ReadThroughRowOut; which: "7d" | "30d"; spy: ReadThroughSpyOut | null }) {
+function TapeTd({
+  row,
+  which,
+  spy,
+  maxAbs,
+}: {
+  row: ReadThroughRowOut;
+  which: "7d" | "30d";
+  spy: ReadThroughSpyOut | null;
+  maxAbs: number;
+}) {
   const c = tapeCell(row.tape, which, spy);
+  const diff = which === "7d" ? row.tape.vs_spy_7d : row.tape.vs_spy_30d;
+  const pct = diff != null && !c.gray && maxAbs > 0 ? Math.min(50, (Math.abs(diff) / maxAbs) * 50) : 0;
   return (
     <td className="rt-num">
       <span className={`rt-tape${c.tone ? ` ${c.tone}` : ""}${c.gray ? " gray" : ""}`} title={c.title}>
         {c.text}
       </span>
+      {diff != null && !c.gray && (
+        <span className="rt-bar" aria-hidden="true">
+          <span className="rt-bar-zero" />
+          {pct > 0 && (
+            <span
+              className={`rt-bar-fill${c.tone ? ` ${c.tone}` : ""}`}
+              style={diff >= 0 ? { left: "50%", width: `${pct}%` } : { left: `${50 - pct}%`, width: `${pct}%` }}
+            />
+          )}
+        </span>
+      )}
     </td>
   );
 }
@@ -108,6 +134,15 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
   const shown = useMemo(() => sortRows(inTab(filtered, tab), sort), [filtered, tab, sort]);
   const types = useMemo(() => businessTypeOptions(rows), [rows]);
   const cards = useMemo(() => cardNames(rows), [rows]);
+  const forms = useMemo(() => filingFormOptions(rows), [rows]);
+  const maxAbs7 = useMemo(
+    () => Math.max(10, ...shown.map((r) => (r.tape.gap === "flagged" || r.tape.vs_spy_7d == null ? 0 : Math.abs(r.tape.vs_spy_7d)))),
+    [shown],
+  );
+  const maxAbs30 = useMemo(
+    () => Math.max(10, ...shown.map((r) => (r.tape.gap === "flagged" || r.tape.vs_spy_30d == null ? 0 : Math.abs(r.tape.vs_spy_30d)))),
+    [shown],
+  );
 
   if (q.isLoading || (!data && q.isFetching)) return <div className="dash-note">{SLOW}</div>;
   if (q.error || !data) return <div className="dash-note">Could not load the Read-Throughs.</div>;
@@ -117,7 +152,9 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
   // a control that cannot discriminate does not render (WB#3): the card query with fewer than two cards, the
   // business-type select with one type, the filing window with no filing in the table
   const showCard = cards.length > 1;
+  const showCompany = rows.length > 1;
   const showType = types.length > 1;
+  const showForm = forms.length > 1;
   const showWindow = data.rows_with_filing > 0;
   const unresolved = unresolvedWords(data);
   const roster = rosterWords(data.roster_fallback_cards);
@@ -144,6 +181,19 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
           </div>
 
           <div className="rt-filters">
+            {showCompany && (
+              <label className="rt-field">
+                <span className="rt-seg-label">Company</span>
+                <input
+                  type="search"
+                  className="rt-search"
+                  aria-label="Find a company"
+                  placeholder="Ticker or name"
+                  value={filters.company ?? ""}
+                  onChange={(e) => setFilters((f) => ({ ...f, company: e.target.value }))}
+                />
+              </label>
+            )}
             {showCard && (
               <label className="rt-field">
                 <span className="rt-seg-label">Card</span>
@@ -176,6 +226,24 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
                   {types.map((t) => (
                     <option key={t.value} value={t.value}>
                       {t.label} · {t.rows.toLocaleString("en-US")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {showForm && (
+              <label className="rt-field">
+                <span className="rt-seg-label">Form</span>
+                <select
+                  className="rt-select"
+                  aria-label="Filing form"
+                  value={filters.form ?? ""}
+                  onChange={(e) => setFilters((f) => ({ ...f, form: e.target.value }))}
+                >
+                  <option value="">All forms</option>
+                  {forms.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.value} · {f.rows.toLocaleString("en-US")}
                     </option>
                   ))}
                 </select>
@@ -221,7 +289,17 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
               : `No company holds the ${contextRoleTag(tab)} role on a card counted at this as-of.`}
         </div>
       ) : (
-        <div className="rt-scroll">
+        <>
+          {data.spy && (
+            <div className="rt-bench-bar" data-testid="rt-bench-bar">
+              <span>
+                {data.benchmark} baseline:{" "}
+                <span className="rt-bench-val">7D {fmtPct(data.spy.ret_7d)}</span> ·{" "}
+                <span className="rt-bench-val">30D {fmtPct(data.spy.ret_30d)}</span> (to {fmtDay(data.spy.end)})
+              </span>
+            </div>
+          )}
+          <div className="rt-scroll">
           <table className="rt-table">
             <thead>
               <tr>
@@ -285,42 +363,53 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
                     <td className="rt-bt">{r.business_type ? businessTypeLabel(r.business_type) : ""}</td>
                     <td className="rt-fil">
                       {filing && r.last_filing ? (
-                        <div className="rt-fil-line">
+                        <div className="rt-fil-block">
                           <span className="rt-fil-text" title={filing.full}>
                             {filing.short}
                           </span>
-                          {r.last_filing.url && (
-                            <ExternalLink
-                              className="rt-src"
-                              href={r.last_filing.url}
-                              title={edgar ? "Open the filing on EDGAR" : "Open the stored source"}
-                              ariaLabel={`Open ${r.ticker} ${r.last_filing.form} on ${edgar ? "EDGAR" : "its source"}`}
-                            >
-                              {edgar ? "EDGAR" : "source"} ↗
-                            </ExternalLink>
-                          )}
+                          <div className="rt-fil-meta">
+                            <span className="rt-fil-age">
+                              {r.last_filing.days_ago === 0 ? "today" : `${r.last_filing.days_ago}d ago`}
+                            </span>
+                            {r.last_filing.url && (
+                              <ExternalLink
+                                className="rt-src"
+                                href={r.last_filing.url}
+                                title={edgar ? "Open the filing on EDGAR" : "Open the stored source"}
+                                ariaLabel={`Open ${r.ticker} ${r.last_filing.form} on ${edgar ? "EDGAR" : "its source"}`}
+                              >
+                                {edgar ? "EDGAR" : "source"} ↗
+                              </ExternalLink>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <span className="rt-none">none stored in the last year</span>
                       )}
                     </td>
                     <td className="rt-cat">
-                      {next ? (
-                        <span className="rt-cat-text" title={next.full}>
+                      {next && r.next_catalyst ? (
+                        <button
+                          type="button"
+                          className="rt-cat-text rt-cat-btn"
+                          title={`${next.full} — click to open ${r.next_catalyst.thesis_name}`}
+                          onClick={() => onSelectThesis(r.next_catalyst!.thesis_id)}
+                        >
                           {next.short}
-                        </span>
+                        </button>
                       ) : (
                         <span className="rt-none">—</span>
                       )}
                     </td>
-                    <TapeTd row={r} which="7d" spy={data.spy} />
-                    <TapeTd row={r} which="30d" spy={data.spy} />
+                    <TapeTd row={r} which="7d" spy={data.spy} maxAbs={maxAbs7} />
+                    <TapeTd row={r} which="30d" spy={data.spy} maxAbs={maxAbs30} />
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {data.rows.length > 0 && (

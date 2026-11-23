@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 170,
   label: "Narrative Adoption",
   description: "How many filings mention a card's terms each month, over three years, split by who files them: annual and quarterly reports, 8-Ks, or new-issuance paper, and new filers against repeat filers.",
+  group: "filings",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./NarrativeAdoption")),

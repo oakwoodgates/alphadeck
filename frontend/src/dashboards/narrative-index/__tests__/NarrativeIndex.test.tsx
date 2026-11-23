@@ -16,7 +16,32 @@ import type {
 // enlarging in place and closing, the creation marker only inside the window, and a card's name opening the
 // Cockpit. The hooks' requests have their own test.
 
-const h = vi.hoisted(() => ({ useNarrativeIndex: vi.fn(), useNarrativeCard: vi.fn() }));
+const h = vi.hoisted(() => {
+  const series = { setData: vi.fn(), setMarkers: vi.fn(), createPriceLine: vi.fn() };
+  const hist = { setData: vi.fn() };
+  const priceScale = { applyOptions: vi.fn() };
+  const timeScale = { fitContent: vi.fn() };
+  const chart = {
+    addLineSeries: vi.fn(() => series),
+    addHistogramSeries: vi.fn(() => hist),
+    priceScale: vi.fn(() => priceScale),
+    timeScale: vi.fn(() => timeScale),
+    subscribeCrosshairMove: vi.fn(),
+    unsubscribeCrosshairMove: vi.fn(),
+    applyOptions: vi.fn(),
+    remove: vi.fn(),
+  };
+  return {
+    useNarrativeIndex: vi.fn(),
+    useNarrativeCard: vi.fn(),
+    lw: { series, hist, priceScale, timeScale, chart, createChart: vi.fn(() => chart) },
+  };
+});
+vi.mock("lightweight-charts", () => ({
+  createChart: h.lw.createChart,
+  ColorType: { Solid: "solid" },
+  LineStyle: { Solid: 0, Dotted: 1, Dashed: 2 },
+}));
 vi.mock("../useNarrativeIndex", () => ({
   useNarrativeIndex: h.useNarrativeIndex,
   useNarrativeCard: h.useNarrativeCard,
@@ -275,6 +300,19 @@ describe("NarrativeIndex", () => {
     const big = screen.getByRole("region", { name: "alpha uranium, enlarged" });
     await userEvent.click(within(big).getByRole("button", { name: "alpha uranium" }));
     expect(onSelectThesis).toHaveBeenLastCalledWith("t-alpha");
+  });
+
+  it("shows benchmark baseline returns, supports shared scale, state filter, search, and clickable enlarged member tickers", async () => {
+    const { onSelectThesis } = setup();
+    expect(screen.getByTestId("ni-bench-bar")).toHaveTextContent("SPY 1Y +1.0%");
+    await userEvent.click(screen.getByRole("button", { name: "Shared" }));
+    expect(screen.getByRole("button", { name: "Shared" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(screen.getByRole("group", { name: "Filter state" })).getByRole("button", { name: /Armed/ }));
+    expect(tileNames()).toEqual(["Grid"]);
+    await userEvent.click(screen.getByRole("button", { name: "Enlarge Grid" }));
+    const big = screen.getByRole("region", { name: "Grid, enlarged" });
+    await userEvent.click(within(big).getByRole("button", { name: "AAA" }));
+    expect(onSelectThesis).toHaveBeenLastCalledWith("t-grid", "AAA");
   });
 });
 

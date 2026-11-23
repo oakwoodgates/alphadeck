@@ -13,12 +13,15 @@ import {
   fmtPct,
   fmtPp,
   gapWords,
+  monthStarts,
   plural,
   readoutWords,
   rowLabel,
   spyBar,
+  spyWindowSummary,
   weekHeaders,
   weekWords,
+  windowSummary,
 } from "./waveView";
 import {
   useChainWave,
@@ -98,8 +101,9 @@ function lineName(l: Line): string {
 function focusWords(d: ChainWaveOut, l: Line, col: number): string {
   const week = d.week_columns[col];
   const spy = d.spy[col];
+  const shortWk = !week.to_date && week.sessions > 0 && week.sessions < 5 ? `${week.sessions}-session week` : null;
   if (l.kind === "spy") {
-    return [`SPY · ${weekWords(week)}`, `SPY ${fmtPct(spy?.ret)}`, gapWords(spy?.gap)].filter(Boolean).join(" · ");
+    return [`SPY · ${weekWords(week)}`, shortWk, `SPY ${fmtPct(spy?.ret)}`, gapWords(spy?.gap)].filter(Boolean).join(" · ");
   }
   const c: ChainWaveCellOut | undefined = l.kind === "row" ? l.row.cells[col] : l.member.cells[col];
   const names =
@@ -110,6 +114,7 @@ function focusWords(d: ChainWaveOut, l: Line, col: number): string {
         : "no daily return that week";
   return [
     `${lineName(l)} · ${weekWords(week)}`,
+    shortWk,
     `row ${fmtPct(c?.ret)}`,
     `SPY ${fmtPct(c?.spy ?? spy?.ret)}`,
     `difference ${fmtPp(c?.diff)}`,
@@ -126,6 +131,9 @@ function Cell({
   spy,
   id,
   active,
+  colHi,
+  monthStart,
+  showNum,
   label,
   onHover,
   onFocusCell,
@@ -135,6 +143,9 @@ function Cell({
   spy: boolean;
   id: string;
   active: boolean;
+  colHi: boolean;
+  monthStart: boolean;
+  showNum: boolean;
   label: string;
   onHover: (on: boolean) => void;
   onFocusCell: () => void;
@@ -149,12 +160,13 @@ function Cell({
     onMouseLeave: () => onHover(false),
     onFocus: onFocusCell,
   };
+  const extra = `${colHi ? " col-hi" : ""}${monthStart ? " month-start" : ""}`;
   if (spy) {
     const bar = spyBar(cell?.ret);
     return (
-      <div {...common} className={`cw-cell cw-spy${bar ? "" : " gap"}`}>
+      <div {...common} className={`cw-cell cw-spy${bar ? "" : " gap"}${extra}`}>
         {bar ? (
-          <span className={`cw-spybar ${bar.dir}`} style={{ height: `${Math.max(6, bar.share * 50)}%` }} />
+          <span className={`cw-spybar ${bar.dir}`} style={{ height: `${Math.max(8, bar.share * 48)}%` }} />
         ) : (
           "—"
         )}
@@ -163,9 +175,10 @@ function Cell({
   }
   const t = cellTone(cell?.diff, thin);
   const style = { "--cw-a": `${Math.round(t.strength * 80)}%` } as CSSProperties;
+  const rounded = showNum && cell?.diff != null ? `${cell.diff > 0 ? "+" : ""}${Math.round(cell.diff)}` : null;
   return (
-    <div {...common} className={`cw-cell ${t.tone}`} style={style}>
-      {t.tone === "gap" ? "—" : null}
+    <div {...common} className={`cw-cell ${t.tone}${extra}`} style={style}>
+      {t.tone === "gap" ? "—" : rounded ? <span className="cw-cell-num" aria-hidden="true">{rounded}</span> : null}
     </div>
   );
 }
@@ -187,9 +200,9 @@ function RowHeader({
 }) {
   if (l.kind === "spy") {
     return (
-      <div role="rowheader" className="cw-label cw-label-spy" title="SPY's own weekly return: up or down from the middle">
+      <div role="rowheader" className="cw-label cw-label-spy" title="SPY's own weekly return: up or down from the middle (±5% full height)">
         <span className="cw-label-text">SPY</span>
-        <span className="cw-n">own weekly return</span>
+        <span className="cw-n">own weekly (±5%)</span>
       </div>
     );
   }
@@ -236,6 +249,34 @@ function RowHeader({
   );
 }
 
+function SummaryCell({ l, spy }: { l: Line; spy: readonly ChainWaveCellOut[] }) {
+  if (l.kind === "spy") {
+    const s = spyWindowSummary(spy);
+    const tone = s.ret == null || s.ret === 0 ? "" : s.ret > 0 ? " pos" : " neg";
+    return (
+      <div
+        role="gridcell"
+        className={`cw-sum cw-sum-spy${tone}`}
+        title={s.ret != null ? `SPY compounded over ${plural(s.weeks, "week", "weeks")}: ${fmtPct(s.ret)}` : "No SPY return"}
+      >
+        {fmtPct(s.ret)}
+      </div>
+    );
+  }
+  const cells = l.kind === "row" ? l.row.cells : l.member.cells;
+  const s = windowSummary(cells, spy);
+  const tone = s.diffPp == null || s.diffPp === 0 ? "" : s.diffPp > 0 ? " pos" : " neg";
+  const title =
+    s.diffPp != null
+      ? `Compounded over ${plural(s.weeks, "week", "weeks")}: row ${fmtPct(s.rowRet)} vs SPY ${fmtPct(s.spyRet)} (${fmtPp(s.diffPp)})`
+      : "No paired weeks vs SPY in this window";
+  return (
+    <div role="gridcell" className={`cw-sum${tone}`} title={title}>
+      {s.diffPp != null ? fmtPp(s.diffPp) : "—"}
+    </div>
+  );
+}
+
 function Grid({
   data,
   open,
@@ -259,6 +300,8 @@ function Grid({
   }, [data, open]);
   const cols = data.week_columns.length;
   const headers = weekHeaders(data.week_columns);
+  const mStarts = useMemo(() => monthStarts(data.week_columns), [data.week_columns]);
+  const showNums = data.weeks <= 13;
   const [hover, setHover] = useState<Spot | null>(null);
   const [active, setActive] = useState<Spot>({ line: 0, col: Math.max(0, cols - 1) });
   const at = { line: Math.min(active.line, lines.length - 1), col: Math.min(active.col, cols - 1) };
@@ -294,7 +337,7 @@ function Grid({
           className="cw-grid"
           role="grid"
           aria-label={`${data.thesis_name}: weekly return minus SPY's, by link`}
-          style={{ "--cw-cols": `repeat(${cols}, minmax(9px, 1fr))`, "--cw-n": cols } as CSSProperties}
+          style={{ "--cw-cols": `repeat(${cols}, minmax(${showNums ? 28 : 11}px, 1fr))`, "--cw-n": cols } as CSSProperties}
           onKeyDown={onKeyDown}
         >
           <div role="row" className="cw-row cw-head">
@@ -305,15 +348,19 @@ function Grid({
               <div
                 key={w.monday}
                 role="columnheader"
-                className={`cw-week${i === cols - 1 && w.to_date ? " to-date" : ""}`}
+                className={`cw-week${i === cols - 1 && w.to_date ? " to-date" : ""}${hover?.col === i ? " col-hi" : ""}${mStarts.has(i) ? " month-start" : ""}`}
                 title={weekWords(w)}
               >
                 {headers[i]}
               </div>
             ))}
+            <div role="columnheader" className="cw-sum cw-sum-head" title={`Compounded spread vs SPY across the ${data.weeks}-week window`}>
+              {data.weeks}w vs SPY
+            </div>
           </div>
           {lines.map((l, li) => {
             const thin = l.kind === "row" ? l.row.thin : false;
+            const rowHi = hover?.line === li;
             const rowClass =
               l.kind === "spy"
                 ? "cw-line-spy"
@@ -323,7 +370,7 @@ function Grid({
             const member = l.kind === "member" ? l.member : null;
             const leftOut = member && (member.flag != null || member.security_id == null);
             return (
-              <div key={l.key} role="row" className={`cw-row ${rowClass}`} data-key={l.key}>
+              <div key={l.key} role="row" className={`cw-row ${rowClass}${rowHi ? " row-hi" : ""}`} data-key={l.key}>
                 <RowHeader
                   l={l}
                   open={open.has(l.key)}
@@ -337,26 +384,32 @@ function Grid({
                     {member.flag != null ? leftOutWords(member.flag) : "no resolved security: never priced"}
                   </div>
                 ) : (
-                  data.week_columns.map((_, ci) => {
-                    const cell =
-                      l.kind === "spy" ? data.spy[ci] : l.kind === "row" ? l.row.cells[ci] : l.member.cells[ci];
-                    return (
-                      <Cell
-                        key={ci}
-                        cell={cell}
-                        thin={thin}
-                        spy={l.kind === "spy"}
-                        id={cellId(li, ci)}
-                        active={at.line === li && at.col === ci}
-                        label={focusWords(data, l, ci)}
-                        onHover={(on) => setHover(on ? { line: li, col: ci } : null)}
-                        onFocusCell={() => {
-                          setActive({ line: li, col: ci });
-                          setHover({ line: li, col: ci });
-                        }}
-                      />
-                    );
-                  })
+                  <>
+                    {data.week_columns.map((_, ci) => {
+                      const cell =
+                        l.kind === "spy" ? data.spy[ci] : l.kind === "row" ? l.row.cells[ci] : l.member.cells[ci];
+                      return (
+                        <Cell
+                          key={ci}
+                          cell={cell}
+                          thin={thin}
+                          spy={l.kind === "spy"}
+                          id={cellId(li, ci)}
+                          active={at.line === li && at.col === ci}
+                          colHi={hover?.col === ci}
+                          monthStart={mStarts.has(ci)}
+                          showNum={showNums && l.kind !== "member"}
+                          label={focusWords(data, l, ci)}
+                          onHover={(on) => setHover(on ? { line: li, col: ci } : null)}
+                          onFocusCell={() => {
+                            setActive({ line: li, col: ci });
+                            setHover({ line: li, col: ci });
+                          }}
+                        />
+                      );
+                    })}
+                    <SummaryCell l={l} spy={data.spy} />
+                  </>
                 )}
               </div>
             );
@@ -455,6 +508,13 @@ export default function ChainWave({ asof, onSelectThesis }: DashboardProps) {
           <input type="checkbox" checked={includeSilent} onChange={(e) => setIncludeSilent(e.target.checked)} />
           Show Context and Bench
         </label>
+        <div className="cw-scale" aria-hidden="true" title="Diverging weekly spread vs SPY; full shade at ±10 pp (half strength on thin rows)">
+          <span>-10 pp</span>
+          <span className="cw-scale-bar" />
+          <span>0</span>
+          <span className="cw-scale-bar pos" />
+          <span>+10 pp</span>
+        </div>
         {q.isFetching && data && <span className="dash-note">{stale ? SLOW : "updating…"}</span>}
       </div>
 

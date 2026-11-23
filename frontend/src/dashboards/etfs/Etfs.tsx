@@ -149,32 +149,101 @@ const Empty = ({ children }: { children: string }) => <p className="et-empty">{c
 
 // --- panel 1 --------------------------------------------------------------------------------------------------
 
-const MINI_W = 120;
-const MINI_H = 30;
+const MINI_W = 148;
+const MINI_H = 34;
 
-function Mini({ row }: { row: EtfCompareRowOut }) {
-  const domain = yDomain([row.fund_points, row.company_points]);
+function Mini({
+  row,
+  dates,
+  sharedDomain,
+  hoverIdx,
+  onHover,
+}: {
+  row: EtfCompareRowOut;
+  dates: readonly string[];
+  sharedDomain: readonly [number, number] | null;
+  hoverIdx: number | null;
+  onHover: (idx: number | null) => void;
+}) {
+  const domain = sharedDomain ?? yDomain([row.fund_points, row.company_points]);
   const base = yAt(100, domain, MINI_H);
+  const n = Math.max(row.fund_points?.length ?? 0, row.company_points?.length ?? 0);
+  const active = hoverIdx !== null && n > 1 ? Math.max(0, Math.min(n - 1, hoverIdx)) : null;
+  const hx = active !== null && n > 1 ? (active / (n - 1)) * MINI_W : null;
+  const fPt = active !== null && row.fund_points && active < row.fund_points.length ? row.fund_points[active] : null;
+  const cPt = active !== null && row.company_points && active < row.company_points.length ? row.company_points[active] : null;
+  const fLast = row.fund_points && row.fund_points.length > 1 ? row.fund_points[row.fund_points.length - 1] : null;
+  const cLast = row.company_points && row.company_points.length > 1 ? row.company_points[row.company_points.length - 1] : null;
+
+  const handleMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (n <= 1) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    onHover(Math.round(frac * (n - 1)));
+  };
+
   return (
-    <svg
-      className="et-mini"
-      viewBox={`0 0 ${MINI_W} ${MINI_H}`}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={`${row.ticker} against the companies of ${row.thesis_name}`}
-    >
-      <line className="et-base" x1={0} x2={MINI_W} y1={base} y2={base} />
-      {row.company_points && row.company_points.length > 1 && (
-        <path className="et-comp" d={linePath(row.company_points, domain, MINI_W, MINI_H)} />
-      )}
-      {row.fund_points && row.fund_points.length > 1 && (
-        <path className="et-fline" d={linePath(row.fund_points, domain, MINI_W, MINI_H)} />
-      )}
-    </svg>
+    <div className="et-mini-wrap">
+      <svg
+        className="et-mini"
+        viewBox={`0 0 ${MINI_W} ${MINI_H}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`${row.ticker} against the companies of ${row.thesis_name}`}
+        onMouseMove={handleMove}
+        onMouseLeave={() => onHover(null)}
+      >
+        <line className="et-base" x1={0} x2={MINI_W} y1={base} y2={base} />
+        {row.company_points && row.company_points.length > 1 && (
+          <path className="et-comp" d={linePath(row.company_points, domain, MINI_W, MINI_H)} />
+        )}
+        {row.fund_points && row.fund_points.length > 1 && (
+          <path className="et-fline" d={linePath(row.fund_points, domain, MINI_W, MINI_H)} />
+        )}
+        {hx !== null && <line className="et-xhair" x1={hx} x2={hx} y1={0} y2={MINI_H} />}
+        {active !== null ? (
+          <>
+            {cPt != null && hx !== null && <circle className="et-dot comp" cx={hx} cy={yAt(cPt, domain, MINI_H)} r={2.2} />}
+            {fPt != null && hx !== null && <circle className="et-dot fund" cx={hx} cy={yAt(fPt, domain, MINI_H)} r={2.6} />}
+          </>
+        ) : (
+          <>
+            {cLast != null && <circle className="et-dot comp" cx={MINI_W} cy={yAt(cLast, domain, MINI_H)} r={1.8} />}
+            {fLast != null && <circle className="et-dot fund" cx={MINI_W} cy={yAt(fLast, domain, MINI_H)} r={2.2} />}
+          </>
+        )}
+      </svg>
+      <span className="et-mini-read" data-testid={active !== null ? "et-mini-read" : undefined} aria-hidden={active === null || undefined}>
+        {active !== null ? (
+          <>
+            {dates[active] ? fmtShortDay(dates[active]) : `#${active + 1}`}
+            {fPt != null ? ` · F ${fmtPct(fPt - 100)}` : ""}
+            {cPt != null ? ` · C ${fmtPct(cPt - 100)}` : ""}
+          </>
+        ) : (
+          "\u00a0"
+        )}
+      </span>
+    </div>
   );
 }
 
-function CompareRow({ row, onSelect }: { row: EtfCompareRowOut; onSelect: Select }) {
+function CompareRow({
+  row,
+  dates,
+  sharedDomain,
+  hoverIdx,
+  onHover,
+  onSelect,
+}: {
+  row: EtfCompareRowOut;
+  dates: readonly string[];
+  sharedDomain: readonly [number, number] | null;
+  hoverIdx: number | null;
+  onHover: (idx: number | null) => void;
+  onSelect: Select;
+}) {
   const missing = row.companies_ret == null ? "no priced company" : undefined;
   return (
     <li className="et-crow" data-testid="et-compare-row">
@@ -197,30 +266,43 @@ function CompareRow({ row, onSelect }: { row: EtfCompareRowOut; onSelect: Select
         </button>
       </div>
       <div className="et-nums">
-        <span title={row.note ?? "the fund's return over the window"}>
+        <span className="et-num-cell" title={row.note ?? "the fund's return over the window"}>
           fund {row.ret == null ? (row.note ?? "—") : fmtPct(row.ret)}
         </span>
-        <span title={missing ?? "the card's companies: equal weight, rebalanced daily"}>
+        <span className="et-num-cell" title={missing ?? "the card's companies: equal weight, rebalanced daily"}>
           companies {fmtPct(row.companies_ret)}
         </span>
-        <span title="the fund's return minus the companies', in percentage points">
+        <span className="et-num-cell et-diff-cell" title="the fund's return minus the companies', in percentage points">
           fund minus companies {fmtPts(row.diff)}
         </span>
-        <span title="companies with at least one daily return in the window / companies on the card">
+        <span className="et-num-cell et-priced-cell" title="companies with at least one daily return in the window / companies on the card">
           {row.priced}/{row.companies} priced
+          {row.sessions_flat > 0 && (
+            <span className="et-flat" title="window sessions no company could contribute to: the companies' line carried flat">
+              {" "}· {plural(row.sessions_flat, "session", "sessions")} flat
+            </span>
+          )}
         </span>
-        {row.sessions_flat > 0 && (
-          <span title="window sessions no company could contribute to: the companies' line carried flat">
-            {plural(row.sessions_flat, "session", "sessions")} flat
-          </span>
-        )}
       </div>
-      <Mini row={row} />
+      <Mini row={row} dates={dates} sharedDomain={sharedDomain} hoverIdx={hoverIdx} onHover={onHover} />
     </li>
   );
 }
 
 // --- panel 2 --------------------------------------------------------------------------------------------------
+
+type FlowMetric = "1m_usd" | "1m_pct" | "1w_usd";
+const FLOW_METRICS: readonly { key: FlowMetric; label: string }[] = [
+  { key: "1m_usd", label: "1M $" },
+  { key: "1m_pct", label: "1M % shares" },
+  { key: "1w_usd", label: "1W $" },
+];
+
+function flowMetricVal(r: EtfFlowRowOut, metric: FlowMetric): number | null {
+  if (metric === "1m_pct") return r.flow_1m_pct.value;
+  if (metric === "1w_usd") return r.flow_1w_usd.value;
+  return r.flow_1m_usd.value;
+}
 
 function flowTitle(r: EtfFlowRowOut): string {
   const parts = [
@@ -251,9 +333,19 @@ function FlowNumbers({ label, usd, pct, filling }: {
   );
 }
 
-function FlowRow({ r, max, onSelect }: { r: EtfFlowRowOut; max: readonly (number | null)[]; onSelect: Select }) {
-  const share = flowShare(r.flow_1m_usd.value, max);
-  const v = r.flow_1m_usd.value;
+function FlowRow({
+  r,
+  metric,
+  max,
+  onSelect,
+}: {
+  r: EtfFlowRowOut;
+  metric: FlowMetric;
+  max: readonly (number | null)[];
+  onSelect: Select;
+}) {
+  const v = flowMetricVal(r, metric);
+  const share = flowShare(v, max);
   return (
     <li className="et-frow" data-testid="et-flow-row" title={flowTitle(r)}>
       <FundCell ticker={r.ticker} name={r.name} cards={r.cards} onSelect={onSelect} />
@@ -322,6 +414,18 @@ function FillingLines({ rows, onSelect }: { rows: readonly EtfFlowRowOut[]; onSe
 
 // --- panel 3 --------------------------------------------------------------------------------------------------
 
+type SizeSort = "size" | "adv" | "turnover";
+const SIZE_SORTS: readonly { key: SizeSort; label: string }[] = [
+  { key: "size", label: "Size" },
+  { key: "adv", label: "ADV" },
+  { key: "turnover", label: "Turnover" },
+];
+
+function turnoverPct(r: EtfSizeRowOut): number | null {
+  if (r.size_usd == null || r.size_usd <= 0 || r.adv_usd_20d.value == null) return null;
+  return (r.adv_usd_20d.value / r.size_usd) * 100;
+}
+
 function SizeRow({ r, sizes, advs, onSelect }: {
   r: EtfSizeRowOut;
   sizes: readonly (number | null)[];
@@ -330,6 +434,7 @@ function SizeRow({ r, sizes, advs, onSelect }: {
 }) {
   const sz = logShare(r.size_usd, sizes);
   const av = logShare(r.adv_usd_20d.value, advs);
+  const turn = turnoverPct(r);
   return (
     <li className="et-srow" data-testid="et-size-row">
       <FundCell ticker={r.ticker} name={r.name} cards={r.cards} onSelect={onSelect} />
@@ -345,7 +450,9 @@ function SizeRow({ r, sizes, advs, onSelect }: {
         <div className="et-track" title={readingTitle(r.adv_usd_20d)}>
           {av != null && <span className="et-bar adv" style={{ width: `${av * 100}%` }} />}
           <span className="et-bar-t">
-            {r.adv_usd_20d.value != null ? `${fmtUsd(r.adv_usd_20d.value)} a day (20d)` : (r.adv_usd_20d.note ?? "—")}
+            {r.adv_usd_20d.value != null
+              ? `${fmtUsd(r.adv_usd_20d.value)} a day (20d)${turn != null ? ` · ${turn.toFixed(1)}%/d` : ""}`
+              : (r.adv_usd_20d.note ?? "—")}
           </span>
         </div>
       </div>
@@ -367,6 +474,17 @@ const TREND_COLUMNS: readonly {
   { key: "rvol20", label: "RVOL 20", title: "today's volume over the 20-day average", fmt: fmtRatio },
   { key: "range_pos", label: "52w range", title: "position in the 52-week range: 0 at the low, 100 at the high", fmt: fmtRange },
 ];
+
+function RangeTrack({ value }: { value: number | null }) {
+  if (value == null) return null;
+  const pct = Math.max(0, Math.min(100, value));
+  return (
+    <span className="et-rtrack" aria-hidden="true">
+      <span className="et-rmid" />
+      <span className="et-rdot" style={{ left: `${pct}%` }} />
+    </span>
+  );
+}
 
 function TrendTable({ rows, sort, onSort, onSelect }: {
   rows: readonly EtfTrendRowOut[];
@@ -405,7 +523,14 @@ function TrendTable({ rows, sort, onSort, onSelect }: {
               const reading = r[c.key];
               return (
                 <td key={c.key} className="et-num" title={readingTitle(reading)}>
-                  {c.fmt(reading.value)}
+                  {c.key === "range_pos" && reading.value != null ? (
+                    <span className="et-rcell">
+                      <RangeTrack value={reading.value} />
+                      <span>{c.fmt(reading.value)}</span>
+                    </span>
+                  ) : (
+                    c.fmt(reading.value)
+                  )}
                 </td>
               );
             })}
@@ -423,10 +548,31 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
   const [win, setWin] = useState<EtfWindow>(DEFAULT_WINDOW);
   const [sort, setSort] = useState<CompareSort>(DEFAULT_COMPARE_SORT);
   const [trendSort, setTrendSort] = useState<TrendSort>(DEFAULT_TREND_SORT);
+  const [sharedScale, setSharedScale] = useState(false);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [flowMetric, setFlowMetric] = useState<FlowMetric>("1m_usd");
+  const [sizeSort, setSizeSort] = useState<SizeSort>("size");
+  const [query, setQuery] = useState("");
   const q = useEtfs(asof, win);
   const data = q.data;
 
-  const compare = useMemo(() => (data ? sortCompare(data.compare, sort) : []), [data, sort]);
+  const qNorm = query.trim().toLowerCase();
+  const compare = useMemo(() => {
+    if (!data) return [];
+    const sorted = sortCompare(data.compare, sort);
+    if (!qNorm) return sorted;
+    return sorted.filter(
+      (r) =>
+        r.ticker.toLowerCase().includes(qNorm) ||
+        r.thesis_name.toLowerCase().includes(qNorm) ||
+        (r.fund_name ?? "").toLowerCase().includes(qNorm),
+    );
+  }, [data, sort, qNorm]);
+  const sharedDomain = useMemo(() => {
+    if (!sharedScale || compare.length === 0) return null;
+    const allLines = compare.flatMap((r) => [r.fund_points, r.company_points]);
+    return yDomain(allLines);
+  }, [sharedScale, compare]);
   const trends = useMemo(() => (data ? sortTrends(data.trends, trendSort) : []), [data, trendSort]);
 
   if (q.isLoading) {
@@ -439,14 +585,37 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
   }
   if (q.error || !data) return <div className="dash-note">Could not load the ETFs page.</div>;
 
-  const flowMax = data.flows.map((r) => r.flow_1m_usd.value);
+  const flowValues = data.flows.map((r) => flowMetricVal(r, flowMetric));
+  const flowAbsMax = Math.max(0, ...flowValues.map((v) => Math.abs(v ?? 0)));
   const sizes = data.sizes.map((r) => r.size_usd);
   const advs = data.sizes.map((r) => r.adv_usd_20d.value);
-  const flowRows = data.flows.filter((r) => !stillFilling(r));
+  const sortedSizes = [...data.sizes].sort((a, b) => {
+    const val = (r: EtfSizeRowOut) =>
+      sizeSort === "adv" ? r.adv_usd_20d.value : sizeSort === "turnover" ? turnoverPct(r) : r.size_usd;
+    const va = val(a);
+    const vb = val(b);
+    if (va == null && vb == null) return a.ticker.localeCompare(b.ticker);
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return vb - va || a.ticker.localeCompare(b.ticker);
+  });
+  const baseFlowRows = data.flows.filter((r) => !stillFilling(r));
+  const flowRows =
+    flowMetric === "1m_usd"
+      ? baseFlowRows
+      : [...baseFlowRows].sort((a, b) => {
+          const va = flowMetricVal(a, flowMetric);
+          const vb = flowMetricVal(b, flowMetric);
+          if (va == null && vb == null) return a.ticker.localeCompare(b.ticker);
+          if (va == null) return 1;
+          if (vb == null) return -1;
+          return Math.abs(vb) - Math.abs(va) || a.ticker.localeCompare(b.ticker);
+        });
   const fillingRows = data.flows.filter(stillFilling);
   const anySample = data.flows.some((r) => r.samples > 0);
   const flaggedAll = [...data.flagged_funds, ...data.flagged_companies];
   const cov = data.coverage;
+  const covPct = cov.cards_counted > 0 ? Math.round((cov.cards_with_fund / cov.cards_counted) * 100) : 0;
   const flaggedRule1 = flaggedRule("they are left out of both lines and every number on this panel.");
 
   return (
@@ -500,6 +669,31 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
               );
             })}
           </div>
+          <button
+            type="button"
+            className={`et-seg-btn${sharedScale ? " on" : ""}`}
+            aria-pressed={sharedScale}
+            title="Put every sparkline on the same vertical scale"
+            onClick={() => setSharedScale((s) => !s)}
+          >
+            Shared scale
+          </button>
+          <input
+            type="search"
+            className="et-search"
+            aria-label="Filter fund or card"
+            placeholder="Filter fund or card…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <span className="et-key" aria-hidden="true">
+            <span className="et-key-item">
+              <span className="et-key-line fund" /> Fund
+            </span>
+            <span className="et-key-item">
+              <span className="et-key-line comp" /> Companies
+            </span>
+          </span>
           <span className="et-iwm" title="IWM's return over the same sessions">
             {data.iwm.available ? `IWM ${fmtPct(data.iwm.ret)}` : `IWM ${data.iwm.reason ?? "absent"}`} over{" "}
             {windowLabel(data.window)}: {plural(data.sessions, "session", "sessions")}
@@ -509,14 +703,24 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
         </div>
         {compare.length === 0 ? (
           <Empty>
-            {data.funds === 0
-              ? "No card has a fund at this as-of."
-              : "No fund has a line at this as-of: every fund is left out for a flagged price history."}
+            {qNorm
+              ? "No fund or card matches that filter."
+              : data.funds === 0
+                ? "No card has a fund at this as-of."
+                : "No fund has a line at this as-of: every fund is left out for a flagged price history."}
           </Empty>
         ) : (
           <ul className="et-list">
             {compare.map((r) => (
-              <CompareRow key={`${r.thesis_id}:${r.security_id}`} row={r} onSelect={onSelectThesis} />
+              <CompareRow
+                key={`${r.thesis_id}:${r.security_id}`}
+                row={r}
+                dates={data.dates}
+                sharedDomain={sharedDomain}
+                hoverIdx={hoverIdx}
+                onHover={setHoverIdx}
+                onSelect={onSelectThesis}
+              />
             ))}
           </ul>
         )}
@@ -528,7 +732,7 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
           id="flow"
           title="Money in and out"
           count={plural(data.flows.length, "fund", "funds")}
-          note="Net creations minus redemptions: the change in the fund's own shares between samples, priced at the close on or before each sample, over the trailing 7 and 30 days. Shares flat means zero flow, whatever the price did. The bar is the 1M dollars: left for outflow, right for inflow."
+          note="Net creations minus redemptions: the change in the fund's own shares between samples, priced at the close on or before each sample, over the trailing 7 and 30 days. Shares flat means zero flow, whatever the price did. The bar scales to the active metric: left for outflow, right for inflow."
         >
           {data.flows.length === 0 ? (
             <Empty>No fund to show.</Empty>
@@ -536,11 +740,36 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
             <>
               {!anySample && <Empty>No fund has a shares sample yet.</Empty>}
               {flowRows.length > 0 && (
-                <ul className="et-list">
-                  {flowRows.map((r) => (
-                    <FlowRow key={r.security_id} r={r} max={flowMax} onSelect={onSelectThesis} />
-                  ))}
-                </ul>
+                <>
+                  <div className="et-panel-bar">
+                    <div className="et-seg" role="group" aria-label="Flow bar metric">
+                      <span className="et-seg-label">Bar</span>
+                      {FLOW_METRICS.map((m) => (
+                        <button
+                          key={m.key}
+                          type="button"
+                          className={`et-seg-btn${flowMetric === m.key ? " on" : ""}`}
+                          aria-pressed={flowMetric === m.key}
+                          onClick={() => setFlowMetric(m.key)}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                    {flowAbsMax > 0 && (
+                      <span className="et-axis-scale" aria-hidden="true">
+                        <span>{flowMetric === "1m_pct" ? `−${flowAbsMax.toFixed(1)}%` : `−${fmtUsd(flowAbsMax)}`}</span>
+                        <span>0</span>
+                        <span>{flowMetric === "1m_pct" ? `+${flowAbsMax.toFixed(1)}%` : `+${fmtUsd(flowAbsMax)}`}</span>
+                      </span>
+                    )}
+                  </div>
+                  <ul className="et-list">
+                    {flowRows.map((r) => (
+                      <FlowRow key={r.security_id} r={r} metric={flowMetric} max={flowValues} onSelect={onSelectThesis} />
+                    ))}
+                  </ul>
+                </>
               )}
               <FillingLines rows={fillingRows} onSelect={onSelectThesis} />
             </>
@@ -557,11 +786,29 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
           {data.sizes.length === 0 ? (
             <Empty>No fund to show.</Empty>
           ) : (
-            <ul className="et-list">
-              {data.sizes.map((r) => (
-                <SizeRow key={r.security_id} r={r} sizes={sizes} advs={advs} onSelect={onSelectThesis} />
-              ))}
-            </ul>
+            <>
+              <div className="et-panel-bar">
+                <div className="et-seg" role="group" aria-label="Sort size">
+                  <span className="et-seg-label">Order</span>
+                  {SIZE_SORTS.map((s) => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      className={`et-seg-btn${sizeSort === s.key ? " on" : ""}`}
+                      aria-pressed={sizeSort === s.key}
+                      onClick={() => setSizeSort(s.key)}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <ul className="et-list">
+                {sortedSizes.map((r) => (
+                  <SizeRow key={r.security_id} r={r} sizes={sizes} advs={advs} onSelect={onSelectThesis} />
+                ))}
+              </ul>
+            </>
           )}
           <FlaggedNote flagged={data.flagged_funds} />
         </Panel>
@@ -595,16 +842,21 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
             {cov.cards_with_fund} of {plural(cov.cards_counted, "card", "cards")} have a fund
             {cov.funds > 0 ? ` (${plural(cov.funds, "fund", "funds")})` : ""}.
           </p>
+          {cov.cards_counted > 0 && (
+            <div className="et-cov-bar" aria-hidden="true" title={`${covPct}% of cards have a fund`}>
+              <span className="et-cov-fill" style={{ width: `${covPct}%` }} />
+            </div>
+          )}
           <h3 className="et-sub">Cards with no fund</h3>
           {cov.without.length === 0 ? (
             <Empty>Every card has a fund.</Empty>
           ) : (
-            <ul className="et-plain">
+            <ul className="et-chips">
               {cov.without.map((c) => (
                 <li key={c.thesis_id}>
                   <button
                     type="button"
-                    className="et-link"
+                    className="et-chip"
                     title={`Open ${c.thesis_name}`}
                     onClick={() => onSelectThesis(c.thesis_id)}
                   >

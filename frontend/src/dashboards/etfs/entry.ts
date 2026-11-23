@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 290,
   label: "ETFs",
   description: "The funds on the cards from five angles: each fund against its card's companies, money in and out, size and trading, price trend, and which cards have a fund.",
+  group: "rotation",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./Etfs")),

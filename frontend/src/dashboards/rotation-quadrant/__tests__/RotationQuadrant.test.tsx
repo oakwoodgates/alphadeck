@@ -269,4 +269,17 @@ describe("RotationQuadrant", () => {
       screen.getByText(/Computing every group's line — the first load after a run or a basket edit can take a minute/),
     ).toBeInTheDocument();
   });
+
+  it("supports tail length, focused scale, quadrant filter, search, and table-to-plot hover", async () => {
+    setup();
+    await userEvent.hover(row(/Cables/));
+    expect(screen.getByTestId("rq-readout")).toHaveTextContent("Cables · Grid");
+    await userEvent.click(screen.getByRole("button", { name: "2w" }));
+    const turb = screen.getAllByTestId("rq-tail").find((t) => t.getAttribute("data-key") === "g-turb")!;
+    expect(turb.getAttribute("points")?.split(" ")).toHaveLength(3);
+    await userEvent.click(screen.getByRole("button", { name: "Focused" }));
+    expect(screen.getByRole("button", { name: "Focused" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(screen.getByRole("group", { name: "Filter quadrant" })).getByRole("button", { name: /Improving/ }));
+    expect(rowLabels()).toEqual(["Turbines · Grid"]);
+  });
 });

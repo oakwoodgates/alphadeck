@@ -10,7 +10,8 @@ import type { OverlapMapOut } from "./useOverlapMap";
 // clickable to list its companies.
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
-const TINTS = ["var(--txt-4)", "var(--txt-3)", "var(--txt-2)"] as const;
+const TINTS = ["var(--leader)", "var(--pos)", "var(--warm)"] as const;
+const STROKES = ["", "5 3", "2 2"] as const;
 const PER_KIND = 30;
 
 const linkWords = (links: readonly (string | null)[]) => links.map((l) => l ?? "no link").join(", ");
@@ -169,36 +170,67 @@ export default function VennTab({
           }}
         >
           {layout.circles.map((c, i) => (
-            <circle key={chosen[i].key} className="om-venn-circle" cx={c.cx} cy={c.cy} r={c.r} fill={TINTS[i]} />
+            <circle
+              key={chosen[i].key}
+              className={`om-venn-circle om-venn-c${i}`}
+              cx={c.cx}
+              cy={c.cy}
+              r={c.r}
+              fill={TINTS[i]}
+              stroke={TINTS[i]}
+              strokeDasharray={STROKES[i] || undefined}
+            />
           ))}
+          {layout.circles.map((c, i) => {
+            const topY = Math.max(14, c.cy - c.r - 8);
+            const botY = Math.min(layout.height - 8, c.cy + c.r + 14);
+            const y = i === 2 ? botY : topY;
+            const x = Math.max(48, Math.min(layout.width - 48, c.cx));
+            const short = chosen[i].label.length > 22 ? `${chosen[i].label.slice(0, 21).trimEnd()}…` : chosen[i].label;
+            return (
+              <text
+                key={`lbl-${chosen[i].key}`}
+                className="om-venn-set-label"
+                x={x}
+                y={y}
+                textAnchor="middle"
+                aria-hidden="true"
+              >
+                {short}
+              </text>
+            );
+          })}
           {regions.map((r) => {
             if (!fits(r.mask)) return null;
             const a = layout.anchors[r.mask];
+            const isOn = mask === r.mask;
             return (
-              <text
-                key={r.mask}
-                className={`om-venn-count${mask === r.mask ? " on" : ""}`}
-                data-testid={`om-region-${r.mask}`}
-                x={a.x}
-                y={a.y}
-                textAnchor="middle"
-                dominantBaseline="central"
-                role="button"
-                tabIndex={0}
-                aria-label={`${r.words}: ${plural(r.count, "company", "companies")}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMask(r.mask);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
+              <g key={r.mask}>
+                {isOn && <circle className="om-venn-ring" cx={a.x} cy={a.y} r={16} aria-hidden="true" />}
+                <text
+                  className={`om-venn-count${isOn ? " on" : ""}`}
+                  data-testid={`om-region-${r.mask}`}
+                  x={a.x}
+                  y={a.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${r.words}: ${plural(r.count, "company", "companies")}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setMask(r.mask);
-                  }
-                }}
-              >
-                {r.count}
-              </text>
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setMask(r.mask);
+                    }
+                  }}
+                >
+                  {r.count}
+                </text>
+              </g>
             );
           })}
         </svg>

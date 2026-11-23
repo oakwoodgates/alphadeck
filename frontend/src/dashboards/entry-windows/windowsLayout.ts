@@ -56,6 +56,54 @@ export function makeAxis(startIso: string, endIso: string, width = PIC_W): Axis 
   };
 }
 
+/** Date bounds covering ONLY the currently visible rows plus `asof`, so hidden Managing cards armed months ago
+ *  do not stretch the axis and crush short Armed entry windows. Falls back to the server bounds when empty. */
+export function visibleAxisBounds(
+  rows: readonly EntryWindowsRowOut[],
+  asof: string,
+  fallbackStart: string | null,
+  fallbackEnd: string | null,
+): { start: string; end: string } | null {
+  if (rows.length === 0) {
+    return fallbackStart && fallbackEnd ? { start: fallbackStart, end: fallbackEnd } : null;
+  }
+  let lo = asof;
+  let hi = asof;
+  const take = (iso: string | null | undefined) => {
+    if (!iso) return;
+    if (iso < lo) lo = iso;
+    if (iso > hi) hi = iso;
+  };
+  for (const r of rows) {
+    take(r.arm_night);
+    take(r.arm_until);
+    take(r.exit_by);
+    for (const c of r.catalysts) take(c.when_date);
+    for (const mc of r.member_clocks ?? []) {
+      take(mc.arm_until);
+    }
+    if (r.spark && r.spark.dates.length > 0) {
+      take(r.spark.dates[0]);
+      take(r.spark.dates[r.spark.dates.length - 1]);
+    }
+  }
+  return { start: lo, end: hi };
+}
+
+/** Thin axis labels so adjacent labels never collide when a span has many monthly ticks. */
+export function spacedAxisTicks(axis: Axis, minGapPx = 42): AxisTick[] {
+  const raw = axisTicks(axis);
+  const out: AxisTick[] = [];
+  let lastX = -Infinity;
+  for (const t of raw) {
+    if (t.x - lastX >= minGapPx) {
+      out.push(t);
+      lastX = t.x;
+    }
+  }
+  return out;
+}
+
 export type AxisTick = { iso: string; x: number; label: string };
 
 /** The date labels along the axis: Mondays for a span up to ten weeks, month starts to about a year, quarter starts
@@ -81,17 +129,28 @@ export function axisTicks(axis: Axis): AxisTick[] {
 export type Bar = { x: number; w: number };
 export type PlacedTick = {
   x: number;
+  /** Slight vertical offset when two catalysts fall within a few pixels of each other. */
+  dy?: number;
   /** The catalyst's date is before the as-of: drawn hollow. */
   past: boolean;
   label: string;
   when: string;
   kind: string | null;
 };
+export type MemberClockTick = {
+  x: number;
+  ticker: string;
+  until: string;
+  closing: boolean;
+};
 export type PlacedSpark = {
   line: string;
   iwm: string | null;
   /** The y of the 100 base line, only when it falls inside the drawn range. */
   base: number | null;
+  endX: number;
+  endY: number;
+  endPct: number;
 };
 export type RowLayout = {
   key: string;
@@ -102,6 +161,7 @@ export type RowLayout = {
   /** From the arm night to `exit_by`; `null` = no hold clock (or one dated before the arm night). */
   hold: Bar | null;
   ticks: PlacedTick[];
+  memberTicks: MemberClockTick[];
   spark: PlacedSpark | null;
 };
 
@@ -124,27 +184,49 @@ function placeSpark(spark: EntryWindowsSparkOut, axis: Axis): PlacedSpark | null
     hi === lo ? SPARK_TOP + SPARK_H / 2 : SPARK_TOP + SPARK_H - ((v - lo) / (hi - lo)) * SPARK_H;
   const xs = spark.dates.map((d) => axis.x(d));
   const draw = (levels: readonly number[]) => path(levels.map((v, i) => [xs[i], y(v)] as const));
+  const lastIdx = spark.line.length - 1;
   return {
     line: draw(spark.line),
     iwm: spark.iwm && spark.iwm.length === spark.dates.length ? draw(spark.iwm) : null,
     base: lo <= 100 && 100 <= hi && hi !== lo ? y(100) : null,
+    endX: xs[lastIdx],
+    endY: y(spark.line[lastIdx]),
+    endPct: spark.line[lastIdx] - 100,
   };
 }
 
 export function layoutRow(row: EntryWindowsRowOut, axis: Axis, asof: string): RowLayout {
+  const placedXs: number[] = [];
+  const ticks: PlacedTick[] = row.catalysts.map((c) => {
+    const x = axis.x(c.when_date);
+    const crowded = placedXs.filter((px) => Math.abs(px - x) < 7).length;
+    placedXs.push(x);
+    const dy = crowded === 0 ? 0 : crowded % 2 === 1 ? -3 : 3;
+    return {
+      x,
+      ...(dy !== 0 ? { dy } : {}),
+      past: c.past,
+      label: c.label,
+      when: c.when_date,
+      kind: c.kind,
+    };
+  });
+  const memberTicks: MemberClockTick[] = (row.member_clocks ?? [])
+    .filter((mc) => mc.arm_until != null && mc.arm_until !== row.arm_until)
+    .map((mc) => ({
+      x: axis.x(mc.arm_until!),
+      ticker: mc.ticker ?? "?",
+      until: mc.arm_until!,
+      closing: mc.entry_window_closing,
+    }));
   return {
     key: row.thesis_id,
     armX: axis.x(row.arm_night),
     asofX: axis.x(asof),
     entry: bar(row.arm_night, row.arm_until, axis),
     hold: bar(row.arm_night, row.exit_by, axis),
-    ticks: row.catalysts.map((c) => ({
-      x: axis.x(c.when_date),
-      past: c.past,
-      label: c.label,
-      when: c.when_date,
-      kind: c.kind,
-    })),
+    ticks,
+    memberTicks,
     spark: row.spark ? placeSpark(row.spark, axis) : null,
   };
 }

@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ColorType, LineStyle, createChart, type IChartApi, type SeriesMarker, type Time } from "lightweight-charts";
 
 import { businessTypeLabel, supersectorLabel } from "../../util/format";
 import type { DashboardProps } from "../registry";
@@ -17,6 +18,7 @@ import {
   fmtDay,
   fmtDayHeader,
   fmtFigure,
+  fmtPrice,
   foldEntries,
   foldWords,
   keyWords,
@@ -24,10 +26,11 @@ import {
   notListedWords,
   placeWords,
   plural,
+  rangeTrackInfo,
   ratifiedWords,
   roleTag,
   sourceLabel,
-  sparkPaths,
+  sparkMarkers,
   stateWords,
   triggerCounts,
   usdHint,
@@ -50,22 +53,50 @@ import { ExternalLink, isSecLink } from "../../components/ExternalLink";
 type OpenThesis = DashboardProps["onSelectThesis"];
 
 export function Section({
+  id,
   title,
   n,
   children,
 }: {
+  id?: string;
   title: string;
   n?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="tl-sec" aria-label={title}>
+    <section id={id} className="tl-sec" aria-label={title}>
       <h2 className="tl-h">
         {title}
         {n && <span className="tl-n">{n}</span>}
       </h2>
       {children}
     </section>
+  );
+}
+
+/** Compact section jump strip directly under Identity so long dossiers are one click to navigate. */
+export function SectionNav({ d, filingRows }: { d: TickerLookupOut; filingRows: number }) {
+  const items = [
+    { id: "tl-sec-cards", label: "Cards", count: d.cards.rows.length },
+    { id: "tl-sec-triggers", label: "Triggers", count: d.triggers.events.length },
+    { id: "tl-sec-tape", label: "Tape", count: null },
+    { id: "tl-sec-filings", label: "Filings", count: filingRows },
+    { id: "tl-sec-catalysts", label: "Catalysts", count: d.card_catalysts.length + d.catalyst_facts.length },
+    { id: "tl-sec-decisions", label: "Decisions", count: d.decisions.length },
+  ];
+  const jump = (id: string) => {
+    const el = document.getElementById(id);
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  return (
+    <nav className="tl-jump" aria-label="Jump to section" data-testid="tl-jump">
+      {items.map((it) => (
+        <button key={it.id} type="button" className="tl-jump-link" onClick={() => jump(it.id)}>
+          {it.label}
+          {it.count != null && <span className="tl-jump-n">{it.count}</span>}
+        </button>
+      ))}
+    </nav>
   );
 }
 
@@ -198,7 +229,7 @@ function CardLine({ r, onSelectThesis }: { r: LookupCard; onSelectThesis: OpenTh
 export function CardsSection({ d, onSelectThesis }: { d: TickerLookupOut; onSelectThesis: OpenThesis }) {
   const c = d.cards;
   return (
-    <Section title="Cards" n={`on ${c.rows.length} of ${plural(c.counted, "counted card", "counted cards")}`}>
+    <Section id="tl-sec-cards" title="Cards" n={`on ${c.rows.length} of ${plural(c.counted, "counted card", "counted cards")}`}>
       {c.rows.length === 0 ? (
         <div className="dash-note" data-testid="tl-no-cards">
           Not on any counted card at this as-of. Its identity, tape and filings stand on their own below.
@@ -259,7 +290,7 @@ function TriggerLine({ e, onSelectThesis }: { e: LookupTrigger; onSelectThesis: 
   const role = ROLE_GLYPH[e.role];
   return (
     <tr data-testid="tl-trigger" data-live={e.live}>
-      <td className="tl-num">
+      <td className="tl-num tl-lead">
         {fmtDay(e.recorded_on)}
         {e.reconstructed && <span className="tl-quiet"> reconstructed</span>}
       </td>
@@ -310,6 +341,7 @@ export function TriggersSection({ d, onSelectThesis }: { d: TickerLookupOut; onS
   const tc = triggerCounts(t.events);
   return (
     <Section
+      id="tl-sec-triggers"
       title="Triggers the record shows"
       n={`${plural(t.events.length, "row", "rows")} since ${fmtDay(t.window_start)} · ${tc.live} live`}
     >
@@ -327,7 +359,7 @@ export function TriggersSection({ d, onSelectThesis }: { d: TickerLookupOut; onS
           <table className="tl-table">
             <thead>
               <tr>
-                <th>Recorded</th>
+                <th className="tl-lead">Recorded</th>
                 <th>Fired</th>
                 <th>Card</th>
                 <th title="● entry trigger · ○ risk signal">Role</th>
@@ -357,15 +389,244 @@ export function TriggersSection({ d, onSelectThesis }: { d: TickerLookupOut; onS
 
 // --- 4. tape -----------------------------------------------------------------------------------------------------
 
-const SPARK_W = 300;
-const SPARK_H = 56;
+const LWC_H = 210;
+const LWC_AXIS = "#5a6470"; // --txt-3
+const LWC_GRID = "#1e232c"; // --line
+const LWC_BASE = "#3c4450"; // --txt-4
+const LWC_STOCK = "#d8dee9"; // --txt
+const LWC_POS = "#5fa87b"; // muted --pos
+const LWC_NEG = "#b56565"; // muted --neg
+const LWC_IWM = "#7892b5"; // muted --leader
+const LWC_MARK: Record<"entry" | "risk" | "decision", string> = {
+  entry: "#e0a23c", // --warm
+  risk: "#c46b5c", // muted --armed
+  decision: "#8ab4ff", // --leader
+};
+
+function fmtIdxPct(level: number | null | undefined): string {
+  if (level == null) return "—";
+  const pct = level - 100;
+  if (Math.abs(pct) < 0.05) return "0.0%";
+  return `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`;
+}
+
+function TapeChart({ d, flagged }: { d: TickerLookupOut; flagged: boolean }) {
+  const spark = d.tape.sparkline;
+  const boxRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const markers = useMemo(
+    () => (spark ? sparkMarkers(spark.dates, d.triggers.events, d.decisions) : []),
+    [spark, d.triggers.events, d.decisions],
+  );
+
+  const hasStock = (spark?.stock.some((v) => v != null) ?? false);
+  const hasIwm = (spark?.iwm.some((v) => v != null) ?? false);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || !spark || spark.dates.length < 2 || (!hasStock && !hasIwm)) return;
+    setHoverIdx(null);
+
+    const width0 = el.clientWidth || 680;
+    const chart = createChart(el, {
+      width: width0,
+      height: LWC_H,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: LWC_AXIS,
+        fontSize: 10,
+        fontFamily: "JetBrains Mono, ui-monospace, monospace",
+      },
+      grid: { vertLines: { visible: false }, horzLines: { color: LWC_GRID, style: LineStyle.Dotted } },
+      rightPriceScale: { borderVisible: false },
+      leftPriceScale: { visible: false },
+      timeScale: { borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
+      crosshair: {
+        vertLine: { color: LWC_AXIS, width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#171b22" },
+        horzLine: { color: LWC_BASE, width: 1, style: LineStyle.Dotted, labelBackgroundColor: "#171b22" },
+      },
+      handleScroll: true,
+      handleScale: true,
+    });
+    chartRef.current = chart;
+
+    if (hasIwm) {
+      const iwmSeries = chart.addLineSeries({
+        color: LWC_IWM,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerRadius: 3,
+      });
+      iwmSeries.setData(
+        spark.dates
+          .map((dt, j) => (spark.iwm[j] != null ? { time: dt as Time, value: spark.iwm[j] as number } : null))
+          .filter((p): p is { time: Time; value: number } => p !== null),
+      );
+    }
+
+    const lastStock = [...spark.stock].reverse().find((v) => v != null) ?? null;
+    const stockColor =
+      flagged ? LWC_AXIS : lastStock != null && lastStock > 100.05 ? LWC_POS : lastStock != null && lastStock < 99.95 ? LWC_NEG : LWC_STOCK;
+    const stockSeries = chart.addLineSeries({
+      color: stockColor,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerRadius: 4,
+    });
+    if (hasStock) {
+      stockSeries.setData(
+        spark.dates
+          .map((dt, j) => (spark.stock[j] != null ? { time: dt as Time, value: spark.stock[j] as number } : null))
+          .filter((p): p is { time: Time; value: number } => p !== null),
+      );
+    }
+    stockSeries.createPriceLine({
+      price: 100,
+      color: LWC_BASE,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: "100",
+    });
+
+    if (markers.length > 0) {
+      const lwMarkers: SeriesMarker<Time>[] = [...markers]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((m) => ({
+          time: m.date as Time,
+          position: m.kind === "risk" ? "aboveBar" : "belowBar",
+          shape: m.kind === "decision" ? "arrowUp" : "circle",
+          color: LWC_MARK[m.kind],
+          text: m.kind === "decision" ? "D" : "",
+          size: 1,
+        }));
+      stockSeries.setMarkers(lwMarkers);
+    }
+
+    chart.timeScale().fitContent();
+
+    const dateToIdx = new Map(spark.dates.map((dt, j) => [dt, j]));
+    const onCrosshair = (param: { time?: Time }) => {
+      if (!param.time) {
+        setHoverIdx(null);
+        return;
+      }
+      const key = typeof param.time === "string" ? param.time : null;
+      const found = key != null ? dateToIdx.get(key) : undefined;
+      setHoverIdx(found ?? null);
+    };
+    chart.subscribeCrosshairMove(onCrosshair);
+
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            const w = el.clientWidth;
+            if (w > 0) chart.applyOptions({ width: w });
+          })
+        : null;
+    ro?.observe(el);
+
+    return () => {
+      ro?.disconnect();
+      chart.unsubscribeCrosshairMove(onCrosshair);
+      chart.remove();
+      chartRef.current = null;
+    };
+  }, [spark, markers, flagged, hasStock, hasIwm]);
+
+  if (!spark || spark.dates.length < 2 || (!hasStock && !hasIwm)) return null;
+
+  const n = spark.dates.length;
+  const idx = hoverIdx ?? n - 1;
+  const stockVal = spark.stock[idx] ?? null;
+  const iwmVal = spark.iwm[idx] ?? null;
+  const spread = stockVal != null && iwmVal != null ? stockVal - iwmVal : null;
+  const atMarkers = markers.filter((m) => m.index === idx);
+
+  return (
+    <div className={`tl-group tl-spark${flagged ? " flagged" : ""}`} data-group="path">
+      <div className="tl-spark-head">
+        <h3 className="tl-gh">Last {spark.bars} sessions</h3>
+        <div className="tl-spark-readout" data-testid="tl-spark-readout">
+          {n > 0 && (
+            <>
+              <span className="tl-sr-date">{fmtDay(spark.dates[idx])}</span>
+              <span className="tl-sr-stock">
+                {d.identity.ticker ?? "Stock"} {fmtIdxPct(stockVal)}
+                {stockVal != null ? ` (${stockVal.toFixed(1)})` : ""}
+              </span>
+              {spark.iwm_bars > 0 && (
+                <span className="tl-sr-iwm">
+                  IWM {fmtIdxPct(iwmVal)}
+                  {iwmVal != null ? ` (${iwmVal.toFixed(1)})` : ""}
+                </span>
+              )}
+              {spread != null && (
+                <span className={`tl-sr-spread${spread > 0 ? " pos" : spread < 0 ? " neg" : ""}`}>
+                  vs IWM {spread > 0 ? "+" : ""}
+                  {spread.toFixed(1)}pp
+                </span>
+              )}
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          className="tl-spark-reset"
+          title="Reset pan and zoom to full window"
+          onClick={() => chartRef.current?.timeScale().fitContent()}
+        >
+          Reset zoom
+        </button>
+      </div>
+      <div className="tl-lwc-wrap">
+        <div
+          ref={boxRef}
+          className="tl-lwc-box"
+          role="img"
+          aria-label={`The last ${spark.bars} closes, indexed to 100, against IWM`}
+          data-testid="tl-spark"
+        />
+        {atMarkers.length > 0 && (
+          <div className="tl-spark-events" aria-live="off">
+            {atMarkers.map((m, i) => (
+              <span key={i} className={`tl-spark-ev ${m.kind}`} data-testid="tl-spark-marker">
+                {m.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="tl-spark-cap">
+        the company (solid) and IWM (dashed blue), both indexed to 100 · scroll to zoom, drag to pan
+        {markers.length > 0 ? ` · ${plural(markers.length, "event mark", "event marks")} (● trigger, ▲ decision)` : ""}
+        {spark.iwm_bars === 0
+          ? "; no IWM bars on file"
+          : spark.iwm_bars < spark.bars
+            ? `; IWM has ${spark.iwm_bars} of ${spark.bars} bars`
+            : ""}
+        {spark.note ? ` · ${spark.note}` : ""}
+      </div>
+    </div>
+  );
+}
 
 export function TapeSection({ d }: { d: TickerLookupOut }) {
   const tape = d.tape;
   const flagged = d.identity.flag != null;
-  const paths = tape.sparkline ? sparkPaths(tape.sparkline, SPARK_W, SPARK_H) : null;
+  const rangeInfo = useMemo(() => rangeTrackInfo(tape.figures), [tape.figures]);
+  const retFigs = useMemo(() => figuresOf(tape.figures, "returns"), [tape.figures]);
+  const maxRet = useMemo(
+    () => Math.max(5, ...retFigs.map((f) => (f.value != null ? Math.abs(f.value) : 0))),
+    [retFigs],
+  );
   return (
     <Section
+      id="tl-sec-tape"
       title="Tape"
       n={`${tape.members_read - tape.members_without} of ${tape.members_read} display members read${tape.window_end ? ` · last bar ${fmtDay(tape.window_end)}` : ""}`}
     >
@@ -375,29 +636,60 @@ export function TapeSection({ d }: { d: TickerLookupOut }) {
         </div>
       ) : (
         <div className="tl-tape">
+          <TapeChart d={d} flagged={flagged} />
           {GROUPS.map(({ group, label, price }) => {
             const figs = figuresOf(tape.figures, group);
             if (figs.length === 0) return null;
             return (
               <div key={group} className={`tl-group${price && flagged ? " flagged" : ""}`} data-group={group}>
                 <h3 className="tl-gh">{label}</h3>
-                <dl className="tl-figs">
-                  {figs.map((f) => (
-                    <div
-                      key={f.key}
-                      className={`tl-fig${f.tone ? ` ${f.tone}` : ""}${f.value == null ? " na" : ""}`}
-                      title={figureTitle(f)}
-                      data-testid="tl-fig"
-                      data-key={f.key}
-                    >
-                      <dt>{f.label}</dt>
-                      <dd>
-                        {fmtFigure(f)}
-                        {f.on && <small className="tl-on">{fmtDay(f.on)}</small>}
-                        {f.value == null && f.note && <small className="tl-on">{f.note}</small>}
-                      </dd>
+                {group === "range" && rangeInfo && (
+                  <div className="tl-range" data-testid="tl-range-track">
+                    <div className="tl-range-ends">
+                      <span>52w low {fmtPrice(rangeInfo.low)}</span>
+                      <span>{Math.round(rangeInfo.pct)}% of range</span>
+                      <span>52w high {fmtPrice(rangeInfo.high)}</span>
                     </div>
-                  ))}
+                    <div className="tl-range-bar" aria-hidden="true">
+                      <span className="tl-range-fill" style={{ width: `${rangeInfo.pct}%` }} />
+                      <span className="tl-range-dot" style={{ left: `${rangeInfo.pct}%` }} />
+                    </div>
+                  </div>
+                )}
+                <dl className="tl-figs">
+                  {figs.map((f) => {
+                    const showRetBar = group === "returns" && f.value != null && !flagged;
+                    const pctW = showRetBar ? Math.min(50, (Math.abs(f.value!) / maxRet) * 50) : 0;
+                    return (
+                      <div
+                        key={f.key}
+                        className={`tl-fig${f.tone ? ` ${f.tone}` : ""}${f.value == null ? " na" : ""}`}
+                        title={figureTitle(f)}
+                        data-testid="tl-fig"
+                        data-key={f.key}
+                      >
+                        <dt>{f.label}</dt>
+                        <dd>
+                          {fmtFigure(f)}
+                          {showRetBar && (
+                            <span className="tl-retbar" aria-hidden="true">
+                              <span className="tl-retbar-zero" />
+                              <span
+                                className={`tl-retbar-fill ${f.tone ?? ""}`}
+                                style={
+                                  f.value! >= 0
+                                    ? { left: "50%", width: `${pctW}%` }
+                                    : { right: "50%", width: `${pctW}%` }
+                                }
+                              />
+                            </span>
+                          )}
+                          {f.on && <small className="tl-on">{fmtDay(f.on)}</small>}
+                          {f.value == null && f.note && <small className="tl-on">{f.note}</small>}
+                        </dd>
+                      </div>
+                    );
+                  })}
                 </dl>
                 {group === "strength" && tape.leading.length > 0 && (
                   <div className="tl-mark" data-testid="tl-leading">
@@ -412,31 +704,6 @@ export function TapeSection({ d }: { d: TickerLookupOut }) {
               </div>
             );
           })}
-          {paths && tape.sparkline && (
-            <div className={`tl-group tl-spark${flagged ? " flagged" : ""}`} data-group="path">
-              <h3 className="tl-gh">Last {tape.sparkline.bars} sessions</h3>
-              <svg
-                viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
-                width={SPARK_W}
-                height={SPARK_H}
-                role="img"
-                aria-label={`The last ${tape.sparkline.bars} closes, indexed to 100, against IWM`}
-                data-testid="tl-spark"
-              >
-                {paths.iwm && <path className="tl-spark-iwm" d={paths.iwm} fill="none" />}
-                {paths.stock && <path className="tl-spark-stock" d={paths.stock} fill="none" />}
-              </svg>
-              <div className="tl-spark-cap">
-                the company (bright) and IWM (dim), both indexed to 100
-                {tape.sparkline.iwm_bars === 0
-                  ? "; no IWM bars on file"
-                  : tape.sparkline.iwm_bars < tape.sparkline.bars
-                    ? `; IWM has ${tape.sparkline.iwm_bars} of ${tape.sparkline.bars} bars`
-                    : ""}
-                {tape.sparkline.note ? ` · ${tape.sparkline.note}` : ""}
-              </div>
-            </div>
-          )}
         </div>
       )}
       {tape.gaps.length > 0 && (
@@ -534,6 +801,7 @@ export function FilingsSection({
   d: TickerLookupOut;
 }) {
   const [showRoutine, setShowRoutine] = useState(false);
+  const [pickedKind, setPickedKind] = useState<string | null>(null);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [foldOpen, setFoldOpen] = useState<ReadonlySet<string>>(new Set());
   const toggle = (set: ReadonlySet<string>, k: string, put: (s: ReadonlySet<string>) => void) => {
@@ -542,10 +810,36 @@ export function FilingsSection({
     else next.add(k);
     put(next);
   };
-  const hasRoutine = days.some((x) => x.rows.some((r) => r.routine));
+
+  // Distinct kinds present in the current window for click-to-isolate filtering (WB#3: only when > 1)
+  const kinds = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const day of days) {
+      for (const r of day.rows) counts.set(r.kind, (counts.get(r.kind) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [days]);
+  const activeKind = pickedKind && kinds.some(([k]) => k === pickedKind) ? pickedKind : null;
+  const shownDays = useMemo(() => {
+    if (!activeKind) return days;
+    return days
+      .map((day) => ({ ...day, rows: day.rows.filter((r) => r.kind === activeKind) }))
+      .filter((day) => day.rows.length > 0);
+  }, [days, activeKind]);
+  const shownCount = useMemo(() => shownDays.reduce((acc, day) => acc + day.rows.length, 0), [shownDays]);
+
+  const hasRoutine = shownDays.some((x) => x.rows.some((r) => r.routine));
   const notListed = notListedWords(d.filings);
   return (
-    <Section title="Filings" n={`${plural(rowCount, "row", "rows")} in the last ${windowN} days`}>
+    <Section
+      id="tl-sec-filings"
+      title="Filings"
+      n={
+        activeKind
+          ? `${plural(shownCount, "row", "rows")} of ${rowCount} (${activeKind}) in the last ${windowN} days`
+          : `${plural(rowCount, "row", "rows")} in the last ${windowN} days`
+      }
+    >
       <div className="tl-controls">
         <div className="tl-seg" role="group" aria-label="Filings window">
           <span className="tl-seg-label">Window</span>
@@ -561,6 +855,30 @@ export function FilingsSection({
             </button>
           ))}
         </div>
+        {kinds.length > 1 && (
+          <div className="tl-seg" role="group" aria-label="Filing kind">
+            <span className="tl-seg-label">Kind</span>
+            <button
+              type="button"
+              className={`tl-seg-btn${activeKind == null ? " on" : ""}`}
+              aria-pressed={activeKind == null}
+              onClick={() => setPickedKind(null)}
+            >
+              All
+            </button>
+            {kinds.map(([k, n]) => (
+              <button
+                key={k}
+                type="button"
+                className={`tl-seg-btn${activeKind === k ? " on" : ""}`}
+                aria-pressed={activeKind === k}
+                onClick={() => setPickedKind((cur) => (cur === k ? null : k))}
+              >
+                {k.replace(/_/g, " ")} <span className="tl-chip-n">{n}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {hasRoutine && (
           <label
             className="tl-check"
@@ -571,13 +889,13 @@ export function FilingsSection({
           </label>
         )}
       </div>
-      {days.length === 0 ? (
+      {shownDays.length === 0 ? (
         <div className="dash-note" data-testid="tl-no-filings">
           No stored filing-derived fact for this company in the last {windowN} days.
         </div>
       ) : (
         <div className="tl-stream">
-          {days.map((day) => (
+          {shownDays.map((day) => (
             <section key={day.date} className="tl-day" aria-label={fmtDayHeader(day.date)}>
               <h3 className="tl-dh">
                 {fmtDayHeader(day.date)} <span className="tl-n">{plural(day.rows.length, "row", "rows")}</span>
@@ -625,6 +943,7 @@ export function CatalystsSection({ d, onSelectThesis }: { d: TickerLookupOut; on
   const cards = d.card_catalysts;
   return (
     <Section
+      id="tl-sec-catalysts"
       title="Catalysts"
       n={`${plural(cards.length, "card catalyst", "card catalysts")} · ${plural(facts.length, "company fact", "company facts")}`}
     >
@@ -680,6 +999,7 @@ export function DecisionsSection({ d, onSelectThesis }: { d: TickerLookupOut; on
   const rows = d.decisions;
   return (
     <Section
+      id="tl-sec-decisions"
       title="Your decisions"
       n={`${plural(rows.length, "row", "rows")}${d.decisions_voided > 0 ? ` · ${d.decisions_voided} voided` : ""}`}
     >
@@ -692,7 +1012,7 @@ export function DecisionsSection({ d, onSelectThesis }: { d: TickerLookupOut; on
           <table className="tl-table">
             <thead>
               <tr>
-                <th>Date</th>
+                <th className="tl-lead">Date</th>
                 <th>Card</th>
                 <th>Action</th>
                 <th>Fill</th>
@@ -702,7 +1022,7 @@ export function DecisionsSection({ d, onSelectThesis }: { d: TickerLookupOut; on
             <tbody>
               {rows.map((x) => (
                 <tr key={x.id} className={x.voided ? "voided" : undefined} data-testid="tl-decision" data-voided={x.voided}>
-                  <td className="tl-num">{fmtDay(x.decision_date)}</td>
+                  <td className="tl-num tl-lead">{fmtDay(x.decision_date)}</td>
                   <td>
                     <button
                       type="button"

@@ -4,29 +4,43 @@
    quadrant words only accumulation and distribution carry a quiet tone (the Cockpit's --pos / --neg, muted);
    every other cell stays gray. */
 
-.ld { display: flex; flex-direction: column; gap: 8px; }
+.ld {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  --ld-accum: color-mix(in srgb, var(--pos) 65%, var(--panel));
+  --ld-dist: color-mix(in srgb, var(--neg) 65%, var(--panel));
+  --ld-thin: color-mix(in srgb, var(--txt-2) 48%, var(--panel));
+  --ld-rest: color-mix(in srgb, var(--txt-3) 56%, var(--panel));
+  --ld-flat: var(--line-2);
+}
 .ld-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
 .ld-seg { display: inline-flex; align-items: center; gap: 4px; }
-.ld-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 4px; }
+.ld-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); margin-right: 4px; }
 .ld-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
 .ld-seg-btn:hover { color: var(--txt-2); }
 .ld-seg-btn.on { color: var(--txt); background: var(--panel-2); }
 .ld-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
 .ld-check input { accent-color: var(--txt-3); margin: 0; }
+.ld-search { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 8px; width: 190px; }
+.ld-search::placeholder { color: var(--txt-4); }
 .ld-work, .ld-legend { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
-.ld-legend { font-family: inherit; color: var(--txt-4); }
+.ld-legend { font-family: inherit; color: var(--txt-3); }
 
-.ld-scroll { overflow-x: auto; margin-top: 6px; }
-table.ld-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-table.ld-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 14px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+.ld-scroll { overflow: auto; max-height: 78vh; margin-top: 6px; border-top: 1px solid var(--line); }
+table.ld-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+table.ld-table th { position: sticky; top: 0; z-index: 2; background: var(--bg); text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; padding: 6px 14px 8px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom; }
 table.ld-table td { padding: 7px 14px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.ld-table th.ld-th-label, table.ld-table td.ld-label, table.ld-table td.ld-name-id { position: sticky; left: 0; background: var(--bg); }
+table.ld-table th.ld-th-label { z-index: 3; }
+table.ld-table td.ld-label, table.ld-table td.ld-name-id { z-index: 1; }
 table.ld-table .ld-num { text-align: right; }
 table.ld-table th.ld-num .ld-sort { justify-content: flex-end; }
 .ld-sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
-.ld-sort:hover, .ld-sort.active { color: var(--txt-2); }
+.ld-sort:hover, .ld-sort.active { color: var(--txt); }
 .ld-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
 .ld-arrow { font-size: 8px; line-height: 1; }
-.ld-win-label { display: block; color: var(--txt-3); margin-bottom: 3px; cursor: help; }
+.ld-win-label { display: block; color: var(--txt-2); margin-bottom: 3px; cursor: help; }
 .ld-win-sorts { display: inline-flex; gap: 8px; text-transform: none; letter-spacing: 0.02em; }
 
 /* a group row: click to show its names */
@@ -35,32 +49,49 @@ tr.ld-group:hover td { background: var(--panel); }
 tr.ld-group:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
 tr.ld-group.open td { background: var(--panel); }
 tr.ld-group.quiet .ld-label { color: var(--txt-3); }
-.ld-label { color: var(--txt); font-weight: 600; white-space: nowrap; max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
-.ld-chev { display: inline-block; width: 14px; color: var(--txt-4); font-size: 10px; }
+.ld-label { color: var(--txt); font-weight: 600; white-space: nowrap; max-width: 340px; }
+.ld-label-inner { display: inline-flex; align-items: center; max-width: 100%; }
+.ld-label-text { overflow: hidden; text-overflow: ellipsis; }
+.ld-chev { display: inline-block; width: 14px; color: var(--txt-3); font-size: 10px; flex: none; }
+.ld-open-card { display: inline-flex; align-items: center; justify-content: center; margin-left: 6px; padding: 2px; border: 0; border-radius: 4px; background: transparent; color: var(--txt-4); cursor: pointer; opacity: 0.4; transition: opacity 0.12s ease, color 0.12s ease; flex: none; }
+tr.ld-group:hover .ld-open-card, .ld-open-card:focus-visible { opacity: 1; }
+.ld-open-card:hover { color: var(--txt); background: var(--panel-2); }
 
-/* a window cell: the thin range bar + its %, then the split, then the volume line */
-.ld-cell { min-width: 132px; }
+/* a window cell: range-position track + %, stacked quadrant proportion bar, split counts, up/down ratio */
+.ld-cell { min-width: 148px; }
 .ld-pos { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.ld-bar { position: relative; display: inline-block; width: 54px; height: 3px; border-radius: 2px; background: var(--line-2); overflow: hidden; flex: none; }
-.ld-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--txt-3); }
-.ld-v { font-family: var(--mono); font-size: 11px; color: var(--txt-3); white-space: nowrap; }
-.ld-n { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); white-space: nowrap; }
-.ld-sub, .ld-split { display: block; margin-top: 3px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); white-space: nowrap; }
-.ld-split { color: var(--txt-3); cursor: help; }
+.ld-bar { position: relative; display: inline-block; width: 62px; height: 9px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); flex: none; }
+.ld-bar-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line-2); }
+.ld-bar-fill { position: absolute; left: 0; top: 1px; bottom: 1px; background: color-mix(in srgb, var(--txt-2) 38%, transparent); border-radius: 2px 0 0 2px; }
+.ld-bar-dot { position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%; background: var(--txt); transform: translate(-50%, -50%); box-shadow: 0 0 0 1px var(--bg); }
+.ld-v { font-family: var(--mono); font-size: 11px; color: var(--txt-2); white-space: nowrap; }
+.ld-ret { font-family: var(--mono); font-size: 10px; color: var(--txt-3); white-space: nowrap; }
+.ld-ret.pos { color: color-mix(in srgb, var(--pos) 68%, var(--txt-2)); }
+.ld-ret.neg { color: color-mix(in srgb, var(--neg) 68%, var(--txt-2)); }
+.ld-n { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); white-space: nowrap; }
+.ld-split-bar { display: flex; width: 100%; max-width: 144px; height: 4px; margin-top: 4px; border-radius: 2px; overflow: hidden; background: var(--line); gap: 1px; }
+.ld-sb-seg { height: 100%; min-width: 2px; }
+.ld-sb-seg.accum { background: var(--ld-accum); }
+.ld-sb-seg.thin { background: var(--ld-thin); }
+.ld-sb-seg.flat { background: var(--ld-flat); }
+.ld-sb-seg.rest { background: var(--ld-rest); }
+.ld-sb-seg.dist { background: var(--ld-dist); }
+.ld-sub, .ld-split { display: block; margin-top: 3px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); white-space: nowrap; }
+.ld-split { color: var(--txt-2); cursor: help; }
 .ld-dot { color: var(--txt-4); }
 /* the two toned quadrants: quiet, never the full return green / red */
-.ld-q.accumulation, .ld-chip-q.accumulation { color: color-mix(in srgb, var(--pos) 55%, var(--txt-3)); }
-.ld-q.distribution, .ld-chip-q.distribution { color: color-mix(in srgb, var(--neg) 55%, var(--txt-3)); }
+.ld-q.accumulation, .ld-chip-q.accumulation { color: color-mix(in srgb, var(--pos) 62%, var(--txt-2)); }
+.ld-q.distribution, .ld-chip-q.distribution { color: color-mix(in srgb, var(--neg) 62%, var(--txt-2)); }
 .ld-chip-q { display: inline-block; min-width: 34px; color: var(--txt-3); }
 
 /* a group's names, under its row: quieter and indented */
-tr.ld-name td { padding-top: 4px; padding-bottom: 4px; background: color-mix(in srgb, var(--panel) 50%, transparent); }
+tr.ld-name td { padding-top: 4px; padding-bottom: 4px; background: color-mix(in srgb, var(--panel) 50%, var(--bg)); }
 table.ld-table td.ld-name-id { padding-left: 14px; white-space: nowrap; }
-.ld-tk { font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt-2); margin-right: 8px; }
+.ld-tk { font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt); margin-right: 8px; }
 .ld-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
 .ld-chip { font: inherit; font-size: 10.5px; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
 .ld-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
-.ld-chip-links { color: var(--txt-4); }
-.ld-off { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
+.ld-chip-links { color: var(--txt-3); }
+.ld-off { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); }
 /* a name left out for a flagged price history: grayed, never gone (WB#2) */
 tr.ld-name.flagged td { opacity: 0.6; }

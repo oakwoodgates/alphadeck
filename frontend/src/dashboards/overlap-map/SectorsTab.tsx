@@ -88,11 +88,14 @@ export default function SectorsTab({
                   <button type="button" className="om-link" onClick={() => onSelectThesis(d.cards[r.card].thesis_id)}>
                     {d.cards[r.card].name}
                   </button>
-                  <div className="om-dim">{plural(r.sectors, "sector", "sectors")}</div>
+                  <div className="om-dim">
+                    {mode === "supersector" ? plural(r.sectors, "sector", "sectors") : plural(r.sectors, "type", "types")}
+                  </div>
                 </th>
                 {grid.columns.map((c) => {
                   const n = r.cells[c.key]?.length ?? 0;
                   const on = open?.card === r.card && open.key === c.key;
+                  const rad = cellRadius(n, biggest, MAX_R);
                   return (
                     <td key={c.key} className="om-grid-cell">
                       {n > 0 && (
@@ -105,7 +108,16 @@ export default function SectorsTab({
                           onClick={() => setCell(on ? null : { card: r.card, key: c.key })}
                         >
                           <svg width={2 * MAX_R + 2} height={2 * MAX_R + 2} aria-hidden="true">
-                            <circle cx={MAX_R + 1} cy={MAX_R + 1} r={cellRadius(n, biggest, MAX_R)} />
+                            <circle cx={MAX_R + 1} cy={MAX_R + 1} r={rad} />
+                            <text
+                              className={`om-cell-n${rad >= 9 ? " inside" : ""}`}
+                              x={MAX_R + 1}
+                              y={MAX_R + 1}
+                              textAnchor="middle"
+                              dominantBaseline="central"
+                            >
+                              {n}
+                            </text>
                           </svg>
                         </button>
                       )}
@@ -124,6 +136,9 @@ export default function SectorsTab({
               {d.cards[open.card].name} · {sectorLabel(open.key, mode)}
             </span>
             <span className="om-dim">{plural(openIds.length, "company", "companies")}</span>
+            <button type="button" className="om-btn om-cell-close" onClick={() => setCell(null)}>
+              close
+            </button>
           </div>
           <div className="om-tickers">
             {openIds.map((idx) => {

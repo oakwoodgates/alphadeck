@@ -10,6 +10,7 @@ import {
   DecisionsSection,
   FilingsSection,
   IdentitySection,
+  SectionNav,
   TapeSection,
   TriggersSection,
 } from "./LookupSections";
@@ -256,6 +257,7 @@ export default function TickerLookup({ asof, onSelectThesis }: DashboardProps) {
           {note && note.for === t && <div className="dash-note tl-work">{note.text}</div>}
           {stale && <div className="dash-note">{q.isFetching ? SLOW : "updating…"}</div>}
           <IdentitySection d={data} />
+          <SectionNav d={data} filingRows={countFilings(windowed)} />
           <CardsSection d={data} onSelectThesis={onSelectThesis} />
           <TriggersSection d={data} onSelectThesis={onSelectThesis} />
           <TapeSection d={data} />

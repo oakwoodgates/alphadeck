@@ -260,22 +260,40 @@ export type Filters = {
   states: readonly StateKey[];
   /** only cards whose adoption part has a counted term (six closed months stored) */
   adoptionOnly: boolean;
+  /** only cards with all five score parts present */
+  scoredOnly?: boolean;
   /** a case-insensitive piece of the card's name */
   search: string;
 };
-export const DEFAULT_FILTERS: Filters = { states: [], adoptionOnly: false, search: "" };
+export const DEFAULT_FILTERS: Filters = { states: [], adoptionOnly: false, scoredOnly: false, search: "" };
 
-export const filtersActive = (f: Filters) => f.states.length > 0 || f.adoptionOnly || f.search.trim() !== "";
+export const filtersActive = (f: Filters) =>
+  f.states.length > 0 || f.adoptionOnly || Boolean(f.scoredOnly) || f.search.trim() !== "";
 
 /** The card has at least one SIGNAL term whose six closed months are all stored. */
 export const hasAdoptionMonths = (c: LeaderboardCardOut) => c.adoption.terms_counted > 0;
 
+/** The card has all five readings the composite score requires (independent of which other cards are shown). */
+export const hasAllParts = (c: LeaderboardCardOut) =>
+  c.tape.value !== null &&
+  c.breadth.pct !== null &&
+  c.keys.turned !== null &&
+  c.adoption.slope_pct !== null &&
+  c.insiders.buyers !== null;
+
 export function cardMatches(c: LeaderboardCardOut, f: Filters): boolean {
   if (f.states.length && !f.states.includes(stateOf(c))) return false;
   if (f.adoptionOnly && !hasAdoptionMonths(c)) return false;
+  if (f.scoredOnly && !hasAllParts(c)) return false;
   const q = f.search.trim().toLocaleLowerCase();
   if (q && !c.thesis_name.toLocaleLowerCase().includes(q)) return false;
   return true;
+}
+
+/** True when some (but not all) cards have every score input, so the "scored only" filter discriminates. */
+export function hasScoredFilter(cards: readonly LeaderboardCardOut[]): boolean {
+  const withScore = cards.filter(hasAllParts).length;
+  return withScore > 0 && withScore < cards.length;
 }
 
 /** The controls that can discriminate among the cards on offer (a chip every card shares carries no information and

@@ -325,6 +325,29 @@ describe("the picker and the page", () => {
     render(<ChainMap asof="2026-10-28" onSelectThesis={vi.fn()} />);
     expect(screen.getByText("Could not load the Chain Map's cards.")).toBeInTheDocument();
   });
+
+  it("supports Shift+click pinning, flow chevrons between links, and ticker/term spotlighting", async () => {
+    const user = userEvent.setup();
+    const { container, onSelectThesis } = setup();
+
+    // Upstream -> downstream flow chevron between consecutive real links
+    expect(container.querySelectorAll(".cm-flow-chev")).toHaveLength(1);
+
+    // Shift+click pins the readout instead of immediately navigating
+    await user.keyboard("{Shift>}");
+    await user.click(nodeEl("k-OKLO"));
+    await user.keyboard("{/Shift}");
+    expect(onSelectThesis).not.toHaveBeenCalled();
+    expect(screen.getByTestId("cm-readout")).toHaveClass("pinned");
+    expect(screen.getByTestId("cm-readout")).toHaveTextContent("OKLO Corp");
+    await user.click(screen.getByRole("button", { name: "unpin" }));
+    expect(screen.getByTestId("cm-readout")).not.toHaveClass("pinned");
+
+    // Highlight search marks matching nodes and dims others
+    await user.type(screen.getByRole("searchbox", { name: "Highlight name on map" }), "reactor");
+    expect(nodeEl("k-OKLO")).toHaveClass("match");
+    expect(nodeEl("k-CCJ")).toHaveClass("dim");
+  });
 });
 
 afterEach(() => vi.unstubAllGlobals());

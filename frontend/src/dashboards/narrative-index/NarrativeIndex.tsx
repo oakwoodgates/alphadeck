@@ -1,4 +1,5 @@
-import { useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ColorType, LineStyle, createChart, type IChartApi, type Time } from "lightweight-charts";
 
 import { STATE_CLASS, STATE_LABEL } from "../../util/format";
 import type { DashboardProps } from "../registry";
@@ -9,9 +10,11 @@ import {
   WINDOW_OPTIONS,
   createdIndex,
   fmtDay,
+  fmtLevelPct,
   fmtPct,
   linePath,
   nextSort,
+  sharedYDomain,
   sinceWords,
   sortCards,
   windowLabel,
@@ -92,15 +95,20 @@ function StateChip({ state }: { state: NarrativeCardOut["state"] }) {
   return <span className={`ni-st ${STATE_CLASS[state] ?? ""}`}>{STATE_LABEL[state] ?? state}</span>;
 }
 
+const numTone = (v: number | null | undefined) => (v == null || v === 0 ? "" : v > 0 ? " pos" : " neg");
+
 /** The numbers above a chart. */
 function Numbers({ c, window }: { c: NarrativeCardOut; window: IndexWindow }) {
   return (
     <div className="ni-nums">
-      <span title="the index return over the window">
+      <span className={`ni-val${numTone(c.ret)}`} title="the index return over the window">
         {windowLabel(window)} {fmtPct(c.ret)}
       </span>
-      <span title="the window return minus SPY's over the same sessions">vs SPY {fmtPct(c.vs_spy)}</span>
+      <span className={`ni-val${numTone(c.vs_spy)}`} title="the window return minus SPY's over the same sessions">
+        vs SPY {fmtPct(c.vs_spy)}
+      </span>
       <span
+        className={c.created_in_window ? `ni-val${numTone(c.since_created)}` : undefined}
         title={
           c.created_in_window
             ? `from the ${fmtDay(c.created_base)} close (created ${fmtDay(c.created)})`
@@ -149,47 +157,66 @@ function MiniChart({
   c,
   dates,
   bench,
+  sharedDomain,
 }: {
   c: NarrativeCardOut;
   dates: readonly string[];
   bench: readonly NarrativeBenchmarkOut[];
+  sharedDomain: Domain | null;
 }) {
   const spy = benchLine(bench, "SPY");
   const iwm = benchLine(bench, "IWM");
-  const domain = yDomain([c.points, spy, iwm]);
+  const domain = sharedDomain ?? yDomain([c.points, spy, iwm]);
   const at = createdIndex(dates, c.created_base);
   const base = yAt(100, domain, MINI_H);
+  const lastVal = c.points.length > 0 ? c.points[c.points.length - 1] : null;
+  const lineTone = numTone(c.ret);
   return (
-    <svg
-      className="ni-mini"
-      viewBox={`0 0 ${MINI_W} ${MINI_H}`}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={`${c.thesis_name} index ${fmtPct(c.ret)}`}
-    >
-      <line className="ni-base" x1={0} x2={MINI_W} y1={base} y2={base} />
-      {spy && <path className="ni-bench spy" d={linePath(spy, domain, MINI_W, MINI_H)} />}
-      {iwm && <path className="ni-bench iwm" d={linePath(iwm, domain, MINI_W, MINI_H)} />}
-      {at != null && (
-        <line
-          className="ni-created"
-          data-testid="ni-created"
-          x1={xAt(at, dates.length, MINI_W)}
-          x2={xAt(at, dates.length, MINI_W)}
-          y1={0}
-          y2={MINI_H}
-        >
-          <title>created {fmtDay(c.created)}</title>
-        </line>
-      )}
-      {c.points.length > 1 && <path className="ni-line" d={linePath(c.points, domain, MINI_W, MINI_H)} />}
-    </svg>
+    <div className="ni-mini-wrap">
+      <svg
+        className="ni-mini"
+        viewBox={`0 0 ${MINI_W} ${MINI_H}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`${c.thesis_name} index ${fmtPct(c.ret)}`}
+      >
+        <line className="ni-base" x1={0} x2={MINI_W} y1={base} y2={base} />
+        {spy && <path className="ni-bench spy" d={linePath(spy, domain, MINI_W, MINI_H)} />}
+        {iwm && <path className="ni-bench iwm" d={linePath(iwm, domain, MINI_W, MINI_H)} />}
+        {at != null && (
+          <line
+            className="ni-created"
+            data-testid="ni-created"
+            x1={xAt(at, dates.length, MINI_W)}
+            x2={xAt(at, dates.length, MINI_W)}
+            y1={0}
+            y2={MINI_H}
+          >
+            <title>created {fmtDay(c.created)}</title>
+          </line>
+        )}
+        {c.points.length > 1 && <path className={`ni-line${lineTone}`} d={linePath(c.points, domain, MINI_W, MINI_H)} />}
+      </svg>
+      <div className="ni-mini-scale" aria-hidden="true">
+        <span>{fmtLevelPct(domain[1])}</span>
+        <span>{lastVal != null ? `now ${fmtLevelPct(lastVal)}` : ""}</span>
+        <span>{fmtLevelPct(domain[0])}</span>
+      </div>
+    </div>
   );
 }
 
-// the enlarged chart's frame: the plot area inside the axis labels
-const BIG = { w: 960, h: 240, left: 46, right: 8, top: 8, bottom: 20 };
-const STRIP_H = 36;
+// the enlarged chart: interactive lightweight-charts canvas (pan, zoom, crosshair, contributors overlay)
+const NI_LWC_H = 240;
+const NI_AXIS = "#5a6470"; // --txt-3
+const NI_GRID = "#1e232c"; // --line
+const NI_BASE = "#3c4450"; // --txt-4
+const NI_POS = "#5fa87b"; // muted --pos
+const NI_NEG = "#b56565"; // muted --neg
+const NI_FLAT = "#d8dee9"; // --txt
+const NI_SPY = "#7892b5"; // muted --leader
+const NI_IWM = "#8a7ba6"; // muted --activist
+const NI_CONTRIB = "#252c38"; // faint histogram texture
 
 function BigChart({
   c,
@@ -202,113 +229,221 @@ function BigChart({
   bench: readonly NarrativeBenchmarkOut[];
   contributors: readonly number[] | null;
 }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const spy = benchLine(bench, "SPY");
   const iwm = benchLine(bench, "IWM");
-  const domain: Domain = yDomain([c.points, spy, iwm]);
-  const pw = BIG.w - BIG.left - BIG.right;
-  const ph = BIG.h - BIG.top - BIG.bottom;
   const n = dates.length;
-  const x = (i: number) => BIG.left + xAt(i, n, pw);
-  const y = (v: number) => BIG.top + yAt(v, domain, ph);
   const at = createdIndex(dates, c.created_base);
-  const i = hover ?? n - 1;
+  const i = hover ?? Math.max(0, n - 1);
   const maxNames = Math.max(1, c.names, ...(contributors ?? [0]));
 
-  const onMove = (e: MouseEvent<SVGRectElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    if (r.width <= 0 || n === 0) return;
-    const f = (e.clientX - r.left) / r.width;
-    setHover(Math.min(n - 1, Math.max(0, Math.round(f * (n - 1)))));
-  };
+  const idxVal = c.points[i];
+  const spyVal = spy?.[i];
+  const iwmVal = iwm?.[i];
+  const vsSpyVal = idxVal != null && spyVal != null ? idxVal - spyVal : null;
+  const lineTone = numTone(c.ret);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || dates.length < 2) return;
+    setHover(null);
+
+    const width0 = el.clientWidth || 720;
+    const chart = createChart(el, {
+      width: width0,
+      height: NI_LWC_H,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: NI_AXIS,
+        fontSize: 10,
+        fontFamily: "JetBrains Mono, ui-monospace, monospace",
+      },
+      grid: { vertLines: { visible: false }, horzLines: { color: NI_GRID, style: LineStyle.Dotted } },
+      rightPriceScale: { borderVisible: false },
+      leftPriceScale: { visible: false },
+      timeScale: { borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
+      crosshair: {
+        vertLine: { color: NI_AXIS, width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#171b22" },
+        horzLine: { color: NI_BASE, width: 1, style: LineStyle.Dotted, labelBackgroundColor: "#171b22" },
+      },
+      handleScroll: true,
+      handleScale: true,
+    });
+    chartRef.current = chart;
+
+    if (contributors && contributors.length === dates.length) {
+      const hist = chart.addHistogramSeries({
+        color: NI_CONTRIB,
+        priceScaleId: "contrib",
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      chart.priceScale("contrib").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+      hist.setData(dates.map((dt, j) => ({ time: dt as Time, value: contributors[j] ?? 0 })));
+    }
+
+    if (iwm) {
+      const iwmSeries = chart.addLineSeries({
+        color: NI_IWM,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerRadius: 3,
+      });
+      iwmSeries.setData(
+        dates
+          .map((dt, j) => (iwm[j] != null ? { time: dt as Time, value: iwm[j] as number } : null))
+          .filter((p): p is { time: Time; value: number } => p !== null),
+      );
+    }
+
+    if (spy) {
+      const spySeries = chart.addLineSeries({
+        color: NI_SPY,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerRadius: 3,
+      });
+      spySeries.setData(
+        dates
+          .map((dt, j) => (spy[j] != null ? { time: dt as Time, value: spy[j] as number } : null))
+          .filter((p): p is { time: Time; value: number } => p !== null),
+      );
+    }
+
+    const idxColor = lineTone === " pos" ? NI_POS : lineTone === " neg" ? NI_NEG : NI_FLAT;
+    const idxSeries = chart.addLineSeries({
+      color: idxColor,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerRadius: 4,
+    });
+    idxSeries.setData(
+      dates
+        .map((dt, j) => (c.points[j] != null ? { time: dt as Time, value: c.points[j] as number } : null))
+        .filter((p): p is { time: Time; value: number } => p !== null),
+    );
+    idxSeries.createPriceLine({
+      price: 100,
+      color: NI_BASE,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: "100",
+    });
+
+    if (at != null && dates[at]) {
+      idxSeries.setMarkers([
+        {
+          time: dates[at] as Time,
+          position: "belowBar",
+          shape: "arrowUp",
+          color: NI_AXIS,
+          text: `created ${fmtDay(c.created)}`,
+          size: 1,
+        },
+      ]);
+    }
+
+    chart.timeScale().fitContent();
+
+    const dateToIdx = new Map(dates.map((dt, j) => [dt, j]));
+    const onCrosshair = (param: { time?: Time }) => {
+      if (!param.time) {
+        setHover(null);
+        return;
+      }
+      const key = typeof param.time === "string" ? param.time : null;
+      setHover(key != null ? (dateToIdx.get(key) ?? null) : null);
+    };
+    chart.subscribeCrosshairMove(onCrosshair);
+
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            const w = el.clientWidth;
+            if (w > 0) chart.applyOptions({ width: w });
+          })
+        : null;
+    ro?.observe(el);
+
+    return () => {
+      ro?.disconnect();
+      chart.unsubscribeCrosshairMove(onCrosshair);
+      chart.remove();
+      chartRef.current = null;
+    };
+  }, [c, dates, spy, iwm, contributors, at, lineTone]);
 
   return (
     <div className="ni-big-chart">
-      <div className="ni-readout">
-        {n > 0 ? (
-          <>
-            <span>{fmtDay(dates[i])}</span>
-            <span className="ni-key idx">index {c.points[i]?.toFixed(1) ?? "—"}</span>
-            {spy && <span className="ni-key spy">SPY {spy[i]?.toFixed(1) ?? "—"}</span>}
-            {iwm && <span className="ni-key iwm">IWM {iwm[i]?.toFixed(1) ?? "—"}</span>}
-            {contributors && (
-              <span>
-                {contributors[i] ?? 0} of {c.names} names contributing
+      <div className="ni-readout-row">
+        <div className="ni-readout" data-testid="ni-big-readout">
+          {n > 0 ? (
+            <>
+              <span className="ni-ro-date">{fmtDay(dates[i])}</span>
+              <span className="ni-key idx">
+                index {idxVal?.toFixed(1) ?? "—"} ({fmtLevelPct(idxVal)})
               </span>
-            )}
-          </>
-        ) : (
-          <span>no sessions in this window</span>
+              {spy && (
+                <span className="ni-key spy">
+                  SPY {spyVal?.toFixed(1) ?? "—"} ({fmtLevelPct(spyVal)})
+                </span>
+              )}
+              {vsSpyVal != null && (
+                <span className={`ni-val${numTone(vsSpyVal)}`}>
+                  spread {vsSpyVal > 0 ? "+" : ""}
+                  {vsSpyVal.toFixed(1)}pp
+                </span>
+              )}
+              {iwm && (
+                <span className="ni-key iwm">
+                  IWM {iwmVal?.toFixed(1) ?? "—"} ({fmtLevelPct(iwmVal)})
+                </span>
+              )}
+              {contributors && (
+                <span>
+                  {contributors[i] ?? 0} of {c.names} names contributing
+                </span>
+              )}
+              {at != null && (
+                <span className="ni-key created" data-testid="ni-created-big">
+                  created {fmtDay(c.created)}
+                </span>
+              )}
+            </>
+          ) : (
+            <span>no sessions in this window</span>
+          )}
+        </div>
+        {n >= 2 && (
+          <button
+            type="button"
+            className="ni-reset-zoom"
+            title="Reset pan and zoom to full window"
+            onClick={() => chartRef.current?.timeScale().fitContent()}
+          >
+            Reset zoom
+          </button>
         )}
       </div>
-      <svg className="ni-big" viewBox={`0 0 ${BIG.w} ${BIG.h}`} role="img" aria-label={`${c.thesis_name} enlarged`}>
-        {[domain[0], 100, domain[1]].map((v) => (
-          <g key={v}>
-            <line className={v === 100 ? "ni-base" : "ni-gridline"} x1={BIG.left} x2={BIG.w - BIG.right} y1={y(v)} y2={y(v)} />
-            <text className="ni-axis" x={BIG.left - 6} y={y(v) + 3} textAnchor="end">
-              {v.toFixed(v === 100 ? 0 : 1)}
-            </text>
-          </g>
-        ))}
-        {n > 0 && (
-          <>
-            <text className="ni-axis" x={BIG.left} y={BIG.h - 5} textAnchor="start">
-              {fmtDay(dates[0])}
-            </text>
-            <text className="ni-axis" x={BIG.w - BIG.right} y={BIG.h - 5} textAnchor="end">
-              {fmtDay(dates[n - 1])}
-            </text>
-          </>
-        )}
-        {spy && <path className="ni-bench spy" d={linePath(spy, domain, pw, ph, BIG.left, BIG.top)} />}
-        {iwm && <path className="ni-bench iwm" d={linePath(iwm, domain, pw, ph, BIG.left, BIG.top)} />}
-        {at != null && (
-          <g data-testid="ni-created-big">
-            <line className="ni-created" x1={x(at)} x2={x(at)} y1={BIG.top} y2={BIG.top + ph} />
-            <text
-              className="ni-axis ni-created-label"
-              x={at > (n - 1) / 2 ? x(at) - 4 : x(at) + 4}
-              y={BIG.top + 10}
-              textAnchor={at > (n - 1) / 2 ? "end" : "start"}
-            >
-              created {fmtDay(c.created)}
-            </text>
-          </g>
-        )}
-        {c.points.length > 1 && (
-          <path className="ni-line" d={linePath(c.points, domain, pw, ph, BIG.left, BIG.top)} />
-        )}
-        {hover != null && <line className="ni-hover" x1={x(hover)} x2={x(hover)} y1={BIG.top} y2={BIG.top + ph} />}
-        <rect
-          className="ni-hit"
-          x={BIG.left}
-          y={BIG.top}
-          width={pw}
-          height={ph}
-          onMouseMove={onMove}
-          onMouseLeave={() => setHover(null)}
-        />
-      </svg>
+      <div
+        ref={boxRef}
+        className="ni-lwc-box"
+        role="img"
+        aria-label={`${c.thesis_name} enlarged`}
+        data-testid="ni-big-canvas"
+      />
       {contributors && contributors.length === n && n > 0 && (
-        <svg className="ni-strip" viewBox={`0 0 ${BIG.w} ${STRIP_H}`} role="img" aria-label="names contributing each session">
-          {contributors.map((k, j) => {
-            const h = (k / maxNames) * (STRIP_H - 4);
-            const bw = Math.max(1, pw / Math.max(1, n) - 0.5);
-            return (
-              <rect
-                key={dates[j]}
-                className={`ni-bar${j === hover ? " on" : ""}`}
-                x={x(j) - bw / 2}
-                y={STRIP_H - h}
-                width={bw}
-                height={h}
-              />
-            );
-          })}
-          <text className="ni-axis" x={BIG.left - 6} y={STRIP_H - 2} textAnchor="end">
-            names
-          </text>
-        </svg>
+        <div className="ni-contrib-note" role="img" aria-label="names contributing each session">
+          bottom bars: names contributing each session (up to {maxNames}) · scroll to zoom, drag to pan
+        </div>
       )}
     </div>
   );
@@ -370,7 +505,20 @@ function Enlarged({
           <tbody>
             {detail.members.map((m) => (
               <tr key={m.security_id ?? `u-${m.ticker}`} className={m.sessions === 0 ? "quiet" : undefined}>
-                <td className="ni-tk">{m.ticker}</td>
+                <td className="ni-tk">
+                  {m.security_id ? (
+                    <button
+                      type="button"
+                      className="ni-tk-btn"
+                      title={`Open ${c.thesis_name} on ${m.ticker}`}
+                      onClick={() => onSelect(c.thesis_id, m.ticker)}
+                    >
+                      {m.ticker}
+                    </button>
+                  ) : (
+                    m.ticker
+                  )}
+                </td>
                 <td className="ni-num">
                   {m.security_id == null
                     ? "no resolved security"
@@ -392,11 +540,13 @@ function Enlarged({
 function Tile({
   c,
   data,
+  sharedDomain,
   onOpen,
   onSelect,
 }: {
   c: NarrativeCardOut;
   data: NarrativeIndexOut;
+  sharedDomain: Domain | null;
   onOpen: () => void;
   onSelect: DashboardProps["onSelectThesis"];
 }) {
@@ -416,21 +566,65 @@ function Tile({
       <Numbers c={c} window={data.window} />
       <FlaggedNote c={c} />
       <button type="button" className="ni-chart" onClick={onOpen} aria-label={`Enlarge ${c.thesis_name}`}>
-        <MiniChart c={c} dates={data.dates} bench={data.benchmarks} />
+        <MiniChart c={c} dates={data.dates} bench={data.benchmarks} sharedDomain={sharedDomain} />
       </button>
     </section>
   );
 }
 
+const STATE_FILTER_ORDER = ["armed", "warming", "managing", "incubating"] as const;
+
 export default function NarrativeIndex({ asof, onSelectThesis }: DashboardProps) {
   const [win, setWin] = useState<IndexWindow>("1y");
   const [includeSilent, setIncludeSilent] = useState(false);
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  const [scaleMode, setScaleMode] = useState<"auto" | "shared">("auto");
+  const [stateFilter, setStateFilter] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const q = useNarrativeIndex(asof, win, includeSilent);
   const data = q.data;
 
-  const cards = useMemo(() => (data ? sortCards(data.cards, sort) : []), [data, sort]);
+  // Escape closes an enlarged card cleanly
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const cards = useMemo(() => {
+    if (!data) return [];
+    const needle = query.trim().toLowerCase();
+    const filtered = data.cards.filter((c) => {
+      if (stateFilter != null && c.state !== stateFilter) return false;
+      if (needle && !c.thesis_name.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+    return sortCards(filtered, sort);
+  }, [data, sort, stateFilter, query]);
+
+  const presentStates = useMemo(() => {
+    if (!data) return [];
+    const counts = new Map<string, number>();
+    for (const c of data.cards) {
+      if (c.state) counts.set(c.state, (counts.get(c.state) ?? 0) + 1);
+    }
+    return STATE_FILTER_ORDER.filter((s) => (counts.get(s) ?? 0) > 0).map((s) => ({
+      value: s,
+      label: STATE_LABEL[s] ?? s,
+      n: counts.get(s) ?? 0,
+    }));
+  }, [data]);
+
+  const sharedDomain = useMemo(() => {
+    if (!data || scaleMode !== "shared") return null;
+    const spy = benchLine(data.benchmarks, "SPY");
+    const iwm = benchLine(data.benchmarks, "IWM");
+    return sharedYDomain(cards, [spy, iwm]);
+  }, [data, scaleMode, cards]);
 
   if (q.isLoading) {
     return (
@@ -442,6 +636,8 @@ export default function NarrativeIndex({ asof, onSelectThesis }: DashboardProps)
   if (q.error || !data) return <div className="dash-note">Could not load the Narrative Index.</div>;
 
   const onSort = (key: SortKey) => setSort((s) => nextSort(s, key));
+  const spyBench = data.benchmarks.find((b) => b.symbol === "SPY" && b.available);
+  const iwmBench = data.benchmarks.find((b) => b.symbol === "IWM" && b.available);
 
   return (
     <div className="ni">
@@ -484,6 +680,26 @@ export default function NarrativeIndex({ asof, onSelectThesis }: DashboardProps)
             );
           })}
         </div>
+        <div className="ni-seg" role="group" aria-label="Y scale">
+          <span className="ni-seg-label">Scale</span>
+          {(
+            [
+              { value: "auto", label: "Auto", title: "Each mini chart fits its own high and low" },
+              { value: "shared", label: "Shared", title: "Every mini chart shares one y scale across visible cards" },
+            ] as const
+          ).map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={`ni-seg-btn${scaleMode === o.value ? " on" : ""}`}
+              aria-pressed={scaleMode === o.value}
+              title={o.title}
+              onClick={() => setScaleMode(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
         <label className="ni-check" title="Add each card's Context and Bench names to its basket">
           <input type="checkbox" checked={includeSilent} onChange={(e) => setIncludeSilent(e.target.checked)} />
           Show Context and Bench
@@ -496,20 +712,55 @@ export default function NarrativeIndex({ asof, onSelectThesis }: DashboardProps)
           </span>
         )}
       </div>
-      <div className="dash-note ni-work">
-        The card's basket as of {fmtDay(data.asof)}, looking back. Not the basket as it stood on each past day.
-      </div>
-      <div className="dash-note ni-work">{workLine(data)}</div>
-      {data.roster_fallback_cards > 0 && (
-        <div className="dash-note ni-work">
-          Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are
-          point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
-        </div>
-      )}
-      <div className="dash-note ni-legend">
-        Each chart has its own scale; the faint flat line is 100. Faint dashed = SPY, dotted = IWM; the vertical
-        tick marks the card's creation (the last session on or before that day), when it falls inside the
-        window. Click a chart to enlarge it; click a name to open the card.
+
+      <div className="ni-controls ni-subcontrols">
+        {presentStates.length > 1 && (
+          <div className="ni-seg" role="group" aria-label="Filter state">
+            <span className="ni-seg-label">State</span>
+            <button
+              type="button"
+              className={`ni-seg-btn${stateFilter == null ? " on" : ""}`}
+              aria-pressed={stateFilter == null}
+              onClick={() => setStateFilter(null)}
+            >
+              All
+            </button>
+            {presentStates.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                className={`ni-seg-btn${stateFilter === s.value ? " on" : ""}`}
+                aria-pressed={stateFilter === s.value}
+                onClick={() => setStateFilter((cur) => (cur === s.value ? null : s.value))}
+              >
+                <span className={`ni-st ${STATE_CLASS[s.value] ?? ""}`}>{s.label}</span>{" "}
+                <span className="ni-chip-n">{s.n}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <input
+          type="search"
+          className="ni-search"
+          aria-label="Filter cards"
+          placeholder="Filter cards…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {(spyBench || iwmBench) && (
+          <div className="ni-bench-bar" data-testid="ni-bench-bar">
+            {spyBench && (
+              <span className="ni-key spy">
+                -- SPY {windowLabel(data.window)} {fmtPct(spyBench.ret)}
+              </span>
+            )}
+            {iwmBench && (
+              <span className="ni-key iwm">
+                ·· IWM {windowLabel(data.window)} {fmtPct(iwmBench.ret)}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {cards.length === 0 ? (
@@ -531,6 +782,7 @@ export default function NarrativeIndex({ asof, onSelectThesis }: DashboardProps)
                 key={c.thesis_id}
                 c={c}
                 data={data}
+                sharedDomain={sharedDomain}
                 onOpen={() => setOpen(c.thesis_id)}
                 onSelect={onSelectThesis}
               />
@@ -538,6 +790,26 @@ export default function NarrativeIndex({ asof, onSelectThesis }: DashboardProps)
           )}
         </div>
       )}
+
+      <div className="ni-foot">
+        <div className="dash-note ni-work">
+          The card's basket as of {fmtDay(data.asof)}, looking back. Not the basket as it stood on each past day.
+        </div>
+        <div className="dash-note ni-work">{workLine(data)}</div>
+        {data.roster_fallback_cards > 0 && (
+          <div className="dash-note ni-work">
+            Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are
+            point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
+          </div>
+        )}
+        <div className="dash-note ni-legend">
+          {scaleMode === "shared"
+            ? "Every chart shares one y scale across visible cards; the faint flat line is 100."
+            : "Each chart has its own scale (shown on the right); the faint flat line is 100."}{" "}
+          Dashed blue = SPY, dotted violet = IWM; the vertical tick marks the card's creation (the last session on or
+          before that day), when it falls inside the window. Click a chart to enlarge it; click a name to open the card.
+        </div>
+      </div>
     </div>
   );
 }

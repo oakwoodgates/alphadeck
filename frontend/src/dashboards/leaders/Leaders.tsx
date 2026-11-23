@@ -121,11 +121,13 @@ function NameCell({
   ticker,
   name,
   cards,
+  otherLists,
   onSelect,
 }: {
   ticker: string;
   name: string | null;
   cards: readonly LeadersCardOut[];
+  otherLists?: readonly ListKey[];
   onSelect: DashboardProps["onSelectThesis"];
 }) {
   const first = cards[0];
@@ -140,6 +142,14 @@ function NameCell({
         {ticker}
       </button>
       {name && <span className="ld-co">{name}</span>}
+      {otherLists && otherLists.length > 0 && (
+        <span
+          className="ld-also"
+          title={`Also on: ${otherLists.map((k) => listMeta(k).label).join(", ")}`}
+        >
+          +{otherLists.length} {otherLists.length === 1 ? "list" : "lists"}
+        </span>
+      )}
       <span className="ld-chips">
         {cards.map((c) => {
           const links = c.links.map((l) => l ?? "Unsegmented").join(", ");
@@ -161,6 +171,21 @@ function NameCell({
   );
 }
 
+function fmtPrice(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  return `$${v >= 100 ? v.toFixed(0) : v.toFixed(2)}`;
+}
+
+/** Quiet neutral magnitude bar (0–100%). */
+function MiniBar({ pctVal }: { pctVal: number }) {
+  const w = Math.max(4, Math.min(100, pctVal));
+  return (
+    <span className="ld-mbar" aria-hidden="true">
+      <span className="ld-mbar-fill" style={{ width: `${w}%` }} />
+    </span>
+  );
+}
+
 function Insider({ n }: { n: { buys_30d: number | null; buyers_30d: number | null; cluster: boolean } }) {
   if (n.buys_30d == null || n.buys_30d === 0) return <span className="ld-v">—</span>;
   const buyers = n.buyers_30d ?? 0;
@@ -176,15 +201,24 @@ function Insider({ n }: { n: { buys_30d: number | null; buyers_30d: number | nul
   );
 }
 
-/** A list's own value cell. */
-function ValueCell({ list, n, data }: { list: ListKey; n: LeadersNameOut; data: LeadersOut }) {
+/** A list's own value cell, with quiet neutral magnitude bar and high_52w price. */
+function ValueCell({ list, n, data, maxRvol }: { list: ListKey; n: LeadersNameOut; data: LeadersOut; maxRvol: number }) {
   switch (list) {
     case "near_high": {
       const short = n.range_bars != null && n.range_bars < data.full_year_bars;
+      const hiPx = fmtPrice(n.high_52w);
+      const band = Math.max(1, Math.abs(data.near_high_pct));
+      const prox = n.pct_off_high != null ? Math.max(0, 1 - Math.abs(n.pct_off_high) / band) * 100 : null;
       return (
         <td className="ld-num">
           <span className="ld-v">{fmtPct(n.pct_off_high)}</span>
-          {n.high_date && <span className="ld-sub">high {fmtDate(n.high_date)}</span>}
+          {prox !== null && <MiniBar pctVal={prox} />}
+          {(hiPx || n.high_date) && (
+            <span className="ld-sub">
+              {hiPx ? `${hiPx} · ` : ""}
+              {n.high_date ? `high ${fmtDate(n.high_date)}` : ""}
+            </span>
+          )}
           {short && (
             <span className="ld-sub" title="the range covers fewer bars than a full year">
               {n.range_bars} bars
@@ -196,15 +230,49 @@ function ValueCell({ list, n, data }: { list: ListKey; n: LeadersNameOut; data: 
     case "rs_leader":
       return <td className="ld-num ld-v">{n.rs_vs.length ? n.rs_vs.join(" · ") : "—"}</td>;
     case "coiling":
-      return <td className="ld-num ld-v">{fmtContraction(n.contraction)}</td>;
+      return (
+        <td className="ld-num">
+          <span className="ld-v">{fmtContraction(n.contraction)}</span>
+          {n.contraction != null && <MiniBar pctVal={n.contraction * 100} />}
+        </td>
+      );
     case "insider":
       return (
         <td className="ld-num">
           <Insider n={n} />
         </td>
       );
+    case "volume": {
+      const share = n.rvol20 != null && maxRvol > 0 ? (n.rvol20 / maxRvol) * 100 : null;
+      return (
+        <td className="ld-num">
+          <span className="ld-v">{fmtRatio(n.rvol20)}</span>
+          {share !== null && <MiniBar pctVal={share} />}
+        </td>
+      );
+    }
+  }
+}
+
+/** The compact figure shown inside a lit slot of the 5-column confluence matrix. */
+function slotFig(k: ListKey, n: LeadersNameOut): ReactNode {
+  switch (k) {
+    case "near_high":
+      return fmtPct(n.pct_off_high);
+    case "rs_leader":
+      return n.rs_vs.length ? n.rs_vs.join("/") : "13w";
+    case "coiling":
+      return fmtContraction(n.contraction);
+    case "insider":
+      return n.buys_30d ? (
+        <span className={n.cluster ? "ld-ins cluster" : undefined}>
+          {n.buys_30d}/{n.buyers_30d ?? 0}
+        </span>
+      ) : (
+        "—"
+      );
     case "volume":
-      return <td className="ld-num ld-v">{fmtRatio(n.rvol20)}</td>;
+      return fmtRatio(n.rvol20);
   }
 }
 
@@ -237,35 +305,76 @@ function TapeCells({ n, rvol = true }: { n: LeadersNameOut; rvol?: boolean }) {
   );
 }
 
-function Section({ title, rule, children }: { title: string; rule: string; children: ReactNode }) {
+function Section({
+  id,
+  title,
+  count,
+  rule,
+  children,
+}: {
+  id: string;
+  title: string;
+  count?: number;
+  rule: string;
+  children: ReactNode;
+}) {
   return (
-    <section className="ld-sec" aria-label={title}>
-      <h2 className="ld-h">{title}</h2>
+    <section id={id} className="ld-sec" aria-label={title}>
+      <div className="ld-h-wrap">
+        <h2 className="ld-h">{title}</h2>
+        {count !== undefined && <span className="ld-h-ct">{count.toLocaleString("en-US")}</span>}
+        <span className="ld-h-rule" aria-hidden="true" />
+      </div>
       <div className="dash-note ld-rule">{rule}</div>
       {children}
     </section>
   );
 }
 
+function matchesName(n: LeadersNameOut, q: string): boolean {
+  if (!q) return true;
+  if (n.ticker.toLowerCase().includes(q)) return true;
+  if ((n.name ?? "").toLowerCase().includes(q)) return true;
+  return n.cards.some(
+    (c) =>
+      c.thesis_name.toLowerCase().includes(q) ||
+      c.links.some((l) => (l ?? "Unsegmented").toLowerCase().includes(q)),
+  );
+}
+
 // --- 1. on several lists ------------------------------------------------------------------------------
 
-function Several({ data, onSelect }: { data: LeadersOut; onSelect: DashboardProps["onSelectThesis"] }) {
+function Several({
+  data,
+  qNorm,
+  onSelect,
+}: {
+  data: LeadersOut;
+  qNorm: string;
+  onSelect: DashboardProps["onSelectThesis"];
+}) {
   const [sort, setSort] = useState<Sort<NameCol>>(SEVERAL_SORT);
   const names = useMemo(() => {
     const on = new Set(data.several);
     return sortNames(
-      data.names.filter((n) => on.has(n.security_id)),
+      data.names.filter((n) => on.has(n.security_id) && matchesName(n, qNorm)),
       sort,
     );
-  }, [data, sort]);
+  }, [data, qNorm, sort]);
   const onSort = (c: NameCol) => setSort((s) => nextSort(s, c, nameFirstDir));
   return (
     <Section
+      id="ld-sec-several"
       title="On several lists"
-      rule={`Names on ${data.multi_min_lists} or more of the lists below, with the lists they are on.`}
+      count={names.length}
+      rule={`Names on ${data.multi_min_lists} or more of the lists below, aligned across the five lists with each lit figure.`}
     >
       {names.length === 0 ? (
-        <div className="dash-note ld-empty">No name is on {data.multi_min_lists} or more lists at this as-of.</div>
+        <div className="dash-note ld-empty">
+          {qNorm
+            ? "No multi-list name matches that filter."
+            : `No name is on ${data.multi_min_lists} or more lists at this as-of.`}
+        </div>
       ) : (
         <div className="ld-scroll">
           <table className="ld-table" aria-label="On several lists">
@@ -277,21 +386,31 @@ function Several({ data, onSelect }: { data: LeadersOut; onSelect: DashboardProp
               </tr>
             </thead>
             <tbody>
-              {names.map((n) => (
-                <tr key={n.security_id}>
-                  <NameCell ticker={n.ticker} name={n.name} cards={n.cards} onSelect={onSelect} />
-                  <td>
-                    <span className="ld-lists">
-                      {n.lists.map((k) => (
-                        <span key={k} className="ld-list-chip" title={listMeta(k).label}>
-                          {listMeta(k).chip}
-                        </span>
-                      ))}
-                    </span>
-                  </td>
-                  <TapeCells n={n} />
-                </tr>
-              ))}
+              {names.map((n) => {
+                const on = new Set(n.lists);
+                return (
+                  <tr key={n.security_id}>
+                    <NameCell ticker={n.ticker} name={n.name} cards={n.cards} onSelect={onSelect} />
+                    <td>
+                      <span className="ld-matrix" data-testid="ld-matrix">
+                        {LISTS.map((meta) =>
+                          on.has(meta.key) ? (
+                            <span key={meta.key} className="ld-slot on" title={meta.label}>
+                              <span className="ld-list-chip">{meta.chip}</span>
+                              <span className="ld-slot-fig">{slotFig(meta.key, n)}</span>
+                            </span>
+                          ) : (
+                            <span key={meta.key} className="ld-slot off" aria-hidden="true">
+                              ·
+                            </span>
+                          ),
+                        )}
+                      </span>
+                    </td>
+                    <TapeCells n={n} />
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -317,21 +436,35 @@ function listRule(key: ListKey, d: LeadersOut): string {
   }
 }
 
-function Lists({ data, onSelect }: { data: LeadersOut; onSelect: DashboardProps["onSelectThesis"] }) {
+function Lists({
+  data,
+  qNorm,
+  onSelect,
+}: {
+  data: LeadersOut;
+  qNorm: string;
+  onSelect: DashboardProps["onSelectThesis"];
+}) {
   const [tab, setTab] = useState<ListKey>("near_high");
   const [sorts, setSorts] = useState<Record<ListKey, Sort<NameCol>>>(LIST_SORT);
   const sort = sorts[tab];
   const list = data.lists.find((l) => l.key === tab);
   const names = useMemo(() => {
     const byId = new Map(data.names.map((n) => [n.security_id, n]));
-    const rows = (list?.security_ids ?? []).flatMap((id) => byId.get(id) ?? []);
+    const rows = (list?.security_ids ?? [])
+      .flatMap((id) => byId.get(id) ?? [])
+      .filter((n) => matchesName(n, qNorm));
     return sortNames(rows, sort);
-  }, [data, list, sort]);
+  }, [data, list, qNorm, sort]);
+  const maxRvol = useMemo(
+    () => names.reduce((m, n) => (n.rvol20 != null ? Math.max(m, n.rvol20) : m), 0),
+    [names],
+  );
   const onSort = (c: NameCol) => setSorts((s) => ({ ...s, [tab]: nextSort(s[tab], c, nameFirstDir) }));
   const meta = listMeta(tab);
   const isVolume = tab === "volume";
   return (
-    <Section title="Lists" rule="One tab per list; a name can be on several.">
+    <Section id="ld-sec-lists" title="Lists" rule="One tab per list; a name can be on several.">
       <div className="ld-tabs" role="tablist" aria-label="Lists">
         {LISTS.map((l) => {
           const n = data.lists.find((x) => x.key === l.key)?.security_ids.length ?? 0;
@@ -357,7 +490,9 @@ function Lists({ data, onSelect }: { data: LeadersOut; onSelect: DashboardProps[
           {listRule(tab, data)} {list ? `${plural(list.no_reading, "company", "companies")} had no reading.` : ""}
         </div>
         {names.length === 0 ? (
-          <div className="dash-note ld-empty">No names on this list at this as-of.</div>
+          <div className="dash-note ld-empty">
+            {qNorm ? "No name on this list matches that filter." : "No names on this list at this as-of."}
+          </div>
         ) : (
           <div className="ld-scroll">
             <table className="ld-table" aria-label={meta.label}>
@@ -371,8 +506,14 @@ function Lists({ data, onSelect }: { data: LeadersOut; onSelect: DashboardProps[
               <tbody>
                 {names.map((n) => (
                   <tr key={n.security_id}>
-                    <NameCell ticker={n.ticker} name={n.name} cards={n.cards} onSelect={onSelect} />
-                    <ValueCell list={tab} n={n} data={data} />
+                    <NameCell
+                      ticker={n.ticker}
+                      name={n.name}
+                      cards={n.cards}
+                      otherLists={n.lists.filter((k) => k !== tab)}
+                      onSelect={onSelect}
+                    />
+                    <ValueCell list={tab} n={n} data={data} maxRvol={maxRvol} />
                     <TapeCells n={n} rvol={!isVolume} />
                   </tr>
                 ))}
@@ -390,21 +531,33 @@ function Lists({ data, onSelect }: { data: LeadersOut; onSelect: DashboardProps[
 function InsiderGroups({
   data,
   groupBy,
+  qNorm,
   onGroupBy,
   onSelect,
 }: {
   data: LeadersOut;
   groupBy: GroupBy;
+  qNorm: string;
   onGroupBy: (g: GroupBy) => void;
   onSelect: DashboardProps["onSelectThesis"];
 }) {
   const [sort, setSort] = useState<Sort<GroupCol>>(GROUP_SORT);
   const view = data.group_by;
-  const groups = useMemo(() => sortGroups(data.insider_groups, sort, view), [data, sort, view]);
+  const groups = useMemo(() => {
+    const sorted = sortGroups(data.insider_groups, sort, view);
+    if (!qNorm) return sorted;
+    return sorted.filter(
+      (g) =>
+        groupLabel(g, view).toLowerCase().includes(qNorm) ||
+        g.members.some((m) => m.ticker.toLowerCase().includes(qNorm) || (m.name ?? "").toLowerCase().includes(qNorm)),
+    );
+  }, [data, sort, view, qNorm]);
   const onSort = (c: GroupCol) => setSort((s) => nextSort(s, c, groupFirstDir));
   return (
     <Section
+      id="ld-sec-insider-groups"
       title="Insider clusters by group"
+      count={groups.length}
       rule={`Groups where at least ${data.group_min_names} names had open-market insider buys in the last 30 days, with the share of the group's names that did. Each name shows buys/buyers; blue = ${data.cluster_min_buyers}+ buyers.`}
     >
       <div className="ld-controls">
@@ -425,7 +578,9 @@ function InsiderGroups({
       </div>
       {groups.length === 0 ? (
         <div className="dash-note ld-empty">
-          No group has {data.group_min_names} or more names with insider buys at this as-of.
+          {qNorm
+            ? "No insider group matches that filter."
+            : `No group has ${data.group_min_names} or more names with insider buys at this as-of.`}
         </div>
       ) : (
         <div className="ld-scroll">
@@ -449,7 +604,9 @@ function InsiderGroups({
             <tbody>
               {groups.map((g) => (
                 <tr key={g.key}>
-                  <td className="ld-label">{groupLabel(g, view)}</td>
+                  <td className="ld-label" title={groupLabel(g, view)}>
+                    {groupLabel(g, view)}
+                  </td>
                   <td className="ld-num">
                     <span className="ld-v">
                       {g.with_buys} of {g.names}
@@ -463,7 +620,10 @@ function InsiderGroups({
                       </span>
                     )}
                   </td>
-                  <td className="ld-num ld-v">{pct(g.share)}</td>
+                  <td className="ld-num">
+                    <span className="ld-v">{pct(g.share)}</span>
+                    <MiniBar pctVal={g.share * 100} />
+                  </td>
                   <td className="ld-num ld-v">{g.buys}</td>
                   <td>
                     <span className="ld-members">
@@ -496,6 +656,7 @@ function InsiderGroups({
 export default function Leaders({ asof, onSelectThesis }: DashboardProps) {
   const [groupBy, setGroupBy] = useState<GroupBy>("link");
   const [includeSilent, setIncludeSilent] = useState(false);
+  const [query, setQuery] = useState("");
   const q = useLeaders(asof, groupBy, includeSilent);
   const data = q.data;
 
@@ -506,6 +667,9 @@ export default function Leaders({ asof, onSelectThesis }: DashboardProps) {
   }
   if (q.error || !data) return <div className="dash-note">Could not load the Leaders board.</div>;
 
+  const qNorm = query.trim().toLowerCase();
+  const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
   return (
     <div className="ld">
       <div className="ld-controls">
@@ -513,6 +677,25 @@ export default function Leaders({ asof, onSelectThesis }: DashboardProps) {
           <input type="checkbox" checked={includeSilent} onChange={(e) => setIncludeSilent(e.target.checked)} />
           Show Context and Bench
         </label>
+        <input
+          type="search"
+          className="ld-search"
+          aria-label="Filter ticker, company, or card"
+          placeholder="Find ticker, company, or card…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <nav className="ld-jump" aria-label="Leaders sections">
+          <button type="button" className="ld-jump-btn" onClick={() => jump("ld-sec-several")}>
+            Several <span className="ld-jump-n">{data.several.length}</span>
+          </button>
+          <button type="button" className="ld-jump-btn" onClick={() => jump("ld-sec-lists")}>
+            Lists
+          </button>
+          <button type="button" className="ld-jump-btn" onClick={() => jump("ld-sec-insider-groups")}>
+            Insider groups <span className="ld-jump-n">{data.insider_groups.length}</span>
+          </button>
+        </nav>
         {q.isFetching && (
           <span className="dash-note">
             {data.asof !== asof
@@ -521,24 +704,27 @@ export default function Leaders({ asof, onSelectThesis }: DashboardProps) {
           </span>
         )}
       </div>
-      <div className="dash-note ld-work">{workLine(data)}</div>
-      <div className="dash-note ld-work">{noReadingLine(data)}</div>
-      <FlaggedNote flagged={data.flagged} />
-      {data.roster_fallback_cards > 0 && (
-        <div className="dash-note ld-work">
-          Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are
-          point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
-        </div>
-      )}
-      <div className="dash-note ld-legend">
-        End-of-day readings from the Cockpit's own display signals, one row per company with a chip per card; none
-        feeds a call. A company a member gave no reading is not on that list and is counted above. Click a name or a
-        card to open it in the Cockpit.
-      </div>
 
-      <Several data={data} onSelect={onSelectThesis} />
-      <Lists data={data} onSelect={onSelectThesis} />
-      <InsiderGroups data={data} groupBy={groupBy} onGroupBy={setGroupBy} onSelect={onSelectThesis} />
+      <Several data={data} qNorm={qNorm} onSelect={onSelectThesis} />
+      <Lists data={data} qNorm={qNorm} onSelect={onSelectThesis} />
+      <InsiderGroups data={data} groupBy={groupBy} qNorm={qNorm} onGroupBy={setGroupBy} onSelect={onSelectThesis} />
+
+      <div className="ld-foot">
+        <div className="dash-note ld-work">{workLine(data)}</div>
+        <div className="dash-note ld-work">{noReadingLine(data)}</div>
+        <FlaggedNote flagged={data.flagged} />
+        {data.roster_fallback_cards > 0 && (
+          <div className="dash-note ld-work">
+            Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are
+            point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
+          </div>
+        )}
+        <div className="dash-note ld-legend">
+          End-of-day readings from the Cockpit's own display signals, one row per company with a chip per card; none
+          feeds a call. A company a member gave no reading is not on that list and is counted above. Click a name or a
+          card to open it in the Cockpit.
+        </div>
+      </div>
     </div>
   );
 }

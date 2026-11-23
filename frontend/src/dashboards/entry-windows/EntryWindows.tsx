@@ -24,6 +24,8 @@ import {
   layoutRow,
   makeAxis,
   moveRow,
+  spacedAxisTicks,
+  visibleAxisBounds,
   type Axis,
   type RowDir,
   type RowLayout,
@@ -91,6 +93,12 @@ function Picture({
       }, both from 100 on ${fmtDay(spark.dates[0])}`
     : null;
   const hover = (text: string) => ({ onMouseEnter: () => onHover(text), onMouseLeave: () => onHover(null) });
+  // remaining portion of entry / hold bars to the right of asofX (visually highlights active runway)
+  const entryRemX = layout.entry ? Math.max(layout.entry.x, layout.asofX) : 0;
+  const entryRemW = layout.entry ? Math.max(0, layout.entry.x + layout.entry.w - entryRemX) : 0;
+  const holdRemX = layout.hold ? Math.max(layout.hold.x, layout.asofX) : 0;
+  const holdRemW = layout.hold ? Math.max(0, layout.hold.x + layout.hold.w - holdRemX) : 0;
+  const sparkTone = layout.spark ? tone(layout.spark.endPct) : "";
   return (
     <svg
       className="ew-svg"
@@ -104,55 +112,103 @@ function Picture({
         <line key={t.iso} className="ew-grid" x1={t.x} x2={t.x} y1={0} y2={ROW_H} />
       ))}
       {layout.entry && (
-        <rect
-          className="ew-bar entry"
-          data-testid="ew-entry"
-          x={layout.entry.x}
-          y={ENTRY_Y}
-          width={layout.entry.w}
-          height={BAR_H}
-          {...hover(entryText)}
-        >
-          <title>{entryText}</title>
-        </rect>
+        <g {...hover(entryText)}>
+          <rect
+            className="ew-bar entry elapsed"
+            data-testid="ew-entry"
+            x={layout.entry.x}
+            y={ENTRY_Y}
+            width={layout.entry.w}
+            height={BAR_H}
+            rx={1}
+          >
+            <title>{entryText}</title>
+          </rect>
+          {entryRemW > 0 && (
+            <rect
+              className={`ew-bar entry rem${row.entry_window_closing ? " closing" : ""}`}
+              x={entryRemX}
+              y={ENTRY_Y}
+              width={entryRemW}
+              height={BAR_H}
+              rx={1}
+            />
+          )}
+        </g>
       )}
+      {layout.memberTicks.map((mt, i) => {
+        const text = `${mt.ticker} entry window ends ${fmtDay(mt.until)}${mt.closing ? " (closing)" : ""}`;
+        return (
+          <line
+            key={`mc-${mt.ticker}-${i}`}
+            className={`ew-member-tick${mt.closing ? " closing" : ""}`}
+            data-testid="ew-member-tick"
+            x1={mt.x}
+            x2={mt.x}
+            y1={ENTRY_Y - 1}
+            y2={ENTRY_Y + BAR_H + 1}
+            {...hover(text)}
+          >
+            <title>{text}</title>
+          </line>
+        );
+      })}
       {layout.hold && (
-        <rect
-          className="ew-bar hold"
-          data-testid="ew-hold"
-          x={layout.hold.x}
-          y={HOLD_Y}
-          width={layout.hold.w}
-          height={BAR_H}
-          {...hover(holdText)}
-        >
-          <title>{holdText}</title>
-        </rect>
+        <g {...hover(holdText)}>
+          <rect
+            className="ew-bar hold elapsed"
+            data-testid="ew-hold"
+            x={layout.hold.x}
+            y={HOLD_Y}
+            width={layout.hold.w}
+            height={BAR_H}
+            rx={1}
+          >
+            <title>{holdText}</title>
+          </rect>
+          {holdRemW > 0 && (
+            <rect className="ew-bar hold rem" x={holdRemX} y={HOLD_Y} width={holdRemW} height={BAR_H} rx={1} />
+          )}
+        </g>
       )}
       <line className="ew-arm" x1={layout.armX} x2={layout.armX} y1={ENTRY_Y - 2} y2={HOLD_Y + BAR_H + 2} />
       {layout.ticks.map((t, i) => {
         const text = catalystWords({ label: t.label, kind: t.kind, when_date: t.when, past: t.past });
+        const cy = TICK_Y + (t.dy ?? 0);
         return (
-          <circle
-            key={`${t.when}-${i}`}
-            className={`ew-tick${t.past ? " past" : ""}`}
-            data-testid="ew-tick"
-            cx={t.x}
-            cy={TICK_Y}
-            r={TICK_R}
-            {...hover(text)}
-          >
-            <title>{text}</title>
-          </circle>
+          <g key={`${t.when}-${i}`} {...hover(text)}>
+            <circle className="ew-tick-hit" cx={t.x} cy={cy} r={8} />
+            <circle
+              className={`ew-tick${t.past ? " past" : ""}`}
+              data-testid="ew-tick"
+              cx={t.x}
+              cy={cy}
+              r={TICK_R}
+            >
+              <title>{text}</title>
+            </circle>
+          </g>
         );
       })}
       {layout.spark && (
         <g {...(sparkText ? hover(sparkText) : {})}>
           {layout.spark.base != null && (
-            <line className="ew-base" x1={layout.armX} x2={PIC_W} y1={layout.spark.base} y2={layout.spark.base} />
+            <line
+              className="ew-base"
+              x1={layout.armX}
+              x2={Math.max(layout.asofX, layout.spark.endX)}
+              y1={layout.spark.base}
+              y2={layout.spark.base}
+            />
           )}
           {layout.spark.iwm && <path className="ew-iwm" data-testid="ew-iwm" d={layout.spark.iwm} />}
-          <path className="ew-line" data-testid="ew-line" d={layout.spark.line} />
+          <path className={`ew-line${sparkTone ? ` ${sparkTone}` : ""}`} data-testid="ew-line" d={layout.spark.line} />
+          <circle
+            className={`ew-spark-end${sparkTone ? ` ${sparkTone}` : ""}`}
+            cx={layout.spark.endX}
+            cy={layout.spark.endY}
+            r={2}
+          />
           {sparkText && <title>{sparkText}</title>}
         </g>
       )}
@@ -162,7 +218,7 @@ function Picture({
 }
 
 function AxisHeader({ axis, asof }: { axis: Axis; asof: string }) {
-  const ticks = useMemo(() => axisTicks(axis), [axis]);
+  const ticks = useMemo(() => spacedAxisTicks(axis), [axis]);
   const x = axis.x(asof);
   return (
     <svg
@@ -283,6 +339,9 @@ function RowView({
       >
         <td className="ew-card">
           <div className="ew-card-head">
+            <span className="ew-chev" aria-hidden="true">
+              {open ? "▾" : "▸"}
+            </span>
             <button
               type="button"
               className="ew-card-name"
@@ -413,10 +472,10 @@ function Page({
   const [hover, setHover] = useState<string | null>(null);
 
   const rows = useMemo(() => sortRows(shownRows(data.rows, showManaging), sort), [data.rows, showManaging, sort]);
-  const axis = useMemo(
-    () => (data.axis_start && data.axis_end ? makeAxis(data.axis_start, data.axis_end) : null),
-    [data.axis_start, data.axis_end],
-  );
+  const axis = useMemo(() => {
+    const bounds = visibleAxisBounds(rows, data.asof, data.axis_start, data.axis_end);
+    return bounds ? makeAxis(bounds.start, bounds.end) : null;
+  }, [rows, data.asof, data.axis_start, data.axis_end]);
   const layouts = useMemo(
     () => (axis ? new Map(rows.map((r) => [r.thesis_id, layoutRow(r, axis, data.asof)] as const)) : new Map<string, RowLayout>()),
     [rows, axis, data.asof],

@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 240,
   label: "Forming Quietly",
   description: "The cards where a key has turned or signals are gathering but nothing is Armed yet, at low energy, with what is still missing.",
+  group: "daily",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

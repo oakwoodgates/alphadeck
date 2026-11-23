@@ -16,11 +16,29 @@ import { CARD_A, CARD_B, SID, payload, silentRow, trigger } from "./fixtures";
 // graying, the sparkline), the filings (the window, the fold, a detail), the catalysts, the decisions (voided struck
 // through), the work lines and the limits. The hooks' requests have their own test.
 
-const h = vi.hoisted(() => ({
-  resolve: vi.fn(),
-  lookup: vi.fn(),
-  fetchResolve: vi.fn(),
-  suggest: vi.fn(),
+const h = vi.hoisted(() => {
+  const series = { setData: vi.fn(), setMarkers: vi.fn(), createPriceLine: vi.fn() };
+  const timeScale = { fitContent: vi.fn() };
+  const chart = {
+    addLineSeries: vi.fn(() => series),
+    timeScale: vi.fn(() => timeScale),
+    subscribeCrosshairMove: vi.fn(),
+    unsubscribeCrosshairMove: vi.fn(),
+    applyOptions: vi.fn(),
+    remove: vi.fn(),
+  };
+  return {
+    resolve: vi.fn(),
+    lookup: vi.fn(),
+    fetchResolve: vi.fn(),
+    suggest: vi.fn(),
+    lw: { series, timeScale, chart, createChart: vi.fn(() => chart) },
+  };
+});
+vi.mock("lightweight-charts", () => ({
+  createChart: h.lw.createChart,
+  ColorType: { Solid: "solid" },
+  LineStyle: { Solid: 0, Dotted: 1, Dashed: 2 },
 }));
 vi.mock("../useTickerLookup", () => ({
   useResolveTicker: h.resolve,
@@ -69,6 +87,12 @@ beforeEach(() => {
   h.lookup.mockReset();
   h.fetchResolve.mockReset();
   h.suggest.mockReset();
+  h.lw.createChart.mockClear();
+  h.lw.chart.addLineSeries.mockClear();
+  h.lw.series.setData.mockClear();
+  h.lw.series.setMarkers.mockClear();
+  h.lw.series.createPriceLine.mockClear();
+  h.lw.timeScale.fitContent.mockClear();
   h.resolve.mockImplementation((t: string | null) => ok(t === "TLA" ? COMPANY : t ? null : undefined));
   h.suggest.mockReturnValue(ok([]));
 });
@@ -235,7 +259,9 @@ describe("TickerLookup — the sections", () => {
     expect(fig("rvol")).toHaveTextContent("1.82×");
     expect(fig("net_usd")).toHaveTextContent("+$55.0K");
     expect(screen.getByTestId("tl-gaps")).toHaveTextContent("No reading: Base (VCP) (too few price bars for a base)");
-    expect(screen.getByTestId("tl-spark").querySelectorAll("path")).toHaveLength(2);
+    expect(screen.getByTestId("tl-spark")).toBeInTheDocument();
+    expect(h.lw.createChart).toHaveBeenCalled();
+    expect(h.lw.chart.addLineSeries).toHaveBeenCalledTimes(2);
     expect(screen.getByText(/IWM has 2 of 3 bars/)).toBeInTheDocument();
     // not leading, not coiling: nothing shows
     expect(screen.queryByTestId("tl-leading")).not.toBeInTheDocument();
@@ -342,6 +368,19 @@ describe("TickerLookup — the sections", () => {
     expect(screen.getByText(/4 cards counted \(of 5 live; 1 created after the as-of\)/)).toBeInTheDocument();
     expect(screen.getByText("no data flag reaches its price readings")).toBeInTheDocument();
     expect(screen.getByText(/One company at a time/)).toBeInTheDocument();
+  });
+
+  it("renders section jump links, interactive sparkline readout with markers, and filing kind filter chips", async () => {
+    setup();
+    expect(screen.getByTestId("tl-jump")).toBeInTheDocument();
+    expect(screen.getByTestId("tl-spark-readout")).toHaveTextContent("TLA");
+    expect(h.lw.series.setMarkers).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Reset zoom" })).toBeInTheDocument();
+    const kindGroup = screen.getByRole("group", { name: "Filing kind" });
+    await userEvent.click(within(kindGroup).getByRole("button", { name: /8k/i }));
+    expect(screen.getByText(/1 row of 3 \(8k\) in the last 90 days/)).toBeInTheDocument();
+    await userEvent.click(within(kindGroup).getByRole("button", { name: "All" }));
+    expect(screen.getByText("3 rows in the last 90 days")).toBeInTheDocument();
   });
 });
 

@@ -25,32 +25,50 @@
 .ins-chipbtn.on { color: var(--txt); background: var(--panel-2); }
 .ins-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; max-width: 280px; }
 .ins-select option { background: var(--panel); color: var(--txt-2); }
-.ins-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
+.ins-search { font: inherit; font-size: 11px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; width: 190px; }
+.ins-search::placeholder { color: var(--txt-4); }
+.ins-search:focus-visible { outline: 1px solid var(--txt-3); outline-offset: 1px; }
+.ins-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-3); font-variant-numeric: tabular-nums; }
 .ins-chipbtn .ins-n { color: inherit; opacity: 0.7; }
 .ins-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
 .ins-clear:hover { color: var(--txt-2); }
 .ins-empty { padding: 14px 0; }
 
+/* quiet monochrome weekly filing cadence strip (counts only, zero return aggregates) */
+.ins-cadence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--panel) 65%, transparent); }
+.ins-cad-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-3); }
+.ins-cad-bars { display: inline-flex; align-items: flex-end; gap: 3px; height: 22px; }
+.ins-cad-col { display: inline-flex; align-items: flex-end; width: 10px; height: 100%; cursor: pointer; }
+.ins-cad-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; border-radius: 1.5px 1.5px 0 0; background: var(--line-2); overflow: hidden; transition: background 120ms ease; }
+.ins-cad-col.hi .ins-cad-bar, .ins-cad-col:hover .ins-cad-bar { background: var(--txt-3); }
+.ins-cad-cl { display: block; width: 100%; background: var(--txt-2); }
+.ins-cad-read { font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); font-variant-numeric: tabular-nums; }
+
 /* the table: its own scroll box, so the sticky header and group headers stick inside it */
 .ins-scroll { max-height: 72vh; overflow: auto; border-top: 1px solid var(--line); }
 .ins-table { min-width: 1600px; font-size: 11.5px; color: var(--txt-2); font-variant-numeric: tabular-nums; }
 .ins-head, .ins-row { display: grid; grid-template-columns: var(--ins-cols); align-items: center; gap: 0 8px; padding: 0 8px; }
-.ins-head { position: sticky; top: 0; z-index: 3; min-height: 26px; background: var(--bg); border-bottom: 1px solid var(--line); }
-.ins-h { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; white-space: nowrap; }
+.ins-head { position: sticky; top: 0; z-index: 3; min-height: 26px; background: var(--bg); border-bottom: 1px solid var(--line-2); }
+.ins-h { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; white-space: nowrap; }
+.ins-h.ins-c-filed { position: sticky; left: 0; z-index: 4; background: var(--bg); padding-right: 4px; }
 .ins-h.ins-c-sh, .ins-h.ins-c-px, .ins-h.ins-c-usd, .ins-h.ins-c-since, .ins-h.ins-c-iwm { text-align: right; }
 .ins-gh { position: sticky; top: 26px; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); padding: 0 8px; }
-.ins-gh-cell { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; min-height: 26px; padding-top: 5px; font-size: 12px; font-weight: 400; color: var(--txt-2); letter-spacing: 0.02em; }
+.ins-gh-cell { position: sticky; left: 8px; width: fit-content; display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; min-height: 26px; padding-top: 5px; font-size: 12px; font-weight: 400; color: var(--txt-2); letter-spacing: 0.02em; }
 .ins-cardname { font: inherit; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
 .ins-cardname:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
 
 /* a row: about 26 px, a hairline under it, a quiet hover */
 .ins-row { min-height: 26px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
 .ins-row:hover { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.ins-row .ins-c-filed { position: sticky; left: 0; z-index: 1; background: var(--bg); padding-right: 4px; }
+.ins-row:hover .ins-c-filed { background: var(--panel); }
 .ins-c { min-width: 0; padding: 3px 0; line-height: 1.4; }
 .ins-c-filed, .ins-c-trade, .ins-c-sh, .ins-c-px, .ins-c-usd, .ins-c-cluster, .ins-c-since, .ins-c-iwm, .ins-c-cap { font-family: var(--mono); font-size: 10.5px; }
 .ins-c-filed { white-space: nowrap; display: flex; align-items: center; gap: 4px; }
 .ins-c-trade { white-space: nowrap; }
 .ins-c-sh, .ins-c-px, .ins-c-usd, .ins-c-since, .ins-c-iwm { text-align: right; white-space: nowrap; }
+.ins-usd-bar { display: block; width: 48px; height: 3px; margin: 2px 0 0 auto; border-radius: 1.5px; background: var(--panel-2); overflow: hidden; }
+.ins-usd-fill { display: block; height: 100%; background: var(--txt-3); border-radius: 1.5px; }
 .ins-c-since.ins-span { grid-column: span 2; white-space: normal; }
 .ins-c-cap { white-space: normal; }
 .ins-c-filer { overflow-wrap: anywhere; color: var(--txt-2); }
@@ -71,17 +89,19 @@
 .ins-trig { color: var(--txt-3); cursor: help; }
 .ins-link, .ins-link:visited, .ins-link:active { color: var(--txt-2); text-decoration: none; }
 .ins-link:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
-.ins-chev { display: inline-block; width: 12px; color: var(--txt-4); font-size: 10px; background: none; border: 0; padding: 0; cursor: pointer; }
-.ins-chev:hover { color: var(--txt-2); }
+.ins-chev { display: inline-block; width: 12px; color: var(--txt-3); font-size: 10px; background: none; border: 0; padding: 0; cursor: pointer; }
+.ins-chev:hover { color: var(--txt); }
 
 /* the one accent: the cluster word */
-.ins-cluster { color: var(--ins-accent); font-family: var(--mono); font-size: 10.5px; cursor: help; white-space: nowrap; }
+.ins-cluster-btn { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.ins-cluster-btn:hover .ins-cluster { text-decoration: underline; text-underline-offset: 2px; }
+.ins-cluster { color: var(--ins-accent); font-family: var(--mono); font-size: 10.5px; cursor: pointer; white-space: nowrap; }
 
 /* the sign tone: only on the signed since-return */
 .ins-ret.pos { color: var(--ins-pos); }
 .ins-ret.neg { color: var(--ins-neg); }
 .ins-ret.flat { color: var(--txt-2); }
-.ins-bench { color: var(--txt-4); }
+.ins-bench { color: var(--txt-3); }
 
 /* the filing's words, under an opened row */
 .ins-more { padding: 2px 8px 6px 28px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); background: color-mix(in srgb, var(--panel) 40%, transparent); }

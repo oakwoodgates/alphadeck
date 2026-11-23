@@ -389,3 +389,41 @@ describe("Forming Quietly — the record-start note", () => {
     expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });
+
+describe("Forming Quietly — expandable chips/risks, breadth bars, extra sorts & search", () => {
+  it("expands +N overflow chips and risk details inline, draws monochrome breadth bars, and filters by search/leading", async () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      security_id: `20000000-0000-4000-8000-00000000000${i}`,
+      ticker: `T${i}`,
+      buys_30d: 1,
+      buyers_30d: 1,
+      cluster: false,
+    }));
+    const customRows = rows().map((r) =>
+      r.thesis_name === "Card A" ? { ...r, quiet: { ...r.quiet, lit: true, insider: many } } : r,
+    );
+    const { container } = setup(payload({ rows: customRows }));
+
+    // Expand +2 overflow chips inline
+    const insCell = cellOf(rowOf("Card A"), "Insider buying");
+    expect(insCell.querySelectorAll(".fq-tk")).toHaveLength(3);
+    await userEvent.click(insCell.querySelector(".fq-more") as HTMLElement);
+    expect(insCell.querySelectorAll(".fq-tk")).toHaveLength(5);
+
+    // Click risk count to reveal verbatim risk details
+    const riskBtn = cellOf(rowOf("Card A"), "Risk").querySelector(".fq-risk-btn") as HTMLElement;
+    await userEvent.click(riskBtn);
+    expect(screen.getByTestId("fq-risk-list")).toHaveTextContent("convertible overhang");
+
+    // Monochrome breadth bars and Warming->Incubating divider
+    expect(container.querySelectorAll(".fq-bbar").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll("tr.fq-state-break")).toHaveLength(1);
+
+    // Leading filter and ticker search work cleanly
+    await userEvent.click(screen.getByLabelText("Has leading"));
+    expect(cardsOnShow()).toEqual(["Card A"]);
+    await userEvent.click(screen.getByRole("button", { name: "clear filters" }));
+    await userEvent.type(screen.getByRole("searchbox", { name: "Filter card or ticker" }), "Card C");
+    expect(cardsOnShow()).toEqual(["Card C"]);
+  });
+});

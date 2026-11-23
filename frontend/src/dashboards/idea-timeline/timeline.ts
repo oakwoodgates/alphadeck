@@ -114,11 +114,12 @@ export const stateCls = (state: string | null): string =>
 export const stateLabel = (state: string | null): string =>
   STATES.find((s) => s.key === stateKey(state))?.label ?? (state as string);
 
-export type SortKey = "state" | "days_in_state" | "days_armed" | "first_recorded" | "name";
+export type SortKey = "state" | "days_in_state" | "days_armed" | "times_armed" | "first_recorded" | "name";
 export const SORTS: readonly { key: SortKey; label: string }[] = [
   { key: "state", label: "State, then days in state" },
   { key: "days_in_state", label: "Days in state" },
   { key: "days_armed", label: "Days armed" },
+  { key: "times_armed", label: "Times armed" },
   { key: "first_recorded", label: "First recorded" },
   { key: "name", label: "Name" },
 ];
@@ -139,6 +140,7 @@ export function sortRows(rows: readonly IdeaTimelineRowOut[], key: SortKey): Ide
       rank(a.current_state) - rank(b.current_state) || desc(a.days_in_state, b.days_in_state),
     days_in_state: (a, b) => desc(a.days_in_state, b.days_in_state),
     days_armed: (a, b) => desc(a.total_days_armed, b.total_days_armed),
+    times_armed: (a, b) => desc(a.times_armed, b.times_armed),
     first_recorded: (a, b) =>
       a.first_recorded === b.first_recorded
         ? 0
@@ -152,6 +154,72 @@ export function sortRows(rows: readonly IdeaTimelineRowOut[], key: SortKey): Ide
     name: () => 0,
   };
   return [...rows].sort((a, b) => cmp[key](a, b) || byName(a, b));
+}
+
+export type DayStateCounts = {
+  day: number;
+  iso: string;
+  armed: number;
+  warming: number;
+  managing: number;
+  incubating: number;
+  total: number;
+};
+
+/** Daily counts of cards in each recorded state across the visible history (up to `today`), pure history from the
+ *  segments on screen. Samples every day (capped at ~180 buckets for very long spans so SVG stays light). */
+export function dailyStateCounts(rows: readonly IdeaTimelineRowOut[], v: View): DayStateCounts[] {
+  const lastDay = Math.min(v.today, v.end - 1);
+  if (lastDay < v.start || rows.length === 0) return [];
+  const parsed = rows.map((r) =>
+    r.segments.map((s) => ({
+      start: dayNum(s.start),
+      end: dayNum(s.end),
+      state: s.state,
+    })),
+  );
+  const span = lastDay - v.start + 1;
+  const step = Math.max(1, Math.ceil(span / 180));
+  const out: DayStateCounts[] = [];
+  for (let d = v.start; d <= lastDay; d += step) {
+    let armed = 0;
+    let warming = 0;
+    let managing = 0;
+    let incubating = 0;
+    for (const segs of parsed) {
+      for (const s of segs) {
+        if (d >= s.start && d <= s.end) {
+          if (s.state === "armed") armed += 1;
+          else if (s.state === "warming") warming += 1;
+          else if (s.state === "managing") managing += 1;
+          else if (s.state === "incubating") incubating += 1;
+          break;
+        }
+      }
+    }
+    const iso = new Date(d * DAY_MS).toISOString().slice(0, 10);
+    out.push({ day: d, iso, armed, warming, managing, incubating, total: armed + warming + managing + incubating });
+  }
+  if (out.length > 0 && out[out.length - 1].day < lastDay) {
+    let armed = 0;
+    let warming = 0;
+    let managing = 0;
+    let incubating = 0;
+    for (const segs of parsed) {
+      for (const s of segs) {
+        if (lastDay >= s.start && lastDay <= s.end) {
+          if (s.state === "armed") armed += 1;
+          else if (s.state === "warming") warming += 1;
+          else if (s.state === "managing") managing += 1;
+          else if (s.state === "incubating") incubating += 1;
+          break;
+        }
+      }
+    }
+    const iso = new Date(lastDay * DAY_MS).toISOString().slice(0, 10);
+    out.push({ day: lastDay, iso, armed, warming, managing, incubating, total: armed + warming + managing + incubating });
+  }
+  return out;
 }
 
 /** Only the cards in the chosen states; none chosen = every card. */

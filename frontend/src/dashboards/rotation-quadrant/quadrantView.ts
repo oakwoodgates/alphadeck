@@ -143,6 +143,7 @@ export function nextSort(current: SortState, col: SortCol): SortState {
 // --- the plot's geometry -------------------------------------------------------------------------------------
 
 export type Pt = { x: number; y: number };
+export type TailPt = { x: number; y: number; session: string | null; quadrant: Quadrant | null };
 
 /** A plotted group's tail as drawn: the measurable points ending at today's dot (a gap ends the line), oldest
  *  first. */
@@ -152,6 +153,18 @@ export function tailPath(g: QuadrantGroupOut): Pt[] {
     const p = g.tail[i];
     if (p.x == null || p.y == null) break;
     out.push({ x: p.x, y: p.y });
+  }
+  return out.reverse();
+}
+
+/** Tail points keeping each point's session date and quadrant, optionally truncated to the last `maxPoints`. */
+export function tailPoints(g: QuadrantGroupOut, maxPoints?: number): TailPt[] {
+  const out: TailPt[] = [];
+  for (let i = g.tail.length - 1; i >= 0; i--) {
+    const p = g.tail[i];
+    if (p.x == null || p.y == null) break;
+    out.push({ x: p.x, y: p.y, session: p.session, quadrant: p.quadrant });
+    if (maxPoints != null && out.length >= maxPoints) break;
   }
   return out.reverse();
 }
@@ -171,6 +184,26 @@ export function plotDomain(groups: readonly QuadrantGroupOut[], min = 1): Domain
   }
   return { hx: Math.max(min, hx * 1.1), hy: Math.max(min, hy * 1.1) };
 }
+
+/** Outlier-resistant domain: uses the 88th percentile of group head/tail distances around 100 so one extreme
+ *  3-name link does not compress the rest of the field into an unreadable dot cluster. */
+export function focusedPlotDomain(groups: readonly QuadrantGroupOut[], maxPoints?: number, min = 1): Domain {
+  const dxs: number[] = [];
+  const dys: number[] = [];
+  for (const g of groups) {
+    for (const p of tailPoints(g, maxPoints)) {
+      dxs.push(Math.abs(p.x - NEUTRAL));
+      dys.push(Math.abs(p.y - NEUTRAL));
+    }
+  }
+  if (dxs.length === 0) return { hx: min, hy: min };
+  dxs.sort((a, b) => a - b);
+  dys.sort((a, b) => a - b);
+  const pick = (arr: number[]) => arr[Math.min(arr.length - 1, Math.floor(arr.length * 0.88))];
+  return { hx: Math.max(min, pick(dxs) * 1.25), hy: Math.max(min, pick(dys) * 1.25) };
+}
+
+export const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 /** x in the plot area (`w` wide): 100 at the center. */
 export function sx(v: number, d: Domain, w: number): number {

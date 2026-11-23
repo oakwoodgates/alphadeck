@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 10,
   label: "Shared Names",
   description: "Companies that sit on more than one card, and which cards share them.",
+  group: "chain",
   status: "experimental",
   asofAware: false,
   component: lazy(() => import("./SharedNames")),

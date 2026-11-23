@@ -294,6 +294,95 @@ export function tableRows(
   });
 }
 
+// --- visual helpers: shared IQR scale, clicked-cell distribution, episode search & sort --------------------------
+
+/** Shared symmetric half-range (fraction, e.g. 0.15 = ±15%) for the table's per-cell IQR whiskers: covers the
+ *  90th percentile of visible |q1|, |q3| and |median| values (with a 5% floor) so one wild tier never flattens
+ *  the rest of the table. */
+export function iqrHalfRange(rows: readonly TableRowView[], showThin: boolean): number {
+  const mags: number[] = [];
+  for (const r of rows) {
+    for (const h of HORIZONS) {
+      const c = r.cells[h.key];
+      if (c.n === 0 || (c.tooSmall && !showThin)) continue;
+      if (c.q1 != null) mags.push(Math.abs(c.q1));
+      if (c.q3 != null) mags.push(Math.abs(c.q3));
+      if (c.median != null) mags.push(Math.abs(c.median));
+    }
+  }
+  if (mags.length === 0) return 0.1;
+  const sorted = sortedAsc(mags);
+  const p90 = quantile(sorted, 0.9);
+  return Math.max(0.05, p90 * 1.15);
+}
+
+export type EpisodeSort = "armed" | "cap" | "liquidity" | Horizon;
+
+export const EPISODE_SORTS: readonly { value: EpisodeSort; label: string }[] = [
+  { value: "armed", label: "Newest arm first" },
+  { value: "h5", label: "5 sessions (high → low)" },
+  { value: "h10", label: "10 sessions (high → low)" },
+  { value: "h20", label: "20 sessions (high → low)" },
+  { value: "h60", label: "60 sessions (high → low)" },
+  { value: "exit_by", label: "to exit_by (high → low)" },
+  { value: "cap", label: "Cap at event (high → low)" },
+  { value: "liquidity", label: "Liquidity (high → low)" },
+];
+
+export function episodeMatchesQuery(r: TrackRowOut, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return r.ticker.toLowerCase().includes(q) || r.thesis_name.toLowerCase().includes(q);
+}
+
+export function sortEpisodes(
+  rows: readonly TrackRowOut[],
+  sort: EpisodeSort,
+  entry: EntryRule,
+  comparison: Comparison,
+): TrackRowOut[] {
+  if (sort === "armed") return [...rows];
+  const val = (r: TrackRowOut): number | null => {
+    if (sort === "cap") return r.cap?.value ?? null;
+    if (sort === "liquidity") return r.adv_usd ?? null;
+    return spanValue(spanOf(r, entry, sort), comparison);
+  };
+  return [...rows].sort((a, b) => {
+    const va = val(a);
+    const vb = val(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return vb - va;
+  });
+}
+
+export type DistPoint = {
+  key: string;
+  row: TrackRowOut;
+  value: number;
+};
+
+export function cellDistribution(
+  members: readonly TrackRowOut[],
+  entry: EntryRule,
+  horizon: Horizon,
+  comparison: Comparison,
+): { points: DistPoint[]; lo: number; hi: number } {
+  const points: DistPoint[] = [];
+  for (const r of members) {
+    const v = spanValue(spanOf(r, entry, horizon), comparison);
+    if (v == null) continue;
+    points.push({ key: `${r.thesis_id}:${r.security_id}:${r.arm_date}`, row: r, value: v });
+  }
+  points.sort((a, b) => a.value - b.value);
+  if (points.length === 0) return { points, lo: -0.1, hi: 0.1 };
+  const rawLo = Math.min(0, points[0].value);
+  const rawHi = Math.max(0, points[points.length - 1].value);
+  const pad = Math.max((rawHi - rawLo) * 0.08, 0.01);
+  return { points, lo: rawLo - pad, hi: rawHi + pad };
+}
+
 // --- the words -----------------------------------------------------------------------------------------------------
 
 const MINUS = "−";

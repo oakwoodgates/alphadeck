@@ -127,12 +127,14 @@ function SinceCells({ row }: { row: Row }) {
 function PurchaseRow({
   row,
   open,
+  maxLogUsd,
   onToggle,
   onSelectThesis,
   cardId,
 }: {
   row: Row;
   open: boolean;
+  maxLogUsd: number;
   onToggle: () => void;
   onSelectThesis: Open;
   /** the card whose group the row sits in (a card grouping): the ticker opens that card */
@@ -141,6 +143,10 @@ function PurchaseRow({
   const note = tradeNote(row);
   const first = row.cards.find((c) => c.thesis_id === cardId) ?? row.cards[0];
   const filerMore = row.co_filers > 0 ? ` and ${row.co_filers} more` : "";
+  const usdPct =
+    row.usd !== null && row.usd > 0 && maxLogUsd > 0
+      ? Math.max(8, Math.min(100, (Math.log10(row.usd + 1) / maxLogUsd) * 100))
+      : null;
   return (
     <>
       <div role="row" className="ins-row" data-testid="ins-row" data-cluster={row.cluster ? "yes" : "no"}>
@@ -210,13 +216,31 @@ function PurchaseRow({
           {priceWords(row.price)}
         </div>
         <div role="cell" className="ins-c ins-c-usd" title="the purchases' dollars, not net of any sale in the same filing">
-          {row.usd !== null ? usdWords(row.usd) : <span className="ins-quiet">—</span>}
+          {row.usd !== null ? (
+            <>
+              <span>{usdWords(row.usd)}</span>
+              {usdPct !== null && (
+                <span className="ins-usd-bar" aria-hidden="true">
+                  <span className="ins-usd-fill" style={{ width: `${usdPct}%` }} />
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="ins-quiet">—</span>
+          )}
         </div>
         <div role="cell" className="ins-c ins-c-cluster">
           {row.cluster && (
-            <span className="ins-cluster" title={clusterTitle(row.cluster)}>
-              {clusterWords(row.cluster)}
-            </span>
+            <button
+              type="button"
+              className="ins-cluster-btn"
+              onClick={onToggle}
+              title={clusterTitle(row.cluster)}
+            >
+              <span className="ins-cluster" title={clusterTitle(row.cluster)}>
+                {clusterWords(row.cluster)}
+              </span>
+            </button>
           )}
         </div>
         <div role="cell" className="ins-c ins-c-tags">
@@ -254,11 +278,67 @@ function PurchaseRow({
                 {line}
               </div>
             ))}
+            {row.cluster && row.cluster.others.length > 0 && (
+              <div className="ins-more-line" data-testid="ins-more-cluster">
+                {clusterTitle(row.cluster)}
+              </div>
+            )}
             {row.accession && <div className="ins-more-line ins-quiet">accession {row.accession}</div>}
           </div>
         </div>
       )}
     </>
+  );
+}
+
+/** Quiet monochrome weekly purchase-count cadence strip (pure counts & dollars, zero return aggregates). */
+function WeeklyCadence({ rows }: { rows: readonly Row[] }) {
+  const [hoverWeek, setHoverWeek] = useState<string | null>(null);
+  const weeks = useMemo(() => {
+    const map = new Map<string, { week: string; total: number; clusters: number; names: Set<string>; usd: number }>();
+    for (const r of rows) {
+      let w = map.get(r.week);
+      if (!w) {
+        w = { week: r.week, total: 0, clusters: 0, names: new Set(), usd: 0 };
+        map.set(r.week, w);
+      }
+      w.total += 1;
+      if (r.cluster) w.clusters += 1;
+      w.names.add(r.security_id);
+      if (r.usd !== null && r.usd > 0) w.usd += r.usd;
+    }
+    return [...map.values()].sort((a, b) => a.week.localeCompare(b.week));
+  }, [rows]);
+  if (weeks.length < 2) return null;
+  const maxN = Math.max(1, ...weeks.map((w) => w.total));
+  const active = hoverWeek ? weeks.find((w) => w.week === hoverWeek) : null;
+  return (
+    <div className="ins-cadence" data-testid="ins-cadence">
+      <span className="ins-cad-label">Filing pace</span>
+      <div className="ins-cad-bars" role="img" aria-label="Weekly open-market purchase counts" onMouseLeave={() => setHoverWeek(null)}>
+        {weeks.map((w) => {
+          const hPct = Math.max(18, Math.round((w.total / maxN) * 100));
+          const cPct = w.total > 0 ? Math.round((w.clusters / w.total) * 100) : 0;
+          return (
+            <span
+              key={w.week}
+              className={`ins-cad-col${hoverWeek === w.week ? " hi" : ""}`}
+              title={`Week of ${fmtDate(w.week)}: ${plural(w.total, "purchase", "purchases")} on ${plural(w.names.size, "name", "names")}${w.usd > 0 ? ` (${usdWords(w.usd)} stated)` : ""}`}
+              onMouseEnter={() => setHoverWeek(w.week)}
+            >
+              <span className="ins-cad-bar" style={{ height: `${hPct}%` }}>
+                {cPct > 0 && <span className="ins-cad-cl" style={{ height: `${cPct}%` }} />}
+              </span>
+            </span>
+          );
+        })}
+      </div>
+      <span className="ins-cad-read">
+        {active
+          ? `Week of ${fmtDate(active.week)} · ${plural(active.total, "purchase", "purchases")} · ${plural(active.names.size, "name", "names")}${active.usd > 0 ? ` · ${usdWords(active.usd)} stated` : ""}`
+          : `${plural(weeks.length, "week", "weeks")} shown · ${plural(rows.length, "purchase", "purchases")}`}
+      </span>
+    </div>
   );
 }
 
@@ -338,14 +418,30 @@ export default function InsiderTracker({ asof, onSelectThesis }: DashboardProps)
   const [silent, setSilent] = useState(false);
   const [groupBy, setGroupBy] = useState<GroupBy>("week");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [search, setSearch] = useState("");
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const q = useInsiderTracker(asof, days, silent);
   const data: InsiderTrackerOut | undefined = q.data;
   const rows = useMemo(() => data?.rows ?? [], [data]);
 
-  const filtered = useMemo(() => filterRows(rows, filters), [rows, filters]);
+  const qNorm = search.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    const base = filterRows(rows, filters);
+    if (!qNorm) return base;
+    return base.filter(
+      (r) =>
+        r.ticker.toLowerCase().includes(qNorm) ||
+        (r.filer ?? "").toLowerCase().includes(qNorm) ||
+        (r.role ?? "").toLowerCase().includes(qNorm) ||
+        r.cards.some((c) => c.thesis_name.toLowerCase().includes(qNorm)),
+    );
+  }, [rows, filters, qNorm]);
+  const maxLogUsd = useMemo(
+    () => filtered.reduce((m, r) => (r.usd !== null && r.usd > 0 ? Math.max(m, Math.log10(r.usd + 1)) : m), 0),
+    [filtered],
+  );
   const groups = useMemo(() => groupRows(filtered, groupBy), [filtered, groupBy]);
-  const filtering = filtersActive(filters);
+  const filtering = filtersActive(filters) || qNorm.length > 0;
   const stale = data != null && (data.asof !== asof || data.window_days !== days || data.include_silent !== silent);
 
   const cards = useMemo(
@@ -470,17 +566,36 @@ export default function InsiderTracker({ asof, onSelectThesis }: DashboardProps)
                   </button>
                 ),
             )}
+            {rows.length > 1 && (
+              <input
+                type="search"
+                className="ins-search"
+                aria-label="Filter ticker, filer, or card"
+                placeholder="Find ticker, filer, or card…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            )}
             {filtering && (
               <>
                 <span className="ins-n ins-showing">
                   {filtered.length.toLocaleString("en-US")} of {rows.length.toLocaleString("en-US")}
                 </span>
-                <button type="button" className="ins-clear" onClick={() => setFilters(DEFAULT_FILTERS)}>
+                <button
+                  type="button"
+                  className="ins-clear"
+                  onClick={() => {
+                    setFilters(DEFAULT_FILTERS);
+                    setSearch("");
+                  }}
+                >
                   clear filters
                 </button>
               </>
             )}
           </div>
+
+          {filtered.length > 0 && <WeeklyCadence rows={filtered} />}
 
           {data.counts.cards_counted === 0 ? (
             <div className="dash-note ins-empty">No card existed by this as-of.</div>
@@ -531,6 +646,7 @@ export default function InsiderTracker({ asof, onSelectThesis }: DashboardProps)
                         key={`${g.key}:${r.key}`}
                         row={r}
                         open={open.has(r.key)}
+                        maxLogUsd={maxLogUsd}
                         onToggle={() => setOpen((o) => toggled(o, r.key))}
                         onSelectThesis={onSelectThesis}
                         cardId={g.thesisId}

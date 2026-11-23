@@ -280,4 +280,23 @@ describe("Shared Names — counting names only", () => {
     await user.click(box);
     expect(h.useSharedNames).toHaveBeenLastCalledWith(false);
   });
+
+  it("shows company denominator, neutral count bars, opposite-sides styling, search, and column sorting", async () => {
+    const user = userEvent.setup();
+    const { container } = renderPage();
+
+    expect(screen.getByTestId("sn-denom")).toHaveTextContent("3 of 30 distinct companies sit on 2+ cards (10%).");
+    expect(rowOf("AAA")).toHaveClass("is-opp");
+    expect(container.querySelectorAll(".sn-bar").length).toBeGreaterThan(0);
+
+    // Sort by Ticker descending
+    await user.click(screen.getByRole("button", { name: /^Ticker/ }));
+    expect(tickers()).toEqual(["AAA", "BBB", "CCC"]);
+    await user.click(screen.getByRole("button", { name: /^Ticker/ }));
+    expect(tickers()).toEqual(["CCC", "BBB", "AAA"]);
+
+    // Filter by search
+    await user.type(screen.getByRole("searchbox", { name: "Filter ticker, company, or card" }), "cee");
+    expect(tickers()).toEqual(["CCC"]);
+  });
 });

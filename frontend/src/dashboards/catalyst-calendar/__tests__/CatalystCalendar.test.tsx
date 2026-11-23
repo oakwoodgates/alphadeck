@@ -457,4 +457,26 @@ describe("Catalyst Calendar — the record-start note", () => {
     renderPage();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
+
+  it("renders the 90-day SVG horizon strip, marks today/entry deadlines distinctly, and opens on click", async () => {
+    const user = userEvent.setup();
+    const { container } = renderPage();
+    const horizon = screen.getByTestId("ccal-horizon");
+    expect(horizon.querySelector(".ccal-horizon-meta")).toHaveTextContent("5 in 90d · 1 later");
+    const readout = horizon.querySelector(".ccal-horizon-read") as Element;
+    expect(readout).toHaveTextContent("Hover a mark to inspect, click to open");
+    expect(horizon.querySelectorAll(".ccal-hz-dot").length).toBeGreaterThan(0);
+    expect(horizon.querySelectorAll(".ccal-hz-dl.entry")).toHaveLength(1);
+    expect(horizon.querySelectorAll(".ccal-hz-dl.exit")).toHaveLength(1);
+    expect(container.querySelectorAll(".ccal-line.ccal-today")).toHaveLength(1);
+    expect(container.querySelectorAll(".ccal-tag-entry")).toHaveLength(1);
+    const firstDay = horizon.querySelector(".ccal-hz-day") as Element;
+    fireEvent.mouseEnter(firstDay);
+    expect(readout).toHaveTextContent(/FERC vote/);
+    expect(horizon.querySelector(".ccal-horizon-meta")).toHaveTextContent("5 in 90d · 1 later");
+    fireEvent.mouseLeave(horizon.querySelector(".ccal-horizon-svg") as Element);
+    expect(readout).toHaveTextContent("Hover a mark to inspect, click to open");
+    await user.click(firstDay);
+    expect(onSelectThesis).toHaveBeenCalledWith("t-grid");
+  });
 });

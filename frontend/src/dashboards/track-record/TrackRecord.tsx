@@ -5,27 +5,37 @@ import type { DashboardProps } from "../registry";
 import "./track-record.css";
 import {
   DEFAULT_FILTERS,
+  EPISODE_SORTS,
   HORIZONS,
   LIMITS,
   MIN_N,
   UNPINNED,
   capWords,
+  cellDistribution,
   cellMembers,
   cellView,
   chipGroups,
+  episodeMatchesQuery,
   filtersActive,
+  fmtRate,
+  fmtRet,
+  iqrHalfRange,
   liquidityWords,
   measureWords,
   plural,
   rowMatches,
   sliceKey,
+  sortEpisodes,
   spanOf,
   spanView,
   tableRows,
+  toneOf,
   workLines,
+  type Cell,
   type ChipOption,
   type Comparison,
   type EntryRule,
+  type EpisodeSort,
   type Filters,
   type Horizon,
   type SliceBy,
@@ -233,6 +243,183 @@ const LEFT_OUT: { reason: NonNullable<TrackRowOut["left_out"]>; words: string; h
   { reason: "ingest_flagged", words: "ingest flagged", hint: "The arm rested on a flagged ingest run; the Scoreboard leaves it out of its metrics too." },
 ];
 
+// --- visual primitives: per-cell IQR whisker, horizon maturity bar, clicked-cell distribution strip ---------------
+
+const WHISKER_W = 68;
+const WHISKER_H = 14;
+const WHISKER_PAD = 4;
+
+/** Per-cell horizontal IQR whisker + median dot on a shared zero-centered scale (no text/title inside, keeping
+ *  cell textContent clean). Clamps extreme quartiles to the edges with a subtle end tick. */
+function CellWhisker({
+  cell,
+  halfRange,
+  dim,
+}: {
+  cell: Cell;
+  halfRange: number;
+  dim: boolean;
+}) {
+  if (cell.q1 == null || cell.q3 == null || cell.median == null) return null;
+  const inner = WHISKER_W - 2 * WHISKER_PAD;
+  const cx = WHISKER_W / 2;
+  const xOf = (v: number) => {
+    const clamped = Math.max(-halfRange, Math.min(halfRange, v));
+    return WHISKER_PAD + ((clamped + halfRange) / (2 * halfRange)) * inner;
+  };
+  const x1 = xOf(cell.q1);
+  const x3 = xOf(cell.q3);
+  const xm = xOf(cell.median);
+  const clipLo = cell.q1 < -halfRange;
+  const clipHi = cell.q3 > halfRange;
+  const tone = dim ? "" : toneOf(cell.median);
+  return (
+    <svg
+      className={`tr-whisker${dim ? " dim" : ""}`}
+      width={WHISKER_W}
+      height={WHISKER_H}
+      viewBox={`0 0 ${WHISKER_W} ${WHISKER_H}`}
+      aria-hidden="true"
+      data-testid="tr-whisker"
+    >
+      <line className="tr-w-track" x1={WHISKER_PAD} x2={WHISKER_W - WHISKER_PAD} y1={WHISKER_H / 2} y2={WHISKER_H / 2} />
+      <line className="tr-w-zero" x1={cx} x2={cx} y1={2} y2={WHISKER_H - 2} />
+      <rect className="tr-w-iqr" x={x1} y={4.5} width={Math.max(x3 - x1, 1.5)} height={5} rx={1.5} />
+      {clipLo && <line className="tr-w-clip" x1={WHISKER_PAD} x2={WHISKER_PAD} y1={3} y2={WHISKER_H - 3} />}
+      {clipHi && <line className="tr-w-clip" x1={WHISKER_W - WHISKER_PAD} x2={WHISKER_W - WHISKER_PAD} y1={3} y2={WHISKER_H - 3} />}
+      <circle className={`tr-w-med${tone ? ` ${tone}` : ""}`} cx={xm} cy={WHISKER_H / 2} r={2.8} />
+    </svg>
+  );
+}
+
+/** Stacked maturity bar under a horizon header: counted / maturing / path ended (no text nodes, aria-hidden). */
+function HorizonBar({
+  counted,
+  maturing,
+  ended,
+}: {
+  counted: number;
+  maturing: number;
+  ended: number;
+}) {
+  const total = counted + maturing + ended;
+  if (total === 0) return null;
+  return (
+    <span className="tr-hbar" aria-hidden="true" data-testid="tr-hbar">
+      {counted > 0 && <span className="tr-hb-counted" style={{ flexGrow: counted }} />}
+      {maturing > 0 && <span className="tr-hb-maturing" style={{ flexGrow: maturing }} />}
+      {ended > 0 && <span className="tr-hb-ended" style={{ flexGrow: ended }} />}
+    </span>
+  );
+}
+
+const STRIP_W = 640;
+const STRIP_H = 54;
+const STRIP_L = 14;
+const STRIP_R = 14;
+
+/** Clicked-cell horizontal episode dot plot: every matured episode in the picked cell plotted against 0%, with
+ *  the interquartile band [q1, q3] and median line marked. Hovering shows the episode; clicking opens its Cockpit. */
+function CellStrip({
+  row,
+  horizon,
+  horizonLabel,
+  entry,
+  comparison,
+  onSelectThesis,
+}: {
+  row: TableRowView;
+  horizon: Horizon;
+  horizonLabel: string;
+  entry: EntryRule;
+  comparison: Comparison;
+  onSelectThesis: DashboardProps["onSelectThesis"];
+}) {
+  const [hovered, setHovered] = useState<string | null>(null);
+  const cell = row.cells[horizon];
+  const dist = useMemo(
+    () => cellDistribution(row.members, entry, horizon, comparison),
+    [row.members, entry, horizon, comparison],
+  );
+  if (dist.points.length === 0) return null;
+
+  const inner = STRIP_W - STRIP_L - STRIP_R;
+  const xOf = (v: number) => STRIP_L + ((v - dist.lo) / (dist.hi - dist.lo)) * inner;
+  const x0 = xOf(0);
+  const yMid = 22;
+  const focus = hovered ? dist.points.find((p) => p.key === hovered) ?? null : null;
+
+  return (
+    <div className="tr-strip" data-testid="tr-strip">
+      <div className="tr-strip-head">
+        <span className="tr-strip-title">
+          {row.label} · {horizonLabel} · {measureWords(comparison)}
+        </span>
+        {cell.median != null && (
+          <span className="tr-strip-stats">
+            median {fmtRet(cell.median)} · IQR {fmtRet(cell.q1)} to {fmtRet(cell.q3)} · held {cell.held}/{cell.n} ({fmtRate(cell.hitRate)})
+          </span>
+        )}
+        {focus && (
+          <span className="tr-strip-focus">
+            {focus.row.ticker} · {focus.row.thesis_name} · {focus.row.arm_date} · {fmtRet(focus.value)}
+          </span>
+        )}
+      </div>
+      <svg
+        className="tr-strip-svg"
+        viewBox={`0 0 ${STRIP_W} ${STRIP_H}`}
+        role="img"
+        aria-label={`${row.label} ${horizonLabel} distribution across ${dist.points.length} episodes`}
+      >
+        {cell.q1 != null && cell.q3 != null && (
+          <rect
+            className="tr-s-iqr"
+            x={xOf(cell.q1)}
+            y={8}
+            width={Math.max(xOf(cell.q3) - xOf(cell.q1), 2)}
+            height={28}
+            rx={2}
+          />
+        )}
+        <line className="tr-s-track" x1={STRIP_L} x2={STRIP_W - STRIP_R} y1={yMid} y2={yMid} />
+        <line className="tr-s-zero" x1={x0} x2={x0} y1={6} y2={38} />
+        {cell.median != null && (
+          <line className="tr-s-med" x1={xOf(cell.median)} x2={xOf(cell.median)} y1={6} y2={38} />
+        )}
+        {dist.points.map((p, idx) => {
+          const px = xOf(p.value);
+          // slight vertical stagger when episodes cluster at nearly the same return
+          const jitter = ((idx % 3) - 1) * 4.5;
+          const t = toneOf(p.value);
+          const on = hovered === p.key;
+          return (
+            <circle
+              key={p.key}
+              className={`tr-s-dot${t ? ` ${t}` : ""}${on ? " on" : ""}`}
+              cx={px}
+              cy={yMid + jitter}
+              r={on ? 4.5 : 3.2}
+              onMouseEnter={() => setHovered(p.key)}
+              onMouseLeave={() => setHovered(null)}
+              onClick={() => onSelectThesis(p.row.thesis_id, p.row.ticker)}
+            />
+          );
+        })}
+        <text className="tr-s-tick" x={STRIP_L} y={STRIP_H - 3} textAnchor="start">
+          {fmtRet(dist.points[0].value)}
+        </text>
+        <text className="tr-s-tick" x={x0} y={STRIP_H - 3} textAnchor="middle">
+          0%
+        </text>
+        <text className="tr-s-tick" x={STRIP_W - STRIP_R} y={STRIP_H - 3} textAnchor="end">
+          {fmtRet(dist.points[dist.points.length - 1].value)}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 // "other" = the server's default is a published edition that is neither the record nor the newest (a pinned
 // default): no button is pressed then, and the work line names the edition read.
 type EditionPick = "record" | "newest" | "other";
@@ -251,19 +438,26 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showThin, setShowThin] = useState(false);
   const [picked, setPicked] = useState<{ row: string; horizon: Horizon } | null>(null);
+  const [listQuery, setListQuery] = useState("");
+  const [listSort, setListSort] = useState<EpisodeSort>("armed");
   const [limit, setLimit] = useState(LIST_STEP);
 
   const counted = useMemo(() => (data?.rows ?? []).filter((r) => r.left_out == null), [data]);
   const matching = useMemo(() => counted.filter((r) => rowMatches(r, filters)), [counted, filters]);
   const minN = data?.min_n ?? MIN_N;
   const table = useMemo(() => tableRows(matching, slice, entry, comparison, minN), [matching, slice, entry, comparison, minN]);
+  const halfRange = useMemo(() => iqrHalfRange(table, showThin), [table, showThin]);
   const chips = useMemo(() => chipGroups(counted), [counted]);
 
   const pickedRow: TableRowView | undefined = picked ? table.find((r) => r.key === picked.row) : undefined;
   const shown: TrackRowOut[] = useMemo(() => {
-    if (pickedRow && picked) return cellMembers(pickedRow.members, entry, picked.horizon, comparison);
-    return matching.filter((r) => sliceKey(r, slice) !== UNPINNED);
-  }, [pickedRow, picked, matching, slice, entry, comparison]);
+    const base =
+      pickedRow && picked
+        ? cellMembers(pickedRow.members, entry, picked.horizon, comparison)
+        : matching.filter((r) => sliceKey(r, slice) !== UNPINNED);
+    const filtered = listQuery.trim() ? base.filter((r) => episodeMatchesQuery(r, listQuery)) : base;
+    return sortEpisodes(filtered, listSort, entry, comparison);
+  }, [pickedRow, picked, matching, slice, entry, comparison, listQuery, listSort]);
   const unpinned = useMemo(() => matching.filter((r) => sliceKey(r, slice) === UNPINNED), [matching, slice]);
   const setAside = useMemo(() => (data?.rows ?? []).filter((r) => r.left_out != null), [data]);
 
@@ -312,7 +506,7 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
         <Seg label="Slice" value={slice} options={SLICES} onPick={(v) => reset({ slice: v })} />
         <Seg label="Compare" value={comparison} options={COMPARISONS} onPick={(v) => reset({ comparison: v })} />
         <Seg label="Entry" value={entry} options={ENTRIES} onPick={(v) => reset({ entry: v })} />
-        <label className="tr-check" title="Draw the cells under 10 episodes with their numbers, grayed">
+        <label className="tr-check" title={`Draw the cells under ${minN} episodes with their numbers, grayed`}>
           <input type="checkbox" checked={showThin} onChange={(e) => setShowThin(e.target.checked)} />
           show thin cells
         </label>
@@ -371,18 +565,11 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
         {q.isFetching && <span className="dash-note">updating…</span>}
       </div>
 
-      <div className="tr-work">
-        {workLines(data, entry, comparison).map((line, i) => (
-          <div key={i} className="dash-note tr-line">
-            {line}
-          </div>
-        ))}
-        {filtering && (
-          <div className="dash-note tr-line">
-            filters on: {plural(matching.length, "counted episode")} of {counted.length.toLocaleString("en-US")} shown
-          </div>
-        )}
-      </div>
+      {filtering && (
+        <div className="dash-note tr-line">
+          filters on: {plural(matching.length, "counted episode")} of {counted.length.toLocaleString("en-US")} shown
+        </div>
+      )}
 
       {data.counts.episodes === 0 ? (
         <div className="dash-note tr-empty">No arm episode is in the record at this as-of.</div>
@@ -391,18 +578,26 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
           <div className="tr-scroll">
             <table className="tr-table">
               <caption className="tr-caption">
-                Each cell: median {measureWords(comparison)} · episodes above zero / episodes (n). Rows are {pool}, then
+                Each cell: median {measureWords(comparison)} · episodes above zero / episodes (n) · interquartile range
+                whisker on a shared ±{Math.round(halfRange * 100)}% zero-centered scale. Rows are {pool}, then
                 unpinned, then the pooled row.
               </caption>
               <thead>
                 <tr>
                   <th className="tr-key">{slice === "tier" ? "Cap tier at the event" : "Liquidity at the event"}</th>
                   <th className="tr-num">Episodes</th>
-                  {HORIZONS.map((h) => (
-                    <th key={h.key} className="tr-num">
-                      {h.label}
-                    </th>
-                  ))}
+                  {HORIZONS.map((h) => {
+                    const hc = data.counts[entry][h.key];
+                    const tip = `${h.label}: ${hc.counted} counted, ${hc.maturing} maturing${hc.path_ended > 0 ? `, ${hc.path_ended} path ended` : ""}`;
+                    return (
+                      <th key={h.key} className="tr-num" title={tip}>
+                        <span className="tr-th-wrap">
+                          <span>{h.label}</span>
+                          <HorizonBar counted={hc.counted} maturing={hc.maturing} ended={hc.path_ended} />
+                        </span>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -414,13 +609,20 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
                     </th>
                     <td className="tr-num">{r.episodes.toLocaleString("en-US")}</td>
                     {HORIZONS.map((h) => {
-                      const v = cellView(r.cells[h.key], h, comparison, entry, showThin);
+                      const cell = r.cells[h.key];
+                      const v = cellView(cell, h, comparison, entry, showThin);
                       const on = picked?.row === r.key && picked.horizon === h.key;
+                      const showWhisker = cell.n > 0 && (!cell.tooSmall || showThin);
                       const inner = (
-                        <>
-                          <span className={`tr-med${v.tone ? ` ${v.tone}` : ""}${v.gray ? " gray" : ""}`}>{v.text}</span>
-                          {v.sub && <span className="tr-sub">{v.sub}</span>}
-                        </>
+                        <span className="tr-cell-body">
+                          {showWhisker && (
+                            <CellWhisker cell={cell} halfRange={halfRange} dim={cell.tooSmall || r.key === "pooled"} />
+                          )}
+                          <span className="tr-cell-nums">
+                            <span className={`tr-med${v.tone ? ` ${v.tone}` : ""}${v.gray ? " gray" : ""}`}>{v.text}</span>
+                            {v.sub && <span className="tr-sub">{v.sub}</span>}
+                          </span>
+                        </span>
                       );
                       return (
                         <td key={h.key} className="tr-num" data-testid={`tr-cell-${r.key}-${h.key}`}>
@@ -451,20 +653,58 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
             </table>
           </div>
 
-          <div className="tr-listhead dash-note">
-            {pickedRow && picked ? (
-              <>
-                {plural(shown.length, "episode")} in {pickedRow.label} · {pickedWords} ·{" "}
-                <button type="button" className="tr-clear" onClick={() => setPicked(null)}>
-                  show every episode
-                </button>
-              </>
-            ) : (
-              <>
-                {plural(shown.length, "counted episode")}, newest arm first
-                {unpinned.length > 0 ? ` (${unpinned.length.toLocaleString("en-US")} more unpinned, below)` : ""}
-              </>
-            )}
+          {pickedRow && picked && pickedWords && (
+            <CellStrip
+              row={pickedRow}
+              horizon={picked.horizon}
+              horizonLabel={pickedWords}
+              entry={entry}
+              comparison={comparison}
+              onSelectThesis={onSelectThesis}
+            />
+          )}
+
+          <div className="tr-listbar">
+            <div className="tr-listhead dash-note">
+              {pickedRow && picked ? (
+                <>
+                  {plural(shown.length, "episode")} in {pickedRow.label} · {pickedWords} ·{" "}
+                  <button type="button" className="tr-clear" onClick={() => setPicked(null)}>
+                    show every episode
+                  </button>
+                </>
+              ) : (
+                <>
+                  {plural(shown.length, "counted episode")}, newest arm first
+                  {unpinned.length > 0 ? ` (${unpinned.length.toLocaleString("en-US")} more unpinned, below)` : ""}
+                </>
+              )}
+            </div>
+            <div className="tr-list-tools">
+              <input
+                type="search"
+                className="tr-search"
+                aria-label="Filter episodes by ticker or card"
+                placeholder="Filter ticker or card…"
+                value={listQuery}
+                onChange={(e) => {
+                  setListQuery(e.target.value);
+                  setLimit(LIST_STEP);
+                }}
+              />
+              <select
+                className="tr-select"
+                aria-label="Sort episodes"
+                value={listSort}
+                onChange={(e) => setListSort(e.target.value as EpisodeSort)}
+              >
+                {EPISODE_SORTS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           {shown.length > 0 && (
             <ul className="tr-list">
@@ -508,6 +748,14 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
           )}
         </>
       )}
+
+      <div className="tr-work">
+        {workLines(data, entry, comparison).map((line, i) => (
+          <div key={i} className="dash-note tr-line">
+            {line}
+          </div>
+        ))}
+      </div>
 
       {LEFT_OUT.map(({ reason, words, hint }) => {
         const rows = setAside.filter((r) => r.left_out === reason);

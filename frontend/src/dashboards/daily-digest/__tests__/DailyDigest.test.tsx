@@ -581,9 +581,9 @@ describe("DailyDigest — loudness (invariant #7)", () => {
     const { container } = setup();
     const accent = [...container.querySelectorAll(".dd-tone-accent")];
     const warm = [...container.querySelectorAll(".dd-tone-warm")];
-    // Card C's move, its newly armed name and its closing entry window; Card D's move and Card E's exit-by
-    expect(accent).toHaveLength(3);
-    expect(warm).toHaveLength(2);
+    // Card C's move and its newly armed name (accent); Card C's closing entry window, Card D's move and Card E's exit-by (warm)
+    expect(accent).toHaveLength(2);
+    expect(warm).toHaveLength(3);
     expect(accent.every((e) => e.getAttribute("data-tone") === "accent")).toBe(true);
     expect(warm.every((e) => e.getAttribute("data-tone") === "warm")).toBe(true);
     for (const e of accent) expect(cardOf("Card C").contains(e)).toBe(true);
@@ -629,5 +629,36 @@ describe("Daily Digest — the record-start note", () => {
     setRecordStart("2026-12-03");
     setup();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
+  });
+});
+
+describe("Daily Digest — orientation strip, inline details & micro-visuals", () => {
+  it("renders the monochrome orientation strip, expands kill criteria & cluster co-filers, and adds tape split/bars", async () => {
+    const { container } = setup();
+    const strip = screen.getByTestId("dd-strip");
+    expect(strip).toHaveTextContent("3 Armed");
+    expect(strip).toHaveTextContent("1 Managing");
+    expect(strip).toHaveTextContent("2 Warming");
+    expect(strip).toHaveTextContent("40 Incubating");
+
+    // Position row shows IWM benchmark inline under Since fill and expands kill criteria on click
+    const posRow = screen.getByTestId("dd-pos-row");
+    expect(posRow.querySelector('td[data-label="Since fill"]')).toHaveTextContent("IWM +3.96%");
+    const killBtn = within(posRow).getByRole("button", { name: "2 kill criteria" });
+    expect(killBtn).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(killBtn);
+    expect(killBtn).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("dd-kill-list")).toHaveTextContent("the license is lost");
+
+    // Insider cluster expands co-filers inline on click and draws monochrome size bar
+    const buyRow = screen.getAllByTestId("dd-buy-row")[0];
+    expect(buyRow.querySelector(".dd-size-bar")).not.toBeNull();
+    const clusterBtn = within(buyRow).getByRole("button", { name: "cluster · 2 buyers" });
+    await userEvent.click(clusterBtn);
+    expect(screen.getByTestId("dd-cluster-list")).toHaveTextContent("Sam Poe · filed Sep 16");
+
+    // Tape splits falls from rises and renders zero-centered return bars
+    expect(container.querySelectorAll("tr.dd-tape-split")).toHaveLength(1);
+    expect(container.querySelectorAll(".dd-ret-bar").length).toBeGreaterThan(0);
   });
 });

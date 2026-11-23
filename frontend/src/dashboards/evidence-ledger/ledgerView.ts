@@ -126,6 +126,8 @@ export type Filters = {
   kinds: ReadonlySet<LedgerKind>;
   /** a ticker query; "" = every company. A row with no company (a card entry) does not match a query. */
   name: string;
+  /** a free-text query across label, form, detail and source refs; "" = every row */
+  text: string;
   /** only a row with a source that links to EDGAR */
   edgarOnly: boolean;
   /** the dated rows within this many days of the as-of; "all" = every row held. Standing rows have no date and
@@ -139,6 +141,7 @@ export const DEFAULT_FILTERS: Filters = {
   authorities: new Set(AUTHORITY_ORDER),
   kinds: new Set(KIND_ORDER),
   name: "",
+  text: "",
   edgarOnly: false,
   window: "all",
   countingOnly: false,
@@ -150,6 +153,7 @@ export function filtersActive(f: Filters): boolean {
     f.authorities.size < AUTHORITY_ORDER.length ||
     f.kinds.size < KIND_ORDER.length ||
     f.name.trim() !== "" ||
+    f.text.trim() !== "" ||
     f.edgarOnly ||
     f.window !== "all" ||
     f.countingOnly
@@ -164,6 +168,19 @@ export function rowMatches(r: EvidenceLedgerRowOut, f: Filters, asof: string): b
   if (f.edgarOnly && !r.edgar) return false;
   const q = f.name.trim().toLocaleLowerCase();
   if (q && !(r.ticker ?? "").toLocaleLowerCase().includes(q)) return false;
+  const t = f.text.trim().toLocaleLowerCase();
+  if (t) {
+    const hay = [
+      r.label,
+      r.form ?? "",
+      r.ticker ?? "",
+      ...r.detail,
+      ...r.sources.map((s) => `${s.source} ${s.ref ?? ""}`),
+    ]
+      .join(" ")
+      .toLocaleLowerCase();
+    if (!hay.includes(t)) return false;
+  }
   if (f.window !== "all" && r.date != null && r.date < windowStart(asof, f.window)) return false;
   return true;
 }

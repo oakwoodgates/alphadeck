@@ -73,6 +73,10 @@ export type Filters = {
   grades: ReadonlySet<GradeKey>;
   /** one card's thesis_id, "" = every card */
   card: string;
+  /** ticker or label substring, "" = every row */
+  text?: string;
+  /** one week ISO Monday key, "" = every week */
+  week?: string;
   liveOnly: boolean;
   changedOnly: boolean;
 };
@@ -82,9 +86,51 @@ export const DEFAULT_FILTERS: Filters = {
   kinds: new Set(),
   grades: new Set(),
   card: "",
+  text: "",
+  week: "",
   liveOnly: false,
   changedOnly: false,
 };
+
+export type SortKey = "night" | "fired" | "tk" | "sess" | "since";
+export type SortDir = "asc" | "desc";
+export type SortState = { key: SortKey; dir: SortDir };
+export const DEFAULT_SORT: SortState = { key: "night", dir: "desc" };
+
+export function nextSort(cur: SortState, key: SortKey): SortState {
+  if (cur.key === key) return { key, dir: cur.dir === "asc" ? "desc" : "asc" };
+  return { key, dir: key === "tk" ? "asc" : "desc" };
+}
+
+export function sortGroupRows(rows: readonly Row[], sort: SortState): Row[] {
+  if (sort.key === "night" && sort.dir === "desc") return [...rows];
+  const sign = sort.dir === "asc" ? 1 : -1;
+  const val = (r: Row): string | number | null => {
+    switch (sort.key) {
+      case "night":
+        return r.recorded_on;
+      case "fired":
+        return r.event_date;
+      case "tk":
+        return r.ticker ? r.ticker.toLocaleLowerCase() : null;
+      case "sess":
+        return r.sessions_since;
+      case "since":
+        return r.since.status === "priced" ? r.since.ret : null;
+    }
+  };
+  return [...rows].sort((a, b) => {
+    const va = val(a);
+    const vb = val(b);
+    if (va == null && vb != null) return 1;
+    if (vb == null && va != null) return -1;
+    if (va != null && vb != null) {
+      if (va < vb) return -1 * sign;
+      if (va > vb) return 1 * sign;
+    }
+    return a.key.localeCompare(b.key);
+  });
+}
 
 export const gradeKey = (r: Row): GradeKey => r.grade ?? "none";
 
@@ -113,13 +159,28 @@ function passes(r: Row, f: Filters, skip?: Dim): boolean {
   }
   if (f.liveOnly && r.live !== true) return false;
   if (f.changedOnly && !stateChanged(r)) return false;
+  if (f.week && r.week !== f.week) return false;
+  const q = (f.text ?? "").trim().toLocaleLowerCase();
+  if (q) {
+    const hay = `${r.ticker ?? ""} ${r.thesis_name} ${r.label} ${kindWords(r.kind)}`.toLocaleLowerCase();
+    if (!hay.includes(q)) return false;
+  }
   return true;
 }
 
 export const filterRows = (rows: readonly Row[], f: Filters): Row[] => rows.filter((r) => passes(r, f));
 
 export function filtersActive(f: Filters): boolean {
-  return f.roles.size > 0 || f.kinds.size > 0 || f.grades.size > 0 || f.card !== "" || f.liveOnly || f.changedOnly;
+  return (
+    f.roles.size > 0 ||
+    f.kinds.size > 0 ||
+    f.grades.size > 0 ||
+    f.card !== "" ||
+    (f.text ?? "").trim() !== "" ||
+    (f.week ?? "") !== "" ||
+    f.liveOnly ||
+    f.changedOnly
+  );
 }
 
 /** How many rows each value of `dim` would show with every OTHER filter applied: the number a chip restates. A

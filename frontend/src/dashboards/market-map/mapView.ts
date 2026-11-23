@@ -43,9 +43,10 @@ export const COMPARES: readonly { value: Compare; label: string }[] = [
   { value: "iwm", label: "IWM" },
 ];
 
-export type SizeBy = "cap" | "dollar_volume" | "equal";
+export type SizeBy = "cap" | "sqrt_cap" | "dollar_volume" | "equal";
 export const SIZE_BYS: readonly { value: SizeBy; label: string }[] = [
   { value: "cap", label: "Market cap" },
+  { value: "sqrt_cap", label: "√ Market cap" },
   { value: "dollar_volume", label: "Dollar volume 20D" },
   { value: "equal", label: "Equal" },
 ];
@@ -268,8 +269,9 @@ const compareLabel = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 /** The weight a company would have, or null when it has none (no cap, no dollar volume, a non-positive figure). */
 export function rawWeight(c: MapCompany, sizeBy: SizeBy): number | null {
   if (sizeBy === "equal") return 1;
-  const v = sizeBy === "cap" ? c.cap : c.dollar_volume;
-  return v != null && Number.isFinite(v) && v > 0 ? v : null;
+  const v = sizeBy === "cap" || sizeBy === "sqrt_cap" ? c.cap : c.dollar_volume;
+  if (v == null || !Number.isFinite(v) || !(v > 0)) return null;
+  return sizeBy === "sqrt_cap" ? Math.sqrt(v) : v;
 }
 
 /** The companies and rows the options put in view (Context and Bench only when asked). */
@@ -618,7 +620,9 @@ export type TableRow = {
   cap: number | null;
   capTier: string | null;
   capSource: "workbench" | "cover" | null;
+  capNote?: string | null;
   dollarVolume: number | null;
+  dollarVolumeNote?: string | null;
   sector: string;
   businessType: string;
   cards: string;
@@ -740,7 +744,9 @@ export function tableRows(
       cap: c.cap,
       capTier: c.cap_tier,
       capSource: c.cap_source,
+      capNote: c.cap_note,
       dollarVolume: c.dollar_volume,
+      dollarVolumeNote: c.dollar_volume_note,
       sector: c.supersector ? supersectorLabel(c.supersector) : "Unclassified",
       businessType: c.business_type ? businessTypeLabel(c.business_type) : "Unclassified",
       cards: words.get(c.security_id) ?? "",

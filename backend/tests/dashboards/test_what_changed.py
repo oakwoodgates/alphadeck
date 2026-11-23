@@ -658,11 +658,16 @@ def stub_client(monkeypatch):
         seen["tickers_for"] = set(ids)
         return {A: "AAA"}
 
+    def fake_ciks_for(conn, ids):
+        seen["ciks_for"] = set(ids)
+        return {A: "0001234567"}
+
     monkeypatch.setattr(router_mod.thesis_repo, "list_all", fake_list_all)
     monkeypatch.setattr(router_mod, "_span", fake_span)
     monkeypatch.setattr(router_mod, "_previous_night", fake_previous)
     monkeypatch.setattr(router_mod, "_in_effect", fake_in_effect)
     monkeypatch.setattr(router_mod.master, "tickers_for", fake_tickers_for)
+    monkeypatch.setattr(router_mod.master, "ciks_for", fake_ciks_for)
     app.dependency_overrides[get_conn] = lambda: object()
     yield TestClient(app), seen
     app.dependency_overrides.clear()
@@ -727,6 +732,53 @@ def test_the_router_serves_a_re_dated_trigger_with_both_dates(stub_client, monke
     assert [
         (i["change"], i["ticker"], i["label"], i["previous_on"], i["on"]) for i in body["items"]
     ] == [("trigger_redated", "AAA", BREAKOUT_OCT_28, "2026-10-27", "2026-10-28")]
+
+
+def test_the_router_attaches_first_provenance_to_trigger_and_risk_lines(stub_client, monkeypatch):
+    client, seen = stub_client
+
+    def fake_in_effect(conn, ids, on):
+        if on == T:
+            fired = trig(
+                A,
+                "Insider cluster buy",
+                Kind.INSIDER,
+                T,
+                sources=[Provenance(source="sec_edgar", ref="0001234567-26-000123")],
+            )
+            risk = trig(
+                A,
+                "Below 200d SMA",
+                Kind.BREAKDOWN,
+                T,
+                sources=[Provenance(source="price", ref="2026-10-28")],
+            )
+            return {TID: rec(cc(State.ARMED, asof=on, triggers_fired=[fired], risk_signals=[risk]))}
+        gone = trig(
+            A,
+            "Prior filing trigger",
+            Kind.CATALYST,
+            PREV,
+            sources=[Provenance(source="sec_edgar", ref="0001234567-26-000100")],
+        )
+        return {TID: rec(cc(State.WARMING, asof=on, triggers_fired=[gone]))}
+
+    monkeypatch.setattr(router_mod, "_in_effect", fake_in_effect)
+    body = client.get("/dashboards/what-changed").json()
+    assert seen["ciks_for"] == {A}
+    by_change = {i["change"]: i["source"] for i in body["items"]}
+    assert by_change["state"] is None
+    assert by_change["trigger_new"] == {
+        "source": "sec_edgar",
+        "ref": "0001234567-26-000123",
+        "url": "https://www.sec.gov/Archives/edgar/data/1234567/000123456726000123/",
+    }
+    assert by_change["trigger_gone"] == {
+        "source": "sec_edgar",
+        "ref": "0001234567-26-000100",
+        "url": "https://www.sec.gov/Archives/edgar/data/1234567/000123456726000100/",
+    }
+    assert by_change["risk_new"] == {"source": "price", "ref": "2026-10-28", "url": None}
 
 
 @pytest.mark.parametrize(

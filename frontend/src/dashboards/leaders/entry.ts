@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 70,
   label: "Leaders",
   description: "Names across every card at new highs, leading the market, coiling, or with insider buying, and the groups where insiders cluster.",
+  group: "rotation",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./Leaders")),

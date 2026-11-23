@@ -252,5 +252,20 @@ describe("the Sectors tab", () => {
       .map((c) => c.textContent ?? "");
     expect(heads.some((t) => t.startsWith("software"))).toBe(true);
     expect(heads.at(-1)).toContain("Unclassified");
+    // business types mode labels row subcounts as "types", not "sectors", and draws counts inside bubbles
+    expect(screen.getByTestId("om-row-0")).toHaveTextContent(/type/);
+    expect(document.querySelectorAll(".om-cell-n").length).toBeGreaterThan(0);
+  });
+
+  it("dims unrelated Map bubbles on search/hover and labels Venn circles directly on the SVG", async () => {
+    const { user } = setup();
+    await user.type(screen.getByRole("searchbox", { name: "Highlight card or ticker" }), "ggg");
+    expect(screen.getByTestId("om-bubble-2")).toHaveClass("match");
+    expect(screen.getByTestId("om-bubble-0")).toHaveClass("dim");
+
+    await user.click(screen.getByRole("tab", { name: "Venn" }));
+    expect(document.querySelectorAll(".om-venn-set-label")).toHaveLength(2);
+    await user.click(screen.getByTestId("om-region-3"));
+    expect(document.querySelectorAll(".om-venn-ring")).toHaveLength(1);
   });
 });

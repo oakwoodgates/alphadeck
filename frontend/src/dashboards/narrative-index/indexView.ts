@@ -128,3 +128,44 @@ export function createdIndex(dates: readonly string[], base: string | null | und
   const i = dates.indexOf(base);
   return i < 0 ? null : i;
 }
+
+/** One shared y domain across every visible card plus the available benchmarks, so small multiples can be
+ *  compared on a common vertical scale. */
+export function sharedYDomain(
+  cards: readonly NarrativeCardOut[],
+  benchLines: readonly (readonly number[] | null | undefined)[],
+): Domain {
+  return yDomain([...cards.map((c) => c.points), ...benchLines]);
+}
+
+/** Non-overlapping y-axis ticks (always keeping 100 when in range, suppressing edge ticks that collide). */
+export function yAxisTicks(domain: Domain, height: number, minGapPx = 18): number[] {
+  const [lo, hi] = domain;
+  const ticks: number[] = [];
+  const y100 = lo <= 100 && 100 <= hi ? yAt(100, domain, height) : null;
+  if (y100 != null) ticks.push(100);
+  if (y100 == null || Math.abs(yAt(hi, domain, height) - y100) >= minGapPx) ticks.push(hi);
+  if (y100 == null || Math.abs(yAt(lo, domain, height) - y100) >= minGapPx) ticks.push(lo);
+  return ticks.sort((a, b) => a - b);
+}
+
+/** Clean x-axis date tick indices across `n` sessions (start, intermediate steps, end). */
+export function xAxisTickIndices(n: number): number[] {
+  if (n <= 0) return [];
+  if (n === 1) return [0];
+  if (n <= 5) return [0, n - 1];
+  const steps = n >= 80 ? 4 : 2;
+  const out: number[] = [];
+  for (let s = 0; s <= steps; s++) {
+    const idx = Math.round((s / steps) * (n - 1));
+    if (out[out.length - 1] !== idx) out.push(idx);
+  }
+  return out;
+}
+
+export function fmtLevelPct(level: number | null | undefined): string {
+  if (level == null) return "—";
+  const pct = level - 100;
+  if (Math.abs(pct) < 0.05) return "0.0%";
+  return `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`;
+}

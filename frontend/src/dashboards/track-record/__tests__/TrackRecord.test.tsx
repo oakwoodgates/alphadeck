@@ -253,6 +253,17 @@ describe("TrackRecord — the episode list", () => {
     await click(/show 10 more/);
     expect(screen.getAllByTestId("tr-row")).toHaveLength(160);
   });
+
+  it("renders per-cell IQR whiskers, horizon maturity bars, clicked-cell distribution strip, and supports episode search/sort", async () => {
+    setup();
+    expect(screen.getAllByTestId("tr-whisker").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("tr-hbar").length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("tr-strip")).toBeNull();
+    await userEvent.click(within(cell("small", "h20")).getByRole("button"));
+    expect(screen.getByTestId("tr-strip")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Filter episodes by ticker or card"), "ZZZ_NO_MATCH");
+    expect(screen.queryAllByTestId("tr-row")).toHaveLength(0);
+  });
 });
 
 describe("TrackRecord — what is left out is counted and kept visible", () => {

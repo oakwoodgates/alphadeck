@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 260,
   label: "Insider Buying",
   description: "Every open-market insider purchase across the counted cards' names in the window, newest first: who bought, how much, whether others bought too, whether it became a trigger, and what the tape did since.",
+  group: "filings",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

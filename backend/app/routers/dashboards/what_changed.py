@@ -29,6 +29,7 @@ from dashboards.what_changed import (
 from dashboards.what_changed import what_changed as compute_what_changed
 from domain.call import CallCard
 from domain.enums import Kind, State
+from domain.links import HttpUrlOut
 from domain.market_time import countdown_origin, market_clock
 from repositories import thesis_repo
 from securities import master
@@ -84,13 +85,22 @@ class WhatChangedCardRefOut(_Wire):
     thesis_name: str
 
 
+class WhatChangedSourceOut(_Wire):
+    """First provenance on a trigger or risk line; ``url`` is ``null`` when no link can be built."""
+
+    source: str
+    ref: str
+    url: HttpUrlOut
+
+
 class WhatChangedItemOut(_Wire):
     """One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are
     set for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has
     none). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's
     date (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night
     (``null`` on every other line); ``days`` = calendar days from the countdown origin (the action day, the session
-    after the newest night) to ``arm_until``.
+    after the newest night) to ``arm_until``. ``source`` = the first provenance on a trigger or risk line (``null``
+    on other lines or when none is stored).
     ``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."""
 
     section: Section
@@ -107,6 +117,7 @@ class WhatChangedItemOut(_Wire):
     on: date | None
     previous_on: date | None
     days: int | None
+    source: WhatChangedSourceOut | None = None
 
 
 class WhatChangedOut(_Wire):
@@ -167,11 +178,13 @@ def what_changed(
     # the current night). `latest` can trail the night when a night recorded no change: the page is live all the same.
     mclock = market_clock()
     origin = countdown_origin(mclock.night, mclock)
+    sids = security_ids([*now.values(), *baseline.values()])
     result = compute_what_changed(
         {t.id: t.name for t in theses},
         now,
         baseline,
-        master.tickers_for(conn, security_ids([*now.values(), *baseline.values()])),
+        master.tickers_for(conn, sids),
+        ciks=master.ciks_for(conn, sids),
         latest=latest,
         baseline_on=baseline_on,
         origin=origin,

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import type { ComponentType, LazyExoticComponent } from "react";
+import type { DashboardGroup } from "./groups";
 
 // The ONE list of dashboards (docs/DASHBOARDS.md): self-contained cross-card views, the Board first. The
 // top nav's Dashboards menu, the /dashboards index, the /dashboards/:slug route and the home page (`/`,
@@ -27,6 +28,8 @@ export type DashboardEntry = {
   label: string;
   /** One line, shown under the title and in the menu. */
   description: string;
+  /** Navigation section in the Dashboards menu and on /dashboards. */
+  group?: DashboardGroup;
   /** "core" = a standing page of the app (the Board); "experimental" = a brainstorm view that may be cut.
    *  Both show as the same quiet tag. */
   status: "core" | "experimental";

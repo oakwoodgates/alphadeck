@@ -319,4 +319,15 @@ describe("ChainWave", () => {
     setup(undefined, { isLoading: true });
     expect(screen.getByText(/Computing this card's weeks — the first load after a run or a basket edit/)).toBeInTheDocument();
   });
+
+  it("shows the cumulative window summary column, highlights hovered week columns, and prints inline numbers in 13w view", async () => {
+    const { unmount } = setup();
+    const fuelRow = gridRow("link:Fuel");
+    expect(fuelRow.querySelector(".cw-sum")).toHaveTextContent(/\+?\d+\.\d pp/);
+    await userEvent.hover(within(fuelRow).getAllByTestId("cw-cell")[1]);
+    expect(within(gridRow("link:Reactors")).getAllByTestId("cw-cell")[1]).toHaveClass("col-hi");
+    unmount();
+    setup(payload({ weeks: 13 }));
+    expect(within(gridRow("link:Fuel")).getAllByTestId("cw-cell")[2].querySelector(".cw-cell-num")).toHaveTextContent("+12");
+  });
 });

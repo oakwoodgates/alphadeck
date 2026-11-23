@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 50,
   label: "Cross Radar",
   description: "Golden and death crosses by group: clusters, first movers, names closing in, and the last 90 sessions.",
+  group: "rotation",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./CrossRadar")),

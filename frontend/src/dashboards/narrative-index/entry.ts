@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 90,
   label: "Narrative Index",
   description: "Each card's basket as one equal-weighted line against SPY and IWM, with the day the card was created marked.",
+  group: "rotation",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

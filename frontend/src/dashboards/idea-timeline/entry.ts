@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 20,
   label: "Idea Timeline",
   description: "Each card's recorded state over time, with its catalysts and your logged decisions.",
+  group: "chain",
   status: "experimental",
   asofAware: false,
   readsRecord: true,

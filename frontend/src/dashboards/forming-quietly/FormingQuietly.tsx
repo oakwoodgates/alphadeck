@@ -21,6 +21,7 @@ import {
   insiderCell,
   insiderNameTitle,
   keyLine,
+  kindWord,
   leadingCell,
   leadingNameTitle,
   nextSort,
@@ -58,11 +59,11 @@ const COLUMNS: readonly Column[] = [
   { label: "State", title: "The recorded state, and the current run's first night. Sort by days in state", sort: "days" },
   { label: "Key that turned", title: "The keys the recorded call shows turned, in its own words, and the names behind them" },
   { label: "Still missing", title: "The recorded call's missing lines, verbatim, and its confirmation-only names" },
-  { label: "Risk", title: "Risk signals on the recorded call", cls: "fq-num" },
+  { label: "Risk", title: "Risk signals on the recorded call. Sort by count", sort: "risk", cls: "fq-num" },
   { label: "Insider buying", title: "Names with an open-market insider buy in the last 30 days. Sort by distinct buyers", sort: "insider" },
-  { label: "Coiling", title: "Names whose base the volatility-contraction member calls coiling" },
-  { label: "Leading", title: "Names whose relative strength is at a 13-week high against SPY or IWM" },
-  { label: "Breadth", title: "Names at or above their 50-day average, among the names with enough history" },
+  { label: "Coiling", title: "Names whose base the volatility-contraction member calls coiling. Sort by count", sort: "coiling" },
+  { label: "Leading", title: "Names whose relative strength is at a 13-week high against SPY or IWM. Sort by count", sort: "leading" },
+  { label: "Breadth", title: "Names at or above their 50-day average, among the names with enough history. Sort by share above 50d", sort: "breadth" },
   { label: "Adoption", title: "EDGAR documents that match the card's SIGNAL terms: the last three closed months against the three before. Sort by the percent", sort: "adoption", cls: "fq-num" },
 ];
 
@@ -122,14 +123,25 @@ function TickerChip({ ticker, title, onOpen, word }: { ticker: string; title: st
   );
 }
 
+/** Quiet monochrome horizontal ratio bar (0–100%) for 50d / 200d breadth. */
+function BreadthBar({ num, den }: { num: number | null | undefined; den: number }) {
+  if (num == null || den <= 0) return null;
+  const pct = Math.max(0, Math.min(100, (num / den) * 100));
+  return (
+    <span className="fq-bbar" aria-hidden="true">
+      <span className="fq-bbar-fill" style={{ width: `${pct}%` }} />
+    </span>
+  );
+}
+
 /** A name behind the key that turned: the ticker chip, with its triggers and their source links on hover. */
-function NameChip({ n, onOpen }: { n: FormingNameOut; onOpen: () => void }) {
+function NameChip({ n, flipUp, onOpen }: { n: FormingNameOut; flipUp: boolean; onOpen: () => void }) {
   return (
     <span className="fq-name">
       <button type="button" className="fq-tk" onClick={onOpen} title={`Open the card on ${n.ticker}`}>
         {n.ticker}
       </button>
-      <span className="fq-tip" role="tooltip">
+      <span className={`fq-tip${flipUp ? " flip-up" : ""}`} role="tooltip">
         {n.triggers.map((t, i) => (
           <span className="fq-tip-row" key={`${t.kind}:${t.event_date}:${i}`}>
             <span>{triggerLine(t)}</span>
@@ -152,9 +164,16 @@ function NameChip({ n, onOpen }: { n: FormingNameOut; onOpen: () => void }) {
   );
 }
 
-type RowProps = { r: FormingRowOut; onSelectThesis: DashboardProps["onSelectThesis"] };
+type RowProps = {
+  r: FormingRowOut;
+  flipUp: boolean;
+  stateBreak: boolean;
+  onSelectThesis: DashboardProps["onSelectThesis"];
+};
 
-const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
+const Row = memo(function Row({ r, flipUp, stateBreak, onSelectThesis }: RowProps) {
+  const [openAll, setOpenAll] = useState<{ insider?: boolean; coiling?: boolean; leading?: boolean }>({});
+  const [riskOpen, setRiskOpen] = useState(false);
   const q = r.quiet;
   const open = (ticker?: string) => () => onSelectThesis(r.thesis_id, ticker ?? null);
   const turned = turnedKeys(r);
@@ -164,18 +183,41 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
   const leadingFig = leadingCell(r);
   const breadthFig = breadthCell(r);
   const breadth200Fig = breadth200Cell(r);
-  const insider = q.insider.slice(0, MAX_NAMES);
-  const coiling = q.coiling.slice(0, MAX_NAMES);
-  const leading = q.leading.slice(0, MAX_NAMES);
-  const more = (list: readonly unknown[]) => (list.length > MAX_NAMES ? <span className="fq-more">{`+${list.length - MAX_NAMES}`}</span> : null);
+  const insider = openAll.insider ? q.insider : q.insider.slice(0, MAX_NAMES);
+  const coiling = openAll.coiling ? q.coiling : q.coiling.slice(0, MAX_NAMES);
+  const leading = openAll.leading ? q.leading : q.leading.slice(0, MAX_NAMES);
+  const more = (key: "insider" | "coiling" | "leading", list: readonly unknown[]) =>
+    list.length > MAX_NAMES ? (
+      <button
+        type="button"
+        className="fq-more"
+        aria-expanded={Boolean(openAll[key])}
+        onClick={() => setOpenAll((prev) => ({ ...prev, [key]: !prev[key] }))}
+      >
+        {openAll[key] ? "less" : `+${list.length - MAX_NAMES}`}
+      </button>
+    ) : null;
+  const b50 = q.breadth;
+  const deltaPts = b50 && b50.counted > 0 && b50.delta_pts != null ? b50.delta_pts : null;
   return (
-    <tr data-testid="fq-row" className={`fq-row ${r.state}`}>
+    <tr data-testid="fq-row" className={`fq-row ${r.state}${stateBreak ? " fq-state-break" : ""}`}>
       <td data-label="Card" className="fq-card-td">
         <button type="button" className="fq-card" title={`Open ${r.thesis_name}`} onClick={open()}>
           {r.thesis_name}
         </button>
-        <span className="fq-sub" title={q.unresolved > 0 ? `${plural(q.unresolved, "roster row", "roster rows")} with no resolved company` : undefined}>
+        <span
+          className="fq-sub"
+          title={
+            [
+              q.unresolved > 0 ? `${plural(q.unresolved, "roster row", "roster rows")} with no resolved company` : null,
+              q.flagged.length > 0 ? `left out: ${q.flagged.map((f) => `${f.ticker} (${f.reason})`).join(", ")}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
+          }
+        >
           {plural(q.names, "name", "names")}
+          {q.flagged.length > 0 ? ` · ${q.flagged.length} left out` : ""}
         </span>
       </td>
       <td data-label="State">
@@ -202,7 +244,7 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
             ))}
             <span className="fq-chips">
               {r.names.map((n) => (
-                <NameChip key={n.security_id} n={n} onOpen={open(n.ticker)} />
+                <NameChip key={n.security_id} n={n} flipUp={flipUp} onOpen={open(n.ticker)} />
               ))}
             </span>
           </>
@@ -233,7 +275,29 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
         )}
       </td>
       <td data-label="Risk" className={blankCls(risk, "fq-num")}>
-        <Fig cell={risk} />
+        {r.risks.length > 0 ? (
+          <>
+            <button
+              type="button"
+              className="fq-risk-btn"
+              aria-expanded={riskOpen}
+              onClick={() => setRiskOpen((o) => !o)}
+            >
+              <Fig cell={risk} />
+            </button>
+            {riskOpen && (
+              <ul className="fq-risk-list" data-testid="fq-risk-list">
+                {r.risks.map((x, idx) => (
+                  <li key={`${x.ticker}:${idx}`}>
+                    <strong>{x.ticker}</strong> {x.label} ({kindWord(x.kind)})
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <Fig cell={risk} />
+        )}
       </td>
       <td data-label="Insider buying" className={blankCls(insiderFig)}>
         <Fig cell={insiderFig} />
@@ -242,7 +306,7 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
             {insider.map((n) => (
               <TickerChip key={n.security_id} ticker={n.ticker} title={insiderNameTitle(n)} onOpen={open(n.ticker)} word={n.cluster ? "cluster" : undefined} />
             ))}
-            {more(q.insider)}
+            {more("insider", q.insider)}
           </span>
         )}
       </td>
@@ -253,7 +317,7 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
             {coiling.map((n) => (
               <TickerChip key={n.security_id} ticker={n.ticker} title={coilingNameTitle(n)} onOpen={open(n.ticker)} />
             ))}
-            {more(q.coiling)}
+            {more("coiling", q.coiling)}
           </span>
         )}
       </td>
@@ -264,13 +328,21 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
             {leading.map((n) => (
               <TickerChip key={n.security_id} ticker={n.ticker} title={leadingNameTitle(n)} onOpen={open(n.ticker)} />
             ))}
-            {more(q.leading)}
+            {more("leading", q.leading)}
           </span>
         )}
       </td>
       <td data-label="Breadth" className={blankCls(breadthFig)}>
         <Fig cell={breadthFig} />
+        {b50 && b50.counted > 0 && <BreadthBar num={b50.above} den={b50.counted} />}
+        {deltaPts !== null && (
+          <span className="fq-sub fq-delta">
+            {deltaPts > 0 ? "+" : ""}
+            {deltaPts.toFixed(0)} pts / 20d
+          </span>
+        )}
         <Fig cell={breadth200Fig} />
+        {q.n_200 > 0 && <BreadthBar num={q.above_200} den={q.n_200} />}
       </td>
       <td data-label="Adoption" className="fq-num">
         <Fig cell={adoptionCell(r.adoption)} />
@@ -279,9 +351,25 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
   );
 });
 
+function rowMatchesQuery(r: FormingRowOut, qNorm: string): boolean {
+  if (!qNorm) return true;
+  if (r.thesis_name.toLowerCase().includes(qNorm)) return true;
+  const allTickers = [
+    ...r.names.map((n) => n.ticker),
+    ...r.watch.map((w) => w.ticker),
+    ...r.quiet.insider.map((n) => n.ticker),
+    ...r.quiet.coiling.map((n) => n.ticker),
+    ...r.quiet.leading.map((n) => n.ticker),
+  ];
+  return allTickers.some((t) => t.toLowerCase().includes(qNorm));
+}
+
 export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps) {
   const [everyIncubating, setEveryIncubating] = useState(false);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [hasLeading, setHasLeading] = useState(false);
+  const [hasThrust, setHasThrust] = useState(false);
+  const [search, setSearch] = useState("");
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
   const q = useFormingQuietly(asof);
   const data = q.data;
@@ -289,7 +377,20 @@ export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps)
   const hidden = useMemo(() => hiddenIncubating(data?.rows ?? []), [data]);
   const onShow = useMemo(() => rowsOnShow(data?.rows ?? [], everyIncubating), [data, everyIncubating]);
   const controls = useMemo(() => filterControls(onShow), [onShow]);
-  const shown = useMemo(() => onShow.filter((r) => rowMatches(r, filters)), [onShow, filters]);
+  const canFilterLeading = useMemo(() => onShow.some((r) => r.quiet.leading.length > 0), [onShow]);
+  const canFilterThrust = useMemo(() => onShow.some((r) => r.quiet.breadth?.thrust === true), [onShow]);
+  const qNorm = search.trim().toLowerCase();
+  const shown = useMemo(
+    () =>
+      onShow.filter(
+        (r) =>
+          rowMatches(r, filters) &&
+          (!hasLeading || r.quiet.leading.length > 0) &&
+          (!hasThrust || r.quiet.breadth?.thrust === true) &&
+          rowMatchesQuery(r, qNorm),
+      ),
+    [onShow, filters, hasLeading, hasThrust, qNorm],
+  );
   const sorted = useMemo(() => sortRows(shown, sort), [shown, sort]);
 
   const onSort = useCallback((key: SortKey) => setSort((s) => nextSort(s, key)), []);
@@ -299,7 +400,13 @@ export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps)
   if (q.error && !data) return <div className="dash-note">Could not load Forming Quietly.</div>;
   if (!data) return <div className="dash-note">{SLOW}</div>;
 
-  const filtering = filtersActive(filters);
+  const filtering = filtersActive(filters) || hasLeading || hasThrust || qNorm.length > 0;
+  const clearAllFilters = () => {
+    setFilters(DEFAULT_FILTERS);
+    setHasLeading(false);
+    setHasThrust(false);
+    setSearch("");
+  };
   const stale = q.isFetching && data.asof !== asof;
   const lines = workLines(data, hidden, everyIncubating);
 
@@ -345,6 +452,18 @@ export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps)
             Has coiling
           </label>
         )}
+        {canFilterLeading && (
+          <label className="fq-check" title="Only cards with a name whose relative strength is at a 13-week high">
+            <input type="checkbox" checked={hasLeading} onChange={(e) => setHasLeading(e.target.checked)} />
+            Has leading
+          </label>
+        )}
+        {canFilterThrust && (
+          <label className="fq-check" title="Only cards with a 50-day breadth thrust">
+            <input type="checkbox" checked={hasThrust} onChange={(e) => setHasThrust(e.target.checked)} />
+            Has thrust
+          </label>
+        )}
         {controls.cards.length > 0 && (
           <label className="fq-field">
             <span className="fq-seg-label">Card</span>
@@ -363,8 +482,18 @@ export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps)
             </select>
           </label>
         )}
+        {onShow.length > 1 && (
+          <input
+            type="search"
+            className="fq-search"
+            aria-label="Filter card or ticker"
+            placeholder="Find card or ticker…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        )}
         {filtering && (
-          <button type="button" className="fq-clear" onClick={() => setFilters(DEFAULT_FILTERS)}>
+          <button type="button" className="fq-clear" onClick={clearAllFilters}>
             clear filters
           </button>
         )}
@@ -398,6 +527,15 @@ export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps)
         <div className="fq-scroll">
           <table className="fq-table">
             <thead>
+              <tr className="fq-super" aria-hidden="true">
+                <td colSpan={5}>Recorded call</td>
+                <td colSpan={4} className="fq-grp-start">
+                  Quiet signals (display only)
+                </td>
+                <td colSpan={1} className="fq-grp-start fq-num">
+                  EDGAR
+                </td>
+              </tr>
               <tr>
                 {COLUMNS.map((c) => (
                   <SortTh key={c.label} col={c} sort={sort} onSort={onSort} />
@@ -405,8 +543,14 @@ export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps)
               </tr>
             </thead>
             <tbody>
-              {sorted.map((r) => (
-                <Row key={r.key} r={r} onSelectThesis={onSelectThesis} />
+              {sorted.map((r, idx) => (
+                <Row
+                  key={r.key}
+                  r={r}
+                  flipUp={sorted.length > 3 && idx >= sorted.length - 3}
+                  stateBreak={sort.key === "order" && idx > 0 && r.state === "incubating" && sorted[idx - 1].state === "warming"}
+                  onSelectThesis={onSelectThesis}
+                />
               ))}
             </tbody>
           </table>

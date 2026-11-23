@@ -33,6 +33,8 @@ import {
 import {
   useFilingStream,
   useFilingStreamCards,
+  type FilingStreamDayOut,
+  type FilingStreamNameOut,
   type FilingStreamOut,
   type FilingStreamRowOut,
   type StreamDays,
@@ -72,8 +74,14 @@ function StreamLine({
   const tags = [...row.tags, ...(row.role ? [contextRoleTag(row.role)] : []), ...(silent ? [silent] : [])];
   const expandable = row.detail.length > 0 || row.kind === "form4a";
   const source = isSecLink(row.url) ? "EDGAR" : "source";
+  const material = !row.routine && row.kind !== "filing";
+  const rowLinks = row.links.filter((l): l is string => l != null);
   return (
-    <li className={`fs-row${open ? " open" : ""}`} data-testid="fs-row" data-kind={row.kind}>
+    <li
+      className={`fs-row${open ? " open" : ""}${material ? " fs-material" : row.kind === "filing" ? " fs-index" : ""}`}
+      data-testid="fs-row"
+      data-kind={row.kind}
+    >
       <div className="fs-line">
         <button
           type="button"
@@ -127,9 +135,165 @@ function StreamLine({
               </li>
             )}
           </ul>
+          {(row.accession || rowLinks.length > 0) && (
+            <div className="fs-detail-meta">
+              {row.accession && <span>Accession {row.accession}</span>}
+              {rowLinks.length > 0 && <span>Links: {rowLinks.join(", ")}</span>}
+            </div>
+          )}
         </div>
       )}
     </li>
+  );
+}
+
+const CAD_W = 1000;
+const CAD_H = 42;
+const CAD_BASE = 28;
+const CAD_MAX_BAR = 24;
+
+/** Monochrome daily filing cadence strip across the selected window: brighter lower bar = material rows, muted upper
+ *  bar = routine rows. Hover updates a fixed-height readout (zero vertical shift); click jumps to that day. */
+function CadenceStrip({
+  days,
+  windowStart,
+  asof,
+}: {
+  days: readonly FilingStreamDayOut[];
+  windowStart: string;
+  asof: string;
+}) {
+  const [hoverDate, setHoverDate] = useState<string | null>(null);
+  if (days.length === 0) return null;
+
+  const startMs = Date.parse(`${windowStart}T00:00:00Z`);
+  const endMs = Date.parse(`${asof}T00:00:00Z`);
+  const spanMs = Math.max(86_400_000, endMs - startMs);
+  const padL = 4;
+  const padR = 4;
+  const plotW = CAD_W - padL - padR;
+
+  const points = days.map((d) => {
+    const ms = Date.parse(`${d.date}T00:00:00Z`);
+    const t = Number.isNaN(ms) ? 1 : Math.max(0, Math.min(1, (ms - startMs) / spanMs));
+    const routine = d.routine;
+    const material = Math.max(0, d.rows.length - routine);
+    const tickers = [...new Set(d.rows.map((r) => r.ticker))].slice(0, 5);
+    return { date: d.date, x: padL + t * plotW, total: d.rows.length, material, routine, tickers };
+  });
+
+  const maxTotal = Math.max(1, ...points.map((p) => p.total));
+  const totalMat = points.reduce((s, p) => s + p.material, 0);
+  const totalRt = points.reduce((s, p) => s + p.routine, 0);
+  const barW = Math.max(3, Math.min(10, plotW / Math.max(20, Math.round(spanMs / 86_400_000) + 1) * 0.72));
+  const hovered = hoverDate ? points.find((p) => p.date === hoverDate) ?? null : null;
+  const readout = hovered
+    ? `${fmtDayHeader(hovered.date)}: ${hovered.material} material${hovered.routine > 0 ? `, ${hovered.routine} routine` : ""} · ${hovered.tickers.join(", ")}${hovered.total > hovered.tickers.length ? "…" : ""}`
+    : "Hover a day to inspect, click to jump";
+
+  const jumpTo = (date: string) => {
+    const el = document.getElementById(`fs-day-${date}`);
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  return (
+    <div className="fs-cadence" data-testid="fs-cadence">
+      <div className="fs-cad-head">
+        <span className="fs-cad-title">Daily cadence</span>
+        <span className="fs-cad-meta">
+          {totalMat} material · {totalRt} routine · {plural(days.length, "active day", "active days")}
+        </span>
+      </div>
+      <div className={`fs-cad-read${hovered ? " active" : ""}`} aria-live="polite" title={hovered ? readout : undefined}>
+        {readout}
+      </div>
+      <svg
+        className="fs-cad-svg"
+        viewBox={`0 0 ${CAD_W} ${CAD_H}`}
+        preserveAspectRatio="xMinYMid meet"
+        role="img"
+        aria-label="Daily filing cadence across the window"
+        onMouseLeave={() => setHoverDate(null)}
+      >
+        <line className="fs-cad-axis" x1={padL} x2={CAD_W - padR} y1={CAD_BASE} y2={CAD_BASE} />
+        <text className="fs-cad-tick" x={padL} y={39} textAnchor="start">
+          {fmtDay(windowStart)}
+        </text>
+        <text className="fs-cad-tick" x={CAD_W - padR} y={39} textAnchor="end">
+          {fmtDay(asof)}
+        </text>
+        {points.map((p) => {
+          const totalH = Math.max(2, (Math.sqrt(p.total) / Math.sqrt(maxTotal)) * CAD_MAX_BAR);
+          const matH = p.material > 0 ? Math.max(2, (p.material / p.total) * totalH) : 0;
+          const rtH = Math.max(0, totalH - matH);
+          const isHi = hoverDate === p.date;
+          return (
+            <g
+              key={p.date}
+              className={`fs-cad-bar${isHi ? " hi" : ""}`}
+              onMouseEnter={() => setHoverDate(p.date)}
+              onClick={() => jumpTo(p.date)}
+            >
+              <rect className="fs-cad-hit" x={p.x - Math.max(5, barW)} y={2} width={Math.max(10, barW * 2)} height={CAD_BASE} />
+              {rtH > 0 && (
+                <rect className="fs-cad-rt" x={p.x - barW / 2} y={CAD_BASE - matH - rtH} width={barW} height={rtH} rx={0.8} />
+              )}
+              {matH > 0 && (
+                <rect className="fs-cad-mat" x={p.x - barW / 2} y={CAD_BASE - matH} width={barW} height={matH} rx={0.8} />
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/** Roster activity strip from `data.names`: shows active companies with counts and quiet (0-row) names; clicking
+ *  toggles the ticker filter. */
+function RosterStrip({
+  names,
+  activeName,
+  onPick,
+}: {
+  names: readonly FilingStreamNameOut[];
+  activeName: string;
+  onPick: (ticker: string) => void;
+}) {
+  const [showQuiet, setShowQuiet] = useState(false);
+  if (names.length < 2) return null;
+
+  const sorted = [...names].sort((a, b) => b.rows - a.rows || a.ticker.localeCompare(b.ticker));
+  const active = sorted.filter((n) => n.rows > 0);
+  const quiet = sorted.filter((n) => n.rows === 0);
+  const visible = showQuiet || quiet.length <= 6 ? sorted : active;
+  const picked = activeName.trim().toLocaleLowerCase();
+
+  return (
+    <div className="fs-roster" data-testid="fs-roster" aria-label="Roster activity">
+      <span className="fs-seg-label">Roster</span>
+      {visible.map((n) => {
+        const isOn = picked !== "" && picked === n.ticker.toLocaleLowerCase();
+        return (
+          <button
+            key={n.key}
+            type="button"
+            className={`fs-roster-chip${n.rows === 0 ? " quiet" : ""}${isOn ? " on" : ""}`}
+            aria-pressed={isOn}
+            title={`${n.ticker}: ${plural(n.rows, "row", "rows")} in window${n.silent ? " (Context/Bench)" : ""} — click to filter`}
+            onClick={() => onPick(isOn ? "" : n.ticker)}
+          >
+            <span>{n.ticker}</span>
+            <span className="fs-roster-ct">{n.rows}</span>
+          </button>
+        );
+      })}
+      {quiet.length > 6 && (
+        <button type="button" className="fs-roster-more" onClick={() => setShowQuiet((v) => !v)}>
+          {showQuiet ? "hide quiet" : `+${quiet.length} quiet (0)`}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -155,7 +319,7 @@ export default function FilingStream({ asof, onSelectThesis }: DashboardProps) {
   useEffect(() => {
     setOpen(new Set());
     setFoldOpen(new Set());
-    setFilters((f) => ({ ...f, link: "", name: "", role: "" }));
+    setFilters((f) => ({ ...f, link: "", name: "", text: "", role: "" }));
   }, [thesisId]);
 
   const options = useMemo(() => {
@@ -348,6 +512,19 @@ export default function FilingStream({ asof, onSelectThesis }: DashboardProps) {
                 Counting names only
               </label>
             )}
+            {data.counts.rows > 1 && (
+              <label className="fs-field">
+                <span className="fs-seg-label">Text</span>
+                <input
+                  type="search"
+                  className="fs-search"
+                  aria-label="Filter text"
+                  placeholder="Headline or form"
+                  value={filters.text}
+                  onChange={(e) => setFilters((f) => ({ ...f, text: e.target.value }))}
+                />
+              </label>
+            )}
             {data.counts.routine > 0 && (
               <label
                 className="fs-check"
@@ -365,7 +542,29 @@ export default function FilingStream({ asof, onSelectThesis }: DashboardProps) {
                 {onlyForm4 ? "Show routine Form 4s" : "Show routine rows"}
               </label>
             )}
+            {filtering && (
+              <button
+                type="button"
+                className="fs-clear"
+                onClick={() =>
+                  setFilters((f) => ({
+                    ...DEFAULT_FILTERS,
+                    kinds: new Set(KIND_ORDER),
+                    showRoutine: f.showRoutine,
+                  }))
+                }
+              >
+                Clear filters
+              </button>
+            )}
           </div>
+
+          <CadenceStrip days={filtered} windowStart={data.window_start} asof={data.asof} />
+          <RosterStrip
+            names={data.names}
+            activeName={filters.name}
+            onPick={(ticker) => setFilters((f) => ({ ...f, name: ticker }))}
+          />
 
           {data.counts.rows === 0 ? (
             <div className="dash-note fs-empty">
@@ -376,7 +575,12 @@ export default function FilingStream({ asof, onSelectThesis }: DashboardProps) {
           ) : (
             <div className="fs-stream">
               {filtered.map((day) => (
-                <section key={day.date} className="fs-day" aria-label={fmtDayHeader(day.date)}>
+                <section
+                  key={day.date}
+                  id={`fs-day-${day.date}`}
+                  className="fs-day"
+                  aria-label={fmtDayHeader(day.date)}
+                >
                   <h2 className="fs-day-head">
                     {fmtDayHeader(day.date)} <span className="fs-n">{plural(day.rows.length, "row", "rows")}</span>
                   </h2>

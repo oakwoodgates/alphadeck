@@ -20,6 +20,7 @@ import {
   sortGroups,
   sortNames,
   splitParts,
+  splitRead,
   type SortCol,
   type SortState,
   type WindowKey,
@@ -83,11 +84,40 @@ function workLine(d: LandingOut, groups: number): string {
   ].join(" · ");
 }
 
-/** A thin 0–100 bar: the fill runs from the low (0%) to the position. Nothing drawn for "—". */
+/** A 0–100 range-position track with a 50% midpoint hairline, fill, and close marker dot. Nothing drawn for "—". */
 function RangeBar({ value }: { value: number | null | undefined }) {
+  const pct = value != null ? Math.max(0, Math.min(100, value)) : null;
   return (
     <span className="ld-bar" aria-hidden="true">
-      {value != null && <span className="ld-bar-fill" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />}
+      <span className="ld-bar-mid" />
+      {pct != null && (
+        <>
+          <span className="ld-bar-fill" style={{ width: `${pct}%` }} />
+          <span className="ld-bar-dot" style={{ left: `${pct}%` }} />
+        </>
+      )}
+    </span>
+  );
+}
+
+/** Stacked proportion strip of the five quadrants (accum → thin → flat → rest → dist) across the window's read names. */
+function SplitBar({ split }: { split: LandingSplitOut }) {
+  const total = splitRead(split);
+  if (total === 0) return null;
+  const order = [
+    { key: "accum", n: split.accumulation },
+    { key: "thin", n: split.thin_rally },
+    { key: "flat", n: split.flat },
+    { key: "rest", n: split.rest },
+    { key: "dist", n: split.distribution },
+  ] as const;
+  return (
+    <span className="ld-split-bar" aria-hidden="true">
+      {order.map((seg) =>
+        seg.n > 0 ? (
+          <span key={seg.key} className={`ld-sb-seg ${seg.key}`} style={{ width: `${(seg.n / total) * 100}%` }} />
+        ) : null,
+      )}
     </span>
   );
 }
@@ -183,7 +213,7 @@ function LabelTh({
   const dir = sort.col === col ? sort.dir : null;
   return (
     <th
-      className={num ? "ld-num" : undefined}
+      className={num ? "ld-num" : "ld-th-label"}
       aria-sort={dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none"}
     >
       <button
@@ -258,6 +288,9 @@ function NameRow({
             <span className="ld-pos">
               <RangeBar value={r?.range_pos} />
               <span className="ld-v">{fmtPos(r?.range_pos)}</span>
+              {r?.ret != null && (
+                <span className={`ld-ret${r.ret > 0 ? " pos" : r.ret < 0 ? " neg" : ""}`}>{fmtRet(r.ret)}</span>
+              )}
             </span>
             <span className="ld-sub">
               {q ? (
@@ -310,12 +343,40 @@ function GroupRow({
         }}
       >
         <td className="ld-label">
-          <span className="ld-chev" aria-hidden="true">
-            {open ? "▾" : "▸"}
+          <span className="ld-label-inner">
+            <span className="ld-chev" aria-hidden="true">
+              {open ? "▾" : "▸"}
+            </span>
+            <span className="ld-label-text">{label}</span>
+            {g.thesis_id && (
+              <button
+                type="button"
+                className="ld-open-card"
+                aria-label={`Open ${g.thesis_name ?? label} in Cockpit`}
+                title={`Open ${g.thesis_name ?? label} in Cockpit`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect(g.thesis_id!);
+                }}
+              >
+                <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+                  <path
+                    d="M3.5 8.5L8.5 3.5M4.5 3.5H8.5V7.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )}
           </span>
-          {label}
         </td>
-        <td className="ld-num">
+        <td
+          className="ld-num"
+          title={`${g.priced} of ${plural(g.names, "company", "companies")} priced${g.flagged > 0 ? ` (${g.flagged} flagged)` : ""}`}
+        >
           <span className="ld-v">{g.names}</span>
           {g.flagged > 0 && (
             <span className="ld-sub" title="left out of every number: a flagged price history">
@@ -326,6 +387,7 @@ function GroupRow({
         {WINDOWS.map((w) => {
           const s = groupWindow(g, w.key);
           if (!s) return <td key={w.key} className="ld-cell" />;
+          const showUpDown = w.key !== "1d" || s.up_down_n > 0;
           return (
             <td
               key={w.key}
@@ -337,10 +399,13 @@ function GroupRow({
                 <span className="ld-v">{fmtPos(s.range_median)}</span>
                 <span className="ld-n">n {s.range_n}</span>
               </span>
+              <SplitBar split={s.split} />
               <SplitLine split={s.split} />
-              <span className="ld-sub">
-                up/down {fmtRatio(s.up_down_median)} <span className="ld-n">n {s.up_down_n}</span>
-              </span>
+              {showUpDown && (
+                <span className="ld-sub">
+                  up/down {fmtRatio(s.up_down_median)} <span className="ld-n">n {s.up_down_n}</span>
+                </span>
+              )}
             </td>
           );
         })}
@@ -357,11 +422,21 @@ export default function Landing({ asof, onSelectThesis }: DashboardProps) {
   const [groupBy, setGroupBy] = useState<GroupBy>("link");
   const [includeSilent, setIncludeSilent] = useState(false);
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  const [search, setSearch] = useState("");
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const q = useLanding(asof, groupBy, includeSilent);
   const data = q.data;
 
-  const groups = useMemo(() => (data ? sortGroups(data.groups, sort, data.group_by) : []), [data, sort]);
+  const allGroups = useMemo(() => (data ? sortGroups(data.groups, sort, data.group_by) : []), [data, sort]);
+  const groups = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    if (!query || !data) return allGroups;
+    return allGroups.filter(
+      (g) =>
+        groupLabel(g, data.group_by).toLocaleLowerCase().includes(query) ||
+        g.members.some((m) => m.ticker.toLocaleLowerCase().includes(query)),
+    );
+  }, [allGroups, data, search]);
 
   if (q.isLoading) {
     return (
@@ -411,6 +486,16 @@ export default function Landing({ asof, onSelectThesis }: DashboardProps) {
           />
           Show Context and Bench
         </label>
+        {allGroups.length > 1 && (
+          <input
+            type="search"
+            className="ld-search"
+            aria-label="Filter groups or tickers"
+            placeholder="Filter groups or tickers…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        )}
         {q.isFetching && (
           <span className="dash-note">
             {data.asof !== asof
@@ -419,7 +504,7 @@ export default function Landing({ asof, onSelectThesis }: DashboardProps) {
           </span>
         )}
       </div>
-      <div className="dash-note ld-work">{workLine(data, groups.length)}</div>
+      <div className="dash-note ld-work">{workLine(data, allGroups.length)}</div>
       <FlaggedNote flagged={data.flagged} />
       {data.roster_fallback_cards > 0 && (
         <div className="dash-note ld-work">
@@ -435,8 +520,10 @@ export default function Landing({ asof, onSelectThesis }: DashboardProps) {
         up-close days over the volume on down-close days (median). Click a row for its names.
       </div>
 
-      {groups.length === 0 ? (
+      {allGroups.length === 0 ? (
         <div className="dash-note">No companies in this view.</div>
+      ) : groups.length === 0 ? (
+        <div className="dash-note">No group or ticker matches "{search.trim()}".</div>
       ) : (
         <div className="ld-scroll">
           <table className="ld-table">

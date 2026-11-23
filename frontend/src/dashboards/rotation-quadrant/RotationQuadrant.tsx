@@ -8,8 +8,10 @@ import {
   NEUTRAL,
   QUADRANTS,
   changedQuadrant,
+  clamp,
   fmtDay,
   fmtNum,
+  focusedPlotDomain,
   groupLabel,
   moveWords,
   nextSort,
@@ -19,7 +21,7 @@ import {
   statusWords,
   sx,
   sy,
-  tailPath,
+  tailPoints,
   type Domain,
   type SortCol,
   type SortState,
@@ -27,6 +29,7 @@ import {
 import {
   useRotationQuadrant,
   type GroupBy,
+  type Quadrant,
   type QuadrantGroupOut,
   type QuadrantNameOut,
   type RotationQuadrantOut,
@@ -122,11 +125,22 @@ function Readout({ g, groupBy }: { g: QuadrantGroupOut | null; groupBy: GroupBy 
   );
 }
 
+type TailWindow = 3 | 5 | 9;
+type ScaleMode = "all" | "focused";
+
+const TAIL_OPTIONS: readonly { value: TailWindow; label: string }[] = [
+  { value: 3, label: "2w" },
+  { value: 5, label: "4w" },
+  { value: 9, label: "8w" },
+];
+
 function QuadrantPlot({
   groups,
   groupBy,
   hover,
   selected,
+  tailLen,
+  scaleMode,
   onHover,
   onSelect,
 }: {
@@ -134,26 +148,46 @@ function QuadrantPlot({
   groupBy: GroupBy;
   hover: string | null;
   selected: string | null;
+  tailLen: TailWindow;
+  scaleMode: ScaleMode;
   onHover: (key: string | null) => void;
   onSelect: (key: string) => void;
 }) {
   const pw = PLOT.w - PLOT.left - PLOT.right;
   const ph = PLOT.h - PLOT.top - PLOT.bottom;
-  const dom: Domain = plotDomain(groups);
-  const X = (v: number) => PLOT.left + sx(v, dom, pw);
-  const Y = (v: number) => PLOT.top + sy(v, dom, ph);
-  const cx = X(NEUTRAL);
-  const cy = Y(NEUTRAL);
+  const dom: Domain =
+    scaleMode === "focused" ? focusedPlotDomain(groups, tailLen) : plotDomain(groups);
+  const Xraw = (v: number) => PLOT.left + sx(v, dom, pw);
+  const Yraw = (v: number) => PLOT.top + sy(v, dom, ph);
+  const X = (v: number) => clamp(Xraw(v), PLOT.left + 3, PLOT.left + pw - 3);
+  const Y = (v: number) => clamp(Yraw(v), PLOT.top + 3, PLOT.top + ph - 3);
+  const isClipped = (xv: number, yv: number) =>
+    Math.abs(xv - NEUTRAL) > dom.hx || Math.abs(yv - NEUTRAL) > dom.hy;
+
+  const cx = Xraw(NEUTRAL);
+  const cy = Yraw(NEUTRAL);
+  const qCounts: Record<Quadrant, number> = { improving: 0, leading: 0, weakening: 0, lagging: 0 };
+  for (const g of groups) {
+    if (g.quadrant) qCounts[g.quadrant]++;
+  }
   const corner = [
-    { key: "improving", x: PLOT.left + 6, y: PLOT.top + 14, anchor: "start" },
-    { key: "leading", x: PLOT.left + pw - 6, y: PLOT.top + 14, anchor: "end" },
-    { key: "lagging", x: PLOT.left + 6, y: PLOT.top + ph - 8, anchor: "start" },
-    { key: "weakening", x: PLOT.left + pw - 6, y: PLOT.top + ph - 8, anchor: "end" },
-  ] as const;
+    { key: "improving" as const, x: PLOT.left + 8, y: PLOT.top + 15, anchor: "start" as const, countDx: 66 },
+    { key: "leading" as const, x: PLOT.left + pw - 8, y: PLOT.top + 15, anchor: "end" as const, countDx: -54 },
+    { key: "lagging" as const, x: PLOT.left + 8, y: PLOT.top + ph - 8, anchor: "start" as const, countDx: 54 },
+    { key: "weakening" as const, x: PLOT.left + pw - 8, y: PLOT.top + ph - 8, anchor: "end" as const, countDx: -72 },
+  ];
+
+  const activeKey = hover ?? selected;
+  const activeGroup = activeKey ? groups.find((g) => g.key === activeKey) ?? null : null;
+  const hasFocus = activeGroup != null;
   // the hovered and selected dots draw last, so they sit on top
   const ordered = [...groups].sort(
     (a, b) => Number(a.key === hover || a.key === selected) - Number(b.key === hover || b.key === selected),
   );
+  // subtle midpoint ticks between center and edges
+  const xTicks = [NEUTRAL - dom.hx, NEUTRAL - dom.hx / 2, NEUTRAL, NEUTRAL + dom.hx / 2, NEUTRAL + dom.hx];
+  const yTicks = [NEUTRAL - dom.hy, NEUTRAL - dom.hy / 2, NEUTRAL, NEUTRAL + dom.hy / 2, NEUTRAL + dom.hy];
+
   return (
     <svg
       className="rq-plot"
@@ -161,27 +195,46 @@ function QuadrantPlot({
       role="img"
       aria-label={`Rotation quadrant: ${plural(groups.length, "group", "groups")} plotted`}
     >
+      {/* subtle quadrant washes for spatial orientation */}
+      <rect className="rq-wash improving" x={PLOT.left} y={PLOT.top} width={cx - PLOT.left} height={cy - PLOT.top} />
+      <rect className="rq-wash leading" x={cx} y={PLOT.top} width={PLOT.left + pw - cx} height={cy - PLOT.top} />
+      <rect className="rq-wash lagging" x={PLOT.left} y={cy} width={cx - PLOT.left} height={PLOT.top + ph - cy} />
+      <rect className="rq-wash weakening" x={cx} y={cy} width={PLOT.left + pw - cx} height={PLOT.top + ph - cy} />
       <rect className="rq-frame" x={PLOT.left} y={PLOT.top} width={pw} height={ph} />
+
+      {/* faint intermediate gridlines */}
+      {[xTicks[1], xTicks[3]].map((v) => (
+        <line key={`gx${v}`} className="rq-grid" x1={Xraw(v)} x2={Xraw(v)} y1={PLOT.top} y2={PLOT.top + ph} />
+      ))}
+      {[yTicks[1], yTicks[3]].map((v) => (
+        <line key={`gy${v}`} className="rq-grid" x1={PLOT.left} x2={PLOT.left + pw} y1={Yraw(v)} y2={Yraw(v)} />
+      ))}
+
       {corner.map((c) => (
-        <text key={c.key} className={`rq-qlabel ${c.key}`} x={c.x} y={c.y} textAnchor={c.anchor}>
-          {quadrantLabel(c.key)}
-        </text>
+        <g key={c.key}>
+          <text className={`rq-qlabel ${c.key}`} x={c.x} y={c.y} textAnchor={c.anchor}>
+            {quadrantLabel(c.key)}
+          </text>
+          <text className="rq-qcount" x={c.x + c.countDx} y={c.y} textAnchor={c.anchor}>
+            {qCounts[c.key]}
+          </text>
+        </g>
       ))}
       <line className="rq-axis" x1={cx} x2={cx} y1={PLOT.top} y2={PLOT.top + ph} />
       <line className="rq-axis" x1={PLOT.left} x2={PLOT.left + pw} y1={cy} y2={cy} />
-      {([NEUTRAL - dom.hx, NEUTRAL, NEUTRAL + dom.hx] as const).map((v, i) => (
+      {xTicks.map((v, i) => (
         <text
-          key={`x${v}`}
+          key={`x${i}`}
           className="rq-tick"
-          x={X(v)}
-          y={PLOT.top + ph + 12}
-          textAnchor={i === 0 ? "start" : i === 2 ? "end" : "middle"}
+          x={Xraw(v)}
+          y={PLOT.top + ph + 13}
+          textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}
         >
           {v.toFixed(1)}
         </text>
       ))}
-      {[NEUTRAL - dom.hy, NEUTRAL, NEUTRAL + dom.hy].map((v) => (
-        <text key={`y${v}`} className="rq-tick" x={PLOT.left - 5} y={Y(v) + 3} textAnchor="end">
+      {yTicks.map((v, i) => (
+        <text key={`y${i}`} className="rq-tick" x={PLOT.left - 5} y={Yraw(v) + 3} textAnchor="end">
           {v.toFixed(1)}
         </text>
       ))}
@@ -191,19 +244,45 @@ function QuadrantPlot({
       <text className="rq-tick rq-axis-title" x={PLOT.left} y={PLOT.top - 8} textAnchor="start">
         ↑ y · RS momentum
       </text>
+
+      {/* crosshair drop-lines for the hovered/selected dot */}
+      {activeGroup && activeGroup.x != null && activeGroup.y != null && (
+        <g className="rq-crosshair" aria-hidden="true">
+          <line x1={X(activeGroup.x)} x2={X(activeGroup.x)} y1={PLOT.top} y2={PLOT.top + ph} />
+          <line x1={PLOT.left} x2={PLOT.left + pw} y1={Y(activeGroup.y)} y2={Y(activeGroup.y)} />
+        </g>
+      )}
+
       <g className="rq-tails">
         {ordered.map((g) => {
-          const pts = tailPath(g);
+          const pts = tailPoints(g, tailLen);
           if (pts.length < 2) return null;
           const on = g.key === hover || g.key === selected;
+          const dim = hasFocus && !on;
           return (
-            <polyline
-              key={g.key}
-              data-testid="rq-tail"
-              data-key={g.key}
-              className={`rq-tail ${g.quadrant ?? ""}${on ? " on" : ""}`}
-              points={pts.map((p) => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ")}
-            />
+            <g key={g.key}>
+              <polyline
+                data-testid="rq-tail"
+                data-key={g.key}
+                className={`rq-tail ${g.quadrant ?? ""}${on ? " on" : ""}${dim ? " dim" : ""}`}
+                points={pts.map((p) => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ")}
+              />
+              {on &&
+                pts.slice(0, -1).map((p, idx) => (
+                  <circle
+                    key={`tn-${idx}`}
+                    className={`rq-tail-node ${g.quadrant ?? ""}`}
+                    cx={X(p.x)}
+                    cy={Y(p.y)}
+                    r={1.6 + (idx / Math.max(1, pts.length - 1)) * 1.1}
+                    opacity={0.35 + (idx / Math.max(1, pts.length - 1)) * 0.55}
+                  >
+                    <title>
+                      {p.session ? `${fmtDay(p.session)} · ` : ""}x {fmtNum(p.x)} · y {fmtNum(p.y)}
+                    </title>
+                  </circle>
+                ))}
+            </g>
           );
         })}
       </g>
@@ -211,15 +290,24 @@ function QuadrantPlot({
         {ordered.map((g) => {
           if (g.x == null || g.y == null) return null;
           const on = g.key === hover || g.key === selected;
+          const dim = hasFocus && !on;
           const label = groupLabel(g, groupBy);
           const px = X(g.x);
           const py = Y(g.y);
+          const clipped = isClipped(g.x, g.y);
+          // clamp label box safely inside the plot frame
+          const onRight = px > PLOT.left + pw / 2;
+          const labelW = Math.min(220, label.length * 6.2 + 12);
+          const lx = onRight
+            ? clamp(px - 8, PLOT.left + labelW + 4, PLOT.left + pw - 4)
+            : clamp(px + 8, PLOT.left + 4, PLOT.left + pw - labelW - 4);
+          const ly = clamp(py - 9, PLOT.top + 16, PLOT.top + ph - 6);
           return (
             <g
               key={g.key}
               data-testid="rq-dot"
               data-key={g.key}
-              className={`rq-dot-g${g.key === selected ? " selected" : ""}${g.key === hover ? " hover" : ""}`}
+              className={`rq-dot-g${g.key === selected ? " selected" : ""}${g.key === hover ? " hover" : ""}${dim ? " dim" : ""}`}
               role="button"
               tabIndex={0}
               aria-label={`${label}: ${quadrantLabel(g.quadrant)}, x ${fmtNum(g.x)}, y ${fmtNum(g.y)}`}
@@ -236,16 +324,28 @@ function QuadrantPlot({
                 }
               }}
             >
-              <circle className={`rq-dot ${g.quadrant ?? ""}`} cx={px} cy={py} r={on ? 5 : 3.5} />
+              <circle className="rq-dot-hit" cx={px} cy={py} r={10} />
+              {clipped && <circle className={`rq-dot-clip ${g.quadrant ?? ""}`} cx={px} cy={py} r={on ? 7.5 : 6} />}
+              <circle className={`rq-dot ${g.quadrant ?? ""}`} cx={px} cy={py} r={on ? 5.2 : 3.6} />
               {on && (
-                <text
-                  className="rq-dot-label"
-                  x={px > PLOT.left + pw / 2 ? px - 8 : px + 8}
-                  y={py - 7}
-                  textAnchor={px > PLOT.left + pw / 2 ? "end" : "start"}
-                >
-                  {label}
-                </text>
+                <g className="rq-dot-pill">
+                  <rect
+                    className="rq-dot-bg"
+                    x={onRight ? lx - labelW : lx - 4}
+                    y={ly - 11}
+                    width={labelW + 4}
+                    height={15}
+                    rx={3}
+                  />
+                  <text
+                    className="rq-dot-label"
+                    x={lx}
+                    y={ly}
+                    textAnchor={onRight ? "end" : "start"}
+                  >
+                    {label}
+                  </text>
+                </g>
               )}
             </g>
           );
@@ -340,8 +440,10 @@ function GroupRow({
   groupBy,
   open,
   selected,
+  hovered,
   minPriced,
   pricedSessions,
+  onHover,
   onToggle,
   onSelect,
 }: {
@@ -349,21 +451,26 @@ function GroupRow({
   groupBy: GroupBy;
   open: boolean;
   selected: boolean;
+  hovered: boolean;
   minPriced: number;
   pricedSessions: number;
+  onHover: (key: string | null) => void;
   onToggle: () => void;
   onSelect: DashboardProps["onSelectThesis"];
 }) {
   const status = statusWords(g, minPriced);
   const silent = groupBy === "link" && (g.link === "Context" || g.link === "Bench");
+  const fullLabel = groupLabel(g, groupBy);
   return (
     <>
       <tr
         id={`rq-row-${g.key}`}
-        className={`rq-group${open ? " open" : ""}${selected ? " selected" : ""}${silent || status ? " quiet" : ""}`}
+        className={`rq-group${open ? " open" : ""}${selected ? " selected" : ""}${hovered ? " hovered" : ""}${silent || status ? " quiet" : ""}`}
         tabIndex={0}
         aria-expanded={open}
         aria-selected={selected}
+        onMouseEnter={() => g.status === "plotted" && onHover(g.key)}
+        onMouseLeave={() => g.status === "plotted" && onHover(null)}
         onClick={onToggle}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -372,11 +479,11 @@ function GroupRow({
           }
         }}
       >
-        <td className="rq-label">
+        <td className="rq-label" title={fullLabel}>
           <span className="rq-chev" aria-hidden="true">
             {open ? "▾" : "▸"}
           </span>
-          <span className="rq-label-text">{groupLabel(g, groupBy)}</span>
+          <span className="rq-label-text">{fullLabel}</span>
           {status && <span className="rq-off">{status}</span>}
         </td>
         <td className="rq-q">
@@ -435,6 +542,10 @@ export default function RotationQuadrant({ asof, onSelectThesis }: DashboardProp
   const [includeSilent, setIncludeSilent] = useState(false);
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
   const [changedOnly, setChangedOnly] = useState(false);
+  const [quadFilter, setQuadFilter] = useState<Quadrant | null>(null);
+  const [query, setQuery] = useState("");
+  const [tailLen, setTailLen] = useState<TailWindow>(9);
+  const [scaleMode, setScaleMode] = useState<ScaleMode>("all");
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -442,10 +553,16 @@ export default function RotationQuadrant({ asof, onSelectThesis }: DashboardProp
   const q = useRotationQuadrant(asof, groupBy, includeSilent);
   const data = q.data;
 
-  const shown = useMemo(
-    () => (data ? data.groups.filter((g) => !changedOnly || changedQuadrant(g)) : []),
-    [data, changedOnly],
-  );
+  const shown = useMemo(() => {
+    if (!data) return [];
+    const needle = query.trim().toLowerCase();
+    return data.groups.filter((g) => {
+      if (changedOnly && !changedQuadrant(g)) return false;
+      if (quadFilter != null && g.quadrant !== quadFilter) return false;
+      if (needle && !groupLabel(g, data.group_by).toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [data, changedOnly, quadFilter, query]);
   const rows = useMemo(() => (data ? sortGroups(shown, sort, data.group_by) : []), [data, shown, sort]);
   const plotted = useMemo(() => shown.filter((g) => g.status === "plotted"), [shown]);
 
@@ -508,6 +625,44 @@ export default function RotationQuadrant({ asof, onSelectThesis }: DashboardProp
             </button>
           ))}
         </div>
+        <div className="rq-seg" role="group" aria-label="Tail length">
+          <span className="rq-seg-label">Tail</span>
+          {TAIL_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={`rq-seg-btn${tailLen === o.value ? " on" : ""}`}
+              aria-pressed={tailLen === o.value}
+              onClick={() => setTailLen(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <div className="rq-seg" role="group" aria-label="Plot scale">
+          <span className="rq-seg-label">Scale</span>
+          {(
+            [
+              { value: "all", label: "Fit all", title: "Fit every dot and tail point inside the plot" },
+              {
+                value: "focused",
+                label: "Focused",
+                title: "Zoom to the 88th percentile around 100 so extreme outliers do not flatten the center",
+              },
+            ] as const
+          ).map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={`rq-seg-btn${scaleMode === o.value ? " on" : ""}`}
+              aria-pressed={scaleMode === o.value}
+              title={o.title}
+              onClick={() => setScaleMode(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
         <label className="rq-check" title="Add Context and Bench memberships (their own groups in the Link view)">
           <input
             type="checkbox"
@@ -531,19 +686,38 @@ export default function RotationQuadrant({ asof, onSelectThesis }: DashboardProp
           </span>
         )}
       </div>
-      <div className="dash-note rq-work">{measureLine(data)}</div>
-      <div className="dash-note rq-work">{workLine(data, shown.length)}</div>
-      {data.roster_fallback_cards > 0 && (
-        <div className="dash-note rq-work">
-          Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are
-          point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
+
+      <div className="rq-controls rq-subcontrols">
+        <div className="rq-seg" role="group" aria-label="Filter quadrant">
+          <span className="rq-seg-label">Quadrant</span>
+          <button
+            type="button"
+            className={`rq-seg-btn${quadFilter == null ? " on" : ""}`}
+            aria-pressed={quadFilter == null}
+            onClick={() => setQuadFilter(null)}
+          >
+            All
+          </button>
+          {QUADRANTS.map((qd) => (
+            <button
+              key={qd.key}
+              type="button"
+              className={`rq-seg-btn${quadFilter === qd.key ? " on" : ""}`}
+              aria-pressed={quadFilter === qd.key}
+              onClick={() => setQuadFilter((cur) => (cur === qd.key ? null : qd.key))}
+            >
+              <Swatch q={qd.key} /> {qd.label}
+            </button>
+          ))}
         </div>
-      )}
-      <div className="dash-note rq-legend">
-        Our own simple measures, not a published methodology. Equal weight. Business type and sector come from
-        today's master. Lagging by construction: x compares against a {data.level_sessions}-session average.{" "}
-        {QUADRANTS.map((x) => `${x.label}: ${x.rule}`).join(" · ")}. Each group's basket is as of{" "}
-        {fmtDay(data.asof)}, looking back.
+        <input
+          type="search"
+          className="rq-search"
+          aria-label="Filter groups"
+          placeholder="Filter groups…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
 
       <div className="rq-body">
@@ -557,6 +731,8 @@ export default function RotationQuadrant({ asof, onSelectThesis }: DashboardProp
               groupBy={view}
               hover={hover}
               selected={selected}
+              tailLen={tailLen}
+              scaleMode={scaleMode}
               onHover={setHover}
               onSelect={selectDot}
             />
@@ -613,8 +789,10 @@ export default function RotationQuadrant({ asof, onSelectThesis }: DashboardProp
                     groupBy={view}
                     open={open.has(g.key)}
                     selected={selected === g.key}
+                    hovered={hover === g.key}
                     minPriced={data.min_priced}
                     pricedSessions={data.priced_sessions}
+                    onHover={setHover}
                     onToggle={() => toggle(g.key)}
                     onSelect={onSelectThesis}
                   />
@@ -623,6 +801,23 @@ export default function RotationQuadrant({ asof, onSelectThesis }: DashboardProp
             </table>
           </div>
         )}
+      </div>
+
+      <div className="rq-foot">
+        <div className="dash-note rq-work">{measureLine(data)}</div>
+        <div className="dash-note rq-work">{workLine(data, shown.length)}</div>
+        {data.roster_fallback_cards > 0 && (
+          <div className="dash-note rq-work">
+            Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are
+            point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
+          </div>
+        )}
+        <div className="dash-note rq-legend">
+          Our own simple measures, not a published methodology. Equal weight. Business type and sector come from
+          today's master. Lagging by construction: x compares against a {data.level_sessions}-session average.{" "}
+          {QUADRANTS.map((x) => `${x.label}: ${x.rule}`).join(" · ")}. Each group's basket is as of{" "}
+          {fmtDay(data.asof)}, looking back.
+        </div>
       </div>
     </div>
   );

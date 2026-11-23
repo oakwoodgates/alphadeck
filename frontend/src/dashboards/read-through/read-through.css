@@ -36,20 +36,26 @@
 
 .rt-empty { padding: 14px 0; }
 
-/* the table: scrolls sideways inside its wrapper, the Company column stays */
-.rt-scroll { overflow-x: auto; margin-top: 4px; }
+/* SPY baseline bar right above the table */
+.rt-bench-bar { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); padding: 4px 0 0; font-variant-numeric: tabular-nums; }
+.rt-bench-val { color: var(--txt-2); }
+
+/* the table: scrolls inside its wrapper, sticky header + pinned Company column */
+.rt-scroll { overflow: auto; max-height: 70vh; margin-top: 2px; }
 table.rt-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
-table.rt-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.rt-table thead th { position: sticky; top: 0; z-index: 2; background: var(--bg); }
+table.rt-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; padding: 4px 12px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.rt-table td { padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; color: var(--txt-2); }
 table.rt-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
 .rt-sort { font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-.rt-sort:hover, .rt-sort.on { color: var(--txt-2); }
+.rt-sort:hover, .rt-sort.on { color: var(--txt); }
 .rt-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
-table.rt-table .rt-num { text-align: right; padding-right: 16px; }
+table.rt-table .rt-num { text-align: right; padding-right: 16px; min-width: 86px; }
 table.rt-table .rt-num .rt-sort { text-align: right; }
 
 /* the pinned Company column */
 table.rt-table th.rt-co, table.rt-table td.rt-co { position: sticky; left: 0; z-index: 1; background: var(--bg); min-width: 150px; max-width: 190px; }
+table.rt-table thead th.rt-co { z-index: 3; }
 table.rt-table tbody tr:hover td.rt-co { background: var(--panel); }
 .rt-chip { font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
 .rt-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
@@ -73,18 +79,27 @@ table.rt-table th.rt-cards, table.rt-table td.rt-cards { min-width: 240px; }
 
 .rt-bt { color: var(--txt-3); }
 
-.rt-fil-line { display: flex; align-items: baseline; gap: 8px; }
-.rt-fil-text { display: block; max-width: 380px; overflow: hidden; text-overflow: ellipsis; color: var(--txt-2); cursor: help; }
-.rt-cat-text { display: block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; color: var(--txt-2); cursor: help; }
+.rt-fil-block { display: flex; flex-direction: column; gap: 2px; max-width: 340px; white-space: normal; }
+.rt-fil-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35; color: var(--txt-2); cursor: help; }
+.rt-fil-meta { display: inline-flex; align-items: baseline; gap: 8px; }
+.rt-fil-age { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
+.rt-cat-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 280px; white-space: normal; line-height: 1.35; color: var(--txt-2); }
+.rt-cat-btn { font: inherit; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.rt-cat-btn:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 2px; }
 .rt-src { font-family: var(--mono); font-size: 10px; color: var(--txt-3); text-decoration: none; white-space: nowrap; }
 .rt-src:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
 .rt-none { color: var(--txt-4); font-size: 11px; }
 
-/* the tape cells: a plain signed number, its sign tinted well toward gray; flagged = gray */
-.rt-tape { font-family: var(--mono); font-size: 11.5px; color: var(--txt-3); cursor: help; }
+/* the tape cells: a plain signed number with a quiet zero-centered diverging bar; flagged = gray */
+.rt-tape { font-family: var(--mono); font-size: 11.5px; color: var(--txt-3); cursor: help; display: block; }
 .rt-tape.pos { color: var(--rt-pos); }
 .rt-tape.neg { color: var(--rt-neg); }
 .rt-tape.gray { color: var(--txt-4); font-size: 10px; font-style: italic; }
+.rt-bar { position: relative; display: block; width: 64px; height: 3px; margin: 4px 0 0 auto; background: var(--line); border-radius: 2px; }
+.rt-bar-zero { position: absolute; left: 50%; top: -1px; width: 1px; height: 5px; background: var(--txt-4); }
+.rt-bar-fill { position: absolute; top: 0; height: 3px; border-radius: 1px; background: var(--txt-3); }
+.rt-bar-fill.pos { background: var(--rt-pos); }
+.rt-bar-fill.neg { background: var(--rt-neg); }
 
 .rt-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .rt-none-cards summary { cursor: pointer; width: fit-content; }

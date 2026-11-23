@@ -595,4 +595,20 @@ describe("Evidence Ledger — the record-start note", () => {
     setup();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
+
+  it("renders the provenance composition strip, as-of divider, price indicator, roster chips, and Clear filters", async () => {
+    setup();
+    const comp = screen.getByTestId("el-composition");
+    expect(comp).toHaveTextContent("Put there by");
+    expect(comp).toHaveTextContent("EDGAR 2");
+    expect(comp).toHaveTextContent("price 1");
+    expect(screen.getByTestId("el-asof-divider")).toHaveTextContent("as of Oct 28, 2026");
+    expect(rowOf("8-day breakout")).toHaveTextContent("price");
+
+    const roster = screen.getByTestId("el-roster");
+    await userEvent.click(within(roster).getByRole("button", { name: /SMR/ }));
+    expect(labels()).toEqual(["convertible overhang"]);
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(labels()).toHaveLength(10);
+  });
 });

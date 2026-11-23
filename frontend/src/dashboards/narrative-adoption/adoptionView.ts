@@ -133,6 +133,49 @@ export function firstWords(t: Pick<AdoptionTermOut, "first_month" | "first_at_st
 
 export const NOT_COUNTED = "not counted yet";
 
+export type TermSortKey = "term" | "last_month" | "last_3" | "last_12" | "filers" | "first";
+export type TermSort = { key: TermSortKey; dir: "asc" | "desc" } | null;
+
+export function nextTermSort(cur: TermSort, key: TermSortKey): TermSort {
+  const firstDir: "asc" | "desc" = key === "term" || key === "first" ? "asc" : "desc";
+  if (cur?.key !== key) return { key, dir: firstDir };
+  if (cur.dir === firstDir) return { key, dir: firstDir === "asc" ? "desc" : "asc" };
+  return null;
+}
+
+export function sortTerms(terms: readonly AdoptionTermOut[], sort: TermSort): AdoptionTermOut[] {
+  if (!sort) return [...terms];
+  const sign = sort.dir === "asc" ? 1 : -1;
+  const pick = (t: AdoptionTermOut): number | string | null => {
+    if (sort.key === "term") return t.term.toLocaleLowerCase();
+    if (!t.counted) return null;
+    switch (sort.key) {
+      case "last_month":
+        return t.last_month_documents;
+      case "last_3":
+        return t.last_3_documents;
+      case "last_12":
+        return t.last_12_documents;
+      case "filers":
+        return t.filers;
+      case "first":
+        return t.first_month;
+    }
+  };
+  return [...terms].sort((a, b) => {
+    if (sort.key !== "term" && a.counted !== b.counted) return a.counted ? -1 : 1;
+    const va = pick(a);
+    const vb = pick(b);
+    if (va == null && vb != null) return 1;
+    if (vb == null && va != null) return -1;
+    if (va != null && vb != null && va !== vb) {
+      const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+      if (cmp !== 0) return sign * cmp;
+    }
+    return a.term.localeCompare(b.term);
+  });
+}
+
 // --- the quiet lines -----------------------------------------------------------------------------------------
 
 function cacheWords(d: AdoptionOut): string {

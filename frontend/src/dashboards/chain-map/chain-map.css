@@ -10,6 +10,7 @@
 .cm-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
 .cm-search, .cm-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
 .cm-search { width: 140px; }
+.cm-search.cm-hl { width: 170px; }
 .cm-select { max-width: 320px; }
 .cm-select option { background: var(--panel); color: var(--txt-2); }
 .cm-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
@@ -18,15 +19,20 @@
 .cm-title { display: flex; align-items: baseline; gap: 10px; margin-top: 2px; }
 .cm-card { font: inherit; font-size: 14px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; }
 .cm-card:hover { text-decoration: underline; text-underline-offset: 3px; }
-.cm-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
+.cm-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-3); font-variant-numeric: tabular-nums; }
 
 /* the readout above the picture: a steady-height box, so hovering a name never moves the picture */
 .cm-readout { min-height: 98px; max-height: 190px; overflow-y: auto; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 12px; line-height: 1.5; color: var(--txt-2); }
+.cm-readout.pinned { border-color: var(--txt-3); }
 .cm-prompt { color: var(--txt-3); font-size: 11.5px; }
 .cm-ro-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .cm-ro-tk { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--txt); }
 .cm-ro-name { color: var(--txt); }
 .cm-ro-role { font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
+.cm-ro-dup { font-family: var(--mono); font-size: 10px; color: var(--leader); }
+.cm-ro-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.cm-ro-btn { font: inherit; font-size: 10.5px; color: var(--txt-2); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 7px; cursor: pointer; }
+.cm-ro-btn:hover { color: var(--txt); border-color: var(--txt-3); }
 .cm-ro-line { font-size: 11.5px; color: var(--txt-3); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .cm-ro-fit { margin: 4px 0 2px; font-size: 12px; color: var(--txt-2); }
 
@@ -46,33 +52,43 @@
 .cm-col-label { fill: var(--txt); font-size: 11px; font-weight: 600; }
 .cm-col.old_link .cm-col-label, .cm-col.no_link .cm-col-label, .cm-col.silent .cm-col-label { fill: var(--txt-3); }
 .cm-col-tag { fill: var(--txt-3); font-size: 9.5px; }
-svg .cm-n { fill: var(--txt-4); }
+.cm-flow-chev { fill: none; stroke: var(--txt-4); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+svg .cm-n { fill: var(--txt-3); }
 
 /* nodes: all one size */
-.cm-node { cursor: pointer; outline: none; }
+.cm-node { cursor: pointer; outline: none; transition: opacity 120ms ease; }
 .cm-node-box { fill: var(--panel); stroke: var(--line-2); stroke-width: 1; }
 .cm-node:hover .cm-node-box { stroke: var(--txt-3); fill: var(--panel-2); }
 .cm-node:focus .cm-node-box { stroke: var(--txt-3); fill: var(--panel-2); }
 .cm-node:focus-visible .cm-node-box { stroke: var(--txt-2); stroke-width: 1.5; }
+.cm-node.pinned .cm-node-box { stroke: var(--txt); stroke-width: 1.5; fill: var(--panel-2); }
+.cm-node.sibling .cm-node-box { stroke: var(--leader); stroke-width: 1.5; }
+.cm-node.match .cm-node-box { stroke: var(--txt); stroke-width: 1.5; fill: var(--panel-2); }
+.cm-node.dim { opacity: 0.25; }
+.cm-dup-dot { fill: var(--leader); opacity: 0.75; }
 .cm-tk { fill: var(--txt); font-family: var(--mono); font-size: 11px; font-weight: 700; }
 .cm-role { fill: var(--txt-3); font-size: 9px; }
 .cm-type { fill: var(--txt-3); font-size: 9.5px; }
 .cm-age { fill: var(--txt-3); font-family: var(--mono); font-size: 9.5px; font-variant-numeric: tabular-nums; }
 .cm-side { fill: var(--txt-2); stroke: var(--txt-2); stroke-width: 1.2; stroke-linejoin: round; }
+.cm-side.above { fill: var(--txt); stroke: var(--txt); }
+.cm-side.below { fill: none; stroke: var(--txt-3); stroke-width: 1.25; }
 .cm-node.flagged { opacity: 0.45; }
 .cm-node.unresolved .cm-node-box { stroke-dasharray: 3 2; }
 
 /* rails, edges and the bracket */
 .cm-rail-head text { fill: var(--txt-3); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; }
-.cm-rail-head text.cm-n { letter-spacing: 0; text-transform: none; fill: var(--txt-4); }
-.cm-edge { fill: none; stroke: var(--txt-4); stroke-width: 1; }
+.cm-rail-head text.cm-n { letter-spacing: 0; text-transform: none; fill: var(--txt-3); }
+.cm-edge { fill: none; stroke: var(--txt-4); stroke-width: 1; transition: stroke 120ms ease, stroke-width 120ms ease; }
+.cm-edge.hi { stroke: var(--txt-2); stroke-width: 1.6; }
 .cm-edge.dashed { stroke-dasharray: 4 3; }
 .cm-end { fill: var(--txt-3); }
+.cm-end.hi { fill: var(--txt); }
 .cm-bracket { fill: none; stroke: var(--txt-3); stroke-width: 1.4; stroke-linecap: square; }
 .cm-edge-label { fill: var(--txt-3); font-size: 9px; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
 
 .cm-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
-.cm-legend { color: var(--txt-4); }
+.cm-legend { color: var(--txt-3); opacity: 0.85; }
 .cm-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
 
 @media (max-width: 640px) {

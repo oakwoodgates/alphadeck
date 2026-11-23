@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 280,
   label: "Daily Digest",
   description: "The morning page: what last night's pass changed, the positions, what is due this week, the insider buys just filed, the tape on the armed names and what is forming, each line opening its full page.",
+  group: "daily",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

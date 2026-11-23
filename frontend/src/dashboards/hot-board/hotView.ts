@@ -281,11 +281,18 @@ export type Filters = {
   tiers: readonly TierPick[];
   /** only rows whose entry window still has a session left after the as-of (F3: the call path's own "open") */
   openOnly: boolean;
+  /** case-insensitive filter across ticker, company name, or card name */
+  search?: string;
 };
-export const DEFAULT_FILTERS: Filters = { grades: [], triggerKinds: [], card: null, tiers: [], openOnly: false };
+export const DEFAULT_FILTERS: Filters = { grades: [], triggerKinds: [], card: null, tiers: [], openOnly: false, search: "" };
 
 export const filtersActive = (f: Filters) =>
-  f.grades.length > 0 || f.triggerKinds.length > 0 || f.card !== null || f.tiers.length > 0 || f.openOnly;
+  f.grades.length > 0 ||
+  f.triggerKinds.length > 0 ||
+  f.card !== null ||
+  f.tiers.length > 0 ||
+  f.openOnly ||
+  Boolean(f.search?.trim());
 
 export const tierOf = (r: HotRowOut): TierPick => r.cap.tier ?? "none";
 export const windowOpen = (r: HotRowOut) => r.clocks.sessions_left !== null;
@@ -296,6 +303,15 @@ export function rowMatches(r: HotRowOut, f: Filters): boolean {
   if (f.card !== null && r.thesis_id !== f.card) return false;
   if (f.tiers.length && !f.tiers.includes(tierOf(r))) return false;
   if (f.openOnly && !windowOpen(r)) return false;
+  const q = f.search?.trim().toLocaleLowerCase();
+  if (
+    q &&
+    !r.ticker.toLocaleLowerCase().includes(q) &&
+    !r.thesis_name.toLocaleLowerCase().includes(q) &&
+    !(r.name && r.name.toLocaleLowerCase().includes(q))
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -544,6 +560,59 @@ export function workLines(
 }
 
 // --- the sparkline -----------------------------------------------------------------------------------------------
+
+export type SparkGeo = {
+  d: string;
+  endX: number;
+  endY: number;
+  armX: number | null;
+  tone: "pos" | "neg" | "";
+};
+
+/** Full geometry for the 90-session sparkline: path, endpoint dot, direction tone, and optional arm-night tick x. */
+export function sparkGeometry(
+  values: ReadonlyArray<number | null>,
+  w: number,
+  h: number,
+  sessionsSince?: number | null,
+): SparkGeo | null {
+  const real = values.filter((v): v is number => v !== null);
+  if (real.length < 2) return null;
+  const lo = Math.min(...real);
+  const hi = Math.max(...real);
+  const span = hi - lo || 1;
+  const n = values.length;
+  const x = (i: number) => (n === 1 ? 0 : (i / (n - 1)) * w);
+  const y = (v: number) => h - ((v - lo) / span) * (h - 3) - 1.5;
+  let d = "";
+  let pen = false;
+  let firstVal: number | null = null;
+  let lastVal: number | null = null;
+  let endX = 0;
+  let endY = h / 2;
+  values.forEach((v, i) => {
+    if (v === null) {
+      pen = false;
+      return;
+    }
+    const px = x(i);
+    const py = y(v);
+    d += `${pen ? "L" : "M"}${px.toFixed(1)} ${py.toFixed(1)}`;
+    pen = true;
+    if (firstVal === null) firstVal = v;
+    lastVal = v;
+    endX = px;
+    endY = py;
+  });
+  let armX: number | null = null;
+  if (sessionsSince != null && sessionsSince >= 0 && sessionsSince < n && n > 1) {
+    const idx = n - 1 - sessionsSince;
+    if (idx >= 0 && idx < n) armX = x(idx);
+  }
+  const tone: "pos" | "neg" | "" =
+    firstVal != null && lastVal != null ? (lastVal > firstVal ? "pos" : lastVal < firstVal ? "neg" : "") : "";
+  return { d, endX, endY, armX, tone };
+}
 
 /** An SVG path for the last-90-closes sparkline in a w x h box, broken on a blank slot (never interpolated across
  *  it). `null` when there are fewer than two real closes (a point is not a path). */

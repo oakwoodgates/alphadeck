@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 100,
   label: "Rotation Quadrant",
   description: "Each group's strength vs SPY and its momentum, with an 8-week tail: leading, weakening, lagging, improving.",
+  group: "rotation",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./RotationQuadrant")),

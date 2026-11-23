@@ -426,4 +426,26 @@ describe("Cross Radar — a flagged price history", () => {
     renderPage();
     expect(screen.queryByText(/left out for a flagged price history/)).toBeNull();
   });
+
+  it("aggregates same-session crosses into one stacked tick, draws convergence tracks, and filters by search", async () => {
+    const user = userEvent.setup();
+    const stacked: CrossTimelineRowOut = {
+      ...ROW,
+      golden: 2,
+      death: 0,
+      members: [
+        tname("AAA", { crosses: [{ d: "2026-10-28", direction: "golden", sessions_ago: 0, pos: 2 }] }),
+        tname("BBB", { crosses: [{ d: "2026-10-28", direction: "golden", sessions_ago: 0, pos: 2 }] }),
+      ],
+    };
+    h.useCrossRadar.mockReturnValue(query({ ...DATA, timeline: [stacked, QUIET_ROW] }));
+    renderPage();
+    const strip = within(section("Cross timeline")).getByRole("img", { name: /Turbines · Grid: 2 golden/ });
+    expect(strip.querySelectorAll("line.xr-tick.golden.stacked")).toHaveLength(1);
+    expect(strip.querySelectorAll(".xr-stack-dot.golden")).toHaveLength(1);
+    expect(within(section("Near-cross watch")).getByText("-0.62%").closest("td")?.querySelector(".xr-near-track")).not.toBeNull();
+    // search filters across sections
+    await user.type(screen.getByRole("searchbox", { name: /Filter groups/ }), "Spare");
+    expect(timelineRows()).toEqual(["Spare · Grid1 name"]);
+  });
 });

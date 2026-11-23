@@ -297,4 +297,31 @@ describe("Etfs", () => {
     render(<Etfs asof="2026-10-28" onSelectThesis={vi.fn()} />);
     expect(screen.getByText("Could not load the ETFs page.")).toBeInTheDocument();
   });
+
+  it("supports shared scale, compare filter, flow metric switch, size sort, range track, and coverage bar", async () => {
+    const user = userEvent.setup();
+    const { container } = setup();
+
+    // Shared scale toggle and search filter in panel 1
+    const shared = screen.getByRole("button", { name: "Shared scale" });
+    await user.click(shared);
+    expect(shared).toHaveAttribute("aria-pressed", "true");
+    await user.type(screen.getByRole("searchbox", { name: "Filter fund or card" }), "beta");
+    expect(within(panel("compare")).getAllByTestId("et-compare-row")).toHaveLength(1);
+
+    // Panel 2 switches bar metric to 1M % shares and re-orders by abs %
+    await user.click(within(panel("flow")).getByRole("button", { name: "1M % shares" }));
+    const flowOrder = within(panel("flow"))
+      .getAllByTestId("et-flow-row")
+      .map((r) => r.querySelector(".et-tk")?.textContent);
+    expect(flowOrder).toEqual(["FNDA", "FNDB"]);
+
+    // Panel 3 sorts by Turnover and displays %/d
+    await user.click(within(panel("size")).getByRole("button", { name: "Turnover" }));
+    expect(within(panel("size")).getAllByTestId("et-size-row")[0]).toHaveTextContent("1.2%/d");
+
+    // Panel 4 draws 52w range track and Panel 5 draws coverage bar
+    expect(container.querySelectorAll(".et-rtrack").length).toBeGreaterThan(0);
+    expect(container.querySelector(".et-cov-bar")).not.toBeNull();
+  });
 });

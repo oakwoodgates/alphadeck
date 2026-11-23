@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 190,
   label: "Hot Board",
   description: "Every name the record shows Armed, one row each, ranked by a stated heat formula: how recently it armed, how loud its tape is, how it leads the market, how far it has already moved.",
+  group: "daily",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

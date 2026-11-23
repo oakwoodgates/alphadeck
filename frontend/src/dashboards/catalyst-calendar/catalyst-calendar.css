@@ -19,7 +19,7 @@
 .ccal-state-chip::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 6px; background: var(--ccal-st, var(--txt-4)); }
 .ccal-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); line-height: 1.5; }
 .ccal-quiet { font-size: 12px; color: var(--txt-3); padding: 2px 6px; }
-.ccal-note { font-size: 11px; color: var(--txt-4); padding: 0 6px 2px; }
+.ccal-note { font-size: 11px; color: var(--txt-3); padding: 0 6px 2px; }
 
 /* the state colors, once (scoped to this page): a chip's swatch and a line's state word read --ccal-st */
 .ccal .incub { --ccal-st: var(--incub); }
@@ -27,31 +27,56 @@
 .ccal .armed { --ccal-st: var(--armed); }
 .ccal .manage { --ccal-st: var(--manage); }
 
+/* 90-day SVG horizon rug strip */
+.ccal-horizon { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px 6px; border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--panel) 70%, transparent); margin-top: 2px; }
+.ccal-horizon-head { display: flex; flex-wrap: nowrap; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ccal-horizon-title { font-size: 9.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-3); white-space: nowrap; }
+.ccal-horizon-meta { font-family: var(--mono); font-size: 10px; color: var(--txt-3); white-space: nowrap; }
+.ccal-horizon-read { font-family: var(--mono); font-size: 10.5px; line-height: 16px; height: 16px; color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.ccal-horizon-read.active { color: var(--txt-2); }
+.ccal-horizon-svg { display: block; width: 100%; height: 54px; overflow: visible; }
+.ccal-hz-week { fill: color-mix(in srgb, var(--panel-2) 70%, transparent); }
+.ccal-hz-axis { stroke: var(--line-2); stroke-width: 1; }
+.ccal-hz-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 2; }
+.ccal-hz-tick { font-family: var(--mono); font-size: 9px; fill: var(--txt-3); }
+.ccal-hz-day { cursor: pointer; }
+.ccal-hz-hit { fill: transparent; }
+.ccal-hz-dot { fill: var(--ccal-st, var(--txt-2)); stroke: var(--bg); stroke-width: 0.7; }
+.ccal-hz-day.hi .ccal-hz-dot { stroke: var(--txt); stroke-width: 1; }
+.ccal-hz-dl { stroke: var(--txt-3); stroke-width: 1.6; stroke-linecap: round; }
+.ccal-hz-dl.entry { stroke: var(--warm); }
+.ccal-hz-dl.exit { stroke-dasharray: 2 1.5; }
+
 .ccal-sec { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
 .ccal-h { margin: 0 0 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: center; }
 .ccal-h::after { content: ""; flex: 1; height: 1px; background: var(--line); margin-left: 8px; }
 .ccal-ct { font-family: var(--mono); font-weight: 400; letter-spacing: 0.02em; text-transform: none; color: var(--txt-2); white-space: pre; }
 .ccal-bucket { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; }
 .ccal-bh { margin: 0 0 1px; padding: 0 6px; font-size: 11px; font-weight: 600; color: var(--txt-2); }
-.ccal-range { font-family: var(--mono); font-weight: 400; font-size: 10.5px; color: var(--txt-4); white-space: pre; }
+.ccal-range { font-family: var(--mono); font-weight: 400; font-size: 10.5px; color: var(--txt-3); white-space: pre; }
 .ccal-bh .ccal-ct { font-size: 10.5px; color: var(--txt-3); }
 
 .ccal-list { list-style: none; margin: 0; padding: 0; }
-.ccal-line { font: inherit; font-size: 12px; width: 100%; display: grid; grid-template-columns: 124px 84px minmax(160px, 460px) 140px minmax(120px, 280px) 84px; justify-content: start; gap: 0 12px; align-items: baseline; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--txt-2); text-align: left; cursor: pointer; }
+.ccal-line { font: inherit; font-size: 12px; width: 100%; display: grid; grid-template-columns: 108px 72px minmax(140px, 1.8fr) minmax(96px, 130px) minmax(110px, 1fr) 78px; justify-content: start; gap: 0 12px; align-items: baseline; padding: 3px 6px; border: 0; border-left: 2px solid transparent; border-radius: 4px; background: transparent; color: var(--txt-2); text-align: left; cursor: pointer; }
 .ccal-line:hover { background: var(--panel); color: var(--txt); }
 .ccal-line:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+.ccal-line.ccal-today { border-left-color: var(--txt-2); background: color-mix(in srgb, var(--panel) 55%, transparent); }
+.ccal-line.ccal-today .ccal-date, .ccal-line.ccal-today .ccal-days { color: var(--txt); font-weight: 600; }
+.ccal-line.ccal-soon .ccal-days { color: var(--txt-2); }
 .ccal-date { font-family: var(--mono); font-size: 11px; color: var(--txt-2); white-space: nowrap; }
 .ccal-days { font-family: var(--mono); font-size: 11px; color: var(--txt-3); white-space: nowrap; }
 .ccal-label { color: var(--txt-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ccal-kind, .ccal-when { font-size: 11px; color: var(--txt-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccal-kind, .ccal-when { font-size: 11px; color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ccal-card { color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ccal-line:hover .ccal-card { color: var(--txt-2); }
-.ccal-st { justify-self: start; font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ccal-st, var(--txt-4)); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; white-space: nowrap; cursor: help; }
+.ccal-st { justify-self: start; font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ccal-st, var(--txt-3)); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; white-space: nowrap; cursor: help; }
 .ccal-st.none { font-weight: 400; letter-spacing: 0; color: var(--txt-4); border-style: dashed; }
 
 /* a card deadline: the call's own clock, not an authored catalyst — its label in italics, a dashed tag */
 .ccal-deadline .ccal-label { font-style: italic; color: var(--txt-3); }
 .ccal-tag { font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-3); border: 1px dashed var(--line-2); border-radius: 4px; padding: 0 5px; cursor: help; }
+.ccal-tag-entry { color: var(--warm); border-color: color-mix(in srgb, var(--warm) 55%, var(--line-2)); }
+.ccal-tag-exit { color: var(--txt-3); border-color: var(--line-2); }
 
 /* the passed list: quieter than the calendar, every word one step down */
 .ccal-passed .ccal-date, .ccal-passed .ccal-label { color: var(--txt-3); }
@@ -62,7 +87,7 @@
 .ccal-urow { display: flex; align-items: baseline; gap: 6px; }
 .ccal-urow .ccal-uline { width: auto; grid-template-columns: 28px minmax(160px, 360px) 84px; }
 .ccal-count { font-family: var(--mono); font-size: 11px; color: var(--txt-2); text-align: right; }
-.ccal-expand { font: inherit; font-size: 10.5px; color: var(--txt-4); background: none; border: 0; padding: 0 4px; cursor: pointer; }
+.ccal-expand { font: inherit; font-size: 10.5px; color: var(--txt-3); background: none; border: 0; padding: 0 4px; cursor: pointer; }
 .ccal-expand:hover { color: var(--txt-2); }
 .ccal-ulist { margin: 0 0 4px 40px; }
 .ccal-ucat { grid-template-columns: minmax(160px, 420px) 110px 140px; font-size: 11.5px; padding: 2px 6px; }

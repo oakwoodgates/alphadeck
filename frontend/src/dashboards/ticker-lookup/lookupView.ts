@@ -293,6 +293,133 @@ export function sparkPaths(s: LookupSparkline, width: number, height: number, pa
   return { stock: path(s.stock), iwm: path(s.iwm) };
 }
 
+export type SparkChartGeo = {
+  lo: number;
+  hi: number;
+  baseY: number | null;
+  stockPath: string;
+  iwmPath: string;
+  xOf: (i: number) => number;
+  yOf: (v: number) => number;
+};
+
+/** Full-frame geometry for the interactive 90-session chart: keeps 100 in view when close, pads top/bottom, and
+ *  exposes xOf/yOf so crosshairs, gridlines and trigger/decision markers align with the two paths. */
+export function sparkChartGeo(
+  s: LookupSparkline,
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+  width: number,
+  height: number,
+): SparkChartGeo {
+  const all = [...s.stock, ...s.iwm].filter((v): v is number => v != null);
+  const rawLo = all.length > 0 ? Math.min(100, ...all) : 95;
+  const rawHi = all.length > 0 ? Math.max(100, ...all) : 105;
+  const pad = Math.max((rawHi - rawLo) * 0.08, 1);
+  const lo = rawLo - pad;
+  const hi = rawHi + pad;
+  const pw = width - left - right;
+  const ph = height - top - bottom;
+  const n = Math.max(s.stock.length - 1, 1);
+  const xOf = (i: number) => left + (i / n) * pw;
+  const yOf = (v: number) => top + ph - ((v - lo) / (hi - lo)) * ph;
+  const build = (series: readonly (number | null)[]) => {
+    const segments: string[] = [];
+    let run: string[] = [];
+    const flush = () => {
+      if (run.length > 1) segments.push(run.join(" "));
+      run = [];
+    };
+    series.forEach((v, i) => {
+      if (v == null) flush();
+      else run.push(`${run.length === 0 ? "M" : "L"}${xOf(i).toFixed(1)} ${yOf(v).toFixed(1)}`);
+    });
+    flush();
+    return segments.join(" ");
+  };
+  return {
+    lo,
+    hi,
+    baseY: lo <= 100 && 100 <= hi ? yOf(100) : null,
+    stockPath: build(s.stock),
+    iwmPath: build(s.iwm),
+    xOf,
+    yOf,
+  };
+}
+
+export type SparkMarker = {
+  index: number;
+  date: string;
+  kind: "entry" | "risk" | "decision";
+  label: string;
+};
+
+/** Triggers and non-voided decisions whose date lands inside the sparkline's session range, mapped to the nearest
+ *  session index on or after that date. */
+export function sparkMarkers(
+  dates: readonly string[],
+  triggers: readonly LookupTrigger[],
+  decisions: readonly { decision_date: string; action: string; thesis_name: string; voided: boolean }[],
+): SparkMarker[] {
+  if (dates.length === 0) return [];
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  const idxFor = (iso: string): number | null => {
+    if (iso < first || iso > last) return null;
+    const exact = dates.indexOf(iso);
+    if (exact >= 0) return exact;
+    const after = dates.findIndex((d) => d >= iso);
+    return after >= 0 ? after : dates.length - 1;
+  };
+  const out: SparkMarker[] = [];
+  for (const t of triggers) {
+    const d = t.recorded_on || t.event_date;
+    if (!d) continue;
+    const idx = idxFor(d);
+    if (idx == null) continue;
+    out.push({
+      index: idx,
+      date: d,
+      kind: t.role === "entry_trigger" ? "entry" : "risk",
+      label: `${t.role === "entry_trigger" ? "Entry trigger" : "Risk signal"}: ${t.label} (${t.thesis_name})`,
+    });
+  }
+  for (const dec of decisions) {
+    if (dec.voided) continue;
+    const idx = idxFor(dec.decision_date);
+    if (idx == null) continue;
+    out.push({
+      index: idx,
+      date: dec.decision_date,
+      kind: "decision",
+      label: `Decision (${dec.action}): ${dec.thesis_name}`,
+    });
+  }
+  return out;
+}
+
+export type RangeTrackInfo = {
+  low: number;
+  high: number;
+  close: number;
+  pct: number; // 0..100 position from low to high
+};
+
+/** Extract 52-week range position from the tape's figures when low, high, and last close are available. */
+export function rangeTrackInfo(figures: readonly LookupFigure[]): RangeTrackInfo | null {
+  const close = figures.find((f) => f.key === "last_close" || f.key === "close")?.value;
+  const hiFig = figures.find((f) => f.key === "pct_off_52w_high");
+  const loFig = figures.find((f) => f.key === "pct_above_52w_low" || f.key === "pct_off_52w_low");
+  const high = hiFig?.level ?? null;
+  const low = loFig?.level ?? null;
+  if (close == null || high == null || low == null || high <= low) return null;
+  const pct = Math.min(100, Math.max(0, ((close - low) / (high - low)) * 100));
+  return { low, high, close, pct };
+}
+
 // --- the filings -------------------------------------------------------------------------------------------------
 
 export const FILING_WINDOWS: readonly { value: number; label: string }[] = [

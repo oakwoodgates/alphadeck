@@ -17,6 +17,36 @@
 .fs-seg-btn.on { color: var(--txt); background: var(--panel-2); }
 .fs-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
 .fs-check input { accent-color: var(--txt-3); margin: 0; }
+.fs-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.fs-clear:hover { color: var(--txt); }
+
+/* monochrome daily cadence strip + roster activity strip */
+.fs-cadence { display: flex; flex-direction: column; gap: 3px; padding: 7px 10px 6px; border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--panel) 65%, transparent); margin-top: 2px; }
+.fs-cad-head { display: flex; flex-wrap: nowrap; align-items: baseline; justify-content: space-between; gap: 12px; }
+.fs-cad-title { font-size: 9.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-3); white-space: nowrap; }
+.fs-cad-meta { font-family: var(--mono); font-size: 10px; color: var(--txt-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fs-cad-read { font-family: var(--mono); font-size: 10.5px; line-height: 16px; height: 16px; color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; font-variant-numeric: tabular-nums; }
+.fs-cad-read.active { color: var(--txt-2); }
+.fs-cad-svg { display: block; width: 100%; height: 42px; overflow: visible; }
+.fs-cad-axis { stroke: var(--line-2); stroke-width: 1; }
+.fs-cad-tick { font-family: var(--mono); font-size: 8.5px; fill: var(--txt-3); }
+.fs-cad-bar { cursor: pointer; }
+.fs-cad-hit { fill: transparent; }
+.fs-cad-mat { fill: var(--txt-2); }
+.fs-cad-rt { fill: var(--txt-4); }
+.fs-cad-bar.hi .fs-cad-mat { fill: var(--txt); }
+.fs-cad-bar.hi .fs-cad-rt { fill: var(--txt-3); }
+
+.fs-roster { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 4px 0 2px; }
+.fs-roster-chip { display: inline-flex; align-items: baseline; gap: 4px; font-family: var(--mono); font-size: 10px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 6px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.fs-roster-chip:hover { color: var(--txt); border-color: var(--txt-3); background: var(--panel); }
+.fs-roster-chip.on { color: var(--txt); background: var(--panel-2); border-color: var(--txt-3); }
+.fs-roster-chip.quiet { color: var(--txt-4); border-style: dashed; border-color: var(--line); }
+.fs-roster-chip.quiet:hover { color: var(--txt-2); }
+.fs-roster-ct { font-size: 9.5px; color: var(--txt-3); }
+.fs-roster-chip.quiet .fs-roster-ct { color: var(--txt-4); }
+.fs-roster-more { font: inherit; font-size: 10px; color: var(--txt-3); background: none; border: 0; padding: 1px 4px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.fs-roster-more:hover { color: var(--txt); }
 
 .fs-title { display: flex; align-items: baseline; gap: 10px; margin-top: 2px; }
 .fs-card { font: inherit; font-size: 14px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; }
@@ -30,6 +60,9 @@
 .fs-day-head { margin: 0 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--txt-2); letter-spacing: 0.02em; display: flex; align-items: baseline; gap: 10px; }
 .fs-list { list-style: none; margin: 0; padding: 0; }
 .fs-row { padding: 2px 0; }
+.fs-row.fs-material .fs-form { color: var(--txt-2); font-weight: 600; }
+.fs-row.fs-material .fs-head { color: var(--txt); }
+.fs-row.fs-index .fs-form, .fs-row.fs-index .fs-head { color: var(--txt-3); }
 .fs-line { display: grid; grid-template-columns: 62px 78px minmax(0, 1fr) auto 62px; align-items: baseline; gap: 0 10px; }
 .fs-chip { justify-self: start; font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
 .fs-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
@@ -56,6 +89,7 @@
 .fs-detail ul { list-style: none; margin: 0; padding: 0; }
 .fs-detail li { padding: 1px 0; overflow-wrap: anywhere; }
 .fs-detail a { color: var(--txt-2); text-underline-offset: 3px; }
+.fs-detail-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 10px; color: var(--txt-4); }
 
 /* the fold: a day's routine Form 4s as one quiet line that expands in place */
 .fs-fold-item { padding: 2px 0; }
