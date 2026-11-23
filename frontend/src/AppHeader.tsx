@@ -5,7 +5,7 @@ import { useLogout } from "./api/hooks";
 import { useCurrentUser, useIsSteward } from "./auth/me";
 import { CLOCK_FALLBACK_TITLE, useAppClock } from "./clock";
 import { DASHBOARDS } from "./dashboards/registry";
-import { groupDashboards } from "./dashboards/groups";
+import { groupDashboards, preloadDashboard } from "./dashboards/groups";
 import {
   ASOF,
   adminPath,
@@ -235,6 +235,8 @@ function DashboardsMenu({
                       type="button"
                       role="menuitem"
                       className="nav-menu-item"
+                      onMouseEnter={() => preloadDashboard(d)}
+                      onFocus={() => preloadDashboard(d)}
                       onClick={() => go(dashboardPath(d.slug, asofParam))}
                     >
                       <span className="nav-menu-label">{d.label}</span>

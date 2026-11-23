@@ -38,3 +38,28 @@ export function groupDashboards<T extends DashboardEntry>(items: readonly T[]): 
   if (other && other.length > 0) out.push({ key: "other", label: "Other", items: other });
   return out;
 }
+
+/** Warm a dashboard's lazy JS chunk on pointer hover or keyboard focus so clicking the tile or menu item
+ *  renders synchronously without flashing the Suspense fallback. Pure bundle preload: makes no API request
+ *  (docs/DASHBOARDS.md: the index makes no requests). */
+export function preloadDashboard(entry: DashboardEntry): void {
+  const lazy = entry.component as unknown as {
+    _init?: (payload: unknown) => unknown;
+    _payload?: { _status?: number; _result?: unknown };
+  };
+  const payload = lazy._payload;
+  if (!payload || payload._status !== -1 || typeof lazy._init !== "function") return;
+  const ctor = payload._result;
+  try {
+    lazy._init(payload);
+  } catch (thrown) {
+    if (thrown && typeof (thrown as { catch?: unknown }).catch === "function") {
+      (thrown as Promise<unknown>).catch(() => {
+        if (payload._status === 2) {
+          payload._status = -1;
+          payload._result = ctor;
+        }
+      });
+    }
+  }
+}

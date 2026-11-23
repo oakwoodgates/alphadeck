@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 import type { ComponentType, LazyExoticComponent } from "react";
-import type { DashboardGroup } from "./groups";
+import { preloadDashboard, type DashboardGroup } from "./groups";
+
+export { preloadDashboard };
 
 // The ONE list of dashboards (docs/DASHBOARDS.md): self-contained cross-card views, the Board first. The
 // top nav's Dashboards menu, the /dashboards index, the /dashboards/:slug route and the home page (`/`,

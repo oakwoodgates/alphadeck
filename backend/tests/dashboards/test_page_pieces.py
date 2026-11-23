@@ -123,6 +123,7 @@ def test_a_soft_move_recomputes_the_page_reading_no_company(cache, views, stamps
 
 
 def test_one_stale_company_of_250_is_the_only_one_read(cache, views, stamps, monkeypatch):
+    monkeypatch.setattr(baskets, "CHUNK", 100)
     sids, read = _ids(250), Callback()
     stamps["map"] = {s: 1 for s in sids}
     stamps["fp"] = 2

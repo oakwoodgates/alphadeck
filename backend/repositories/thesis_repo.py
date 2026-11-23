@@ -106,6 +106,7 @@ def get_asof(
     known_at: datetime | None,
     *,
     workspace: WorkspaceScope,
+    loaded_thesis: Thesis | None = None,
 ) -> Thesis | None:
     """Load a Thesis with its basket ROSTER as it was known at ``known_at`` — the roster's point-in-time
     read (F12, the SECOND bitemporal leak). ``basket_member`` is full-replace / non-temporal, so a plain
@@ -125,8 +126,15 @@ def get_asof(
     change — so the live/today call path (serve asof=today, the nightly record) is unchanged. Callers own
     the transaction. This is roster METADATA, never a call input (#3): the reassigned basket only re-scopes
     the PIT prefetch and the armed/watch grouping, exactly as the live roster did. ``workspace`` as ``get``.
+
+    When ``loaded_thesis`` is supplied (matching ``thesis_id``), the caller has already loaded the thesis in
+    the right workspace (e.g. ``get_thesis_or_404``), so we copy it and run only the single ``basket_snapshot``
+    query instead of repeating the 6-query ``get``.
     """
-    thesis = get(conn, thesis_id, workspace=workspace)
+    if loaded_thesis is not None and loaded_thesis.id == thesis_id:
+        thesis = loaded_thesis.model_copy(deep=True)
+    else:
+        thesis = get(conn, thesis_id, workspace=workspace)
     if thesis is None:
         return None
     with conn.cursor() as cur:

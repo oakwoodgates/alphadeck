@@ -1151,3 +1151,33 @@ def test_snapshots_asof_for_matches_get_asof_across_theses_with_and_without_a_sn
             two
         ]
     ] == ["HIMS"]
+
+
+def test_get_asof_with_loaded_thesis_skips_reload_and_matches_full_get_asof(
+    db, security_id, monkeypatch
+):
+    """When the caller already holds the thesis (e.g. ``get_thesis_or_404``), ``loaded_thesis`` skips the
+    6-query ``get`` and runs only the single ``basket_snapshot`` query — returning a byte-identical copy
+    for both live (``known_at=None``) and historical ``known_at``, without mutating ``loaded_thesis``.
+    """
+    tid, _sid2 = _two_pinned_rosters(db, security_id)  # A (1) @ 06-01, B (2) @ 06-10
+    loaded = thesis_repo.get(db, tid, workspace=WORKSPACE_ANY)
+    assert loaded is not None and len(loaded.basket) == 2
+
+    def _forbid_get_many(*args, **kwargs):
+        raise AssertionError("_get_many must not be called when loaded_thesis matches thesis_id")
+
+    for known_at in (None, datetime(2026, 6, 5, tzinfo=timezone.utc)):
+        expected = thesis_repo.get_asof(db, tid, known_at, workspace=WORKSPACE_ANY)
+        counted = _CountingConn(db)
+        with monkeypatch.context() as mp:
+            mp.setattr(thesis_repo, "_get_many", _forbid_get_many)
+            got = thesis_repo.get_asof(
+                counted, tid, known_at, workspace=WORKSPACE_ANY, loaded_thesis=loaded
+            )
+        assert len(counted.statements) == 1
+        assert "basket_snapshot" in counted.statements[0]
+        assert got == expected
+        assert got is not loaded
+    # deep copy: overlaying the older 1-member snapshot did not mutate the caller's loaded Thesis
+    assert len(loaded.basket) == 2

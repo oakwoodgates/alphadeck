@@ -32,7 +32,7 @@ from dashboards.baskets import (
     per_company,
     price_flags,
 )
-from dashboards.breadth import read_breadths
+from dashboards.breadth import read_breadths, warm_member_closes
 from dashboards.cache import cached
 from dashboards.market_cap import CompanyReads, cap_cell, metric_of
 from dashboards.theme_leaderboard import (
@@ -305,6 +305,8 @@ def read_tape(
             {insider_flow.MEMBER_NAME: insider}, cap_cell(CompanyReads(flag=flag)), flag
         )
     rows = [b for b in pit.price_history(sid) if b.get("close") is not None]
+    # ``pit`` already holds this company's price bars: seed the breadth closes piece from them
+    warm_member_closes(pit, sid)
     close = (rows[-1]["d"], float(rows[-1]["close"])) if rows else None
     shares_facts = pit.shares_outstanding_facts(sid)
     shares = None

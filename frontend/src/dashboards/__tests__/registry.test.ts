@@ -4,7 +4,13 @@ import { fileURLToPath } from "node:url";
 import { lazy } from "react";
 import { describe, expect, it } from "vitest";
 
-import { DASHBOARDS, HOME_DASHBOARD, buildRegistry, type DashboardEntry } from "../registry";
+import {
+  DASHBOARDS,
+  HOME_DASHBOARD,
+  buildRegistry,
+  preloadDashboard,
+  type DashboardEntry,
+} from "../registry";
 
 // The self-registering registry (docs/DASHBOARDS.md rule 8): every <slug>/entry.ts is collected by
 // import.meta.glob and paired with its <slug>/thumbnail.svg, sorted by `order` then label, and a duplicate
@@ -153,5 +159,34 @@ describe("the dashboard registry — buildRegistry", () => {
       buildRegistry({ "./alpha/entry.ts": mod(fake("alpha", 10)) }, thumbs("alpha", "orphan")),
     ).toThrow('./orphan/thumbnail.svg has no entry.ts beside it (folder "orphan")');
     expect(() => buildRegistry({}, thumbs("orphan"))).toThrow('has no entry.ts beside it (folder "orphan")');
+  });
+
+  it("preloadDashboard warms a lazy component chunk once and resets cleanly if the load rejects", async () => {
+    let calls = 0;
+    const okEntry: DashboardEntry = {
+      ...fake("alpha", 10),
+      component: lazy(() => {
+        calls += 1;
+        return Promise.resolve({ default: () => null });
+      }),
+    };
+    preloadDashboard(okEntry);
+    preloadDashboard(okEntry);
+    expect(calls).toBe(1);
+
+    let failCalls = 0;
+    const failEntry: DashboardEntry = {
+      ...fake("beta", 20),
+      component: lazy(() => {
+        failCalls += 1;
+        return failCalls === 1
+          ? Promise.reject(new Error("transient network error"))
+          : Promise.resolve({ default: () => null });
+      }),
+    };
+    preloadDashboard(failEntry);
+    await new Promise((r) => setTimeout(r, 10));
+    preloadDashboard(failEntry);
+    expect(failCalls).toBe(2);
   });
 });

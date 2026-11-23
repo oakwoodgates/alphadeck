@@ -58,7 +58,7 @@ GROUP_BYS: tuple[GroupBy, ...] = ("link", "business_type", "sector", "card")
 # Companies per point-in-time view. One view over all ~1,500 companies would hold every company's whole
 # bounded price window (~630 calendar days) in memory at once; a view per chunk reads the same rows (the
 # prefetch scope only batches the reads, it never changes what a reader sees) and frees them as it goes.
-CHUNK = 100
+CHUNK = 250
 
 T = TypeVar("T")
 
@@ -326,6 +326,41 @@ def per_company(
 PAGE_PIECE_PREFIX = "page:"
 # the stored variant value of a piece read with no ``variant`` (equal only to itself)
 _NO_VARIANT: Hashable = object()
+
+
+def seed_page_piece(
+    piece: str,
+    pit: DisplayPointInTimeData,
+    security_id: UUID,
+    compute: Callable[[], T],
+    *,
+    variant: Hashable = _NO_VARIANT,
+) -> None:
+    """Populate a ``per_company(piece=...)`` entry from an active ``per_company`` callback's ``pit`` when not
+    already stored, so a later ``per_company(piece=...)`` for ``piece`` in the same workspace and generation
+    is a cache hit without re-querying ``fact_price_eod``. Outside an active ``per_company`` view of the same
+    workspace (mirroring ``SharedMember``'s guard), does nothing."""
+    view = _VIEW.get()
+    if (
+        view is None
+        or pit is not view.pit
+        or pit.asof != view.asof
+        or getattr(pit, "clock", None) != view.clock
+        or piece_workspace() != view.workspace
+    ):
+        return
+    kind = f"{PAGE_PIECE_PREFIX}{piece}"
+    found, stored = get_piece(kind, security_id, view.asof, view.clock, view.known_at)
+    if found and stored[0] == variant:
+        return
+    put_piece(
+        kind,
+        security_id,
+        view.asof,
+        view.clock,
+        view.known_at,
+        (variant, compute()),
+    )
 
 
 def _read_companies(

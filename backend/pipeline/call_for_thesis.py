@@ -29,6 +29,7 @@ def call_for_thesis(
     clock: Clock = "record",
     decisions_asof: date | None = None,
     workspace: WorkspaceScope = WORKSPACE_ANY,
+    loaded_thesis: Thesis | None = None,
 ) -> CallCard:
     """Load the thesis, RE-DERIVE its dated signal stream from the bitemporal facts as-of (via the shared
     ``assemble_from_pit`` core), and (when ``record``) append the CallCard to the write-only ``calls``
@@ -71,6 +72,7 @@ def call_for_thesis(
         clock=clock,
         decisions_asof=decisions_asof,
         workspace=workspace,
+        loaded_thesis=loaded_thesis,
     )
     card = assemble_from_pit(pit, thesis, asof, cfg)
     if record:
@@ -95,6 +97,7 @@ def load_call_inputs(
     clock: Clock = "record",
     decisions_asof: date | None = None,
     workspace: WorkspaceScope = WORKSPACE_ANY,
+    loaded_thesis: Thesis | None = None,
 ) -> tuple[Thesis, PointInTimeData]:
     """The INPUT half of ``call_for_thesis`` — everything the funnel reads before it assembles: the thesis
     with its roster AS OF ``known_at`` (basket_snapshot), its position as of both axes (the decisions log),
@@ -122,7 +125,12 @@ def load_call_inputs(
     # so serve / pipeline.run / the daily cron / backfill all get it from one place. A thesis with no
     # qualifying snapshot (pre-F12) falls back to the live roster; get_asof(now) == get, so a live/today
     # call is byte-identical.
-    thesis = thesis_repo.get_asof(conn, thesis_id, known_at, workspace=workspace)
+    if loaded_thesis is not None:
+        thesis = thesis_repo.get_asof(
+            conn, thesis_id, known_at, workspace=workspace, loaded_thesis=loaded_thesis
+        )
+    else:
+        thesis = thesis_repo.get_asof(conn, thesis_id, known_at, workspace=workspace)
     if thesis is None:
         raise LookupError(f"thesis not found: {thesis_id}")
 
