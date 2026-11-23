@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import get_args
+from uuid import UUID
 
 from app.schemas_api import InsiderBuyOut
+from domain.insider_internal_transfers import INTERNAL_TRANSFER
 from signals.display import insider_flow
 
 _ASOF = date(2026, 7, 1)
@@ -353,3 +355,69 @@ def test_is_open_market_buy_is_the_same_predicates_minus_identity():
     # character but stays OUT of the net-flow (below-low) — the same deferred tape-vs-call seam
     assert insider_flow._is_open_market_buy(self_below, lows) is False
     assert insider_flow._screen(self_below, lows, None) == insider_flow.SELF_FILING
+
+
+class _SpyPIT:
+    """Minimal display PIT double that records price_history and split_events calls."""
+
+    def __init__(self, txns: list[dict], bars: list[dict] | None = None) -> None:
+        self._txns = txns
+        self._bars = bars or []
+        self.asof = _ASOF
+        self.known_at = datetime(2026, 7, 1, 21, 0, tzinfo=timezone.utc)
+        self.price_calls: list[tuple[UUID, int | None]] = []
+        self.split_calls: list[UUID] = []
+
+    def insider_txns(self, security_id: UUID) -> list[dict]:
+        return list(self._txns)
+
+    def price_history(self, security_id: UUID, lookback_days: int | None = None) -> list[dict]:
+        self.price_calls.append((security_id, lookback_days))
+        return list(self._bars)
+
+    def split_events(self, security_id: UUID) -> list[dict]:
+        self.split_calls.append(security_id)
+        return []
+
+
+def test_display_skips_price_and_splits_when_no_open_market_buy_in_window():
+    sid = UUID("00000000-0000-0000-0000-000000000001")
+    cases = [
+        ("empty", [], None),
+        ("sells_only", [_txn(_ASOF - timedelta(days=5), code="S", usd=250_000.0)], 0.0),
+        ("stale_buy_at_boundary", [_txn(_ASOF - timedelta(days=90), code="P", usd=500_000.0)], 0.0),
+        (
+            "internal_transfer_buy",
+            [
+                {
+                    **_priced("Jane Doe", 10_000, 1.0, _ASOF - timedelta(days=2)),
+                    INTERNAL_TRANSFER: {"with": ("Linked Trust",), "evidence": ("same_filer",)},
+                }
+            ],
+            0.0,
+        ),
+    ]
+    for label, txns, expected_buys in cases:
+        pit = _SpyPIT(txns)
+        sig = insider_flow.display(pit, sid, _ASOF)
+        assert pit.price_calls == [], label
+        assert pit.split_calls == [], label
+        if expected_buys is None:
+            assert sig is None, label
+        else:
+            assert sig is not None and _by_key(sig)["buy_count"].value == expected_buys, label
+
+
+def test_display_reads_windowed_prices_and_splits_when_code_p_buy_in_window():
+    sid = UUID("00000000-0000-0000-0000-000000000001")
+    trade_day = _ASOF - timedelta(days=5)
+    pit = _SpyPIT(
+        txns=[_priced("Jane Doe", 10_000, 1.0, trade_day)],
+        bars=[{"d": trade_day, "low": 40.0}],
+    )
+    sig = insider_flow.display(pit, sid, _ASOF)
+    assert pit.price_calls == [(sid, insider_flow.WINDOW_DAYS)]
+    assert pit.split_calls == [sid]
+    assert sig is not None
+    assert _by_key(sig)["buy_count"].value == 0.0
+    assert "screened 1 off-market code-P buy" in sig.basis.note

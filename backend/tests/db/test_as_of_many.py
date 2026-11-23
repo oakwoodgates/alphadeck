@@ -16,11 +16,24 @@ from datetime import date, timedelta
 import pytest
 
 import signals.base as sb
-from db.bitemporal import _FACT_IDENTITY, as_of, as_of_many
+from db.bitemporal import (
+    _FACT_IDENTITY,
+    append_fact,
+    as_of,
+    as_of_many,
+    as_of_many_theses,
+    as_of_thesis,
+)
 from db.public_clock import SCOPE_COL
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
-from pipeline.seed import HIMS_SECURITY_ID, NNE_ID
+from pipeline.seed import (
+    HIMS_SECURITY_ID,
+    HIMS_THESIS_ID,
+    NNE_ID,
+    NUCLEAR_THESIS_ID,
+    UNH_THESIS_ID,
+)
 from signals.base import PointInTimeData, window_prices
 from signals.horizons import call_bounds, display_bounds
 from tests.pit_fixtures import (
@@ -29,6 +42,9 @@ from tests.pit_fixtures import (
     MID,
     PIN,
     SECS,
+    T1,
+    T2,
+    THESES,
     add_mid_versions,
     seed_all,
     seed_benchmark_bars,
@@ -279,3 +295,348 @@ def test_identity_reads_are_batched_and_memoized(db):
     assert proxy.cursors == 2
     assert pit.security_name(stranger) is None and proxy.cursors == 2
     assert pit._benchmark_id("SPY") == pit._benchmark_id("spy") and proxy.cursors == 3
+
+
+def _seed_thesis_facts(db) -> None:
+    """Seed multi-thesis, multi-version facts on ``fact_term_mentions`` and ``fact_theme_conviction``,
+    leaving ``UNH_THESIS_ID`` empty on both tables to exercise empty-list memoization."""
+
+    def mention(tid: uuid.UUID, term: str, month: date, valid_from: date, docs: int, rec):
+        return {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "thesis_id": tid,
+            "term": term,
+            "month": month,
+            "documents": docs,
+            "reports": docs,
+            "events": 0,
+            "issuance": 0,
+            "other": 0,
+            "filers": 1,
+            "filers_sampled": False,
+            "filer_ciks": ["0000000001"],
+            "new_filers": None,
+            "source_ref": "https://efts.sec.gov/LATEST/search-index?fixture",
+            "fetched_at": rec,
+            "valid_from": valid_from,
+            "recorded_at": rec,
+        }
+
+    # NUCLEAR_THESIS_ID: two months, with a re-version between T1 and T2 on 2026-04
+    append_fact(
+        db,
+        "fact_term_mentions",
+        mention(
+            NUCLEAR_THESIS_ID, "small modular reactor", date(2025, 7, 1), date(2025, 7, 31), 8, T1
+        ),
+    )
+    append_fact(
+        db,
+        "fact_term_mentions",
+        mention(
+            NUCLEAR_THESIS_ID, "small modular reactor", date(2026, 4, 1), date(2026, 4, 30), 12, T1
+        ),
+    )
+    append_fact(
+        db,
+        "fact_term_mentions",
+        mention(
+            NUCLEAR_THESIS_ID, "small modular reactor", date(2026, 4, 1), date(2026, 4, 30), 15, T2
+        ),
+    )
+    # HIMS_THESIS_ID: one month
+    append_fact(
+        db,
+        "fact_term_mentions",
+        mention(HIMS_THESIS_ID, "glp-1 compounding", date(2026, 3, 1), date(2026, 3, 31), 20, T1),
+    )
+
+    # fact_theme_conviction: two theses, with a re-version on NUCLEAR_THESIS_ID between T1 and T2
+    base_conv = {
+        "tenant_id": DEFAULT_TENANT_ID,
+        "grade": "flip",
+        "source": "ratified",
+        "ratified_by": "operator",
+    }
+    first = append_fact(
+        db,
+        "fact_theme_conviction",
+        {
+            **base_conv,
+            "thesis_id": NUCLEAR_THESIS_ID,
+            "source_ref": "https://example.com/nuclear-policy",
+            "label": "nuclear policy v1",
+            "valid_from": date(2025, 8, 1),
+            "horizon_end": date(2026, 8, 1),
+            "recorded_at": T1,
+        },
+    )
+    append_fact(
+        db,
+        "fact_theme_conviction",
+        {
+            **base_conv,
+            "thesis_id": NUCLEAR_THESIS_ID,
+            "source_ref": "https://example.com/nuclear-policy",
+            "label": "nuclear policy v2",
+            "valid_from": date(2025, 8, 1),
+            "horizon_end": date(2027, 1, 15),
+            "recorded_at": T2,
+            "supersedes": first,
+        },
+    )
+    append_fact(
+        db,
+        "fact_theme_conviction",
+        {
+            **base_conv,
+            "thesis_id": HIMS_THESIS_ID,
+            "source_ref": "https://example.com/telehealth",
+            "label": "telehealth adoption",
+            "valid_from": date(2026, 2, 1),
+            "horizon_end": date(2027, 2, 1),
+            "recorded_at": T1,
+        },
+    )
+    db.commit()
+
+
+@_KNOWN_ATS
+@pytest.mark.parametrize("clock", ["record", "public"])
+def test_as_of_many_theses_equals_as_of_thesis_on_both_clocks(db, known_at, clock):
+    """``as_of_many_theses`` matches ``as_of_thesis`` row-for-row and order-for-order across both
+    ``fact_term_mentions`` and ``fact_theme_conviction`` on both ``record`` and ``public`` clocks,
+    including event-time floors, empty theses, empty inputs, and unknown-table validation."""
+    seed_all(db)
+    _seed_thesis_facts(db)
+    for table in ("fact_term_mentions", "fact_theme_conviction"):
+        for asof in ASOFS:
+            batch = as_of_many_theses(
+                db,
+                table,
+                thesis_ids=THESES,
+                asof=asof,
+                known_at=known_at,
+                tenant_id=DEFAULT_TENANT_ID,
+                clock=clock,
+            )
+            assert set(batch) == set(THESES)
+            assert batch[UNH_THESIS_ID] == []
+            for tid in THESES:
+                plain = as_of_thesis(
+                    db,
+                    table,
+                    thesis_id=tid,
+                    asof=asof,
+                    known_at=known_at,
+                    tenant_id=DEFAULT_TENANT_ID,
+                    clock=clock,
+                )
+                assert batch[tid] == plain, (table, tid, asof, known_at, clock)
+            lower = asof - timedelta(days=120)
+            floored = as_of_many_theses(
+                db,
+                table,
+                thesis_ids=THESES,
+                asof=asof,
+                known_at=known_at,
+                tenant_id=DEFAULT_TENANT_ID,
+                valid_from_lower=lower,
+                clock=clock,
+            )
+            for tid in THESES:
+                plain_floored = [
+                    r
+                    for r in as_of_thesis(
+                        db,
+                        table,
+                        thesis_id=tid,
+                        asof=asof,
+                        known_at=known_at,
+                        tenant_id=DEFAULT_TENANT_ID,
+                        clock=clock,
+                    )
+                    if r["valid_from"] >= lower
+                ]
+                assert floored[tid] == plain_floored, (table, tid, asof, clock)
+    assert (
+        as_of_many_theses(
+            db,
+            "fact_term_mentions",
+            thesis_ids=[],
+            asof=ASOFS[0],
+            known_at=known_at,
+            tenant_id=DEFAULT_TENANT_ID,
+            clock=clock,
+        )
+        == {}
+    )
+    with pytest.raises(ValueError, match="unknown thesis-scoped fact table"):
+        as_of_many_theses(
+            db,
+            "fact_price_eod",
+            thesis_ids=THESES,
+            asof=ASOFS[0],
+            known_at=known_at,
+            tenant_id=DEFAULT_TENANT_ID,
+            clock=clock,
+        )
+
+
+def test_pit_thesis_basket_prefetches_term_mentions_in_one_query(db, monkeypatch):
+    """``PointInTimeData(..., thesis_basket=...)`` prefetches ``fact_term_mentions`` for all theses
+    in one ``as_of_many_theses`` call — including memoizing empty lists for theses with no rows —
+    falls back to ``as_of_thesis`` once for an out-of-basket thesis, and returns fresh lists."""
+    seed_all(db)
+    _seed_thesis_facts(db)
+    asof = date(2026, 6, 1)
+    calls = {"many": 0, "one": 0}
+    real_many, real_one = sb.as_of_many_theses, sb.as_of_thesis
+
+    def many(*a, **k):
+        calls["many"] += 1
+        return real_many(*a, **k)
+
+    def one(*a, **k):
+        calls["one"] += 1
+        return real_one(*a, **k)
+
+    monkeypatch.setattr(sb, "as_of_many_theses", many)
+    monkeypatch.setattr(sb, "as_of_thesis", one)
+
+    pit = PointInTimeData(
+        db,
+        asof=asof,
+        known_at=PIN,
+        thesis_basket=THESES,
+        workspace=DEFAULT_TENANT_ID,
+    )
+    first_nuc = pit.term_mentions(NUCLEAR_THESIS_ID)
+    assert len(first_nuc) == 2
+    assert {r["documents"] for r in first_nuc} == {8, 15}
+    assert len(pit.term_mentions(HIMS_THESIS_ID)) == 1
+    assert pit.term_mentions(UNH_THESIS_ID) == []
+    # second pass, including the empty thesis: all memo hits
+    assert pit.term_mentions(UNH_THESIS_ID) == []
+    assert pit.term_mentions(NUCLEAR_THESIS_ID) == first_nuc
+    assert calls == {"many": 1, "one": 0}
+
+    # fresh-list guarantee: mutating a returned list cannot poison the memo
+    snapshot = list(first_nuc)
+    first_nuc.append({"poison": True})
+    assert pit.term_mentions(NUCLEAR_THESIS_ID) == snapshot
+
+    # out-of-basket thesis falls back to as_of_thesis once and is memoized
+    outsider = uuid.uuid4()
+    assert pit.term_mentions(outsider) == []
+    assert pit.term_mentions(outsider) == []
+    assert calls == {"many": 1, "one": 1}
+
+
+def test_pit_price_memo_cleans_holidays_sorts_and_bisects_fresh_lists(monkeypatch):
+    """Pure unit proof (no Postgres): ``fact_price_eod`` is holiday-filtered and sorted once on
+    memo store, ``lookback_days`` slices via bisect matching ``window_prices``, and every call
+    returns a fresh list."""
+    asof = date(2026, 9, 10)
+    sid = uuid.uuid4()
+    raw_bars = [
+        {"d": date(2026, 9, 9), "valid_from": date(2026, 9, 9), "close": 103.0},
+        # Labor Day 2026 (NYSE full-day closure) must be dropped at memo store
+        {"d": date(2026, 9, 7), "valid_from": date(2026, 9, 7), "close": 101.0},
+        {"d": date(2026, 6, 1), "valid_from": date(2026, 6, 1), "close": 90.0},
+        {"d": date(2026, 9, 4), "valid_from": date(2026, 9, 4), "close": 101.0},
+    ]
+    calls = {"many": 0}
+
+    def fake_many(conn, table, *, security_ids, **kwargs):
+        calls["many"] += 1
+        assert table == "fact_price_eod"
+        return {s: list(raw_bars) if s == sid else [] for s in security_ids}
+
+    monkeypatch.setattr(sb, "as_of_many", fake_many)
+    pit = PointInTimeData(
+        None,  # type: ignore[arg-type]
+        asof=asof,
+        known_at=PIN,
+        basket=[sid],
+        workspace=DEFAULT_TENANT_ID,
+    )
+    all_bars = pit.price_history(sid)
+    assert all_bars == window_prices(raw_bars, asof, None)
+    assert [b["d"] for b in all_bars] == [date(2026, 6, 1), date(2026, 9, 4), date(2026, 9, 9)]
+    short_bars = pit.price_history(sid, lookback_days=10)
+    assert short_bars == window_prices(raw_bars, asof, 10)
+    assert [b["d"] for b in short_bars] == [date(2026, 9, 4), date(2026, 9, 9)]
+    assert calls["many"] == 1
+    # fresh-list guarantee for both lookback_days=None and lookback_days=10
+    all_bars.append({"d": date(2099, 1, 1)})
+    short_bars.clear()
+    assert len(pit.price_history(sid)) == 3
+    assert len(pit.price_history(sid, lookback_days=10)) == 2
+
+
+def test_pit_thesis_basket_unit_prefetches_and_validates(monkeypatch):
+    """Pure unit proof (no Postgres): ``thesis_basket`` prefetches in one ``as_of_many_theses``
+    call, memoizes empty lists, falls back for outsiders, and ``as_of_many_theses`` validates
+    table scope and empty inputs."""
+    asof = date(2026, 6, 1)
+    t1, t2, t3, outsider = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    calls = {"many": 0, "one": 0}
+
+    def fake_many_theses(conn, table, *, thesis_ids, **kwargs):
+        calls["many"] += 1
+        assert table == "fact_term_mentions"
+        return {
+            tid: (
+                [{"thesis_id": tid, "valid_from": date(2026, 4, 30), "documents": 10}]
+                if tid in (t1, t2)
+                else []
+            )
+            for tid in thesis_ids
+        }
+
+    def fake_one_thesis(conn, table, *, thesis_id, **kwargs):
+        calls["one"] += 1
+        return []
+
+    monkeypatch.setattr(sb, "as_of_many_theses", fake_many_theses)
+    monkeypatch.setattr(sb, "as_of_thesis", fake_one_thesis)
+    pit = PointInTimeData(
+        None,  # type: ignore[arg-type]
+        asof=asof,
+        known_at=PIN,
+        thesis_basket=[t1, t2, t3],
+        workspace=DEFAULT_TENANT_ID,
+    )
+    rows_t1 = pit.term_mentions(t1)
+    assert len(rows_t1) == 1
+    assert len(pit.term_mentions(t2)) == 1
+    assert pit.term_mentions(t3) == []
+    assert pit.term_mentions(t3) == []
+    assert calls == {"many": 1, "one": 0}
+    rows_t1.append({"poison": True})
+    assert len(pit.term_mentions(t1)) == 1
+    assert pit.term_mentions(outsider) == []
+    assert pit.term_mentions(outsider) == []
+    assert calls == {"many": 1, "one": 1}
+
+    assert (
+        as_of_many_theses(
+            None,  # type: ignore[arg-type]
+            "fact_term_mentions",
+            thesis_ids=[],
+            asof=asof,
+            known_at=PIN,
+            tenant_id=DEFAULT_TENANT_ID,
+        )
+        == {}
+    )
+    with pytest.raises(ValueError, match="unknown thesis-scoped fact table"):
+        as_of_many_theses(
+            None,  # type: ignore[arg-type]
+            "fact_price_eod",
+            thesis_ids=[t1],
+            asof=asof,
+            known_at=PIN,
+            tenant_id=DEFAULT_TENANT_ID,
+        )

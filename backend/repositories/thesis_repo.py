@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -32,30 +32,72 @@ def get(conn: psycopg.Connection, thesis_id: UUID, *, workspace: WorkspaceScope)
     ``workspace`` is REQUIRED: the caller's workspace id (a thesis in another workspace reads as None — the API's
     404), or ``domain.scopes.WORKSPACE_ANY`` for system code (the nightly, the CLIs, the replay harness).
     """
+    found = _get_many(conn, [thesis_id], workspace=workspace)
+    return found[0] if found else None
+
+
+def _get_many(
+    conn: psycopg.Connection, thesis_ids: Sequence[UUID], *, workspace: WorkspaceScope
+) -> list[Thesis]:
+    """Load the theses ``thesis_ids`` names (each with its children) in SIX queries however many ids there are:
+    the thesis rows (filtered by ``workspace``), then the basket, evidence, catalysts, kill criteria and
+    exclusions of the theses found, each ``ORDER BY thesis_id`` plus the order ``get`` always used, so every
+    thesis's children keep their order. The single load path: ``get`` is this with one id, ``list_all`` with
+    its ordered ids. An id that is missing, or under another workspace, is simply absent from the answer
+    (``get``'s ``None``); the answer keeps the caller's order. Read-only; the caller owns the transaction.
+    """
+    ids = list(thesis_ids)
+    if not ids:
+        return []
     clause, params = workspace_filter(workspace)
     with conn.cursor() as cur:
-        cur.execute(f"SELECT * FROM thesis WHERE id = %s{clause}", (thesis_id, *params))
-        t = cur.fetchone()
-        if t is None:
-            return None
+        cur.execute(f"SELECT * FROM thesis WHERE id = ANY(%s){clause}", (ids, *params))
+        theses = {t["id"]: t for t in cur.fetchall()}
+        if not theses:
+            return []
+        found = list(theses)
         cur.execute(
-            "SELECT * FROM basket_member WHERE thesis_id = %s ORDER BY ordinal", (thesis_id,)
+            "SELECT * FROM basket_member WHERE thesis_id = ANY(%s) ORDER BY thesis_id, ordinal",
+            (found,),
         )
         basket = cur.fetchall()
-        cur.execute("SELECT * FROM evidence WHERE thesis_id = %s ORDER BY ordinal", (thesis_id,))
+        cur.execute(
+            "SELECT * FROM evidence WHERE thesis_id = ANY(%s) ORDER BY thesis_id, ordinal", (found,)
+        )
         evidence = cur.fetchall()
-        cur.execute("SELECT * FROM catalyst WHERE thesis_id = %s ORDER BY ordinal", (thesis_id,))
+        cur.execute(
+            "SELECT * FROM catalyst WHERE thesis_id = ANY(%s) ORDER BY thesis_id, ordinal", (found,)
+        )
         catalysts = cur.fetchall()
         cur.execute(
-            "SELECT * FROM kill_criterion WHERE thesis_id = %s ORDER BY ordinal", (thesis_id,)
+            "SELECT * FROM kill_criterion WHERE thesis_id = ANY(%s) ORDER BY thesis_id, ordinal",
+            (found,),
         )
         kills = cur.fetchall()
         cur.execute(
-            "SELECT * FROM thesis_exclusion WHERE thesis_id = %s ORDER BY recorded_at, id",
-            (thesis_id,),
+            "SELECT * FROM thesis_exclusion WHERE thesis_id = ANY(%s) "
+            "ORDER BY thesis_id, recorded_at, id",
+            (found,),
         )
         exclusions = cur.fetchall()
-    return row_to_thesis(t, basket, evidence, catalysts, kills, exclusions)
+    children: list[dict[UUID, list[dict[str, Any]]]] = []
+    for rows in (basket, evidence, catalysts, kills, exclusions):
+        by_thesis: dict[UUID, list[dict[str, Any]]] = {tid: [] for tid in found}
+        for r in rows:
+            by_thesis[r["thesis_id"]].append(r)
+        children.append(by_thesis)
+    return [
+        row_to_thesis(
+            theses[tid],
+            children[0][tid],
+            children[1][tid],
+            children[2][tid],
+            children[3][tid],
+            children[4][tid],
+        )
+        for tid in ids
+        if tid in theses
+    ]
 
 
 def get_asof(
@@ -101,6 +143,34 @@ def get_asof(
         members = sorted(row["members"], key=lambda b: b["ordinal"])
         thesis.basket = [_row_to_basket_member(b) for b in members]
     return thesis
+
+
+def snapshots_asof_for(
+    conn: psycopg.Connection, thesis_ids: Sequence[UUID], known_at: datetime | None
+) -> dict[UUID, list[BasketMember]]:
+    """``thesis_id -> roster`` as ``get_asof`` reads it at ``known_at``, for many theses in ONE query. The SAME
+    predicate and pick as ``get_asof`` (``taken_at <= COALESCE(known_at, now())``, the latest by ``taken_at DESC,
+    id DESC``; no lookahead, #1) and the same member order and mapper, so each roster is byte-identical to
+    ``get_asof(...).basket``. A thesis with NO qualifying snapshot is ABSENT from the answer: the caller keeps
+    the live roster there (``get_asof``'s pre-snapshot fallback, and the label ``snapshot_exists_asof`` gives).
+    Read-only; the caller owns the transaction."""
+    ids = list(thesis_ids)
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (thesis_id) thesis_id, members FROM basket_snapshot "
+            "WHERE thesis_id = ANY(%s) AND taken_at <= COALESCE(%s, now()) "
+            "ORDER BY thesis_id, taken_at DESC, id DESC",
+            (ids, known_at),
+        )
+        rows = cur.fetchall()
+    return {
+        r["thesis_id"]: [
+            _row_to_basket_member(m) for m in sorted(r["members"], key=lambda b: b["ordinal"])
+        ]
+        for r in rows
+    }
 
 
 def snapshot_exists_asof(
@@ -442,9 +512,7 @@ def list_all(
     with conn.cursor() as cur:
         cur.execute(f"SELECT id FROM thesis WHERE {where}{clause} ORDER BY name", params)
         ids = [r["id"] for r in cur.fetchall()]
-    return [
-        thesis for thesis in (get(conn, i, workspace=workspace) for i in ids) if thesis is not None
-    ]
+    return _get_many(conn, ids, workspace=workspace)
 
 
 def created_at_for(

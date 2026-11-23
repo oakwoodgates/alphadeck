@@ -178,13 +178,15 @@ def cards_as_of(
         # the live view: today's roster IS the roster as of today (get_asof(now) is byte-identical to it)
         cards, fallback = kept, 0
     else:
+        # one batched read of the rosters as known then; a card with no snapshot by then keeps today's roster
+        snaps = thesis_repo.snapshots_asof_for(conn, [t.id for t in kept], known_at)
         cards, fallback = [], 0
         for t in kept:
-            if not thesis_repo.snapshot_exists_asof(conn, t.id, known_at):
-                fallback += 1  # no roster snapshot by then: get_asof keeps today's roster
-            got = thesis_repo.get_asof(conn, t.id, known_at, workspace=workspace)
-            if got is not None:
-                cards.append(got)
+            if t.id in snaps:
+                cards.append(t.model_copy(update={"basket": snaps[t.id]}))
+            else:
+                fallback += 1  # no roster snapshot by then: today's roster stands in
+                cards.append(t)
     return CardsAsOf(len(live), cards, later, fallback)
 
 
@@ -441,6 +443,7 @@ def read_price_flags(
                 stale_days=stale_days,
                 readings=readings,
                 corrections=corrections,
+                price_only=True,  # only price-reaching flags are read: skip fundamentals/insider/share reads
             )
             for sid in chunk:
                 member = got.get(sid)

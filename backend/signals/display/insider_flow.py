@@ -376,20 +376,32 @@ def compute(
 def display(pit: DisplayPointInTimeData, security_id: UUID, asof: date) -> DisplaySignal | None:
     """Read ingested Form 4 rows via the point-in-time view; the pure ``compute`` windows them.
 
-    Also builds the per-day EOD-low map from the SAME as-of price view (no lookahead) so ``compute`` can
-    screen offer-price primary-market subscriptions out of the "open-market" buy total — the same screen the
-    call applies (``backend/signals/insider_conviction.py``). A buy older than the earliest bar we hold has
-    no low → kept (#9).
+    When a non-transfer code-P buy exists in the trailing 90-day window, also builds the per-day EOD-low
+    map from the SAME as-of price view (no lookahead) and reads split events so ``compute`` can screen
+    offer-price primary-market subscriptions out of the "open-market" buy total — the same screen the
+    call applies (``backend/signals/insider_conviction.py``). When no such buy exists, price history and
+    split events are skipped because only buys are price-screened. A buy older than the earliest bar we
+    hold has no low → kept (#9).
     """
-    day_lows = {
-        b["d"]: float(b["low"]) for b in pit.price_history(security_id) if b.get("low") is not None
-    }
-    return compute(
-        pit.insider_txns(security_id),
-        asof,
-        day_lows=day_lows,
-        price_scale=tape_scale(pit.split_events(security_id), through=view_day(pit.known_at)),
+    rows = pit.insider_txns(security_id)
+    start_90 = asof - timedelta(days=WINDOW_DAYS)
+    has_buy = any(
+        start_90 < r["valid_from"] <= asof
+        and r.get("txn_code") == BUY
+        and not is_internal_transfer(r)
+        for r in rows
     )
+    if has_buy:
+        day_lows = {
+            b["d"]: float(b["low"])
+            for b in pit.price_history(security_id, lookback_days=WINDOW_DAYS)
+            if b.get("low") is not None
+        }
+        price_scale = tape_scale(pit.split_events(security_id), through=view_day(pit.known_at))
+    else:
+        day_lows = None
+        price_scale = None
+    return compute(rows, asof, day_lows=day_lows, price_scale=price_scale)
 
 
 # The READ-HORIZON declaration (``signals/horizons.py``).

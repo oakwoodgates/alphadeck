@@ -345,6 +345,7 @@ def _pit(
     clock: Literal["record", "public"],
     basket: list[UUID] | None = None,
     *,
+    thesis_basket: list[UUID] | None = None,
     workspace: UUID,
 ) -> PointInTimeData:
     """The point-in-time view the Cockpit's display signals build (``display_bounds()``, the request's pair)."""
@@ -354,6 +355,7 @@ def _pit(
         known_at=known_at,
         data_tenant=DATA_TENANT_ID,
         basket=basket,
+        thesis_basket=thesis_basket,
         bounds=display_bounds(),
         clock=clock,
         workspace=workspace,
@@ -441,7 +443,7 @@ def read_forming(
         {tid: [s for s, _ in per_card[tid][0] if s not in flags] for tid in ids},
         workspace=workspace,
     )
-    terms_pit = _pit(conn, asof, known_at, clock, workspace=workspace)
+    terms_pit = _pit(conn, asof, known_at, clock, thesis_basket=ids, workspace=workspace)
     rows: list[FormingRow] = []
     for tid in ids:
         thesis = by_id[tid]

@@ -1007,3 +1007,147 @@ def test_migration_0069_is_idempotent(db):
         )
         assert cur.fetchone()["n"] == 1
     db.commit()
+
+
+# --- the batched loads: ``_get_many`` / ``list_all`` and ``snapshots_asof_for`` ---------------------------
+
+
+class _CountingCursor:
+    def __init__(self, cur, counter: list[str]):
+        self._cur, self._counter = cur, counter
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._cur.close()
+        return False
+
+    def execute(self, query, *args, **kw):
+        self._counter.append(str(query))
+        return self._cur.execute(query, *args, **kw)
+
+    def __getattr__(self, name):
+        return getattr(self._cur, name)
+
+
+class _CountingConn:
+    """A connection that records every statement a repo function executes (the query-count assertions)."""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.statements: list[str] = []
+
+    def cursor(self, *args, **kw):
+        return _CountingCursor(self._conn.cursor(*args, **kw), self.statements)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def _full_thesis(security_id, name: str) -> Thesis:
+    """A thesis with a basket, evidence, catalysts and kill criteria, and (via the caller) exclusions."""
+    return _thesis(security_id).model_copy(update={"name": name})
+
+
+def test_list_all_loads_every_thesis_in_a_constant_number_of_queries(db, security_id):
+    """``list_all`` goes through ``_get_many``: the ids, then six batched reads, however many theses there are —
+    and every thesis it returns is the one ``get`` returns for that id (children in their stored order).
+    """
+    t1 = _full_thesis(security_id, "Batch A")
+    t2 = _full_thesis(security_id, "Batch B").model_copy(update={"evidence": [], "catalysts": []})
+    t3 = _thesis(security_id).model_copy(
+        update={
+            "name": "Batch C",
+            "basket": [],
+            "evidence": [],
+            "catalysts": [],
+            "kill_criteria": [],
+        }
+    )
+    t3 = t3.model_copy(update={"segments": []})
+    for t in (t1, t2, t3):
+        _persist(db, t)
+    db.commit()
+
+    counted = _CountingConn(db)
+    listed = thesis_repo.list_all(counted, workspace=WORKSPACE_ANY)
+    assert (
+        len(counted.statements) == 7
+    )  # 1 (the ids) + 6 (the thesis rows and their five child tables)
+    by_id = {t.id: t for t in listed}
+    assert {t1.id, t2.id, t3.id} <= set(by_id)
+    for t in (t1, t2, t3):
+        assert by_id[t.id] == thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
+    assert by_id[t1.id] == _hydrated(t1)
+    assert [t.name for t in listed] == sorted(t.name for t in listed)  # ordered by name, as before
+
+    # one thesis or many: the same number of statements
+    only = _CountingConn(db)
+    thesis_repo.get(only, t1.id, workspace=WORKSPACE_ANY)
+    assert len(only.statements) == 6
+
+
+def test_get_many_keeps_the_callers_order_and_drops_missing_and_foreign_ids(db, security_id):
+    t1, t2 = _full_thesis(security_id, "Many A"), _full_thesis(security_id, "Many B")
+    for t in (t1, t2):
+        _persist(db, t)
+    db.commit()
+    missing = uuid.uuid4()
+
+    got = thesis_repo._get_many(db, [t2.id, missing, t1.id], workspace=WORKSPACE_ANY)
+    assert [t.id for t in got] == [t2.id, t1.id]
+    assert thesis_repo._get_many(db, [], workspace=WORKSPACE_ANY) == []
+    # another workspace reads none of them (``get``'s None), this one reads both
+    assert thesis_repo._get_many(db, [t1.id, t2.id], workspace=uuid.uuid4()) == []
+    assert [
+        t.id for t in thesis_repo._get_many(db, [t1.id, t2.id], workspace=DEFAULT_TENANT_ID)
+    ] == [
+        t1.id,
+        t2.id,
+    ]
+    assert thesis_repo.get(db, t1.id, workspace=uuid.uuid4()) is None
+
+
+def test_snapshots_asof_for_matches_get_asof_across_theses_with_and_without_a_snapshot(
+    db, security_id
+):
+    """One query for every thesis, the roster exactly ``get_asof(...).basket`` where a snapshot qualifies at
+    ``known_at`` — and the thesis ABSENT where none does (``get_asof`` keeps the live roster there).
+    """
+    two, _sid2 = _two_pinned_rosters(db, security_id)  # A (1) @ 06-01, B (2) @ 06-10
+    later = _full_thesis(security_id, "Snap later")
+    thesis_repo.upsert(db, later)
+    db.commit()
+    _pin_latest_snapshot_taken_at(db, later.id, datetime(2026, 7, 1, tzinfo=timezone.utc))
+    bare = _full_thesis(security_id, "Snap none")
+    thesis_repo.upsert(db, bare)
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM basket_snapshot WHERE thesis_id = %s", (bare.id,))
+    db.commit()
+    ids = [two, later.id, bare.id]
+
+    for known_at in (
+        datetime(2000, 1, 1, tzinfo=timezone.utc),  # before every snapshot
+        datetime(2026, 6, 5, tzinfo=timezone.utc),  # between A and B
+        datetime(2026, 6, 10, tzinfo=timezone.utc),  # at B (inclusive)
+        datetime(2026, 6, 15, tzinfo=timezone.utc),  # after B, before the later thesis's
+        datetime(2026, 8, 1, tzinfo=timezone.utc),  # after all
+        None,  # now
+    ):
+        counted = _CountingConn(db)
+        got = thesis_repo.snapshots_asof_for(counted, ids, known_at)
+        assert len(counted.statements) == 1
+        for tid in ids:
+            snap = thesis_repo.snapshot_exists_asof(db, tid, known_at)
+            asof = thesis_repo.get_asof(db, tid, known_at, workspace=WORKSPACE_ANY)
+            assert (tid in got) is snap
+            if snap:
+                assert got[tid] == asof.basket
+    assert thesis_repo.snapshots_asof_for(db, [], None) == {}
+    assert [
+        m.ticker
+        for m in thesis_repo.snapshots_asof_for(db, ids, datetime(2026, 6, 5, tzinfo=timezone.utc))[
+            two
+        ]
+    ] == ["HIMS"]

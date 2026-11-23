@@ -16,6 +16,7 @@ from db import insider_resolution
 from db.public_clock import (
     INGESTED_COL,
     PUBLIC_COL,
+    THESIS_SCOPED_FACT_TABLES,
     Clock,
     public_params,
     public_versions_sql,
@@ -516,6 +517,118 @@ def as_of(
     )
 
 
+def _as_of_many(
+    conn: psycopg.Connection,
+    table: str,
+    *,
+    scope_col: str,
+    scope_ids: Iterable[UUID],
+    asof: date,
+    known_at: datetime,
+    tenant_id: UUID | Sequence[UUID],
+    valid_from_lower: date | None = None,
+    clock: Clock = "record",
+) -> dict[UUID, list[dict[str, Any]]]:
+    """Shared batched bitemporal point-in-time read, scoped by ``scope_col`` — ONE query for a whole
+    basket of securities or theses, the SAME bitemporal gate as ``_as_of``.
+
+    ``scope_col`` is a TRUSTED literal ('security_id' / 'thesis_id') from the wrappers below, never
+    caller input — kept injection-safe via ``sql.Identifier``.
+    """
+    if table not in _FACT_IDENTITY:
+        raise ValueError(f"unknown fact table: {table!r}")
+    tenants = list(as_tenants(tenant_id))
+    ids = list(dict.fromkeys(scope_ids))  # de-duplicated, order-preserving
+    out: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in ids}
+    if not ids:
+        return out
+    partition = [scope_col] + [c for c in _FACT_IDENTITY[table] if c != scope_col]
+    scope_ident = sql.Identifier(scope_col)
+    if clock == "public":
+        first_knowable = has_first_knowability(table)
+        floor = (
+            sql.SQL(" AND valid_from >= %(lower)s")
+            if valid_from_lower is not None and not first_knowable
+            else sql.SQL("")
+        )
+        rows = _public_read(
+            conn,
+            table,
+            where=sql.SQL(
+                "tenant_id = ANY(%(tenants)s) AND {scope} = ANY(%(ids)s) "
+                "AND valid_from <= %(asof)s{floor}"
+            ).format(scope=scope_ident, floor=floor),
+            params={"tenants": tenants, "ids": ids, "asof": asof, "lower": valid_from_lower},
+            known_at=known_at,
+            partition=partition,
+        )
+        for row in rows:
+            if first_knowable and valid_from_lower is not None:
+                if row["valid_from"] < valid_from_lower:
+                    continue  # the post-pick floor (the record read's first-knowability rule)
+            out[row[scope_col]].append(row)
+        if table == insider_resolution.RESOLVED_TABLE and scope_col == "security_id":
+            inputs = insider_resolution.load_inputs(
+                conn, ids, known_at=known_at, tenant_id=tenants, clock=clock
+            )
+            for sid in ids:
+                out[sid] = inputs.resolve(sid, out[sid], asof=asof, lower=valid_from_lower)
+        return out
+    ident = sql.SQL(", ").join(sql.Identifier(c) for c in partition)
+    knowability = sql.SQL(knowability_expr(table))  # noqa: S608 — hardcoded map, never caller input
+    params = {
+        "tenants": tenants,
+        "ids": ids,
+        "asof": asof,
+        "known_at": known_at,
+        "lower": valid_from_lower,
+    }
+    if has_first_knowability(table):
+        query = sql.SQL(
+            "SELECT * FROM {table} "
+            "WHERE tenant_id = ANY(%(tenants)s) AND {scope} = ANY(%(ids)s) "
+            "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{set_aside} "
+            "ORDER BY {ident}, {version_order}"
+        ).format(
+            ident=ident,
+            table=sql.Identifier(table),
+            scope=scope_ident,
+            knowability=knowability,
+            set_aside=exclusion_sql(table),  # migration 0062 — skipped before the pick
+            version_order=sql.SQL(first_knowable_order(table)),  # noqa: S608 — trusted literal
+        )
+        for row in _first_knowable_read(conn, table, query, params, partition):
+            if valid_from_lower is None or row["valid_from"] >= valid_from_lower:
+                out[row[scope_col]].append(row)
+        return out
+    lower = sql.SQL(" AND valid_from >= %(lower)s") if valid_from_lower is not None else sql.SQL("")
+    query = sql.SQL(
+        "SELECT DISTINCT ON ({ident}) * FROM {table} "
+        "WHERE tenant_id = ANY(%(tenants)s) AND {scope} = ANY(%(ids)s) "
+        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{lower}{set_aside} "
+        "ORDER BY {ident}, recorded_at DESC, id DESC"
+    ).format(
+        ident=ident,
+        table=sql.Identifier(table),
+        scope=scope_ident,
+        knowability=knowability,
+        lower=lower,
+        set_aside=exclusion_sql(table),
+    )
+    with conn.cursor() as cur:
+        cur.execute(query, params)
+        for row in cur.fetchall():
+            out[row[scope_col]].append(row)
+    if table == insider_resolution.RESOLVED_TABLE and scope_col == "security_id":
+        # R8-A — the SAME resolution the scoped ``as_of`` applies, over the whole basket in one load; the
+        # floor rides along so an amended row dated before it stays out (row-for-row the scoped read
+        # trimmed in Python — the PIT fallback's rule)
+        inputs = insider_resolution.load_inputs(conn, ids, known_at=known_at, tenant_id=tenants)
+        for sid in ids:
+            out[sid] = inputs.resolve(sid, out[sid], asof=asof, lower=valid_from_lower)
+    return out
+
+
 def as_of_many(
     conn: psycopg.Connection,
     table: str,
@@ -560,95 +673,17 @@ def as_of_many(
     bounds (price, insider) ``valid_from`` is part of the identity, so the floor admits or drops a fact's
     versions together and the cross-version public instant is unchanged.
     """
-    if table not in _FACT_IDENTITY:
-        raise ValueError(f"unknown fact table: {table!r}")
-    tenants = list(as_tenants(tenant_id))
-    ids = list(dict.fromkeys(security_ids))  # de-duplicated, order-preserving
-    out: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in ids}
-    if not ids:
-        return out
-    partition = ["security_id"] + [c for c in _FACT_IDENTITY[table] if c != "security_id"]
-    if clock == "public":
-        first_knowable = has_first_knowability(table)
-        floor = (
-            sql.SQL(" AND valid_from >= %(lower)s")
-            if valid_from_lower is not None and not first_knowable
-            else sql.SQL("")
-        )
-        rows = _public_read(
-            conn,
-            table,
-            where=sql.SQL(
-                "tenant_id = ANY(%(tenants)s) AND security_id = ANY(%(ids)s) "
-                "AND valid_from <= %(asof)s{floor}"
-            ).format(floor=floor),
-            params={"tenants": tenants, "ids": ids, "asof": asof, "lower": valid_from_lower},
-            known_at=known_at,
-            partition=partition,
-        )
-        for row in rows:
-            if first_knowable and valid_from_lower is not None:
-                if row["valid_from"] < valid_from_lower:
-                    continue  # the post-pick floor (the record read's first-knowability rule)
-            out[row["security_id"]].append(row)
-        if table == insider_resolution.RESOLVED_TABLE:
-            inputs = insider_resolution.load_inputs(
-                conn, ids, known_at=known_at, tenant_id=tenants, clock=clock
-            )
-            for sid in ids:
-                out[sid] = inputs.resolve(sid, out[sid], asof=asof, lower=valid_from_lower)
-        return out
-    ident = sql.SQL(", ").join(sql.Identifier(c) for c in partition)
-    knowability = sql.SQL(knowability_expr(table))  # noqa: S608 — hardcoded map, never caller input
-    params = {
-        "tenants": tenants,
-        "ids": ids,
-        "asof": asof,
-        "known_at": known_at,
-        "lower": valid_from_lower,
-    }
-    if has_first_knowability(table):
-        query = sql.SQL(
-            "SELECT * FROM {table} "
-            "WHERE tenant_id = ANY(%(tenants)s) AND security_id = ANY(%(ids)s) "
-            "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{set_aside} "
-            "ORDER BY {ident}, {version_order}"
-        ).format(
-            ident=ident,
-            table=sql.Identifier(table),
-            knowability=knowability,
-            set_aside=exclusion_sql(table),  # migration 0062 — skipped before the pick
-            version_order=sql.SQL(first_knowable_order(table)),  # noqa: S608 — trusted literal
-        )
-        for row in _first_knowable_read(conn, table, query, params, partition):
-            if valid_from_lower is None or row["valid_from"] >= valid_from_lower:
-                out[row["security_id"]].append(row)
-        return out
-    lower = sql.SQL(" AND valid_from >= %(lower)s") if valid_from_lower is not None else sql.SQL("")
-    query = sql.SQL(
-        "SELECT DISTINCT ON ({ident}) * FROM {table} "
-        "WHERE tenant_id = ANY(%(tenants)s) AND security_id = ANY(%(ids)s) "
-        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{lower}{set_aside} "
-        "ORDER BY {ident}, recorded_at DESC, id DESC"
-    ).format(
-        ident=ident,
-        table=sql.Identifier(table),
-        knowability=knowability,
-        lower=lower,
-        set_aside=exclusion_sql(table),
+    return _as_of_many(
+        conn,
+        table,
+        scope_col="security_id",
+        scope_ids=security_ids,
+        asof=asof,
+        known_at=known_at,
+        tenant_id=tenant_id,
+        valid_from_lower=valid_from_lower,
+        clock=clock,
     )
-    with conn.cursor() as cur:
-        cur.execute(query, params)
-        for row in cur.fetchall():
-            out[row["security_id"]].append(row)
-    if table == insider_resolution.RESOLVED_TABLE:
-        # R8-A — the SAME resolution the scoped ``as_of`` applies, over the whole basket in one load; the
-        # floor rides along so an amended row dated before it stays out (row-for-row the scoped read
-        # trimmed in Python — the PIT fallback's rule)
-        inputs = insider_resolution.load_inputs(conn, ids, known_at=known_at, tenant_id=tenants)
-        for sid in ids:
-            out[sid] = inputs.resolve(sid, out[sid], asof=asof, lower=valid_from_lower)
-    return out
 
 
 def as_of_thesis(
@@ -672,6 +707,38 @@ def as_of_thesis(
         asof=asof,
         known_at=known_at,
         tenant_id=tenant_id,
+        clock=clock,
+    )
+
+
+def as_of_many_theses(
+    conn: psycopg.Connection,
+    table: str,
+    *,
+    thesis_ids: Iterable[UUID],
+    asof: date,
+    known_at: datetime,
+    tenant_id: UUID | Sequence[UUID],
+    valid_from_lower: date | None = None,
+    clock: Clock = "record",
+) -> dict[UUID, list[dict[str, Any]]]:
+    """The BATCH twin of ``as_of_thesis``: ONE query for a whole set of theses, the SAME bitemporal gate.
+
+    Row-for-row and order-for-order equivalent to calling ``as_of_thesis`` once per thesis id across both
+    ``clock="record"`` and ``clock="public"``. Returns an entry for EVERY requested id — ``[]`` when it has
+    no rows — so a caller can memoize "nothing on file" and never re-query.
+    """
+    if table not in THESIS_SCOPED_FACT_TABLES:
+        raise ValueError(f"unknown thesis-scoped fact table: {table!r}")
+    return _as_of_many(
+        conn,
+        table,
+        scope_col="thesis_id",
+        scope_ids=thesis_ids,
+        asof=asof,
+        known_at=known_at,
+        tenant_id=tenant_id,
+        valid_from_lower=valid_from_lower,
         clock=clock,
     )
 

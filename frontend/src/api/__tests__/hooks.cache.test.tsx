@@ -9,7 +9,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock("../client", () => ({ api: { GET: h.get, POST: h.post } }));
 
-import { useCall, useDisplaySignals, useScoreboard, useWorkbenchScored } from "../hooks";
+import {
+  useCall,
+  useDisplaySignals,
+  useScoreboard,
+  useTheses,
+  useWorkbenchScored,
+} from "../hooks";
 import { createQueryClient, MONITOR_STALE_MS } from "../queryClient";
 
 const wrap = (qc: QueryClient) =>
@@ -133,4 +139,28 @@ describe("C4 — the compute-heavy reads retry ONCE, not three times", () => {
       expect(h.get).toHaveBeenCalledTimes(2);
     });
   }
+});
+
+describe("useTheses shares one GET /theses fetch across active-only and all-cards readers", () => {
+  it("SignedInApp useTheses() and Board useTheses(true) fire one request and slice archived locally", async () => {
+    const rows = [
+      { id: "t-active", name: "Active Card", archived: false },
+      { id: "t-arch", name: "Archived Card", archived: true },
+    ];
+    h.get.mockResolvedValue({ data: rows, error: null });
+    const qc = createQueryClient();
+    const wrapper = wrap(qc);
+
+    const active = renderHook(() => useTheses(), { wrapper });
+    await waitFor(() => expect(active.result.current.isSuccess).toBe(true));
+    expect(active.result.current.data).toEqual([rows[0]]);
+
+    const all = renderHook(() => useTheses(true), { wrapper });
+    await waitFor(() => expect(all.result.current.isSuccess).toBe(true));
+    expect(all.result.current.data).toEqual(rows);
+    expect(h.get).toHaveBeenCalledTimes(1);
+    expect(h.get).toHaveBeenCalledWith("/theses", {
+      params: { query: { include_archived: true } },
+    });
+  });
 });
