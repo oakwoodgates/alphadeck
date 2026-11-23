@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setRecordStart } from "../../__tests__/recordStart";
 
 import TickerLookup from "../TickerLookup";
-import type { TickerLookupOut } from "../useTickerLookup";
-import { CARD_A, CARD_B, SID, payload, silentRow, trigger } from "./fixtures";
+import type { TickerLookupOut, TickerLookupPriceWindowOut } from "../useTickerLookup";
+import { CARD_A, CARD_B, SID, filing, payload, priceWindow, silentRow, trigger } from "./fixtures";
 
 // The Ticker Lookup body with its reads stubbed: the search box (suggestions as you type, Enter takes an exact
 // ticker first then the first suggestion, `/` focuses it, the ticker rides the URL beside ?asof=), the not-found
@@ -30,6 +30,7 @@ const h = vi.hoisted(() => {
   return {
     resolve: vi.fn(),
     lookup: vi.fn(),
+    priceWindow: vi.fn(),
     fetchResolve: vi.fn(),
     suggest: vi.fn(),
     lw: { series, timeScale, chart, createChart: vi.fn(() => chart) },
@@ -40,9 +41,20 @@ vi.mock("lightweight-charts", () => ({
   ColorType: { Solid: "solid" },
   LineStyle: { Solid: 0, Dotted: 1, Dashed: 2 },
 }));
+vi.mock("../../../scoreboard/PriceSparkline", () => ({
+  PriceSparkline: ({ span, events, hideIngest }: { span?: string; events: unknown[]; hideIngest?: boolean }) => (
+    <div
+      data-testid="tl-price-sparkline"
+      data-span={span ?? ""}
+      data-events={String(events.length)}
+      data-hide-ingest={String(Boolean(hideIngest))}
+    />
+  ),
+}));
 vi.mock("../useTickerLookup", () => ({
   useResolveTicker: h.resolve,
   useTickerLookup: h.lookup,
+  useTickerLookupPriceWindow: h.priceWindow,
   fetchResolve: h.fetchResolve,
 }));
 vi.mock("../../../api/hooks", async () =>
@@ -66,9 +78,14 @@ function Where() {
 
 function setup(
   data: TickerLookupOut | undefined = payload(),
-  { url = "/dashboards/ticker-lookup?asof=2026-10-28&t=TLA", extra = {} as Record<string, unknown> } = {},
+  {
+    url = "/dashboards/ticker-lookup?asof=2026-10-28&t=TLA",
+    extra = {} as Record<string, unknown>,
+    pw = undefined as TickerLookupPriceWindowOut | undefined,
+  } = {},
 ) {
   h.lookup.mockImplementation((_asof: string, id: string | null) => ok(id ? data : undefined, extra));
+  h.priceWindow.mockImplementation((_asof: string, id: string | null) => ok(id ? pw : undefined));
   const onSelectThesis = vi.fn();
   const view = render(
     <MemoryRouter initialEntries={[url]}>
@@ -85,6 +102,7 @@ const box = () => screen.getByRole("combobox", { name: /ticker or company name/i
 beforeEach(() => {
   h.resolve.mockReset();
   h.lookup.mockReset();
+  h.priceWindow.mockReset();
   h.fetchResolve.mockReset();
   h.suggest.mockReset();
   h.lw.createChart.mockClear();
@@ -548,5 +566,133 @@ describe("Ticker Lookup — the record-start note", () => {
     setRecordStart("2026-12-03");
     setup();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
+  });
+});
+
+describe("TickerLookup — dossier upgrades (Price & events, Fundamentals, Catalysts)", () => {
+  it("defaults to Price & events with span controls, synced filterable Event Ledger, and a vs IWM toggle", async () => {
+    setup(payload(), { pw: priceWindow() });
+    const spark = screen.getByTestId("tl-price-sparkline");
+    expect(spark).toHaveAttribute("data-span", "1Y");
+    expect(spark).toHaveAttribute("data-hide-ingest", "true");
+    // Events include insider buy, 8-K filing, and recorded trigger/risk overlays
+    expect(Number(spark.getAttribute("data-events"))).toBeGreaterThanOrEqual(3);
+
+    // Span selector switches to 3M
+    const rangeGroup = screen.getByRole("group", { name: "Chart range" });
+    await userEvent.click(within(rangeGroup).getByRole("button", { name: "3M" }));
+    expect(screen.getByTestId("tl-price-sparkline")).toHaveAttribute("data-span", "3M");
+
+    // Synced Event Ledger renders with reversible family filter chips and strips ingest timestamps
+    const filters = screen.getByRole("group", { name: "Filter event ledger by type" });
+    expect(within(filters).getByRole("button", { name: /^All/ })).toHaveAttribute("aria-pressed", "true");
+    expect(document.body.textContent).not.toMatch(/ingested \d+d later/);
+    await userEvent.click(within(filters).getByRole("button", { name: /8-K filing/i }));
+    expect(within(filters).getByRole("button", { name: /8-K filing/i })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(filters).getByRole("button", { name: /^All/ }));
+    expect(within(filters).getByRole("button", { name: /^All/ })).toHaveAttribute("aria-pressed", "true");
+
+    // Switching chart mode to vs IWM renders the relative IWM sparkline
+    const modeGroup = screen.getByRole("group", { name: "Chart mode" });
+    await userEvent.click(within(modeGroup).getByRole("button", { name: "vs IWM" }));
+    expect(screen.getByTestId("tl-spark")).toBeInTheDocument();
+  });
+
+  it("renders Fundamentals & dilution meters and shared platform value status when present", () => {
+    setup(
+      payload({
+        scored: {
+          security_id: SID,
+          segment: null,
+          purity: { pips: null, value: null, provenance: [] },
+          runway: {
+            pips: 4,
+            value: 36,
+            provenance: [{ source: "10-q", ref: "0000876543-26-000010", url: null, detail: { cash_usd: 120_000_000, quarterly_burn_usd: 10_000_000 } }],
+          },
+          catalysts: { pips: 2, value: 1, provenance: [] },
+          dilution: { pips: 2, value: 8.5, provenance: [] },
+          market_cap: { pips: null, value: 125_000_000, provenance: [] },
+          fit: "unrated",
+          thin_price_history: false,
+          price_feed_limitation: null,
+          instrument_kind: "equity",
+        },
+        shared_values: {
+          security_id: SID,
+          ticker: "TLA",
+          name: "Tape A Corp",
+          cik: "0000876543",
+          runway_applies: true,
+          shares: {
+            fact_type: "shares_outstanding",
+            state: "verified",
+            reason: null,
+            label: "Verified by the steward",
+            set_by: "steward",
+            value: { source: "10-q", source_url: null, valid_from: "2026-09-01", shares: 10_000_000 },
+            awaiting: null,
+            pending: null,
+            my_flag: null,
+          },
+          cash_burn: {
+            fact_type: "cash_burn",
+            state: "verified",
+            reason: null,
+            label: "Verified by the steward",
+            set_by: "steward",
+            value: { source: "10-q", source_url: null, valid_from: "2026-09-01", cash_usd: 120_000_000, quarterly_burn_usd: 10_000_000 },
+            awaiting: null,
+            pending: null,
+            my_flag: null,
+          },
+        },
+      }),
+    );
+    const sec = screen.getByRole("region", { name: "Fundamentals & dilution" });
+    expect(within(sec).getByText("36 mo at last quarter's pace")).toBeInTheDocument();
+    expect(within(sec).getByText("Cash $120.0M; burn $10.0M last quarter")).toBeInTheDocument();
+    expect(within(sec).getByText("8.5% overhang")).toBeInTheDocument();
+    expect(within(sec).getByText("Shares")).toBeInTheDocument();
+    expect(within(sec).getByText("Cash & burn")).toBeInTheDocument();
+  });
+
+  it("shows relative countdowns on upcoming card catalysts and a live badge on live catalyst facts", () => {
+    const base = payload();
+    setup(
+      payload({
+        catalyst_facts: [
+          filing({
+            kind: "catalyst",
+            form: "catalyst",
+            date: "2026-10-15",
+            headline: "catalyst: license decision expected",
+            detail: [],
+            accession: null,
+            set_by: "steward",
+            ratified_on: "2026-10-16",
+            live: true,
+          }),
+        ],
+        card_catalysts: [
+          base.card_catalysts[0],
+          {
+            thesis_id: CARD_A,
+            thesis_name: "Card A",
+            label: "Near catalyst",
+            kind: "clinical",
+            when_date: "2026-11-05",
+            when_label: null,
+            passed: false,
+          },
+        ],
+      }),
+    );
+    const items = screen.getAllByTestId("tl-catalyst");
+    expect(items[1]).toHaveClass("soon");
+    expect(items[1]).toHaveTextContent("· 8d");
+    const fact = screen.getByTestId("tl-catalyst-fact");
+    expect(fact).toHaveClass("live");
+    expect(within(fact).getByText("live")).toBeInTheDocument();
   });
 });

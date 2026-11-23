@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyEvent } from "react";
 import { useSearchParams } from "react-router";
 
-import { useResolveSecurities } from "../../api/hooks";
+import { useResolveSecurities, type DecisionOut, type TriggerRefOut } from "../../api/hooks";
+import { EventLedger } from "../../scoreboard/EventLedger";
+import { buildMemberOverlayEvents, type ChartSpan } from "../../scoreboard/overlay";
 import type { DashboardProps } from "../registry";
 import "./ticker-lookup.css";
 import {
   CardsSection,
   CatalystsSection,
+  ChartPanel,
   DecisionsSection,
   FilingsSection,
+  FundamentalsSection,
   IdentitySection,
   SectionNav,
   TapeSection,
@@ -22,7 +26,12 @@ import {
   windowDays,
   workLines,
 } from "./lookupView";
-import { fetchResolve, useResolveTicker, useTickerLookup } from "./useTickerLookup";
+import {
+  fetchResolve,
+  useResolveTicker,
+  useTickerLookup,
+  useTickerLookupPriceWindow,
+} from "./useTickerLookup";
 import { RecordStartNote } from "../RecordStartNote";
 
 // Ticker Lookup (docs/dashboards/ticker-lookup.md): type a ticker, see what the platform holds about that company at
@@ -71,6 +80,8 @@ export default function TickerLookup({ asof, onSelectThesis }: DashboardProps) {
   const [note, setNote] = useState<{ for: string; text: string } | null>(null);
   const [formerMiss, setFormerMiss] = useState<string | null>(null);
   const [days, setDays] = useState(DEFAULT_FILING_DAYS);
+  const [span, setSpan] = useState<ChartSpan>("1Y");
+  const [activeN, setActiveN] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // the box follows the URL (a link, Back, or a pick)
@@ -155,8 +166,78 @@ export default function TickerLookup({ asof, onSelectThesis }: DashboardProps) {
 
   const securityId = company?.security_id ?? null;
   const q = useTickerLookup(asof, securityId);
+  const priceWindowQ = useTickerLookupPriceWindow(asof, securityId);
   const data = q.data;
   const stale = data != null && (data.identity.security_id !== securityId || data.asof !== asof);
+
+  useEffect(() => {
+    setActiveN(null);
+  }, [securityId, asof]);
+
+  const { overlayTriggers, overlayRisks } = useMemo(() => {
+    const trigs: TriggerRefOut[] = [];
+    const risks: TriggerRefOut[] = [];
+    const seen = new Set<string>();
+    for (const e of data?.triggers.events ?? []) {
+      if (!e.event_date) continue;
+      const dedupKey = `${e.role}|${e.kind}|${e.event_date}|${e.label}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+      const item: TriggerRefOut = {
+        kind: e.kind as TriggerRefOut["kind"],
+        label: e.label,
+        grade: (e.grade === "core" || e.grade === "flip" ? e.grade : null) as TriggerRefOut["grade"],
+        event_date: e.event_date,
+        ticker: e.ticker,
+        sources: e.sources.map((s) => ({
+          source: s.source,
+          ref: s.ref,
+          url: s.url,
+          detail: {},
+        })),
+      };
+      if (e.role === "risk_signal") risks.push(item);
+      else trigs.push(item);
+    }
+    return { overlayTriggers: trigs, overlayRisks: risks };
+  }, [data?.triggers.events]);
+
+  const overlayDecisions = useMemo<DecisionOut[]>(
+    () =>
+      (data?.decisions ?? []).map((dec) => ({
+        id: dec.id,
+        action: dec.action as DecisionOut["action"],
+        decision_date: dec.decision_date,
+        security_id: data?.identity.security_id ?? null,
+        shares: dec.shares,
+        price: dec.price,
+        reason: dec.reason,
+        voids: dec.voids,
+        call_state: null,
+        call_verdict: null,
+        recorded_at: dec.decision_date,
+        voided: dec.voided,
+      })),
+    [data?.decisions, data?.identity.security_id],
+  );
+
+  const pwData =
+    priceWindowQ.data && priceWindowQ.data.security_id === securityId ? priceWindowQ.data : undefined;
+
+  const overlayEvents = useMemo(
+    () =>
+      buildMemberOverlayEvents({
+        bars: pwData?.bars ?? [],
+        triggers: overlayTriggers,
+        risks: overlayRisks,
+        decisions: overlayDecisions,
+        insiderBuys: pwData?.insider_buys,
+        sells: pwData?.insider_sells,
+        filings: pwData?.corporate_events,
+        stakes: pwData?.activist_stakes,
+      }),
+    [pwData, overlayTriggers, overlayRisks, overlayDecisions],
+  );
 
   const windowed = useMemo(() => (data ? windowDays(data.filings.days, data.asof, days) : []), [data, days]);
 
@@ -257,10 +338,39 @@ export default function TickerLookup({ asof, onSelectThesis }: DashboardProps) {
           {note && note.for === t && <div className="dash-note tl-work">{note.text}</div>}
           {stale && <div className="dash-note">{q.isFetching ? SLOW : "updating…"}</div>}
           <IdentitySection d={data} />
-          <SectionNav d={data} filingRows={countFilings(windowed)} />
+          <SectionNav d={data} filingRows={countFilings(windowed)} eventCount={overlayEvents.length} />
+          <ChartPanel
+            d={data}
+            priceWindow={pwData}
+            priceWindowLoading={priceWindowQ.isLoading}
+            priceWindowError={Boolean(priceWindowQ.error)}
+            events={overlayEvents}
+            span={span}
+            onSpan={setSpan}
+            activeN={activeN}
+            onActivate={setActiveN}
+          />
+          <div className={`tl-dossier-grid${overlayEvents.length > 0 ? "" : " single"}`}>
+            {overlayEvents.length > 0 && (
+              <div className="tl-ledger-col">
+                <EventLedger
+                  events={overlayEvents}
+                  activeN={activeN}
+                  onActivate={setActiveN}
+                  showCockpitStrip={false}
+                  heading="Event ledger"
+                  hideIngest
+                  filterable
+                />
+              </div>
+            )}
+            <div className="tl-tape-col">
+              <TapeSection d={data} hideChart />
+            </div>
+          </div>
+          <FundamentalsSection d={data} />
           <CardsSection d={data} onSelectThesis={onSelectThesis} />
           <TriggersSection d={data} onSelectThesis={onSelectThesis} />
-          <TapeSection d={data} />
           <FilingsSection
             d={data}
             days={windowed}

@@ -7934,13 +7934,69 @@
         }
       }
     },
+    "/dashboards/ticker-lookup/{security_id}/price-window": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Ticker Lookup Price Window",
+        "description": "As-of-capped daily price tape with 50d/200d SMAs and dated event overlays (insider buys/sells,\n8-K corporate events, 13D/G stakes) for one company, independent of whether it sits on any thesis\ncard. Display only; 404 for an unknown id.",
+        "operationId": "ticker_lookup_price_window_dashboards_ticker_lookup__security_id__price_window_get",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing public after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing public after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TickerLookupPriceWindowOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/ticker-lookup/{security_id}": {
       "get": {
         "tags": [
           "dashboards"
         ],
         "summary": "Ticker Lookup",
-        "description": "Everything the platform holds about one company at the as-of: its identity and approximate market cap, the\ncounted cards it sits on and its part in each (the recorded call in effect), the triggers the recorded calls\nshow on it over the last 365 days, its tape (the display members' readings), its filings and catalyst facts,\nthe catalysts of its cards and the operator's logged decisions on it. A past as-of reads what was public by the\nend of that date (a roster row added or a filing filed after it never appears). Display only; 404 for an\nunknown id.",
+        "description": "Everything the platform holds about one company at the as-of: its identity and approximate market cap, the\ncounted cards it sits on and its part in each (the recorded call in effect), the triggers the recorded calls\nshow on it over the last 365 days, its tape (the display members' readings), its filings and catalyst facts,\nthe catalysts of its cards, its Workbench scoring meters and shared platform values, and the operator's logged\ndecisions on it. A past as-of reads what was public by the end of that date (a roster row added or a filing\nfiled after it never appears). Display only; 404 for an unknown id.",
         "operationId": "ticker_lookup_dashboards_ticker_lookup__security_id__get",
         "parameters": [
           {
@@ -45528,6 +45584,11 @@
               }
             ],
             "title": "Ratified On"
+          },
+          "live": {
+            "type": "boolean",
+            "title": "Live",
+            "default": false
           }
         },
         "type": "object",
@@ -45984,6 +46045,26 @@
             "type": "integer",
             "title": "Decisions Voided"
           },
+          "scored": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScoredMemberOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shared_values": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserCompanyValuesOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cache": {
             "type": "string",
             "enum": [
@@ -46014,7 +46095,7 @@
           "compute_ms"
         ],
         "title": "TickerLookupOut",
-        "description": "The whole page for one company. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was\npublic by the end of that date). ``catalyst_facts`` = the company's own catalyst facts (also rows of the\nfiling reader, listed here once); ``card_catalysts`` = the thesis-level catalysts of the cards it counts on.\n``cache`` / ``compute_ms`` = whether the page came from the shared dashboard cache and how long it took when\ncomputed."
+        "description": "The whole page for one company. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was\npublic by the end of that date). ``catalyst_facts`` = the company's own catalyst facts (also rows of the\nfiling reader, listed here once); ``card_catalysts`` = the thesis-level catalysts of the cards it counts on;\n``scored`` = Workbench scoring meters (runway, dilution overhang, catalysts, purity, market-cap provenance);\n``shared_values`` = platform share-count and cash/burn status with provenance. ``cache`` / ``compute_ms`` =\nwhether the page came from the shared dashboard cache and how long it took when computed."
       },
       "TickerLookupPlaceOut": {
         "properties": {
@@ -46091,6 +46172,85 @@
         ],
         "title": "TickerLookupPlaceOut",
         "description": "The company's part in the recorded call in effect: ``armed`` (verdict, grade, setup strength), ``watch``,\n``triggers`` (live entry triggers; ``turns`` = the keys they turn), ``none``, ``not_counted`` (Context or\nBench) or ``no_record`` (the card has no recorded call yet)."
+      },
+      "TickerLookupPriceWindowOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date",
+            "title": "End"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "source": {
+            "type": "string",
+            "const": "fact_price_eod",
+            "title": "Source",
+            "default": "fact_price_eod"
+          },
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/PriceBar"
+            },
+            "type": "array",
+            "title": "Bars"
+          },
+          "insider_buys": {
+            "items": {
+              "$ref": "#/components/schemas/InsiderBuyOut"
+            },
+            "type": "array",
+            "title": "Insider Buys",
+            "default": []
+          },
+          "insider_sells": {
+            "items": {
+              "$ref": "#/components/schemas/InsiderSellOut"
+            },
+            "type": "array",
+            "title": "Insider Sells",
+            "default": []
+          },
+          "corporate_events": {
+            "items": {
+              "$ref": "#/components/schemas/CorporateEventOut"
+            },
+            "type": "array",
+            "title": "Corporate Events",
+            "default": []
+          },
+          "activist_stakes": {
+            "items": {
+              "$ref": "#/components/schemas/ActivistStakeOut"
+            },
+            "type": "array",
+            "title": "Activist Stakes",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "start",
+          "end",
+          "asof",
+          "bars"
+        ],
+        "title": "TickerLookupPriceWindowOut",
+        "description": "As-of-capped daily price tape with 50d/200d SMAs and dated event overlays for one company\n(works even when the company sits on no card). Uses the same two-axis no-lookahead contract as\nthe Scoreboard price window (public clock on past as-ofs, record clock live)."
       },
       "TickerLookupResolveOut": {
         "properties": {

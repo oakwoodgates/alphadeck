@@ -164,6 +164,8 @@ vi.mock("../../api/hooks", () => ({
   usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   useDecisions: () => ({ data: fx.decisions, isLoading: false, error: null }),
+  useMemberPanel: () => ({ data: undefined, isLoading: false, isPending: false, isError: false, isPlaceholderData: false }),
+  useEpisodePriceWindow: () => ({ data: undefined, isLoading: false, isError: false }),
   // the user's read of the shared values (V2 W5e): J's share count awaits the steward, its cash has no value yet
   useUserThesisValues: () => ({ data: fx.userValues, isLoading: false, error: null }),
   usePostDecision: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
@@ -198,7 +200,7 @@ function renderCockpit() {
 
 const row = (container: HTMLElement, cls: string) =>
   container.querySelector(`tr.bkt.${cls}`) as HTMLElement;
-const panel = (container: HTMLElement) => container.querySelector(".npanel") as HTMLElement | null;
+const panel = (container: HTMLElement) => container.querySelector(".drawer-panel") as HTMLElement | null;
 
 describe("Cockpit — the per-name panel", () => {
   it("opens on row click with THAT name's call and only its OWN triggers", () => {
@@ -227,7 +229,7 @@ describe("Cockpit — the per-name panel", () => {
     const table = container.querySelector("table.basket");
     fireEvent.click(row(container, "bkt-armed")); // J
     fireEvent.click(row(container, "bkt-warming")); // XE — one click, no close needed (non-modal)
-    expect(container.querySelectorAll(".npanel")).toHaveLength(1);
+    expect(container.querySelectorAll(".drawer-panel")).toHaveLength(1);
     const p = within(panel(container) as HTMLElement);
     // XE has no member call: the honest degrade line + its trigger from the thesis list
     expect(p.getByText("Conviction fired — awaiting market confirmation.")).toBeInTheDocument();
@@ -258,18 +260,18 @@ describe("Cockpit — the per-name panel", () => {
     expect(container.querySelector("table.basket")).toBe(table);
   });
 
-  it("shows Indicators · this name — readings joined by security_id, gaps and empties said", () => {
+  it("shows Indicators · full breakdown — readings joined by security_id, gaps and empties said", () => {
     const { container } = renderCockpit();
     fireEvent.click(row(container, "bkt-armed")); // J — the one name with a display row
     const p = within(panel(container) as HTMLElement);
-    expect(p.getByText("Indicators · this name")).toBeInTheDocument();
+    expect(p.getByText("Indicators · full breakdown")).toBeInTheDocument();
     expect(p.getByText("SMA position (50/200d)")).toBeInTheDocument();
-    // the posture strip is hoisted to the TOP part: above "The call · this name", not in-section
+    // the posture strip is hoisted to the TOP band: above the call hero
     const panelEl = panel(container) as HTMLElement;
-    const strip = panelEl.querySelector(".np-headlines") as HTMLElement;
+    const strip = panelEl.querySelector(".cd-tape-headlines") as HTMLElement;
     expect(strip.textContent).toContain("50d over 200d · rising");
-    const firstHead = panelEl.querySelector(".np-h") as HTMLElement;
-    expect(strip.compareDocumentPosition(firstHead) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const callHero = panelEl.querySelector(".cd-hero") as HTMLElement;
+    expect(strip.compareDocumentPosition(callHero) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     expect(p.getByText("+10.2%")).toBeInTheDocument(); // pct renders signed
     expect(p.getByText("132.40")).toBeInTheDocument(); // price renders 2dp
@@ -279,7 +281,7 @@ describe("Cockpit — the per-name panel", () => {
 
     fireEvent.click(row(container, "bkt-watch")); // ZTEK — no row in the response
     const p2 = within(panel(container) as HTMLElement);
-    expect(p2.getByText("No indicator data at this as-of.")).toBeInTheDocument();
+    expect(p2.queryByText("Indicators · full breakdown")).toBeNull();
     expect(p2.queryByText(/price crossed/)).toBeNull(); // another name's tape never leaks
   });
 
@@ -338,7 +340,7 @@ describe("Cockpit — the per-name panel", () => {
     expect(p.getByText("industrials · Industrials")).toBeInTheDocument();
     expect(p.getByText("Engineering & construction")).toBeInTheDocument();
     expect(p.getByText("Jacobs Solutions Inc.")).toBeInTheDocument();
-    expect(p.getByText("NYSE")).toBeInTheDocument();
+    expect(p.getAllByText("NYSE").length).toBeGreaterThanOrEqual(1);
     expect(p.getByText("Purity")).toBeInTheDocument(); // the four meters ride along (already fetched)
     expect(p.getByText("38%")).toBeInTheDocument();
     expect(p.getByText("cash-generative last quarter")).toBeInTheDocument(); // runway null value, honest label
@@ -373,10 +375,12 @@ describe("Cockpit — the per-name panel", () => {
     expect(q.queryByText("Decision log · this name")).toBeNull();
   });
 
-  it("keeps the panel read-only — no buttons beyond close, nothing to mutate", () => {
+  it("keeps the panel read-only — only view controls (expand, close), nothing to mutate", () => {
     const { container } = renderCockpit();
     fireEvent.click(row(container, "bkt-armed"));
-    const buttons = (panel(container) as HTMLElement).querySelectorAll("button");
-    expect(buttons).toHaveLength(1); // the ✕ only
+    const labels = [...(panel(container) as HTMLElement).querySelectorAll("button")].map(
+      (b) => b.getAttribute("aria-label") ?? b.textContent?.trim() ?? "",
+    );
+    expect(labels).toEqual(["expand drawer to full width", "close drawer"]);
   });
 });

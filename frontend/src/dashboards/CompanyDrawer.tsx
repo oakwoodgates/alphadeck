@@ -1,15 +1,20 @@
 import { Fragment, lazy, Suspense, useMemo, useState, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useInRouterContext, useNavigate, useSearchParams } from "react-router";
 
 import type {
+  CallCardResponse,
+  DecisionOut,
   DisplaySignal,
+  MemberDataFlagsOut,
+  MemberDisplaySignalsOut,
   PriceBar,
+  ThesisDetail,
   TriggerRefOut,
   UserCompanyValuesOut,
 } from "../api/hooks";
-import { useEpisodePriceWindow, useMemberPanel } from "../api/hooks";
+import { useDecisions, useEpisodePriceWindow, useMemberPanel } from "../api/hooks";
 import { useAppClock, useCountdownOrigin } from "../clock";
-import { groupBasket, type BucketKey, type BucketRow } from "../cockpit/buckets";
+import { groupBasket, type BucketDef, type BucketKey, type BucketRow } from "../cockpit/buckets";
 import { DataFlagsSection, FlagWrap } from "../cockpit/DataFlagMark";
 import { cellFlag, stoppedFeedReason } from "../cockpit/dataFlags";
 import {
@@ -94,50 +99,115 @@ export interface CompanyDrawerSelection {
   nameKey: string;
 }
 
+/** Optional already-loaded data from the Research Cockpit so opening or arrow-stepping between
+ *  basket rows renders instantly without a loading flash while `/member-panel` enriches CIK,
+ *  company catalyst facts, and sibling cards in the background. */
+export interface CompanyDrawerPreload {
+  thesisName: string;
+  row: BucketRow;
+  def: BucketDef;
+  card?: CallCardResponse;
+  position?: ThesisDetail["position"];
+  display?: MemberDisplaySignalsOut | null;
+  dataFlags?: MemberDataFlagsOut | null;
+  sharedValues?: UserCompanyValuesOut | null;
+  decisions?: DecisionOut[];
+  cardCatalysts?: ThesisDetail["catalysts"];
+}
+
 interface Props {
   selection: CompanyDrawerSelection;
   asof: string;
   onClose: () => void;
   onSwitchCard: (thesisId: string, nameKey: string) => void;
-  onOpenCockpit: (thesisId: string, nameKey?: string | null) => void;
+  /** Omitted inside the Cockpit itself (where "Open in Cockpit" would be redundant). */
+  onOpenCockpit?: (thesisId: string, nameKey?: string | null) => void;
+  /** Non-modal slide-over when collapsed (Cockpit mode: basket rows remain clickable & ↑/↓ works). */
+  nonModal?: boolean;
+  preload?: CompanyDrawerPreload;
 }
 
-/** Redesigned dashboard company overlay: combines the Cockpit's per-name decision context (call,
- *  clocks, triggers, risk signals, thesis fit, scoring meters, identity, data flags, decisions)
- *  with the Scoreboard's interactive price/events chart and cross-highlighted event ledger.
- *  Adapts seamlessly from a tight 600px slide-over to a full-width two-column expanded dossier. */
+function TickerLookupAction({ ticker, onClose }: { ticker: string; onClose: () => void }) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const asofParam = validAsof(searchParams.get(ASOF));
+  return (
+    <button
+      type="button"
+      className="cd-cockpit cd-action-quiet"
+      title={`Open ${ticker} in Ticker Lookup (full filings and cross-card dossier)`}
+      onClick={() => {
+        const sp = new URLSearchParams();
+        sp.set("t", ticker);
+        if (asofParam) sp.set(ASOF, asofParam);
+        onClose();
+        navigate(`/dashboards/ticker-lookup?${sp.toString()}`);
+      }}
+    >
+      Ticker Lookup ↗
+    </button>
+  );
+}
+
+/** Shared company overlay used by both Dashboards (including the Board) and the Research Cockpit:
+ *  combines per-name decision context (call, clocks, triggers, risk signals, catalysts, thesis fit,
+ *  scoring meters, identity, data flags, decisions) with the interactive price/events chart and
+ *  cross-highlighted filterable event ledger. Adapts from a 600px slide-over to a 100vw two-column
+ *  expanded dossier. */
 export function CompanyDrawer({
   selection,
   asof,
   onClose,
   onSwitchCard,
   onOpenCockpit,
+  nonModal = false,
+  preload,
 }: Props) {
   const q = useMemberPanel(selection.thesisId, selection.nameKey, asof);
-  const data = q.data ?? null;
+  const rawData = q.data ?? null;
+  // When preload is supplied (Cockpit mode), only overlay `rawData` once it matches the active
+  // selection so arrow-key stepping never flashes a previous company's CIK / catalysts.
+  const data = useMemo(() => {
+    if (!rawData) return null;
+    if (!preload) return rawData;
+    if (q.isPlaceholderData || rawData.thesis_id !== selection.thesisId) return null;
+    const preSid = preload.row.member.security_id;
+    const preTk = preload.row.member.ticker;
+    const same =
+      (preSid && rawData.member.security_id === preSid) ||
+      (!preSid && rawData.member.ticker === preTk);
+    return same ? rawData : null;
+  }, [rawData, preload, q.isPlaceholderData, selection.thesisId]);
+
   const origin = useCountdownOrigin(asof);
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const asofParam = validAsof(searchParams.get(ASOF));
+  const inRouter = useInRouterContext();
 
   const [span, setSpan] = useState<ChartSpan>("6M");
   const [activeN, setActiveN] = useState<number | null>(null);
 
   const resolved = useMemo(() => {
+    if (preload) return { row: preload.row, def: preload.def };
     if (!data) return null;
     const groups = groupBasket([data.member], data.card, data.scored ? [data.scored] : undefined);
     const firstGroup = groups[0];
     const firstRow = firstGroup?.rows[0];
     if (!firstGroup || !firstRow) return null;
     return { row: firstRow, def: firstGroup.def };
-  }, [data]);
+  }, [data, preload]);
 
+  const card = preload ? (preload.card ?? data?.card) : data?.card;
   const member = resolved?.row.member ?? null;
   const call = resolved?.row.call ?? null;
   const scored = resolved?.row.scored ?? null;
   const def = resolved?.def ?? null;
-  const dataFlags = data?.data_flags ?? null;
-  const display = data?.display ?? null;
+  const dataFlags = preload ? (preload.dataFlags ?? data?.data_flags ?? null) : (data?.data_flags ?? null);
+  const display = preload ? (preload.display ?? data?.display ?? null) : (data?.display ?? null);
+  const sharedValues = preload
+    ? (preload.sharedValues ?? data?.shared_values ?? null)
+    : (data?.shared_values ?? null);
+  const position = preload ? (preload.position ?? data?.position ?? null) : (data?.position ?? null);
+  const thesisName = data?.thesis_name ?? preload?.thesisName ?? "";
+  const effectiveThesisId = data?.thesis_id ?? selection.thesisId;
   const signals = display?.signals ?? [];
 
   const sigByKind = useMemo(() => {
@@ -151,32 +221,40 @@ export function CompanyDrawer({
     const list =
       call && call.triggers.length > 0
         ? call.triggers
-        : (data?.card.triggers_fired ?? []).filter(
+        : (card?.triggers_fired ?? []).filter(
             (t) => t.ticker != null && t.ticker === member.ticker,
           );
     return [...list].sort(byEventDateDesc);
-  }, [call, data, member]);
+  }, [call, card, member]);
 
   const risks: TriggerRefOut[] = useMemo(() => {
     if (!member) return [];
-    return (data?.card.risk_signals ?? [])
+    return (card?.risk_signals ?? [])
       .filter((t) => t.ticker != null && t.ticker === member.ticker)
       .sort(byEventDateDesc);
-  }, [data, member]);
+  }, [card, member]);
+
+  const fetchedDecisionsQ = useDecisions(selection.thesisId, Boolean(preload));
+  const myDecisions = useMemo(() => {
+    if (data) return data.decisions;
+    if (preload?.decisions) return preload.decisions;
+    const sid = member?.security_id;
+    return sid ? (fetchedDecisionsQ.data ?? []).filter((d) => d.security_id === sid) : [];
+  }, [data, preload?.decisions, member?.security_id, fetchedDecisionsQ.data]);
 
   // Price path + recorded SEC event families (buys, sells, 8-Ks, 13D/G) on demand via the shared
   // as-of-capped window read (edition: 0 = live record clock on today, public clock on past asof).
   const sid = member?.security_id ?? null;
   const windowQ = useEpisodePriceWindow(
     {
-      thesisId: data?.thesis_id ?? "",
+      thesisId: effectiveThesisId,
       securityId: sid ?? "",
       start: asof,
       end: asof,
       asof,
       edition: 0,
     },
-    Boolean(data && sid),
+    Boolean((data || preload) && sid),
   );
   const bars = windowQ.data?.bars ?? NO_BARS;
 
@@ -191,7 +269,7 @@ export function CompanyDrawer({
         bars: windowQ.data?.bars ?? NO_BARS,
         triggers: ownTriggers,
         risks,
-        decisions: data?.decisions ?? [],
+        decisions: myDecisions,
         insiderBuys: windowQ.data?.insider_buys ?? [],
         sells: windowQ.data?.insider_sells ?? [],
         filings: windowQ.data?.corporate_events ?? [],
@@ -199,7 +277,7 @@ export function CompanyDrawer({
         splits: dataFlags?.splits ?? [],
         tape: { signals: tapeSignals(display), asof },
       }),
-    [windowQ.data, ownTriggers, risks, data?.decisions, dataFlags, display, asof],
+    [windowQ.data, ownTriggers, risks, myDecisions, dataFlags, display, asof],
   );
 
   const smaSig = sigByKind.get("sma_position") ?? null;
@@ -256,39 +334,24 @@ export function CompanyDrawer({
   );
 
   const lookupTicker = member?.ticker ?? null;
-  const openTickerLookup = () => {
-    if (!lookupTicker) return;
-    const sp = new URLSearchParams();
-    sp.set("t", lookupTicker);
-    if (asofParam) sp.set(ASOF, asofParam);
-    onClose();
-    navigate(`/dashboards/ticker-lookup?${sp.toString()}`);
-  };
 
   const actions = (
     <>
-      {lookupTicker && (
+      {lookupTicker && inRouter && <TickerLookupAction ticker={lookupTicker} onClose={onClose} />}
+      {onOpenCockpit && (
         <button
           type="button"
-          className="cd-cockpit cd-action-quiet"
-          title={`Open ${lookupTicker} in Ticker Lookup (full filings and cross-card dossier)`}
-          onClick={openTickerLookup}
+          className="cd-cockpit"
+          title="Open this company in the Cockpit"
+          onClick={() => onOpenCockpit(selection.thesisId, member?.ticker ?? selection.nameKey)}
         >
-          Ticker Lookup ↗
+          Open in Cockpit ↗
         </button>
       )}
-      <button
-        type="button"
-        className="cd-cockpit"
-        title="Open this company in the Cockpit"
-        onClick={() => onOpenCockpit(selection.thesisId, member?.ticker ?? selection.nameKey)}
-      >
-        Open in Cockpit ↗
-      </button>
     </>
   );
 
-  const switching = Boolean(data && q.isPlaceholderData);
+  const switching = Boolean(!preload && data && q.isPlaceholderData);
 
   // Derived call details
   const armDays = daysFrom(origin, call?.arm_until);
@@ -300,7 +363,7 @@ export function CompanyDrawer({
   if (call?.entry_grade) grades.push(["entry", call.entry_grade]);
 
   const held = Boolean(
-    data?.position?.security_id && member?.security_id && data.position.security_id === member.security_id,
+    position?.security_id && member?.security_id && position.security_id === member.security_id,
   );
 
   const weight =
@@ -355,83 +418,90 @@ export function CompanyDrawer({
 
   const catalystFacts = data?.catalyst_facts ?? [];
   const cardCatalysts = useMemo(
-    () => [...(data?.card_catalysts ?? [])].sort(byWhenDateAsc),
-    [data?.card_catalysts],
+    () => [...(data?.card_catalysts ?? preload?.cardCatalysts ?? [])].sort(byWhenDateAsc),
+    [data?.card_catalysts, preload?.cardCatalysts],
   );
   const hasCatalysts = catalystFacts.length > 0 || cardCatalysts.length > 0;
+  const cards = data?.cards ?? [];
 
   const trailByKey = new Map((trailSig?.metrics ?? []).map((m) => [m.key, m]));
   const hasTapeStrip = Boolean(smaSig || trailSig || rangeSig || rvolSig || volSig || headlines.length > 0);
-  const myDecisions = data?.decisions ?? [];
+  const hasContent = Boolean(resolved && member && def);
 
   return (
-    <Drawer open onClose={onClose} title={title} actions={actions}>
-      {q.isLoading && !data ? (
+    <Drawer open onClose={onClose} title={title} actions={actions} nonModal={nonModal}>
+      {!hasContent && q.isLoading ? (
         <div className="dash-note">Loading company view…</div>
-      ) : q.isError && !data ? (
+      ) : !hasContent && q.isError ? (
         <div className="cd-empty">
           <div className="dash-note">Could not load this company view.</div>
-          <button
-            type="button"
-            className="cd-cockpit"
-            onClick={() => onOpenCockpit(selection.thesisId, selection.nameKey)}
-          >
-            Open card in Cockpit ↗
-          </button>
+          {onOpenCockpit && (
+            <button
+              type="button"
+              className="cd-cockpit"
+              onClick={() => onOpenCockpit(selection.thesisId, selection.nameKey)}
+            >
+              Open card in Cockpit ↗
+            </button>
+          )}
         </div>
-      ) : !q.isPending && q.data === null ? (
+      ) : !hasContent && !q.isPending && q.data === null ? (
         <div className="cd-empty">
           <div className="dash-note">
             {selection.nameKey} is not on this card&apos;s current basket.
           </div>
-          <button
-            type="button"
-            className="cd-cockpit"
-            onClick={() => onOpenCockpit(selection.thesisId, null)}
-          >
-            Open card in Cockpit ↗
-          </button>
+          {onOpenCockpit && (
+            <button
+              type="button"
+              className="cd-cockpit"
+              onClick={() => onOpenCockpit(selection.thesisId, null)}
+            >
+              Open card in Cockpit ↗
+            </button>
+          )}
         </div>
-      ) : data && resolved && member && def ? (
+      ) : hasContent && member && def ? (
         <div className={`cd-body ${def.cls}${switching ? " recomputing" : ""}`}>
-          {/* Card context / multi-card switcher */}
-          <div className="cd-cards">
-            {data.cards.length > 1 ? (
-              <>
-                <span className="cd-cards-label">Cards ({data.cards.length})</span>
-                <div role="group" aria-label="Switch thesis card" style={{ display: "contents" }}>
-                  {data.cards.map((c) => {
-                    const active = c.thesis_id === data.thesis_id;
-                    return (
-                      <button
-                        key={c.thesis_id}
-                        type="button"
-                        className={`cd-card-chip${active ? " active" : ""}`}
-                        aria-pressed={active}
-                        onClick={() => {
-                          if (!active) {
-                            setActiveN(null);
-                            onSwitchCard(c.thesis_id, member.security_id ?? c.ticker);
-                          }
-                        }}
-                      >
-                        {c.thesis_name}
-                        {c.archived && <span className="cd-card-arch">archived</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <>
-                <span className="cd-cards-label">Card</span>
-                <span className="cd-card-name">
-                  {data.thesis_name}
-                  {data.cards[0]?.archived && <span className="cd-card-arch">archived</span>}
-                </span>
-              </>
-            )}
-          </div>
+          {/* Card context / multi-card switcher (always shown in dashboard mode; in Cockpit mode shown when on 2+ cards) */}
+          {(cards.length > 1 || !preload) && (
+            <div className="cd-cards">
+              {cards.length > 1 ? (
+                <>
+                  <span className="cd-cards-label">Cards ({cards.length})</span>
+                  <div role="group" aria-label="Switch thesis card" style={{ display: "contents" }}>
+                    {cards.map((c) => {
+                      const active = c.thesis_id === effectiveThesisId;
+                      return (
+                        <button
+                          key={c.thesis_id}
+                          type="button"
+                          className={`cd-card-chip${active ? " active" : ""}`}
+                          aria-pressed={active}
+                          onClick={() => {
+                            if (!active) {
+                              setActiveN(null);
+                              onSwitchCard(c.thesis_id, member.security_id ?? c.ticker);
+                            }
+                          }}
+                        >
+                          {c.thesis_name}
+                          {c.archived && <span className="cd-card-arch">archived</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="cd-cards-label">Card</span>
+                  <span className="cd-card-name">
+                    {thesisName}
+                    {cards[0]?.archived && <span className="cd-card-arch">archived</span>}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
           {switching && <div className="dash-note">Switching card…</div>}
 
           <div className="cd-grid">
@@ -645,11 +715,11 @@ export function CompanyDrawer({
                     </div>
                   )}
 
-                  {held && data.position && (
+                  {held && position && (
                     <div className="cd-pos">
-                      Position open — entered {fmtDate(data.position.opened_on)}
-                      {data.position.entry_price != null && <> @ ${data.position.entry_price}</>}
-                      {data.position.current_price != null && <> · now ${data.position.current_price}</>}
+                      Position open — entered {fmtDate(position.opened_on)}
+                      {position.entry_price != null && <> @ ${position.entry_price}</>}
+                      {position.current_price != null && <> · now ${position.current_price}</>}
                     </div>
                   )}
                 </section>
@@ -872,7 +942,7 @@ export function CompanyDrawer({
                             );
                           })}
                         </div>
-                        <SharedLines scored={scored} values={data.shared_values ?? null} asof={asof} />
+                        <SharedLines scored={scored} values={sharedValues} asof={asof} />
                       </div>
                     )}
                   </section>
@@ -934,9 +1004,9 @@ export function CompanyDrawer({
           </div>
 
           <div className="cd-footer">
-            Read-only — sizing, facts, and business-type re-tags live in the Workbench; acting,
-            passing, and undo live in the Cockpit. Closing returns the dashboard exactly as you left
-            it.
+            {onOpenCockpit
+              ? "Read-only — sizing, facts, and business-type re-tags live in the Workbench; acting, passing, and undo live in the Cockpit. Closing returns the dashboard exactly as you left it."
+              : "Read-only — sizing, facts, and business-type re-tags live in the Workbench; acting, passing, and undo live in the Call rail."}
           </div>
         </div>
       ) : null}

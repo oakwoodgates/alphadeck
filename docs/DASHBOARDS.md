@@ -8,7 +8,7 @@ checklists and the doc template. Read it before you add, change or remove a dash
 ## What a dashboard is
 
 One registry entry and the files it owns (rule 8), so each builds alone and deletes cleanly. Its `status` in
-`entry.ts` is `core` (a standing page; today only the Board) or `experimental` (it may be removed); promoting one to
+`entry.ts` is `core` (a standing page; today the Board and Ticker Lookup) or `experimental` (it may be removed); promoting one to
 `core` is the operator's call. The top nav's Dashboards menu lists every entry, `/dashboards` is the index (one tile
 per entry), `/dashboards/<slug>` is one dashboard, and an unknown slug lands on the index. Links carry `?asof=`.
 
@@ -26,7 +26,7 @@ the menu, index, routes and home page read it. `DashboardEntry` types an entry:
 | `asofAware` | `true` shows the as-of dial; `false` is a "now" view (rule 2) |
 | `layout` | Optional: `"page"` (default, title row and padded body) or `"fill"` (no title row; the body fills the viewport) |
 | `readsRecord` | Optional `true` for a page that reads the calls history; it renders the shared `RecordStartNote` (when the workspace's record starts) |
-| `openCompanyInCockpit` | Optional `true` when company clicks (`onSelectThesis(id, nameKey)`) should jump straight to the Cockpit instead of opening the shell's company overlay (Board Decision Queue, Ticker Lookup) |
+| `openCompanyInCockpit` | Optional `true` when company clicks (`onSelectThesis(id, nameKey)`) should jump straight to the Cockpit instead of opening the shell's company overlay (Ticker Lookup) |
 | `component` | `React.lazy(() => import("./<Component>"))` |
 
 The registry adds each entry's `thumbnail` from its folder. `buildRegistry` fails loud, naming the folder, on a

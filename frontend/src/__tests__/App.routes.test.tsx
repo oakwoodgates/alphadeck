@@ -39,6 +39,7 @@ vi.mock("../api/hooks", () => ({
   useClock: () => h.clock,
   useMe: () => h.me,
   useLogout: () => ({ isPending: false, mutate: () => undefined }),
+  useDecisions: () => ({ data: [], isLoading: false, error: null }),
   useMemberPanel: () => ({
     isLoading: false,
     isPending: false,
@@ -622,10 +623,13 @@ describe("App routes — the Board as the home dashboard", () => {
     expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-05-15");
   });
 
-  it("a card click at / opens the Cockpit with ?name= and ?asof=, and Back returns to state.from", async () => {
+  it("a company click at / opens the CompanyDrawer overlay, Open in Cockpit carries ?name= and ?asof=, and Back returns to state.from", async () => {
     const user = userEvent.setup();
     renderAt("/?asof=2026-06-01");
     await user.click(await screen.findByText("board-select-name"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(where()).toBe("/?asof=2026-06-01");
+    await user.click(screen.getByRole("button", { name: /Open in Cockpit/i }));
     expect(where()).toBe("/thesis/t-9?asof=2026-06-01&name=HIMS");
     expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-9");
     expect(screen.getByTestId("cp-name")).toHaveTextContent("HIMS");
@@ -635,10 +639,12 @@ describe("App routes — the Board as the home dashboard", () => {
     expect(where()).toBe("/?asof=2026-06-01");
   });
 
-  it("a card click at /dashboards/board opens the Cockpit, and Back returns to /dashboards/board", async () => {
+  it("a company click at /dashboards/board opens the CompanyDrawer overlay, and Open in Cockpit / Back returns to /dashboards/board", async () => {
     const user = userEvent.setup();
     renderAt("/dashboards/board?asof=2026-06-01");
     await user.click(await screen.findByText("board-select-name"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Open in Cockpit/i }));
     expect(where()).toBe("/thesis/t-9?asof=2026-06-01&name=HIMS");
     await user.click(screen.getByText("cp-back"));
     expect(await screen.findByText("BOARD")).toBeInTheDocument();

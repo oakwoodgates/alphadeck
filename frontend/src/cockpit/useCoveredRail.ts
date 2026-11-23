@@ -9,7 +9,7 @@ export function useCoveredRail(panelOpen: boolean) {
   useLayoutEffect(() => {
     const shell = shellRef.current;
     const rail = shell?.querySelector<HTMLElement>("#cp-rail");
-    const panel = shell?.querySelector<HTMLElement>(".npanel");
+    const panel = shell?.querySelector<HTMLElement>(".drawer-panel, .npanel");
     if (!panelOpen || !rail || !panel) { setCovered(false); return; }
     const measure = () => {
       const r = rail.getBoundingClientRect(), p = panel.getBoundingClientRect();

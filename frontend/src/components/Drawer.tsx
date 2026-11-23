@@ -14,30 +14,36 @@ interface Props {
   title?: ReactNode;
   /** Optional header controls rendered beside the expand and close buttons. */
   actions?: ReactNode;
+  /** When true and collapsed, omits the dimming backdrop and keeps focus on the underlying page
+   *  (used by the Cockpit so basket rows remain clickable and arrow-key stepping keeps working).
+   *  Expanding to full width switches to a modal dialog automatically. */
+  nonModal?: boolean;
   children: ReactNode;
 }
 
-export function Drawer({ open, onClose, title, actions, children }: Props) {
+export function Drawer({ open, onClose, title, actions, nonModal = false, children }: Props) {
   // Expand-to-full-width is LOCAL to the drawer and resets each time it opens (no browser storage,
   // no leak across episodes). Default ≈ the Cockpit panel width; expanded near-full for a chart.
   const [expanded, setExpanded] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
+  const isModal = !nonModal || expanded;
 
-  // On open: reset width, remember the opener, move focus into the panel. On close: return focus to
-  // the opener (attention is reversible too). Keyed on `open` so a parent re-render never re-steals.
+  // On open: reset width; in modal mode remember the opener and move focus into the panel so
+  // closing returns focus (non-modal Cockpit mode leaves focus on the basket row for ↑/↓ stepping).
   useEffect(() => {
     if (!open) return;
     setExpanded(false);
+    if (nonModal) return;
     openerRef.current = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
     return () => openerRef.current?.focus?.();
-  }, [open]);
+  }, [open, nonModal]);
 
   // Escape closes (only while open — no dangling global listener otherwise). Capture phase +
   // stopPropagation keeps underlying pages with their own Escape handler (e.g. MarketMap unzoom)
-  // untouched when closing the modal drawer.
+  // untouched when closing the drawer.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -53,13 +59,13 @@ export function Drawer({ open, onClose, title, actions, children }: Props) {
   if (!open) return null;
 
   return (
-    <div className="drawer-overlay">
+    <div className={`drawer-overlay${isModal ? "" : " non-modal"}`}>
       {/* the backdrop dims the page behind and closes on click (never destroys — reversible) */}
-      <div className="drawer-backdrop" aria-hidden="true" onClick={onClose} />
+      {isModal && <div className="drawer-backdrop" aria-hidden="true" onClick={onClose} />}
       <aside
         className={`drawer-panel${expanded ? " expanded" : ""}`}
-        role="dialog"
-        aria-modal="true"
+        role={isModal ? "dialog" : "complementary"}
+        aria-modal={isModal ? "true" : undefined}
         aria-labelledby={title != null ? titleId : undefined}
         aria-label={title == null ? "drawer" : undefined}
       >

@@ -112,6 +112,8 @@ vi.mock("../../api/hooks", () => ({
   useDisplaySignals: () => ({ data: fx.display, isLoading: false, error: null }),
   useThesisDataFlags: () => ({ data: fx.flags, isLoading: false, error: null }),
   useDecisions: () => ({ data: [] }),
+  useMemberPanel: () => ({ data: undefined, isLoading: false, isPending: false, isError: false, isPlaceholderData: false }),
+  useEpisodePriceWindow: () => ({ data: undefined, isLoading: false, isError: false }),
   usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
 }));

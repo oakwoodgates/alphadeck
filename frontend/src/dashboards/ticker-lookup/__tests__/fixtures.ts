@@ -6,6 +6,7 @@ import type {
   LookupFilingDay,
   LookupTrigger,
   TickerLookupOut,
+  TickerLookupPriceWindowOut,
 } from "../useTickerLookup";
 
 // Hand-built payloads for the Ticker Lookup's tests: neutral names (Card A, Card B), one company (TLA).
@@ -138,6 +139,7 @@ export const filing = (over: Partial<LookupFiling> = {}): LookupFiling => ({
   usd: null,
   set_by: null,
   ratified_on: null,
+  live: false,
   ...over,
 });
 
@@ -302,7 +304,47 @@ export const payload = (over: Partial<TickerLookupOut> = {}): TickerLookupOut =>
     decision({ id: "d1", voided: true }),
   ],
   decisions_voided: 1,
+  scored: null,
+  shared_values: null,
   cache: "computed",
   compute_ms: 900,
+  ...over,
+});
+
+export const priceWindow = (over: Partial<TickerLookupPriceWindowOut> = {}): TickerLookupPriceWindowOut => ({
+  security_id: SID,
+  start: "2026-09-01",
+  end: "2026-10-28",
+  asof: "2026-10-28",
+  source: "fact_price_eod",
+  bars: [
+    { d: "2026-10-01", open: 10, high: 10.5, low: 9.8, close: 10.2, volume: 100_000, sma50: 10.0, sma200: 9.5 },
+    { d: "2026-10-23", open: 11.5, high: 12.1, low: 11.4, close: 12.0, volume: 180_000, sma50: 10.8, sma200: 9.8 },
+    { d: "2026-10-27", open: 12.1, high: 12.6, low: 12.0, close: 12.4, volume: 210_000, sma50: 11.0, sma200: 9.9 },
+    { d: "2026-10-28", open: 12.3, high: 12.7, low: 12.2, close: 12.5, volume: 150_000, sma50: 11.1, sma200: 10.0 },
+  ],
+  insider_buys: [
+    {
+      d: "2026-10-23",
+      disclosed: "2026-10-25",
+      ingested: "2026-10-28",
+      insider_name: "Jane Roe",
+      insider_role: "CEO",
+      shares: 12_000,
+      usd: 144_000,
+      character: "open_market",
+    },
+  ],
+  insider_sells: [],
+  corporate_events: [
+    {
+      d: "2026-10-27",
+      ingested: "2026-10-28",
+      form: "8-K",
+      items: ["5.02"],
+      url: EDGAR,
+    },
+  ],
+  activist_stakes: [],
   ...over,
 });

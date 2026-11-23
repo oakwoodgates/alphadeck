@@ -9,6 +9,7 @@ import type { components } from "../../api/types.gen";
 // come from the Workbench's existing company search (`useResolveSecurities` in api/hooks.ts), already served.
 
 export type TickerLookupOut = components["schemas"]["TickerLookupOut"];
+export type TickerLookupPriceWindowOut = components["schemas"]["TickerLookupPriceWindowOut"];
 export type TickerLookupResolveOut = components["schemas"]["TickerLookupResolveOut"];
 export type LookupIdentity = components["schemas"]["TickerLookupIdentityOut"];
 export type LookupCap = components["schemas"]["TickerLookupCapOut"];
@@ -64,6 +65,24 @@ export function useTickerLookup(asof: string, securityId: string | null) {
         params: { path: { security_id: securityId as string }, query: { asof } },
       });
       if (error) throw error;
+      return data;
+    },
+    enabled: securityId != null,
+    staleTime: MONITOR_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** As-of-capped daily price bars (with 50d/200d SMAs) and dated event overlays (insider buys/sells,
+ *  8-K filings, 13D/G stakes) for one company, independent of whether it sits on any thesis card. */
+export function useTickerLookupPriceWindow(asof: string, securityId: string | null) {
+  return useQuery<TickerLookupPriceWindowOut>({
+    queryKey: ["dashboard-ticker-lookup-price-window", asof, securityId] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/dashboards/ticker-lookup/{security_id}/price-window", {
+        params: { path: { security_id: securityId as string }, query: { asof } },
+      });
+      if (error || !data) throw error ?? new Error("Could not load price window");
       return data;
     },
     enabled: securityId != null,
