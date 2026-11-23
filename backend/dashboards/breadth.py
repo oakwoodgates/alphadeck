@@ -28,15 +28,27 @@ from uuid import UUID
 
 import psycopg
 
-from dashboards.baskets import per_company
+from dashboards.baskets import per_company, seed_page_piece
 from signals.display import theme_breadth
-from signals.display.base import DisplaySignal
+from signals.display.base import DisplayPointInTimeData, DisplaySignal
 
 # The per-company piece: one company's breadth closes, named by the lookback VALUE (the closes pieces'
 # convention, ``closes.420d``). It carries the breadth's own prefix because the stored value is the breadth's own
 # series (the closes in bar order, as ``theme_breadth.member_closes`` reads them), not the ``{day: close}`` map
 # the ``closes.<N>d`` pieces hold: a page that reads ``closes.<N>d`` must never be handed this shape.
 CLOSES_PIECE = f"theme-breadth.closes.{theme_breadth.LOOKBACK_DAYS}d"
+
+
+def warm_member_closes(pit: DisplayPointInTimeData, security_id: UUID) -> None:
+    """Seed ``CLOSES_PIECE`` for ``security_id`` from an active ``per_company`` callback's ``pit`` (whose price
+    bars are already in the PIT memo), so ``read_breadths`` in the same compute is a piece-cache hit with no
+    second ``PointInTimeData`` price read."""
+    seed_page_piece(
+        CLOSES_PIECE,
+        pit,
+        security_id,
+        lambda: tuple(theme_breadth.member_closes(pit, security_id)),
+    )
 
 
 def read_breadths(

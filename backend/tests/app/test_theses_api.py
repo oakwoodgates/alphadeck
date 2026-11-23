@@ -329,3 +329,36 @@ def test_call_live_view_is_identical_to_the_uncapped_read(client, db, security_i
         master.tickers_for(db, sec_ids, tenant_id=DEFAULT_TENANT_ID),
     ).model_dump(mode="json")
     assert via_route == uncapped
+
+
+def test_read_call_passes_loaded_thesis_and_avoids_duplicate_reload(
+    client, db, security_id, monkeypatch
+):
+    """``GET /theses/{id}/call`` loads the thesis once via ``get_thesis_or_404`` and threads it into
+    ``call_for_thesis(..., loaded_thesis=thesis)`` so ``_get_many`` is never called a second time
+    inside ``read_call``."""
+    tid = _seed_hims_thesis(db, security_id)
+    loaded_seen: list[Thesis | None] = []
+    get_many_calls = 0
+
+    real_call = theses_router.call_for_thesis
+    real_get_many = thesis_repo._get_many
+
+    def spy_call(conn, thesis_id, asof, **kw):
+        loaded_seen.append(kw.get("loaded_thesis"))
+        return real_call(conn, thesis_id, asof, **kw)
+
+    def spy_get_many(conn, thesis_ids, **kw):
+        nonlocal get_many_calls
+        get_many_calls += 1
+        return real_get_many(conn, thesis_ids, **kw)
+
+    monkeypatch.setattr(theses_router, "call_for_thesis", spy_call)
+    monkeypatch.setattr(thesis_repo, "_get_many", spy_get_many)
+
+    resp = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
+    assert resp.status_code == 200
+    assert len(loaded_seen) == 1
+    assert loaded_seen[0] is not None and loaded_seen[0].id == tid
+    # exactly 1 load for the whole request (get_thesis_or_404); 0 reloads inside read_call
+    assert get_many_calls == 1

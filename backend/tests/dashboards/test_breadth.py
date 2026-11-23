@@ -19,7 +19,7 @@ from psycopg.types.json import Json
 from dashboards import baskets
 from dashboards import cache as cache_mod
 from dashboards.baskets import per_company
-from dashboards.breadth import CLOSES_PIECE, read_breadths
+from dashboards.breadth import CLOSES_PIECE, read_breadths, warm_member_closes
 from dashboards.cache import DashboardCache, Generation
 from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID
@@ -209,6 +209,39 @@ def test_a_company_on_several_cards_is_read_once(cache, views):
     assert got.value == expected
     assert views.baskets == [COMPANIES]  # one view, each company once, in first-seen order
     assert views.reads == [(sid, theme_breadth.LOOKBACK_DAYS) for sid in COMPANIES]
+
+
+def test_a_company_warmed_during_per_company_makes_read_breadths_build_no_second_view(cache, views):
+    """A page whose own ``per_company`` callback calls ``warm_member_closes`` has already seeded
+    ``CLOSES_PIECE`` from that call's view: ``read_breadths`` in the same compute is a piece hit (no view).
+    """
+    expected = _per_card(views)
+
+    def page():
+        per_company(
+            CONN,
+            COMPANIES,
+            D,
+            K,
+            "public",
+            lambda pit, sid: warm_member_closes(pit, sid),
+            workspace=W,
+            piece="tape",
+        )
+        return read_breadths(CONN, D, K, "public", CARDS, workspace=W)
+
+    got = cache.get(CONN, "a", (), D, page, workspace=W)
+    assert got.value == expected
+    assert len(views.baskets) == 1 and views.baskets == [COMPANIES]  # no second view built
+    assert views.reads == [
+        (sid, theme_breadth.LOOKBACK_DAYS) for sid in COMPANIES
+    ]  # bars read once
+
+
+def test_warming_outside_a_per_company_callback_stores_nothing(cache, views):
+    warm_member_closes(views.pit(), FULL)  # no active per_company view
+    cache.get(CONN, "a", (), D, lambda: warm_member_closes(views.pit(), FULL), workspace=W)
+    assert cache.piece_count() == 0 and views.reads == []
 
 
 def test_outside_a_page_compute_a_company_is_still_read_once_and_nothing_is_stored(cache, views):

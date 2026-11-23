@@ -33,7 +33,7 @@ from dashboards.baskets import (
     per_company,
     price_flags,
 )
-from dashboards.breadth import read_breadths
+from dashboards.breadth import read_breadths, warm_member_closes
 from dashboards.cache import cached
 from dashboards.filings import source_url
 from dashboards.forming_quietly import (
@@ -335,6 +335,7 @@ def read_reading(
 ) -> Reading:
     """One company's reading from the point-in-time view: the three display members (a company whose data flags
     reach its price readings is never handed here: it is not read at all)."""
+    warm_member_closes(pit, sid)
     return reading_of({name: m(pit, sid, asof) for name, m in members.items()})
 
 

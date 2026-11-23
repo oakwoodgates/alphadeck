@@ -258,6 +258,7 @@ def read_call(
         record=False,
         decisions_asof=serve_decisions_asof(asof, mclock),
         workspace=thesis.tenant_id,  # the owned thesis's workspace (get_thesis_or_404 checked the caller's)
+        loaded_thesis=thesis,
     )
     sec_ids = (
         {t.security_id for t in card.triggers_fired}

@@ -3,7 +3,7 @@ import { Link } from "react-router";
 
 import { AppHeader } from "../AppHeader";
 import { dashboardPath } from "../nav";
-import { groupDashboards, type DashboardGroup } from "./groups";
+import { groupDashboards, preloadDashboard, type DashboardGroup } from "./groups";
 import { DASHBOARDS } from "./registry";
 
 // The /dashboards page: every registry entry organized by navigation group (the Board first), each linking to its
@@ -117,7 +117,12 @@ export function DashboardsIndex({ asofParam }: Props) {
                     <ul className="dash-index">
                       {g.items.map((d) => (
                         <li key={d.slug}>
-                          <Link className="dash-tile" to={dashboardPath(d.slug, asofParam)}>
+                          <Link
+                            className="dash-tile"
+                            to={dashboardPath(d.slug, asofParam)}
+                            onMouseEnter={() => preloadDashboard(d)}
+                            onFocus={() => preloadDashboard(d)}
+                          >
                             {/* The drawing from the dashboard's own folder. Empty alt: the label sits right beside it. */}
                             <span className="dash-tile-thumb">
                               <img src={d.thumbnail} alt="" width={320} height={200} loading="lazy" decoding="async" />
