@@ -175,7 +175,8 @@ def test_the_link_view_counts_a_two_link_company_in_both_and_the_others_fold_it_
 def repo(monkeypatch):
     old = Thesis(id=T1, name="Old", narrative="x")
     new = Thesis(id=T2, name="New", narrative="x")
-    calls: dict = {"snapshots": [], "get_asof": []}
+    snap_basket = [BasketMember(ticker="NNE", role="r")]
+    calls: dict = {"snapshots_asof_for": []}
     monkeypatch.setattr(baskets.thesis_repo, "list_all", lambda conn, **_: [old, new])
     monkeypatch.setattr(
         baskets.thesis_repo,
@@ -186,16 +187,12 @@ def repo(monkeypatch):
         },
     )
 
-    def snapshot_exists(conn, tid, known_at):
-        calls["snapshots"].append(tid)
-        return False
+    def snapshots_asof_for(conn, ids, known_at):
+        # one batched read: T1 has a roster snapshot by then, nothing else does
+        calls["snapshots_asof_for"].append((list(ids), known_at))
+        return {T1: snap_basket} if T1 in ids else {}
 
-    def get_asof(conn, tid, known_at, **_):
-        calls["get_asof"].append((tid, known_at))
-        return old
-
-    monkeypatch.setattr(baskets.thesis_repo, "snapshot_exists_asof", snapshot_exists)
-    monkeypatch.setattr(baskets.thesis_repo, "get_asof", get_asof)
+    monkeypatch.setattr(baskets.thesis_repo, "snapshots_asof_for", snapshots_asof_for)
     return calls
 
 
@@ -211,14 +208,24 @@ def test_cards_as_of_leaves_out_later_cards_and_counts_a_roster_fallback(repo):
         2,
         ["Old"],
         1,
-        1,
+        0,
     )
-    assert repo["get_asof"] == [(T1, known_at)]
+    assert [m.ticker for m in got.cards[0].basket] == ["NNE"]  # T1 reads its snapshot roster
+    assert repo["snapshots_asof_for"] == [([T1], known_at)]  # ONE batched read, the kept cards only
+    # a card with no snapshot by then keeps today's roster and is counted as a fallback
+    repo["snapshots_asof_for"].clear()
+    later = cards_as_of(object(), date(2026, 10, 1), known_at, workspace=DEFAULT_TENANT_ID)
+    assert [(t.name, [m.ticker for m in t.basket]) for t in later.cards] == [
+        ("Old", ["NNE"]),
+        ("New", []),
+    ]
+    assert later.roster_fallback == 1  # T2 has no snapshot: today's roster stands in
+    assert repo["snapshots_asof_for"] == [([T1, T2], known_at)]
     # the live view: today's roster, no snapshot read
-    repo["get_asof"].clear()
+    repo["snapshots_asof_for"].clear()
     live = cards_as_of(object(), date(2026, 10, 1), None, workspace=DEFAULT_TENANT_ID)
     assert ([t.name for t in live.cards], live.roster_fallback) == (["Old", "New"], 0)
-    assert repo["get_asof"] == [] and repo["snapshots"] == [T1]
+    assert repo["snapshots_asof_for"] == []
 
 
 def test_per_company_reads_each_company_once_through_one_view_per_chunk(monkeypatch):
@@ -342,6 +349,9 @@ def test_price_flags_maps_only_the_flags_that_reach_a_price_cell(monkeypatch):
     for c in calls:
         assert (c["asof"], c["known_at"], c["clock"]) == (ASOF, known_at, "public")
         assert (c["readings"], c["corrections"]) == ("READINGS", "CORRECTIONS")
+        assert (
+            c["price_only"] is True
+        )  # only price-reaching flags are kept: the other reads are skipped
         assert c["stale_days"] == get_settings().tape_stale_days
         assert c["tenant_id"] == DEFAULT_TENANT_ID and set(c["tickers"]) == set(sids)
     assert (

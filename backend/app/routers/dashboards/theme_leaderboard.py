@@ -263,6 +263,7 @@ def _view(
     clock: Literal["record", "public"],
     basket: list[UUID] | None = None,
     *,
+    thesis_basket: list[UUID] | None = None,
     workspace: UUID,
 ) -> PointInTimeData:
     return PointInTimeData(
@@ -271,6 +272,7 @@ def _view(
         known_at=known_at,
         data_tenant=DATA_TENANT_ID,
         basket=basket,
+        thesis_basket=thesis_basket,
         bounds=display_bounds(),
         clock=clock,
         workspace=workspace,
@@ -381,8 +383,15 @@ def read_board(
         {tid: [sid for sid, _ in names_of(ms) if sid not in flags] for tid, ms in by_card.items()},
         workspace=workspace,
     )
-    mentions_pit = _view(conn, asof, known_at, clock, workspace=workspace)
     terms = {t.id: signal_terms(t.term_set) for t in counted.cards}
+    mentions_pit = _view(
+        conn,
+        asof,
+        known_at,
+        clock,
+        thesis_basket=[t.id for t in counted.cards if terms[t.id]],
+        workspace=workspace,
+    )
     reads = [
         CardRead(
             thesis_id=t.id,

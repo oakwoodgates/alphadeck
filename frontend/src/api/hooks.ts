@@ -369,19 +369,25 @@ export function useDisconnect() {
   });
 }
 
+const selectAllTheses = <T,>(data: T) => data;
+const selectActiveTheses = <T extends { archived?: boolean }>(data: T[]) =>
+  data.filter((t) => !t.archived);
+
 export function useTheses(includeArchived = false) {
   return useQuery({
-    // the partial key ["theses"] still invalidates BOTH variants (every mutation that touches the
-    // list keeps working); archived stay excluded by default — only the Board asks for them
-    queryKey: ["theses", includeArchived] as const,
+    // One shared ["theses"] cache entry fetches include_archived=true once; default callers receive
+    // the active-only slice via a stable `select` without a second round-trip on boot (SignedInApp ->
+    // Board), and every mutation that invalidates ["theses"] still invalidates both views.
+    queryKey: ["theses"] as const,
     staleTime: MONITOR_STALE_MS, // MONITOR read — a remount inside the window reuses the cache
     queryFn: async () => {
       const { data, error } = await api.GET("/theses", {
-        params: { query: { include_archived: includeArchived } },
+        params: { query: { include_archived: true } },
       });
       if (error) throw error;
       return data;
     },
+    select: includeArchived ? selectAllTheses : selectActiveTheses,
   });
 }
 

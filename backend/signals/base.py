@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import bisect
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -8,7 +9,7 @@ from uuid import UUID
 
 import psycopg
 
-from db.bitemporal import as_of, as_of_many, as_of_thesis
+from db.bitemporal import as_of, as_of_many, as_of_many_theses, as_of_thesis
 from db.clock import db_now
 from db.public_clock import Clock
 from domain.config import CallConfig
@@ -94,6 +95,7 @@ class PointInTimeData:
         data_tenant: UUID | None = None,
         workspace: UUID,
         basket: Iterable[UUID] | None = None,
+        thesis_basket: Iterable[UUID] | None = None,
         bounds: Mapping[str, int | None] | None = None,
         clock: Clock = "record",
     ) -> None:
@@ -119,11 +121,15 @@ class PointInTimeData:
         self.clock: Clock = clock
         # the resolved basket (prefetch scope); empty == no basket == per-security reads, memoized
         self._basket: frozenset[UUID] = frozenset(basket or ())
+        # the resolved thesis basket (prefetch scope for thesis-scoped tables like fact_term_mentions)
+        self._thesis_basket: frozenset[UUID] = frozenset(thesis_basket or ())
         # registry-derived read bounds, DAYS before asof per table (None / absent = unbounded)
         self._bounds: dict[str, int | None] = dict(bounds or {})
         self._memo: dict[tuple[str, tuple[UUID, ...], UUID], list[dict[str, Any]]] = {}
+        self._price_dates: dict[tuple[str, tuple[UUID, ...], UUID], list[date]] = {}
         self._thesis_memo: dict[tuple[str, tuple[UUID, ...], UUID], list[dict[str, Any]]] = {}
         self._prefetched: set[str] = set()
+        self._thesis_prefetched: set[str] = set()
         self._identity: dict[UUID, tuple[str | None, str | None]] = {}  # sid -> (name, cik)
         self._identity_prefetched = False
         self._bench_ids: dict[str, UUID | None] = {}
@@ -146,9 +152,48 @@ class PointInTimeData:
         tenant for a DATA table, the workspace for a WORKSPACE table (one tenant per table, V2)."""
         return tenants_for(table, data=self.data_tenant, workspace=self.workspace)
 
-    def _rows(self, table: str, security_id: UUID) -> list[dict[str, Any]]:
-        """The memoized as-of rows for ``(table, security_id)`` — prefetched for the basket on the first
-        touch of the table, per-security otherwise; both paths hold exactly the bounded window."""
+    def _store_memo(
+        self,
+        table: str,
+        tenants: tuple[UUID, ...],
+        sid: UUID,
+        rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Store as-of rows in the memo. For ``fact_price_eod``, apply view-scale split normalization,
+        drop NYSE full-day holiday carries (F5), sort ascending by ``d`` once, and cache parallel dates
+        for O(log N) lookback slicing."""
+        key = (table, tenants, sid)
+        rows = self._on_view_scale(table, sid, rows)
+        if table == "fact_price_eod":
+            cleaned = sorted(
+                (r for r in rows if closure_name(r["d"]) is None),
+                key=lambda r: r["d"],
+            )
+            self._memo[key] = cleaned
+            self._price_dates[key] = [r["d"] for r in cleaned]
+            return cleaned
+        self._memo[key] = rows
+        return rows
+
+    def _slice_prices(
+        self,
+        key: tuple[str, tuple[UUID, ...], UUID],
+        rows: list[dict[str, Any]],
+        lookback_days: int | None,
+    ) -> list[dict[str, Any]]:
+        """Return a fresh list of pre-cleaned, date-sorted EOD bars trimmed to ``lookback_days`` via
+        binary search."""
+        if lookback_days is None:
+            return list(rows)
+        start = self.asof - timedelta(days=lookback_days)
+        idx = bisect.bisect_left(self._price_dates[key], start)
+        return rows[idx:]
+
+    def _memo_rows(
+        self, table: str, security_id: UUID
+    ) -> tuple[tuple[str, tuple[UUID, ...], UUID], list[dict[str, Any]]]:
+        """Populate and return the memo key and backing row list (callers must copy or slice before
+        handing a list out)."""
         tenants = self._tenants(table)
         key = (table, tenants, security_id)
         if key not in self._memo:
@@ -164,8 +209,11 @@ class PointInTimeData:
                     clock=self.clock,
                 )
                 for sid, rows in batch.items():
-                    self._memo[(table, tenants, sid)] = self._on_view_scale(
-                        table, sid, rows  # an empty list too: "nothing on file", memoized
+                    self._store_memo(
+                        table,
+                        tenants,
+                        sid,
+                        rows,  # an empty list too: "nothing on file", memoized
                     )
                 self._prefetched.add(table)
             if key not in self._memo:  # outside the basket (a benchmark), or no basket at all
@@ -181,9 +229,14 @@ class PointInTimeData:
                 lower = self._lower(table)
                 if lower is not None:  # the memo rule: hold only the bounded window, on every path
                     rows = [r for r in rows if r["valid_from"] >= lower]
-                self._memo[key] = self._on_view_scale(table, security_id, rows)
+                self._store_memo(table, tenants, security_id, rows)
+        return key, self._memo[key]
+
+    def _rows(self, table: str, security_id: UUID) -> list[dict[str, Any]]:
+        """The memoized as-of rows for ``(table, security_id)`` — prefetched for the basket on the first
+        touch of the table, per-security otherwise; both paths hold exactly the bounded window."""
         return list(
-            self._memo[key]
+            self._memo_rows(table, security_id)[1]
         )  # a fresh list per call; the memo's container is never handed out
 
     def _on_view_scale(
@@ -198,19 +251,40 @@ class PointInTimeData:
 
     def _thesis_rows(self, table: str, thesis_id: UUID) -> list[dict[str, Any]]:
         """A THESIS-scoped table (``fact_thesis_catalyst`` / ``fact_term_mentions``): WORKSPACE tables, so
-        the read covers the workspace only (``domain.scopes``)."""
+        the read covers the workspace only (``domain.scopes``). Prefetched for ``thesis_basket`` in one
+        ``as_of_many_theses`` query on first touch; falls back to per-thesis ``as_of_thesis`` otherwise.
+        """
         tenants = self._tenants(table)
         key = (table, tenants, thesis_id)
         if key not in self._thesis_memo:
-            self._thesis_memo[key] = as_of_thesis(
-                self.conn,
-                table,
-                thesis_id=thesis_id,
-                asof=self.asof,
-                known_at=self.known_at,
-                tenant_id=tenants,
-                clock=self.clock,
-            )
+            lower = self._lower(table)
+            if thesis_id in self._thesis_basket and table not in self._thesis_prefetched:
+                batch = as_of_many_theses(
+                    self.conn,
+                    table,
+                    thesis_ids=self._thesis_basket,
+                    asof=self.asof,
+                    known_at=self.known_at,
+                    tenant_id=tenants,
+                    valid_from_lower=lower,
+                    clock=self.clock,
+                )
+                for tid, rows in batch.items():
+                    self._thesis_memo[(table, tenants, tid)] = rows
+                self._thesis_prefetched.add(table)
+            if key not in self._thesis_memo:
+                rows = as_of_thesis(
+                    self.conn,
+                    table,
+                    thesis_id=thesis_id,
+                    asof=self.asof,
+                    known_at=self.known_at,
+                    tenant_id=tenants,
+                    clock=self.clock,
+                )
+                if lower is not None:
+                    rows = [r for r in rows if r["valid_from"] >= lower]
+                self._thesis_memo[key] = rows
         return list(self._thesis_memo[key])
 
     def _identity_row(self, security_id: UUID) -> tuple[str | None, str | None]:
@@ -248,7 +322,8 @@ class PointInTimeData:
     def price_history(
         self, security_id: UUID, lookback_days: int | None = None
     ) -> list[dict[str, Any]]:
-        return window_prices(self._rows("fact_price_eod", security_id), self.asof, lookback_days)
+        key, rows = self._memo_rows("fact_price_eod", security_id)
+        return self._slice_prices(key, rows, lookback_days)
 
     def benchmark_prices(
         self, symbol: str, lookback_days: int | None = None
@@ -271,7 +346,8 @@ class PointInTimeData:
         sid = self._benchmark_id(symbol)
         if sid is None:
             return []
-        return window_prices(self._rows("fact_price_eod", sid), self.asof, lookback_days)
+        key, rows = self._memo_rows("fact_price_eod", sid)
+        return self._slice_prices(key, rows, lookback_days)
 
     def _benchmark_id(self, symbol: str) -> UUID | None:
         """Resolve a benchmark ticker (SPY/IWM) to its ``security_master`` id in the DATA tenant — the

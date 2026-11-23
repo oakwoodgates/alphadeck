@@ -1024,11 +1024,17 @@ def read_flags(
     readings: Mapping[UUID, StopReading] | None = None,
     corrections: Mapping[tuple[str, date], Correction] | None = None,
     edgar_cache_dir: Path | None = None,
+    price_only: bool = False,
 ) -> dict[UUID, MemberFlags]:
     """Every requested security's ``MemberFlags`` as of ``asof`` on the view's clock (``serve_view``): ONE
     point-in-time view over the whole scope (each fact table read in one batched query), plus — on the live
     view only — one query for the recently re-versioned bars the flap test reads and one for the identities
     the fundamentals reading needs (``fundamentals_lags``, over the EDGAR cache on disk). SELECTs only.
+
+    ``price_only`` is for a caller that keeps only the flags reaching a price cell (``dashboards.baskets``): it
+    skips the three reads that feed flags reaching none (the fundamentals lag, the owed insider holds, the share
+    count behind the market-cap flag), so those flags are absent from the answer. Every price-reaching input
+    (bars, splits, versions, settle check, corrections, stopped-feed reading) is read exactly as before.
     """
     from signals.base import (
         PointInTimeData,
@@ -1063,22 +1069,30 @@ def read_flags(
                     BarVersion(r["recorded_at"], _num(r["close"]))
                 )
     settled_names = _settled_flap_names(conn, pit, versions, tenant_id=tenant_id, asof=asof)
+    # price_only: the three reads below feed only flags that reach no price cell (the fundamentals lag, the
+    # owed insider holds and the market cap's share count), so a price-only caller skips them
     lags = (
         fundamentals_lags(conn, tenant_id=tenant_id, ids=ids, asof=asof, cache_dir=edgar_cache_dir)
-        if live
+        if live and not price_only
         else {}
     )
-    owed, ciks = owed_holds(
-        conn,
-        ids,
-        known_at=known_at or datetime.now(timezone.utc),
-        tenant_id=tenant_id,
-        clock=clock,
-    )
+    owed: dict[UUID, list[Mapping[str, Any]]] = {}
+    ciks: dict[UUID, str | None] = {}
+    if not price_only:
+        owed, ciks = owed_holds(
+            conn,
+            ids,
+            known_at=known_at or datetime.now(timezone.utc),
+            tenant_id=tenant_id,
+            clock=clock,
+        )
     out: dict[UUID, MemberFlags] = {}
     for sid in ids:
-        shares_facts = pit.shares_outstanding_facts(sid)
-        shares = pick_current(shares_facts)  # THE one pick (domain.platform_values)
+        shares = None
+        if not price_only:
+            shares = pick_current(
+                pit.shares_outstanding_facts(sid)
+            )  # THE one pick (platform_values)
         reading = (readings or {}).get(sid) if live else None
         out[sid] = member_flags(
             sid,

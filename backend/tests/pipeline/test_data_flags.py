@@ -387,3 +387,137 @@ def test_first_night_corrections_read_what_the_price_leg_writes():
     c = corr[(str(sid), date(2026, 10, 26))]
     assert (c.on, c.bars, c.source) == (date(2026, 10, 26), 380, "first_night")
     assert df.first_night_corrections([{**doc, "mode": "no-live"}]) == {}
+
+
+# --- price_only: the reads a price dashboard never keeps --------------------------------------------------
+
+
+def _reaches_price(f: m.DataFlag) -> bool:
+    """The dashboards' own reach rule (``dashboards.baskets.reaches_price``): a price cell among the columns."""
+    return any(cell in m.PRICE_CELLS for cell in f.columns)
+
+
+def test_the_price_reaching_flags_never_depend_on_shares_the_lag_or_the_insider_holds():
+    """``read_flags(price_only=True)`` drops the three reads feeding flags that reach no price cell. Proven on
+    every real view: with a share count, a fundamentals lag and an owed insider hold GIVEN or OMITTED, the flags
+    that reach a price cell are identical (the market cap, the lag and the held rows reach none)."""
+    from pipeline.fundamentals_lag import FundamentalsLag
+
+    lag = FundamentalsLag(
+        cik="0000000001",
+        form="10-Q",
+        accession="0000000001-26-000001",
+        filed=date(2026, 5, 15),
+        period=date(2026, 3, 31),
+        last_period=date(2025, 12, 31),
+    )
+    views = _views()
+    assert views
+    for raw in views:
+        v = view(raw["ticker"], raw["asof"])
+        hold = {"accession": "0000000001-26-000002", "filed": v["asof"]}
+        common = dict(
+            bars=v["bars"],
+            split_rows=v["splits"],
+            asof=v["asof"],
+            stale_days=STALE_DAYS,
+            versions=v["versions"],
+        )
+        full = df.member_flags(
+            v["sid"],
+            v["ticker"],
+            shares=v["shares"],
+            fundamentals_lag=lag,
+            owed_holds=(hold,),
+            **common,
+        )
+        bare = df.member_flags(
+            v["sid"], v["ticker"], shares=None, fundamentals_lag=None, owed_holds=(), **common
+        )
+        assert [f for f in full.flags if _reaches_price(f)] == [
+            f for f in bare.flags if _reaches_price(f)
+        ], (raw["ticker"], raw["asof"])
+        # the omitted inputs only ever remove flags that reach no price cell
+        assert not any(
+            _reaches_price(f)
+            for f in full.flags
+            if f.kind in (m.FUNDAMENTALS_LAG, m.INSIDER_HOLD_OWED)
+        )
+        assert full.splits == bare.splits and full.notes == bare.notes
+
+
+def test_read_flags_price_only_skips_the_fundamentals_the_owed_holds_and_the_share_count(
+    monkeypatch,
+):
+    import signals.base
+
+    v = view("BTOC", "2026-10-22")
+    sid = v["sid"]
+    seen: dict[str, int] = {"lags": 0, "owed": 0, "shares": 0}
+
+    class FakePit:
+        def __init__(self, *_a, **_kw):
+            pass
+
+        def price_history(self, _sid):
+            return v["bars"]
+
+        def split_events(self, _sid):
+            return v["splits"]
+
+        def shares_outstanding_facts(self, _sid):
+            seen["shares"] += 1
+            return []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def execute(self, *_a, **_kw):
+            pass
+
+        def fetchall(self):
+            return []
+
+    class FakeConn:
+        def cursor(self):
+            return FakeCursor()
+
+    def fundamentals_lags(*_a, **_kw):
+        seen["lags"] += 1
+        return {}
+
+    def owed_holds(*_a, **_kw):
+        seen["owed"] += 1
+        return {}, {}
+
+    monkeypatch.setattr(signals.base, "PointInTimeData", FakePit)
+    monkeypatch.setattr(df, "fundamentals_lags", fundamentals_lags)
+    monkeypatch.setattr(df, "owed_holds", owed_holds)
+    monkeypatch.setattr(df, "_settled_flap_names", lambda *_a, **_kw: set())
+
+    def read(**kw):
+        return df.read_flags(
+            FakeConn(),
+            tenant_id=UUID(int=1),
+            security_ids=[sid],
+            tickers={sid: v["ticker"]},
+            asof=v["asof"],
+            known_at=None,
+            clock="record",
+            stale_days=STALE_DAYS,
+            **kw,
+        )
+
+    full = read()
+    assert seen == {"lags": 1, "owed": 1, "shares": 1}  # the default read still makes all three
+
+    seen.update(lags=0, owed=0, shares=0)
+    fast = read(price_only=True)
+    assert seen == {"lags": 0, "owed": 0, "shares": 0}
+    assert [f for f in fast[sid].flags if _reaches_price(f)] == [
+        f for f in full[sid].flags if _reaches_price(f)
+    ]
