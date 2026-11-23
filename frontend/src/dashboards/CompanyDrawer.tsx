@@ -798,9 +798,9 @@ export function CompanyDrawer({
                   <DataFlagsSection member={dataFlags} />
                 </section>
 
-                {/* Full Indicators breakdown (collapsible so the top view stays clean, nothing hidden) */}
+                {/* Full Indicators breakdown (expanded by default; still collapsible in one click) */}
                 {signals.length > 0 && (
-                  <details className="cd-details cd-slot-indicators">
+                  <details className="cd-details cd-slot-indicators" open>
                     <summary>
                       Indicators · full breakdown
                       <span className="cd-sec-count">{signals.length}</span>

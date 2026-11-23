@@ -361,6 +361,8 @@ describe("DashboardShell CompanyDrawer (Phase 2 redesigned dossier)", () => {
 
     expect(within(dialog).getByText("Event ledger")).toBeTruthy();
     expect(within(dialog).getByText(/Jane Director/)).toBeTruthy();
+    const indicatorsDetails = dialog.querySelector("details.cd-details");
+    expect(indicatorsDetails).toHaveAttribute("open");
 
     // Multi-card switcher renders both cards and switches in place
     const switcher = within(dialog).getByRole("group", { name: "Switch thesis card" });

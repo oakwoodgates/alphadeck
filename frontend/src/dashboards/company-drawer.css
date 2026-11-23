@@ -166,7 +166,7 @@
     display: grid;
     grid-template-columns: minmax(0, 1.25fr) minmax(350px, 0.75fr);
     gap: 24px;
-    align-items: start;
+    align-items: stretch;
   }
   .drawer-panel.expanded .cd-main,
   .drawer-panel.expanded .cd-side {
@@ -190,8 +190,24 @@
     gap: 16px;
     align-items: start;
   }
+  /* Stretch the Event Ledger to fill the remaining height of the left column down to the bottom of Indicators. */
+  .drawer-panel.expanded .cd-slot-ledger {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 360px;
+  }
+  .drawer-panel.expanded .cd-evledger {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
   .drawer-panel.expanded .cd-evledger .evled-scroll {
-    max-height: 460px;
+    flex: 1 1 0;
+    height: 0;
+    min-height: 320px;
+    max-height: none;
   }
 }
 
