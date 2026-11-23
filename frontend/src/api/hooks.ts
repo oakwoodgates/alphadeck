@@ -772,10 +772,10 @@ export type DecisionIn = components["schemas"]["DecisionIn"];
 export type DecisionOut = components["schemas"]["DecisionOut"];
 
 // The thesis's decision log, newest first (voided rows ride along flagged — grayed, never hidden).
-export function useDecisions(thesisId: string) {
+export function useDecisions(thesisId: string, enabled = true) {
   return useQuery({
     queryKey: ["decisions", thesisId] as const,
-    enabled: Boolean(thesisId),
+    enabled: enabled && Boolean(thesisId),
     staleTime: MONITOR_STALE_MS, // MONITOR read; usePostDecision invalidates it on every append
     queryFn: async () => {
       const { data, error } = await api.GET("/theses/{thesis_id}/decisions", {
@@ -783,6 +783,37 @@ export function useDecisions(thesisId: string) {
       });
       if (error) throw error;
       return data;
+    },
+  });
+}
+
+// Single-member company overlay read for dashboards (mirrors the Cockpit's NamePanel without
+// computing display signals, scores, or data flags for the rest of a large basket). Prefixed with
+// `dashboard-` so `invalidateDashboards` refreshes it automatically after any write.
+export type MemberCardRefOut = components["schemas"]["MemberCardRefOut"];
+export type MemberPanelResponse = components["schemas"]["MemberPanelResponse"];
+
+export function useMemberPanel(
+  thesisId: string | null,
+  nameKey: string | null,
+  asof: string,
+) {
+  return useQuery<MemberPanelResponse | null>({
+    queryKey: ["dashboard-member-panel", thesisId, nameKey, asof] as const,
+    enabled: Boolean(thesisId) && Boolean(nameKey) && Boolean(asof),
+    staleTime: MONITOR_STALE_MS,
+    retry: 1,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const { data, error, response } = await api.GET("/theses/{thesis_id}/member-panel", {
+        params: {
+          path: { thesis_id: thesisId as string },
+          query: { name: nameKey as string, asof },
+        },
+      });
+      if (response?.status === 404) return null;
+      if (error) throw error;
+      return data ?? null;
     },
   });
 }

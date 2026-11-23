@@ -2,6 +2,7 @@ import { Fragment, type ReactNode, useEffect } from "react";
 
 import type {
   CallCardResponse,
+  DecisionOut,
   MemberDataFlagsOut,
   MemberDisplaySignalsOut,
   ThesisDetail,
@@ -58,6 +59,12 @@ interface Props {
   /** This company's shared values (share count, cash/burn) as the user reads them, joined by security_id off the
    *  Cockpit-level read; null/absent = not loaded or none. CURRENT state: used only on the current view. */
   sharedValues?: UserCompanyValuesOut | null;
+  /** Pre-fetched decisions for this thesis/member (e.g. from the single-member overlay endpoint); when omitted,
+   *  the panel reads `useDecisions(thesisId)` as in the Cockpit. */
+  decisions?: DecisionOut[];
+  /** When true, renders inside an outer `Drawer` (omits the fixed overlay frame, its own header/close button,
+   *  and its own Escape listener, which the Drawer owns). Default false = Cockpit's non-modal slide-over. */
+  embedded?: boolean;
   asof: string;
   onClose: () => void;
 }
@@ -96,16 +103,19 @@ export function NamePanel({
   display,
   dataFlags = null,
   sharedValues = null,
+  decisions: preloadedDecisions,
+  embedded = false,
   asof,
   onClose,
 }: Props) {
   useEffect(() => {
+    if (embedded) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [embedded, onClose]);
 
   const member = row.member;
   const call = row.call;
@@ -126,7 +136,8 @@ export function NamePanel({
   // decision rows logged ON this name (by security_id). Thesis-level rows (no name on the row —
   // passes, seed-era takes) stay on the rail's full log, which is also where acting and undo live:
   // the panel READS the record, it never writes it (one write surface, no divergence).
-  const decisions = useDecisions(thesisId).data ?? [];
+  const fetchedDecisions = useDecisions(thesisId, preloadedDecisions === undefined).data ?? [];
+  const decisions = preloadedDecisions ?? fetchedDecisions;
   const myDecisions = member.security_id
     ? decisions.filter((d) => d.security_id === member.security_id)
     : [];
@@ -189,18 +200,20 @@ export function NamePanel({
   // would carry no signal). Free on the scored wire (identity_for), never a call input.
   if (scored?.price_symbol) cells.push(["Priced under", scored.price_symbol]);
 
-  return (
-    <aside className={`npanel ${def.cls}`} aria-label={`${member.ticker} — per-name panel`}>
-      <div className="np-head">
-        <span className="np-tk">{member.ticker}</span>
-        <span className="np-bucket">
-          <span className="rowdot" />
-          {def.label}
-        </span>
-        <button type="button" className="np-close" title="close (Esc)" onClick={onClose}>
-          ✕
-        </button>
-      </div>
+  const body = (
+    <>
+      {!embedded && (
+        <div className="np-head">
+          <span className="np-tk">{member.ticker}</span>
+          <span className="np-bucket">
+            <span className="rowdot" />
+            {def.label}
+          </span>
+          <button type="button" className="np-close" title="close (Esc)" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+      )}
       <div className="np-co">
         {scored?.name ??
           (member.security_id ? "—" : "unresolved — no security-master link for this row")}
@@ -461,9 +474,20 @@ export function NamePanel({
       )}
 
       <div className="np-note">
-        Read-only — sizing, facts, and business-type re-tags live in the Workbench; acting, passing,
-        and undo live on the thesis rail. Closing returns the table exactly as you left it.
+        {embedded
+          ? "Read-only — sizing, facts, and business-type re-tags live in the Workbench; acting, passing, and undo live in the Cockpit. Closing returns the dashboard exactly as you left it."
+          : "Read-only — sizing, facts, and business-type re-tags live in the Workbench; acting, passing, and undo live on the thesis rail. Closing returns the table exactly as you left it."}
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return <div className={`npanel-embed ${def.cls}`}>{body}</div>;
+  }
+
+  return (
+    <aside className={`npanel ${def.cls}`} aria-label={`${member.ticker} — per-name panel`}>
+      {body}
     </aside>
   );
 }

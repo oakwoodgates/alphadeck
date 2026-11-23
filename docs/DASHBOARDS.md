@@ -26,6 +26,7 @@ the menu, index, routes and home page read it. `DashboardEntry` types an entry:
 | `asofAware` | `true` shows the as-of dial; `false` is a "now" view (rule 2) |
 | `layout` | Optional: `"page"` (default, title row and padded body) or `"fill"` (no title row; the body fills the viewport) |
 | `readsRecord` | Optional `true` for a page that reads the calls history; it renders the shared `RecordStartNote` (when the workspace's record starts) |
+| `openCompanyInCockpit` | Optional `true` when company clicks (`onSelectThesis(id, nameKey)`) should jump straight to the Cockpit instead of opening the shell's company overlay (Board Decision Queue, Ticker Lookup) |
 | `component` | `React.lazy(() => import("./<Component>"))` |
 
 The registry adds each entry's `thumbnail` from its folder. `buildRegistry` fails loud, naming the folder, on a
@@ -44,7 +45,10 @@ The Board is the first entry (`board/entry.ts`: order 0, `core`, as-of aware, `l
   `?asof=` links keep working. Home is lit only at `/`; the same dashboard at `/dashboards/<slug>` lights the
   Dashboards menu. A name the registry lacks lands on the index.
 - Every dashboard opens the Cockpit through the shell's `onSelectThesis` with `state.from` set, so the Cockpit's
-  Back returns to the page the click came from.
+  Back returns to the page the click came from. Clicking a company (`onSelectThesis(id, nameKey)`) opens the
+  shell's slide-over `CompanyDrawer` (`GET /theses/{thesis_id}/member-panel`) in place unless `openCompanyInCockpit`
+  is set; clicking a thesis (`nameKey` omitted) or using the drawer's **Open in Cockpit** action navigates to the
+  Cockpit.
 
 ## Workspace scope
 

@@ -78,6 +78,7 @@ from domain.settings import get_settings
 from domain.text_types import STATE_MAX_BYTES, AsofDate, SearchQuery
 from domain.thesis import (
     ETFS_LABEL,
+    BasketMember,
     Thesis,
     context_role_conflicts,
     fund_conflicts,
@@ -139,7 +140,7 @@ from workbench.draft_jobs import (
 from workbench.draft_run_log import write_draft_run_log
 from workbench.enrichment import enrich_for_ciks, identities_for_ciks
 from workbench.research_runner import run_research
-from workbench.scoring import score_thesis, scored_bounds
+from workbench.scoring import score_member, score_thesis, scored_bounds
 from workbench.term_set import produce_term_set, stamp_edited_term_set
 
 _log = logging.getLogger("alphadeck.workbench")
@@ -242,6 +243,49 @@ def read_scored(
             ScoredMemberOut.from_scored(m, cik_for, ticker_for, ident_for, thin_for, limited_for)
             for m in scored
         ],
+    )
+
+
+def read_scored_member(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    member: BasketMember,
+    asof: date,
+    *,
+    view: tuple[datetime | None, Literal["record", "public"]],
+) -> ScoredMemberOut | None:
+    """Single-member counterpart to ``read_scored`` — identical math, scoped to one ``security_id`` so a
+    dashboard company overlay never scores the rest of a large basket."""
+    sid = member.security_id
+    if sid is None:
+        return None
+    known_at, clock = view
+    pit = PointInTimeData(
+        conn,
+        asof=asof,
+        known_at=known_at,
+        data_tenant=DATA_TENANT_ID,
+        workspace=thesis.tenant_id,
+        basket={sid},
+        bounds=scored_bounds(),
+        clock=clock,
+    )
+    ident_for = master.identity_for(conn, {sid}, tenant_id=DATA_TENANT_ID)
+    runway_applies = bool(ident_for.get(sid, {}).get("runway_applies", True))
+    scored = score_member(pit, member, runway_applies=runway_applies)
+    sec_ids = {sid}
+    cik_for = master.ciks_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+    ticker_for = master.tickers_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+    bar_counts = recent_distinct_bar_counts(conn, sec_ids, asof=asof, tenant_id=DATA_TENANT_ID)
+    thin_for = {sid: is_thin_history(bar_counts.get(sid, 0))}
+    limited_for = {
+        k: mark.reason
+        for k, mark in price_feed_repo.limited_history_marks(
+            conn, sec_ids, tenant_id=DATA_TENANT_ID
+        ).items()
+    }
+    return ScoredMemberOut.from_scored(
+        scored, cik_for, ticker_for, ident_for, thin_for, limited_for
     )
 
 

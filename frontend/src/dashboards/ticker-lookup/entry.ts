@@ -14,5 +14,6 @@ export const entry: DashboardEntry = {
   status: "experimental",
   asofAware: true,
   readsRecord: true,
+  openCompanyInCockpit: true,
   component: lazy(() => import("./TickerLookup")),
 };

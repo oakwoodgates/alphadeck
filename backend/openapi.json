@@ -906,6 +906,75 @@
         }
       }
     },
+    "/theses/{thesis_id}/member-panel": {
+      "get": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Get Member Panel",
+        "description": "Read-only single-member payload for the dashboard company overlay (mirrors the Cockpit's per-name\npanel). Computes display signals, scoring meters, data flags, and shared platform values for the one\nresolved member instead of the entire basket, and lists every active card in the caller's workspace\nholding that company for in-drawer card switching.",
+        "operationId": "get_member_panel_theses__thesis_id__member_panel_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1,
+              "description": "member key: security_id (exact) or ticker (case-insensitive)",
+              "title": "Name"
+            },
+            "description": "member key: security_id (exact) or ticker (case-insensitive)"
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; every fact read uses no data knowable after it",
+              "title": "Asof"
+            },
+            "description": "as-of date; every fact read uses no data knowable after it"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberPanelResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses/{thesis_id}/catalysts": {
       "put": {
         "tags": [
@@ -32802,6 +32871,36 @@
         "title": "MemberCallOut",
         "description": "One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked\n(the headline is [0]); `watch_members` are confirmation-only (\"moving, no conviction yet\")."
       },
+      "MemberCardRefOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "archived": {
+            "type": "boolean",
+            "title": "Archived",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker"
+        ],
+        "title": "MemberCardRefOut",
+        "description": "Another (or current) card in the caller's workspace holding this security \u2014 feeds the drawer's card switcher."
+      },
       "MemberDataFlagsOut": {
         "properties": {
           "security_id": {
@@ -32894,6 +32993,106 @@
         ],
         "title": "MemberDisplaySignalsOut",
         "description": "One resolved basket member's read-only indicators. ``signals: []`` = nothing computable at\nthis asof (e.g. no ingested bars yet) \u2014 an honest empty, the member still shows."
+      },
+      "MemberPanelResponse": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "member": {
+            "$ref": "#/components/schemas/BasketMember"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Position"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "card": {
+            "$ref": "#/components/schemas/CallCardResponse"
+          },
+          "scored": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScoredMemberOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "display": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemberDisplaySignalsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data_flags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemberDataFlagsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shared_values": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserCompanyValuesOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionOut"
+            },
+            "type": "array",
+            "title": "Decisions",
+            "default": []
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/MemberCardRefOut"
+            },
+            "type": "array",
+            "title": "Cards",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "asof",
+          "member",
+          "card"
+        ],
+        "title": "MemberPanelResponse",
+        "description": "Single-member read for the dashboard company overlay (mirrors the Cockpit's ``NamePanel`` without\ncomputing display signals, scores, or data flags for the rest of a large basket)."
       },
       "MetaIndexIn": {
         "properties": {

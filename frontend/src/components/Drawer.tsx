@@ -12,10 +12,12 @@ interface Props {
   onClose: () => void;
   /** Rendered in the header; when a string, also names the dialog for a11y. */
   title?: ReactNode;
+  /** Optional header controls rendered beside the expand and close buttons. */
+  actions?: ReactNode;
   children: ReactNode;
 }
 
-export function Drawer({ open, onClose, title, children }: Props) {
+export function Drawer({ open, onClose, title, actions, children }: Props) {
   // Expand-to-full-width is LOCAL to the drawer and resets each time it opens (no browser storage,
   // no leak across episodes). Default ≈ the Cockpit panel width; expanded near-full for a chart.
   const [expanded, setExpanded] = useState(false);
@@ -33,14 +35,19 @@ export function Drawer({ open, onClose, title, children }: Props) {
     return () => openerRef.current?.focus?.();
   }, [open]);
 
-  // Escape closes (only while open — no dangling global listener otherwise).
+  // Escape closes (only while open — no dangling global listener otherwise). Capture phase +
+  // stopPropagation keeps underlying pages with their own Escape handler (e.g. MarketMap unzoom)
+  // untouched when closing the modal drawer.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [open, onClose]);
 
   if (!open) return null;
@@ -62,26 +69,29 @@ export function Drawer({ open, onClose, title, children }: Props) {
               {title}
             </div>
           )}
-          <button
-            type="button"
-            className="drawer-expand"
-            aria-label={expanded ? "collapse drawer" : "expand drawer to full width"}
-            aria-pressed={expanded}
-            title={expanded ? "collapse" : "expand"}
-            onClick={() => setExpanded((v) => !v)}
-          >
-            ⤢
-          </button>
-          <button
-            ref={closeRef}
-            type="button"
-            className="drawer-close"
-            aria-label="close drawer"
-            title="close (Esc)"
-            onClick={onClose}
-          >
-            ✕
-          </button>
+          <div className="drawer-controls">
+            {actions}
+            <button
+              type="button"
+              className="drawer-expand"
+              aria-label={expanded ? "collapse drawer" : "expand drawer to full width"}
+              aria-pressed={expanded}
+              title={expanded ? "collapse" : "expand"}
+              onClick={() => setExpanded((v) => !v)}
+            >
+              ⤢
+            </button>
+            <button
+              ref={closeRef}
+              type="button"
+              className="drawer-close"
+              aria-label="close drawer"
+              title="close (Esc)"
+              onClick={onClose}
+            >
+              ✕
+            </button>
+          </div>
         </div>
         <div className="drawer-body">{children}</div>
       </aside>

@@ -1841,11 +1841,26 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .drawer-panel.expanded { width: 100vw; }
 @keyframes drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 .drawer-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.drawer-title { font-family: var(--mono); font-weight: 800; font-size: 15px; letter-spacing: 0.02em; }
+.drawer-title { font-family: var(--mono); font-weight: 800; font-size: 15px; letter-spacing: 0.02em; min-width: 0; }
+.drawer-controls { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .drawer-expand, .drawer-close { font: inherit; color: var(--txt-3); background: none; border: 1px solid var(--line-2); border-radius: 7px; width: 26px; height: 26px; cursor: pointer; line-height: 1; }
-.drawer-expand { margin-left: auto; }
 .drawer-expand:hover, .drawer-close:hover { color: var(--txt); }
 @media (max-width: 880px) { .drawer-panel { width: min(600px, 92vw); } }
+
+/* Dashboard company overlay (Option A: embedded NamePanel + card switcher + Cockpit escape hatch) */
+.cd-title { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.cd-cockpit { font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--txt-2); background: none; border: 1px solid var(--line-2); border-radius: 7px; padding: 4px 9px; cursor: pointer; line-height: 1.2; white-space: nowrap; }
+.cd-cockpit:hover { color: var(--txt); border-color: var(--txt-3); }
+.cd-cards { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--txt-3); }
+.cd-cards-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.cd-card-name { color: var(--txt-2); }
+.cd-card-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 8px; cursor: pointer; line-height: 1.45; }
+.cd-card-chip:hover { color: var(--txt); border-color: var(--txt-3); }
+.cd-card-chip.active { color: var(--txt); border-color: var(--txt-2); background: var(--panel-2); font-weight: 600; }
+.cd-card-arch { margin-left: 4px; font-size: 9.5px; color: var(--txt-4); }
+.cd-body.recomputing { opacity: 0.55; transition: opacity 0.12s ease; }
+.cd-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 12px 0; }
+.drawer-panel.expanded .npanel-embed { max-width: 780px; }
 
 .sc-sub { color: var(--txt-3); font-weight: 600; font-size: 12px; }
 .sc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12px; color: var(--txt-2); margin-bottom: 2px; }
