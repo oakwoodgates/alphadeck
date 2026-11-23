@@ -249,9 +249,7 @@ def _members(members: Iterable[MemberCall]) -> list[UUID]:
     return seen
 
 
-def _first_source(
-    t: TriggerRef, ciks: Mapping[UUID, str | None] | None
-) -> SourceLink | None:
+def _first_source(t: TriggerRef, ciks: Mapping[UUID, str | None] | None) -> SourceLink | None:
     cik = ciks.get(t.security_id) if ciks else None
     for p in t.sources:
         return SourceLink(p.source, p.ref, source_url(p.ref, cik))
