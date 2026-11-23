@@ -272,7 +272,7 @@ export function filterControls(rows: readonly FormingRowOut[]): FilterControls {
 // --- the sorts ---------------------------------------------------------------------------------------------------
 
 /** `order` = the server's default order (the key most recently turned first); the rest are the alternatives. */
-export type SortKey = "order" | "card" | "days" | "insider" | "adoption";
+export type SortKey = "order" | "card" | "days" | "risk" | "insider" | "coiling" | "leading" | "breadth" | "adoption";
 export type Sort = { key: SortKey; dir: "asc" | "desc" };
 export const DEFAULT_SORT: Sort = { key: "order", dir: "asc" };
 
@@ -293,8 +293,18 @@ export function sortValue(r: FormingRowOut, key: SortKey): string | number | nul
       return r.thesis_name.toLocaleLowerCase();
     case "days":
       return r.days_in_state;
+    case "risk":
+      return r.risks.length === 0 ? null : r.risks.length;
     case "insider":
       return r.quiet.insider.length === 0 ? null : r.quiet.insider.reduce((s, n) => s + n.buyers_30d, 0);
+    case "coiling":
+      return r.quiet.coiling.length === 0 ? null : r.quiet.coiling.length;
+    case "leading":
+      return r.quiet.leading.length === 0 ? null : r.quiet.leading.length;
+    case "breadth": {
+      const b = r.quiet.breadth;
+      return b && b.counted > 0 && b.above != null ? b.above / b.counted : null;
+    }
     case "adoption":
       return r.adoption.percent;
     default:

@@ -44,7 +44,7 @@ import { useChainMap, useChainMapCards, type ChainMapNodeOut, type ChainMapOut }
 const ROSTER_PIT_FROM = "2026-09-15";
 const SLOW = "Reading this card's names — the first load after a run or a basket edit can take a moment.";
 const PROMPT =
-  "Hover or focus a name (the arrow keys move between names) for its link, role, description and last filing. Click opens it in the Cockpit.";
+  "Hover or focus a name (the arrow keys move between names) for its link, role, description and last filing. Click opens it in the Cockpit; Shift+click pins the readout.";
 const NARROW = "(max-width: 640px)";
 
 /** A phone-width screen stacks the rails above and below the chain. jsdom has no matchMedia: the wide layout. */
@@ -66,7 +66,21 @@ const ARROWS: Record<string, Dir> = { ArrowUp: "up", ArrowDown: "down", ArrowLef
 
 // --- the readout -----------------------------------------------------------------------------------------------
 
-function Readout({ node, filingDays }: { node: ChainMapNodeOut | null; filingDays: number }) {
+function Readout({
+  node,
+  filingDays,
+  pinned,
+  copies,
+  onUnpin,
+  onOpen,
+}: {
+  node: ChainMapNodeOut | null;
+  filingDays: number;
+  pinned: boolean;
+  copies: number;
+  onUnpin: () => void;
+  onOpen: (n: ChainMapNodeOut) => void;
+}) {
   if (!node) {
     return (
       <div className="cm-readout" data-testid="cm-readout" aria-live="polite">
@@ -76,12 +90,23 @@ function Readout({ node, filingDays }: { node: ChainMapNodeOut | null; filingDay
   }
   const type = typeLabel(node);
   return (
-    <div className="cm-readout" data-testid="cm-readout" aria-live="polite">
+    <div className={`cm-readout${pinned ? " pinned" : ""}`} data-testid="cm-readout" aria-live="polite">
       <div className="cm-ro-head">
         <span className="cm-ro-tk">{node.ticker}</span>
         {node.name && <span className="cm-ro-name">{node.name}</span>}
         <span className="cm-n">{linkWords(node.links)}</span>
         {node.role && <span className="cm-ro-role">{contextRoleTag(node.role)}</span>}
+        {copies > 1 && <span className="cm-ro-dup">shown in {copies} places</span>}
+        {pinned && (
+          <span className="cm-ro-actions">
+            <button type="button" className="cm-ro-btn" onClick={() => onOpen(node)}>
+              Open in Cockpit
+            </button>
+            <button type="button" className="cm-ro-btn" onClick={onUnpin}>
+              unpin
+            </button>
+          </span>
+        )}
       </div>
       {node.role && <div className="cm-ro-line">{roleWords(node)}</div>}
       <div className="cm-ro-line">
@@ -103,29 +128,48 @@ function Readout({ node, filingDays }: { node: ChainMapNodeOut | null; filingDay
 // --- the picture -----------------------------------------------------------------------------------------------
 
 const railLabel = (d: ChainMapOut, side: "left" | "right") => d.rails.find((r) => r.side === side)?.label ?? "";
+const companyOf = (n: ChainMapNodeOut) => n.company_key ?? n.security_id ?? n.key;
 
 function NodeShape({
   p,
   tabbable,
+  isDup,
+  isSibling,
+  isPinned,
+  matchState,
   onHover,
   onFocusNode,
   onBlurNode,
-  onOpen,
+  onClickNode,
   onKey,
 }: {
   p: PlacedNode;
   tabbable: boolean;
+  isDup: boolean;
+  isSibling: boolean;
+  isPinned: boolean;
+  matchState: "none" | "match" | "dim";
   onHover: (key: string | null) => void;
   onFocusNode: (key: string) => void;
   onBlurNode: (key: string) => void;
-  onOpen: (n: ChainMapNodeOut) => void;
+  onClickNode: (e: React.MouseEvent<SVGGElement>, key: string, n: ChainMapNodeOut) => void;
   onKey: (e: KeyboardEvent<SVGGElement>, key: string, n: ChainMapNodeOut) => void;
 }) {
   const n = p.node;
   const label = nodeWords(n);
   const type = typeLabel(n);
   const resolved = n.security_id != null;
-  const cls = `cm-node${n.flag != null ? " flagged" : ""}${resolved ? "" : " unresolved"}${n.role ? " tagged" : ""}`;
+  const cls = [
+    "cm-node",
+    n.flag != null ? "flagged" : "",
+    resolved ? "" : "unresolved",
+    n.role ? "tagged" : "",
+    isSibling ? "sibling" : "",
+    isPinned ? "pinned" : "",
+    matchState === "match" ? "match" : matchState === "dim" ? "dim" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <g
       className={cls}
@@ -139,13 +183,14 @@ function NodeShape({
       onMouseLeave={() => onHover(null)}
       onFocus={() => onFocusNode(p.key)}
       onBlur={() => onBlurNode(p.key)}
-      onClick={() => onOpen(n)}
+      onClick={(e) => onClickNode(e, p.key, n)}
       onKeyDown={(e) => onKey(e, p.key, n)}
     >
       <title>{label}</title>
       <rect className="cm-node-box" width={NODE_W} height={NODE_H} rx={5} />
+      {isDup && <circle className="cm-dup-dot" cx={NODE_W - 4} cy={4} r={2} aria-hidden="true" />}
       <text className="cm-tk" x={8} y={17}>
-        {clip(n.ticker, 9)}
+        {clip(n.ticker, n.role ? 6 : 9)}
       </text>
       {n.role && (
         <text className="cm-role" x={NODE_W - 8} y={16} textAnchor="end">
@@ -156,10 +201,12 @@ function NodeShape({
         <>
           {type && (
             <text className="cm-type" x={8} y={35}>
-              {clip(type, 15)}
+              {clip(type, n.side_50d ? 12 : 14)}
             </text>
           )}
-          {n.side_50d && <path className="cm-side" d={sideGlyph(n.side_50d, NODE_W - 46, 32)} />}
+          {n.side_50d && (
+            <path className={`cm-side ${n.side_50d}`} d={sideGlyph(n.side_50d, NODE_W - 39, 32)} />
+          )}
           <text className="cm-age" x={NODE_W - 8} y={35} textAnchor="end">
             {ageGlyph(n)}
           </text>
@@ -199,30 +246,61 @@ function ZoneSvg({
   );
 }
 
+function nodeMatchesFilter(n: ChainMapNodeOut, q: string): boolean {
+  if (!q) return false;
+  if (n.ticker.toLowerCase().includes(q)) return true;
+  if ((n.name ?? "").toLowerCase().includes(q)) return true;
+  if ((n.business_type ?? "").toLowerCase().includes(q)) return true;
+  if (n.matched_terms.some((t) => t.toLowerCase().includes(q))) return true;
+  return false;
+}
+
 function Picture({
   data,
   layout,
+  highlightNorm,
   onSelectThesis,
 }: {
   data: ChainMapOut;
   layout: MapLayout;
+  highlightNorm: string;
   onSelectThesis: DashboardProps["onSelectThesis"];
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const keys = useMemo(() => layout.groups.flatMap((g) => g.keys), [layout]);
   const byKey = useMemo(() => new Map(layout.nodes.map((n) => [n.key, n])), [layout]);
+  const companyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of layout.nodes) {
+      const id = companyOf(p.node);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
+  }, [layout]);
   const [active, setActive] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<string | null>(null);
   const tab = active != null && keys.includes(active) ? active : (keys[0] ?? null);
-  const shownKey = hover ?? focused;
+  const validPinned = pinned != null && byKey.has(pinned) ? pinned : null;
+  const shownKey = hover ?? focused ?? validPinned;
   const shown = shownKey != null ? (byKey.get(shownKey)?.node ?? null) : null;
+  const activeCompany = shown ? companyOf(shown) : null;
+  const shownCopies = activeCompany ? (companyCounts.get(activeCompany) ?? 1) : 1;
 
   const focusNode = (key: string) => {
     const el = Array.from(frame.current?.querySelectorAll<SVGGElement>("[data-key]") ?? []).find(
       (e) => e.getAttribute("data-key") === key,
     );
     el?.focus();
+  };
+  const onClickNode = (e: React.MouseEvent<SVGGElement>, key: string, n: ChainMapNodeOut) => {
+    if (e.shiftKey) {
+      e.preventDefault();
+      setPinned((cur) => (cur === key ? null : key));
+      return;
+    }
+    onSelectThesis(data.thesis_id, n.ticker);
   };
   const onKey = (e: KeyboardEvent<SVGGElement>, key: string, n: ChainMapNodeOut) => {
     const dir = ARROWS[e.key];
@@ -234,23 +312,35 @@ function Picture({
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onSelectThesis(data.thesis_id, n.ticker);
+    } else if (e.key === "Escape") {
+      setPinned(null);
     }
   };
-  const node = (p: PlacedNode) => (
-    <NodeShape
-      key={p.key}
-      p={p}
-      tabbable={p.key === tab}
-      onHover={setHover}
-      onFocusNode={(k) => {
-        setActive(k);
-        setFocused(k);
-      }}
-      onBlurNode={(k) => setFocused((cur) => (cur === k ? null : cur))}
-      onOpen={(n) => onSelectThesis(data.thesis_id, n.ticker)}
-      onKey={onKey}
-    />
-  );
+  const node = (p: PlacedNode) => {
+    const cid = companyOf(p.node);
+    const copies = companyCounts.get(cid) ?? 1;
+    const isSibling = activeCompany !== null && copies > 1 && cid === activeCompany && p.key !== shownKey;
+    const matchState = !highlightNorm ? "none" : nodeMatchesFilter(p.node, highlightNorm) ? "match" : "dim";
+    return (
+      <NodeShape
+        key={p.key}
+        p={p}
+        tabbable={p.key === tab}
+        isDup={copies > 1}
+        isSibling={isSibling}
+        isPinned={validPinned === p.key}
+        matchState={matchState}
+        onHover={setHover}
+        onFocusNode={(k) => {
+          setActive(k);
+          setFocused(k);
+        }}
+        onBlurNode={(k) => setFocused((cur) => (cur === k ? null : cur))}
+        onClickNode={onClickNode}
+        onKey={onKey}
+      />
+    );
+  };
   const railPart = (s: "left" | "right") => (
     <>
       {layout.brackets
@@ -260,12 +350,15 @@ function Picture({
         ))}
       {layout.edges
         .filter((e) => e.side === s)
-        .map((e) => (
-          <g key={`e-${e.nodeKey}`} data-testid="cm-edge" data-role={e.role}>
-            <path className={`cm-edge${e.dashed ? " dashed" : ""}`} d={e.d} />
-            <circle className="cm-end" cx={e.end.x} cy={e.end.y} r={2} />
-          </g>
-        ))}
+        .map((e) => {
+          const hi = shownKey === e.nodeKey;
+          return (
+            <g key={`e-${e.nodeKey}`} data-testid="cm-edge" data-role={e.role}>
+              <path className={`cm-edge${e.dashed ? " dashed" : ""}${hi ? " hi" : ""}`} d={e.d} />
+              <circle className={`cm-end${hi ? " hi" : ""}`} cx={e.end.x} cy={e.end.y} r={hi ? 3 : 2} />
+            </g>
+          );
+        })}
       {layout.edgeLabels
         .filter((l) => l.side === s)
         .map((l) => (
@@ -292,7 +385,14 @@ function Picture({
   const { left, chain, right } = layout.zones;
   return (
     <>
-      <Readout node={shown} filingDays={data.filing_days} />
+      <Readout
+        node={shown}
+        filingDays={data.filing_days}
+        pinned={validPinned !== null && shownKey === validPinned}
+        copies={shownCopies}
+        onUnpin={() => setPinned(null)}
+        onOpen={(n) => onSelectThesis(data.thesis_id, n.ticker)}
+      />
       <div ref={frame} className={`cm-frame ${layout.mode}`} data-testid="cm-frame">
         {left && (
           <ZoneSvg rect={left} className="cm-zone-left" label={`Left rail: ${railLabel(data, "left")}`}>
@@ -300,21 +400,34 @@ function Picture({
           </ZoneSvg>
         )}
         <ZoneSvg rect={chain} className="cm-zone-chain" label={`${data.thesis_name}: its links in chain order`}>
-          {layout.columns.map((c) => (
-            <g key={c.key} className={`cm-col ${c.kind}`} data-testid="cm-col" data-key={c.key}>
-              <title>{[c.label, columnTag(c.kind, c.descriptor)].filter(Boolean).join(" · ")}</title>
-              <rect className="cm-col-box" x={c.x} y={c.y} width={c.w} height={c.h} rx={6} />
-              <text className="cm-col-label" x={c.x + 8} y={c.y + 17}>
-                {clip(c.label, 22)}
-              </text>
-              <text className="cm-col-tag" x={c.x + 8} y={c.y + 31}>
-                {clip(columnTag(c.kind, c.descriptor), 27)}
-              </text>
-              <text className="cm-n" x={c.x + 8} y={c.y + 45}>
-                {plural(c.count, "name", "names")}
-              </text>
-            </g>
-          ))}
+          {layout.columns.map((c, idx) => {
+            const nextCol = layout.columns[idx + 1];
+            const showFlow = c.kind === "link" && nextCol && nextCol.kind === "link";
+            const fx = c.x + c.w + (nextCol ? (nextCol.x - (c.x + c.w)) / 2 : 0);
+            const fy = c.y + 15;
+            return (
+              <g key={c.key} className={`cm-col ${c.kind}`} data-testid="cm-col" data-key={c.key}>
+                <title>{[c.label, columnTag(c.kind, c.descriptor)].filter(Boolean).join(" · ")}</title>
+                <rect className="cm-col-box" x={c.x} y={c.y} width={c.w} height={c.h} rx={6} />
+                <text className="cm-col-label" x={c.x + 8} y={c.y + 17}>
+                  {clip(c.label, 22)}
+                </text>
+                <text className="cm-col-tag" x={c.x + 8} y={c.y + 31}>
+                  {clip(columnTag(c.kind, c.descriptor), 27)}
+                </text>
+                <text className="cm-n" x={c.x + 8} y={c.y + 45}>
+                  {plural(c.count, "name", "names")}
+                </text>
+                {showFlow && (
+                  <path
+                    className="cm-flow-chev"
+                    d={`M${fx - 2} ${fy - 3.5}L${fx + 2} ${fy}L${fx - 2} ${fy + 3.5}`}
+                    aria-hidden="true"
+                  />
+                )}
+              </g>
+            );
+          })}
           {layout.nodes.filter((n) => n.zone === "chain").map(node)}
         </ZoneSvg>
         {right && (
@@ -332,6 +445,7 @@ function Picture({
 export default function ChainMap({ asof, onSelectThesis }: DashboardProps) {
   const [picked, setPicked] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState("");
   const [showUntagged, setShowUntagged] = useState(false);
   const narrow = useNarrow();
 
@@ -400,6 +514,14 @@ export default function ChainMap({ asof, onSelectThesis }: DashboardProps) {
             Show Context and Bench without a role ({hidden.toLocaleString("en-US")})
           </label>
         )}
+        <input
+          type="search"
+          className="cm-search cm-hl"
+          aria-label="Highlight name on map"
+          placeholder="Highlight ticker or term…"
+          value={highlight}
+          onChange={(e) => setHighlight(e.target.value)}
+        />
         {q.isFetching && data && <span className="dash-note">{stale ? SLOW : "updating…"}</span>}
       </div>
 
@@ -422,7 +544,13 @@ export default function ChainMap({ asof, onSelectThesis }: DashboardProps) {
               {plural(data.counts.links_today, "link", "links")} today · {plural(data.counts.companies, "name", "names")}
             </span>
           </div>
-          <Picture key={data.thesis_id} data={data} layout={layout} onSelectThesis={onSelectThesis} />
+          <Picture
+            key={data.thesis_id}
+            data={data}
+            layout={layout}
+            highlightNorm={highlight.trim().toLowerCase()}
+            onSelectThesis={onSelectThesis}
+          />
           <div className="dash-note cm-work">{workLine(data, showUntagged)}</div>
           {data.roster_fallback && (
             <div className="dash-note cm-work">

@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 40,
   label: "What Changed",
   description: "What moved on your cards since last night: states, keys, names, triggers and clocks.",
+  group: "daily",
   status: "experimental",
   asofAware: false,
   readsRecord: true,

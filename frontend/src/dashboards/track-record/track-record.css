@@ -19,48 +19,92 @@
 /* the controls: text chips, the picked one underlined */
 .tr-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px; }
 .tr-field { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
-.tr-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+.tr-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); }
 .tr-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 0; border-bottom: 1px solid transparent; padding: 1px 2px; cursor: pointer; }
 .tr-chip:hover { color: var(--txt-2); }
-.tr-chip.on { color: var(--txt); border-bottom-color: var(--txt-3); }
-.tr-chip-n { color: var(--txt-4); font-size: 10px; }
+.tr-chip.on { color: var(--txt); border-bottom-color: var(--leader); }
+.tr-chip-n { color: var(--txt-3); font-size: 10px; }
 .tr-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--txt-3); cursor: pointer; }
 .tr-check input { accent-color: var(--txt-3); }
 .tr-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .tr-clear:hover { color: var(--txt); }
 
-/* the quiet work lines above the table */
-.tr-work { display: flex; flex-direction: column; gap: 1px; }
+/* the quiet work lines below the table */
+.tr-work { display: flex; flex-direction: column; gap: 2px; padding-top: 8px; border-top: 1px solid var(--line); margin-top: 4px; }
 .tr-line { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .tr-empty { padding: 14px 0; }
 
 /* the table: five horizons, scrolls sideways on a phone with the row names pinned */
 .tr-scroll { overflow-x: auto; margin-top: 2px; }
 table.tr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.tr-caption { caption-side: top; text-align: left; font-size: 10px; color: var(--txt-4); padding: 0 0 6px; }
-table.tr-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 12px 6px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom; position: sticky; top: 0; background: var(--bg); }
-table.tr-table td, table.tr-table tbody th { height: 26px; padding: 0 12px 0 0; border-bottom: 1px solid var(--line); white-space: nowrap; color: var(--txt-2); vertical-align: middle; }
-table.tr-table tbody th { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 400; color: var(--txt-2); position: sticky; top: auto; left: 0; background: var(--bg); min-width: 130px; z-index: 1; }
-table.tr-table th.tr-num, table.tr-table td.tr-num { text-align: right; padding-right: 18px; }
+.tr-caption { caption-side: top; text-align: left; font-family: var(--sans); font-size: 11px; color: var(--txt-3); padding: 0 0 8px; }
+table.tr-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; padding: 0 12px 6px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom; position: sticky; top: 0; background: var(--bg); }
+table.tr-table td, table.tr-table tbody th { height: 34px; padding: 4px 12px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; color: var(--txt-2); vertical-align: middle; }
+table.tr-table tbody th { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 400; color: var(--txt-2); position: sticky; top: auto; left: 0; background: var(--bg); min-width: 148px; z-index: 1; }
+table.tr-table th.tr-num, table.tr-table td.tr-num { text-align: right; padding-right: 16px; }
 table.tr-table tbody tr:hover td, table.tr-table tbody tr:hover th { background: color-mix(in srgb, var(--panel) 60%, transparent); }
 .tr-key-label { color: var(--txt-2); }
-.tr-band { margin-left: 8px; font-size: 10px; color: var(--txt-4); }
+.tr-band { margin-left: 8px; font-size: 10px; color: var(--txt-3); }
 /* the pooled row: last, labeled pooled, never bold, the quietest row */
-table.tr-table tr.tr-pooled td, table.tr-table tr.tr-pooled th { color: var(--txt-4); border-top: 1px solid var(--line-2); }
+table.tr-table tr.tr-pooled td, table.tr-table tr.tr-pooled th { color: var(--txt-3); border-top: 1px solid var(--line-2); }
 tr.tr-pooled .tr-key-label { color: var(--txt-3); }
 
-.tr-cell { font: inherit; display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 8px; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; }
+/* horizon maturity micro-bar under each horizon th */
+.tr-th-wrap { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.tr-hbar { display: flex; width: 64px; height: 3px; border-radius: 2px; overflow: hidden; background: var(--line); }
+.tr-hb-counted { background: var(--txt-3); }
+.tr-hb-maturing { background: var(--line-2); }
+.tr-hb-ended { background: color-mix(in srgb, var(--warm) 55%, var(--txt-4)); }
+
+.tr-cell { font: inherit; display: inline-flex; align-items: center; justify-content: flex-end; background: none; border: 0; padding: 2px 4px; margin: -2px -4px; color: inherit; cursor: pointer; border-radius: 4px; }
 .tr-cell.static { cursor: help; }
+.tr-cell:hover:not(.static) { background: color-mix(in srgb, var(--panel-2) 70%, transparent); }
 .tr-cell:hover:not(.static) .tr-med { text-decoration: underline; text-underline-offset: 3px; }
-.tr-cell.on { outline: 1px solid var(--line-2); outline-offset: 3px; border-radius: 3px; }
-.tr-cell:focus-visible { outline: 1px solid var(--txt-3); outline-offset: 3px; }
+.tr-cell.on { outline: 1px solid var(--leader); outline-offset: 1px; background: color-mix(in srgb, var(--leader) 8%, transparent); }
+.tr-cell:focus-visible { outline: 1px solid var(--txt-3); outline-offset: 2px; }
+.tr-cell-body { display: inline-flex; align-items: center; gap: 8px; }
+.tr-cell-nums { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.2; min-width: 48px; }
 .tr-med { color: var(--txt-2); }
 .tr-med.pos { color: var(--tr-pos); }
 .tr-med.neg { color: var(--tr-neg); }
-.tr-med.gray, .tr-sub { color: var(--txt-4); }
-.tr-sub { font-size: 10px; }
+.tr-med.gray { color: var(--txt-4); }
+.tr-sub { font-size: 9.5px; color: var(--txt-3); }
 
-.tr-listhead { padding-top: 6px; }
+/* per-cell IQR whisker SVG */
+.tr-whisker { display: block; flex-shrink: 0; }
+.tr-whisker.dim { opacity: 0.45; }
+.tr-w-track { stroke: var(--line); stroke-width: 1; }
+.tr-w-zero { stroke: var(--line-2); stroke-width: 1; }
+.tr-w-iqr { fill: color-mix(in srgb, var(--txt-3) 38%, transparent); stroke: var(--txt-3); stroke-width: 0.75; }
+.tr-w-clip { stroke: var(--txt-3); stroke-width: 1.2; }
+.tr-w-med { fill: var(--txt-2); }
+.tr-w-med.pos { fill: var(--pos); }
+.tr-w-med.neg { fill: var(--neg); }
+
+/* clicked-cell episode distribution dot plot */
+.tr-strip { border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--panel) 70%, transparent); padding: 8px 12px 6px; display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.tr-strip-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 11px; }
+.tr-strip-title { color: var(--txt); font-weight: 600; }
+.tr-strip-stats { color: var(--txt-3); font-size: 10.5px; }
+.tr-strip-focus { margin-left: auto; color: var(--leader); font-size: 10.5px; }
+.tr-strip-svg { display: block; width: 100%; max-width: 760px; height: 54px; overflow: visible; }
+.tr-s-iqr { fill: color-mix(in srgb, var(--leader) 10%, transparent); stroke: color-mix(in srgb, var(--leader) 30%, transparent); stroke-width: 0.75; }
+.tr-s-track { stroke: var(--line); stroke-width: 1; }
+.tr-s-zero { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 2 2; }
+.tr-s-med { stroke: var(--txt-2); stroke-width: 1.4; }
+.tr-s-dot { fill: var(--txt-3); stroke: var(--bg); stroke-width: 0.75; cursor: pointer; opacity: 0.85; }
+.tr-s-dot.pos { fill: var(--pos); }
+.tr-s-dot.neg { fill: var(--neg); }
+.tr-s-dot.on { opacity: 1; stroke: var(--txt); stroke-width: 1.2; }
+.tr-s-tick { font-family: var(--mono); font-size: 9.5px; fill: var(--txt-3); }
+
+.tr-listbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding-top: 6px; }
+.tr-listhead { padding-top: 0; }
+.tr-list-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tr-search { font: inherit; font-size: 11px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 8px; width: 170px; }
+.tr-search::placeholder { color: var(--txt-4); }
+.tr-select { font: inherit; font-size: 11px; color: var(--txt-2); background: var(--bg); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; }
+.tr-select option { background: var(--panel); color: var(--txt-2); }
 
 /* the episode list: a grid of one line per episode, the five horizons in a sub-grid */
 .tr-list { list-style: none; margin: 0; padding: 0; font-size: 11.5px; }
@@ -74,7 +118,7 @@ tr.tr-pooled .tr-key-label { color: var(--txt-3); }
   color: var(--txt-2);
 }
 .tr-li > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tr-li.head { position: sticky; top: 0; z-index: 2; background: var(--bg); min-height: 22px; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); border-bottom-color: var(--line-2); }
+.tr-li.head { position: sticky; top: 0; z-index: 2; background: var(--bg); min-height: 22px; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); border-bottom-color: var(--line-2); }
 .tr-tk { font: inherit; font-weight: 700; color: var(--txt); background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
 .tr-tk:hover, .tr-card:hover { text-decoration: underline; text-underline-offset: 3px; }
 .tr-card { font: inherit; color: var(--txt-3); background: none; border: 0; padding: 0; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
@@ -95,7 +139,7 @@ tr.tr-pooled .tr-key-label { color: var(--txt-3); }
 .tr-fold summary { cursor: pointer; width: fit-content; font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .tr-fold summary:hover { color: var(--txt-2); }
 .tr-fold .tr-list { margin-top: 4px; }
-.tr-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+.tr-limits { margin: 4px 0 0; padding-left: 16px; font-family: var(--sans); font-size: 11px; line-height: 1.5; color: var(--txt-3); }
 
 /* a phone: the table already scrolls sideways with the row names pinned; the list stacks each episode's horizons
    under its line, each labeled */

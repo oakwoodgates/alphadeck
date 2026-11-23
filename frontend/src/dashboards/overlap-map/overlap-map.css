@@ -18,8 +18,11 @@
 .om-btn:disabled { opacity: 0.45; cursor: default; }
 .om-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
 .om-check input { accent-color: var(--txt-3); margin: 0; }
+.om-map-search { font: inherit; font-size: 11px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; width: 170px; }
+.om-map-search::placeholder { color: var(--txt-4); }
+.om-map-search:focus-visible { outline: 1px solid var(--txt-3); outline-offset: 1px; }
 .om-quiet { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
-.om-dim { color: var(--txt-4); font-size: 11px; }
+.om-dim { color: var(--txt-3); font-size: 11px; }
 .om-num { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 
 .om-body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px 22px; margin-top: 4px; }
@@ -30,16 +33,19 @@
 /* the map */
 .om-plot { display: block; width: 100%; height: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; outline: none; }
 .om-plot:focus-visible { border-color: var(--txt-3); }
-.om-line { stroke: var(--txt-4); stroke-linecap: round; opacity: 0.8; pointer-events: none; }
+.om-line { stroke: var(--txt-4); stroke-linecap: round; opacity: 0.8; pointer-events: none; transition: opacity 120ms ease, stroke 120ms ease; }
 .om-line-hit { stroke: transparent; stroke-width: 12; cursor: pointer; }
-.om-line-g.hover .om-line { stroke: var(--txt-2); opacity: 1; }
+.om-line-g.hover .om-line, .om-line-g.hi .om-line { stroke: var(--txt-2); opacity: 1; }
+.om-line-g.dim .om-line { opacity: 0.14; }
 .om-connector { stroke: var(--txt-3); stroke-width: 0.8; pointer-events: none; }
-.om-bubble { cursor: pointer; }
+.om-bubble { cursor: pointer; transition: opacity 120ms ease; }
 .om-bubble circle { fill: var(--panel-2); stroke: var(--txt-4); stroke-width: 1; }
 .om-bubble.hover circle { stroke: var(--txt-2); }
-.om-bubble.selected circle { stroke: var(--txt); stroke-width: 1.8; }
+.om-bubble.selected circle, .om-bubble.match circle { stroke: var(--txt); stroke-width: 1.8; }
+.om-bubble.dim { opacity: 0.2; }
 .om-bubble-label { font-size: 10px; fill: var(--txt-2); pointer-events: none; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
-.om-dot { fill: var(--txt-2); stroke: var(--bg); stroke-width: 0.6; cursor: pointer; }
+.om-dot-hit { fill: transparent; cursor: pointer; }
+.om-dot { fill: var(--txt-2); stroke: var(--bg); stroke-width: 0.6; cursor: pointer; pointer-events: none; }
 .om-dot.on { fill: var(--txt); stroke: var(--txt-2); }
 
 .om-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding-top: 4px; border-top: 1px solid var(--line); }
@@ -79,21 +85,28 @@
 .om-venn-wrap { flex: 1 1 420px; max-width: 560px; min-width: 260px; display: flex; flex-direction: column; gap: 6px; }
 .om-small-region.on { color: var(--txt); }
 .om-venn-svg { display: block; width: 100%; height: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; }
-.om-venn-circle { fill-opacity: 0.28; stroke: var(--txt-3); stroke-width: 1; pointer-events: none; }
-.om-venn-count { font-family: var(--mono); font-size: 15px; fill: var(--txt); cursor: pointer; outline: none; }
-.om-venn-count.on, .om-venn-count:focus-visible { text-decoration: underline; }
+.om-venn-circle { fill-opacity: 0.16; stroke-opacity: 0.72; stroke-width: 1.4; pointer-events: none; }
+.om-venn-set-label { font-size: 10.5px; font-weight: 600; fill: var(--txt-2); pointer-events: none; paint-order: stroke; stroke: var(--bg-2); stroke-width: 3px; stroke-linejoin: round; }
+.om-venn-ring { fill: color-mix(in srgb, var(--panel-2) 85%, transparent); stroke: var(--txt-2); stroke-width: 1.2; pointer-events: none; }
+.om-venn-count { font-family: var(--mono); font-size: 15px; fill: var(--txt); cursor: pointer; outline: none; paint-order: stroke; stroke: var(--bg-2); stroke-width: 2.5px; stroke-linejoin: round; }
+.om-venn-count.on, .om-venn-count:focus-visible { text-decoration: underline; font-weight: 700; }
 .om-co { display: flex; flex-direction: column; gap: 2px; }
 .om-co-ticker { font-family: var(--mono); color: var(--txt); }
 
 /* the sectors grid: only the grid scrolls sideways, never the page */
-.om-grid-scroll { overflow-x: auto; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
-.om-grid { border-collapse: collapse; font-size: 11px; color: var(--txt-2); }
-.om-grid th, .om-grid td { border-bottom: 1px solid var(--line); padding: 2px 6px; vertical-align: middle; }
-.om-grid-card { position: sticky; left: 0; background: var(--bg); text-align: left; min-width: 160px; max-width: 220px; font-weight: 400; z-index: 1; }
+.om-grid-scroll { overflow: auto; max-height: 70vh; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+.om-grid { border-collapse: separate; border-spacing: 0; font-size: 11px; color: var(--txt-2); }
+.om-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line-2); }
+.om-grid thead th.om-grid-card { z-index: 3; }
+.om-grid th, .om-grid td { border-bottom: 1px solid var(--line); padding: 3px 6px; vertical-align: middle; }
+.om-grid-card { position: sticky; left: 0; background: var(--bg); text-align: left; min-width: 160px; max-width: 220px; font-weight: 400; z-index: 1; border-right: 1px solid var(--line); }
 .om-grid-col { min-width: 84px; text-align: center; font-weight: 400; vertical-align: bottom; }
 .om-grid-col-label { color: var(--txt); }
 .om-grid-cell { text-align: center; }
 .om-cell { background: none; border: none; padding: 0; cursor: pointer; line-height: 0; border-radius: 50%; }
-.om-cell circle { fill: var(--txt-3); stroke: var(--bg); stroke-width: 0.8; }
+.om-cell circle { fill: color-mix(in srgb, var(--txt-3) 55%, var(--panel-2)); stroke: var(--bg); stroke-width: 0.8; }
 .om-cell:hover circle, .om-cell.on circle, .om-cell:focus-visible circle { fill: var(--txt-2); stroke: var(--txt); }
-.om-cell-list { width: auto; max-width: none; flex: 1 1 100%; }
+.om-cell-n { font-family: var(--mono); font-size: 9px; font-weight: 700; fill: var(--txt-2); paint-order: stroke; stroke: var(--bg); stroke-width: 2px; stroke-linejoin: round; pointer-events: none; }
+.om-cell-n.inside { fill: var(--bg); stroke: none; }
+.om-cell-list { width: auto; max-width: none; flex: 1 1 100%; position: sticky; bottom: 8px; z-index: 4; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); box-shadow: 0 6px 20px color-mix(in srgb, var(--bg) 70%, transparent); }
+.om-cell-close { margin-left: auto; }

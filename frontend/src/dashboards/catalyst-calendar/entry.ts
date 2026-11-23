@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 60,
   label: "Catalyst Calendar",
   description: "Every dated catalyst and card deadline across your cards, with passed ones to prune and undated ones to date.",
+  group: "filings",
   status: "experimental",
   asofAware: false,
   readsRecord: true,

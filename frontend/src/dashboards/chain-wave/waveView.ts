@@ -128,5 +128,66 @@ export function filterCards(cards: readonly ChainWaveCardOut[], query: string): 
   return q ? cards.filter((c) => c.name.toLocaleLowerCase().includes(q)) : [...cards];
 }
 
+/** Compounded return across a row's available weeks in the window, plus SPY over those same weeks, and their spread. */
+export function windowSummary(
+  cells: readonly ChainWaveCellOut[],
+  spyCells?: readonly ChainWaveCellOut[],
+): { rowRet: number | null; spyRet: number | null; diffPp: number | null; weeks: number } {
+  let rowMult = 1;
+  let spyMult = 1;
+  let rowN = 0;
+  let bothN = 0;
+  cells.forEach((c, i) => {
+    const r = c.ret;
+    const s = c.spy ?? spyCells?.[i]?.ret ?? null;
+    if (r != null) {
+      rowMult *= 1 + r / 100;
+      rowN += 1;
+    }
+    if (r != null && s != null) {
+      spyMult *= 1 + s / 100;
+      bothN += 1;
+    }
+  });
+  const rowRet = rowN > 0 ? (rowMult - 1) * 100 : null;
+  if (bothN === 0) return { rowRet, spyRet: null, diffPp: null, weeks: rowN };
+  // Recompute row over the exact same weeks where SPY also had a reading so the spread is apples-to-apples
+  let pairedRow = 1;
+  let pairedSpy = 1;
+  cells.forEach((c, i) => {
+    const r = c.ret;
+    const s = c.spy ?? spyCells?.[i]?.ret ?? null;
+    if (r != null && s != null) {
+      pairedRow *= 1 + r / 100;
+      pairedSpy *= 1 + s / 100;
+    }
+  });
+  const pRow = (pairedRow - 1) * 100;
+  const pSpy = (pairedSpy - 1) * 100;
+  return { rowRet: pRow, spyRet: pSpy, diffPp: pRow - pSpy, weeks: bothN };
+}
+
+/** Compounded SPY return across the visible week columns. */
+export function spyWindowSummary(spyCells: readonly ChainWaveCellOut[]): { ret: number | null; weeks: number } {
+  let mult = 1;
+  let n = 0;
+  for (const c of spyCells) {
+    if (c.ret != null) {
+      mult *= 1 + c.ret / 100;
+      n += 1;
+    }
+  }
+  return { ret: n > 0 ? (mult - 1) * 100 : null, weeks: n };
+}
+
+/** Indices where a new calendar month begins (excluding index 0), for subtle grid dividers. */
+export function monthStarts(weeks: readonly ChainWaveWeekOut[]): Set<number> {
+  const out = new Set<number>();
+  for (let i = 1; i < weeks.length; i++) {
+    if (weeks[i].monday.slice(0, 7) !== weeks[i - 1].monday.slice(0, 7)) out.add(i);
+  }
+  return out;
+}
+
 export const plural = (n: number, one: string, many: string) =>
   `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;

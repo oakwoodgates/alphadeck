@@ -10,6 +10,7 @@ import { flagsBySid } from "../cockpit/dataFlags";
 import {
   daysFrom,
   fmtDate,
+  gradeClass,
   isPastAsof,
   recomputeNote,
   RECOMPUTE_TOOLTIP,
@@ -171,13 +172,14 @@ export function Board({ header, asof, onSelect }: Props) {
                   {call.armed_members.length > 1 && (
                     <span className="dq-more">+{call.armed_members.length - 1}</span>
                   )}
-                  {call.conviction_grade && (
-                    <span className={`grade ${call.conviction_grade}`}>
-                      {call.conviction_grade.toUpperCase()}
+                  {call.entry_grade && (
+                    <span className={`grade ${gradeClass(call.entry_grade)}`}>
+                      {verdictLabel(call.verdict).toUpperCase()}
                     </span>
                   )}
                   <span className="dq-nm" title={thesis.name}>
-                    {verdictLabel(call.verdict)} · {thesis.name}
+                    {!call.entry_grade ? `${verdictLabel(call.verdict)} · ` : ""}
+                    {thesis.name}
                   </span>
                   {armDays !== null && (
                     <span
@@ -250,6 +252,7 @@ export function Board({ header, asof, onSelect }: Props) {
                       thesis={thesis}
                       call={call}
                       onSelect={onSelect}
+                      origin={countdownOrigin(call.asof, appClock)}
                       flags={
                         thesis.basket_size === 1 && thesis.ticker
                           ? (flaggedByTicker.get(thesis.ticker) ?? null)

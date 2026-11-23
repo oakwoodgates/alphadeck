@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 180,
   label: "Evidence Ledger",
   description: "Everything one card's call and facts rest on, in one list: each trigger with its source, each shared value, your purity and stored fact, each catalyst and kill criterion, marked by who put it there.",
+  group: "filings",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

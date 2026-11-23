@@ -11,6 +11,7 @@ import {
   layoutRow,
   makeAxis,
   moveRow,
+  visibleAxisBounds,
 } from "../windowsLayout";
 import { ASOF, CLOSED, NO_CLOCKS, row } from "./fixtures";
 
@@ -109,6 +110,12 @@ describe("layoutRow", () => {
 
   it("draws nothing for a row with no sparkline", () => {
     expect(layoutRow(NO_CLOCKS, axis, ASOF).spark).toBeNull();
+  });
+
+  it("computes axis bounds from visible rows only, ignoring hidden rows", () => {
+    const r = row({ arm_night: "2026-10-20", arm_until: "2026-10-30", exit_by: "2026-11-10", catalysts: [], spark: null });
+    const bounds = visibleAxisBounds([r], ASOF, "2026-01-01", "2026-12-31");
+    expect(bounds).toEqual({ start: "2026-10-20", end: "2026-11-10" });
   });
 });
 

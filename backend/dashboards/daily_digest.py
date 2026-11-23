@@ -21,9 +21,9 @@ The rules, in one place:
   first, then a Warming card, then an Incubating one last (inverse loudness, #7). Inside a card, What Changed's own
   order. A card's state move (or "new card") is its headline; the other lines follow. With no P there is no baseline
   and no line (``no_baseline``): the record's first night has nothing to compare.
-- **Loudness** is decided here, once: ``tone`` is ``accent`` on exactly three lines (a card that entered Armed, a name
-  newly armed, an entry window closing within the Armed window of ``what_changed.ENTRY_WINDOW_DAYS`` days) and
-  ``warm`` on two (a card that left Armed, an exit-by reached); every other line has none.
+- **Loudness** is decided here, once: ``tone`` is ``accent`` on two lines (a card that entered Armed, a name
+  newly armed) and ``warm`` on three (a card that left Armed, an entry window closing within the Armed window of
+  ``what_changed.ENTRY_WINDOW_DAYS`` days, an exit-by reached); every other line has none.
 - **Positions** are the Managing cards (the recorded state in effect at the as-of), each with the operator's effective
   position as the as-of thesis read carries it. The since-fill return runs from the LOGGED price when there is one (and
   no listed split lies between the fill and the as-of: the bars are on the view's scale, the logged price is not), else
@@ -283,9 +283,9 @@ class LastNight:
 
 def tone_of(item: ChangeItem) -> Tone | None:
     """The page's one loud rule (#7). ``accent`` (the Board's Armed color) on a card that entered Armed (a state move
-    to Armed, or a new card born Armed), a name newly armed and an entry window closing within
-    ``what_changed.ENTRY_WINDOW_DAYS``; ``warm`` on a card that LEFT Armed (a move into Managing is a position
-    held, not a retreat) and an exit-by reached. Nothing else.
+    to Armed, or a new card born Armed) and a name newly armed; ``warm`` on a card that LEFT Armed (a move into
+    Managing is a position held, not a retreat), an entry window closing within ``what_changed.ENTRY_WINDOW_DAYS``
+    (matching Board, Cockpit, Entry Windows, and Hot Board), and an exit-by reached. Nothing else.
     """
     if item.change in ("state", "new_card"):
         if item.to_state == State.ARMED:
@@ -297,9 +297,9 @@ def tone_of(item: ChangeItem) -> Tone | None:
         ):
             return "warm"
         return None
-    if item.change in ("armed", "entry_window"):
+    if item.change == "armed":
         return "accent"
-    if item.change == "exit_by":
+    if item.change in ("entry_window", "exit_by"):
         return "warm"
     return None
 

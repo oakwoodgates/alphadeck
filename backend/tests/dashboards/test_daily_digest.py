@@ -234,7 +234,7 @@ def _item(change: str, **kw) -> ChangeItem:
         (_item("new_card", to_state=State.ARMED), "accent"),
         (_item("new_card", to_state=State.WARMING), None),
         (_item("armed"), "accent"),
-        (_item("entry_window", days=3), "accent"),
+        (_item("entry_window", days=3), "warm"),
         (_item("exit_by"), "warm"),
         (_item("no_longer_armed"), None),
         (_item("new_watch"), None),
@@ -300,7 +300,7 @@ def test_section_one_groups_by_card_with_armed_first_warming_next_and_incubating
     )
     assert [(ln.change, ln.ticker, ln.tone) for ln in by["Card C"].lines] == [
         ("armed", "AAA", "accent"),
-        ("entry_window", None, "accent"),
+        ("entry_window", None, "warm"),
     ]
     assert by["Card C"].headline.tone == "accent"
     assert by["Card D"].headline.tone == "warm" and by["Card D"].previous_state == State.ARMED
@@ -331,7 +331,7 @@ def test_only_the_three_accent_lines_and_the_two_warm_lines_carry_a_tone():
     )
     assert toned == [
         ("Card C", "armed", "accent"),
-        ("Card C", "entry_window", "accent"),
+        ("Card C", "entry_window", "warm"),
         ("Card C", "state", "accent"),
         ("Card D", "state", "warm"),
         ("Card E", "exit_by", "warm"),

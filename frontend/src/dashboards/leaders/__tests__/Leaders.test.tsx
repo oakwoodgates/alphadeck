@@ -373,4 +373,27 @@ describe("Leaders — a flagged price history", () => {
     expect(screen.queryByText(/left out for a flagged price history/)).toBeNull();
     expect(screen.queryByText("1 left out")).toBeNull();
   });
+
+  it("renders the 5-column confluence matrix with inline figures, surfaces high_52w & magnitude bars, and filters globally", async () => {
+    const user = userEvent.setup();
+    const { container } = renderPage();
+
+    // Aligned 5-slot confluence matrix in On several lists surfaces inline figures (including leader-blue cluster)
+    const matrices = screen.getAllByTestId("ld-matrix");
+    expect(matrices).toHaveLength(2);
+    expect(matrices[0].querySelectorAll(".ld-slot")).toHaveLength(5);
+    expect(matrices[0]).toHaveTextContent("2.40×");
+    expect(matrices[1].querySelector(".ld-ins.cluster")).toHaveTextContent("3/2");
+
+    // Near 52w high surfaces high_52w dollar price and neutral magnitude bars, plus +N lists confluence cue
+    const nearTable = screen.getByRole("table", { name: "Near 52w high" });
+    expect(nearTable).toHaveTextContent("$40.00");
+    expect(nearTable).toHaveTextContent("+2 lists");
+    expect(container.querySelectorAll(".ld-mbar").length).toBeGreaterThan(0);
+
+    // Search filters across all three sections
+    await user.type(screen.getByRole("searchbox", { name: "Filter ticker, company, or card" }), "bbb");
+    expect(tickers("On several lists")).toEqual(["BBB"]);
+    expect(tickers("Near 52w high")).toEqual(["BBB"]);
+  });
 });

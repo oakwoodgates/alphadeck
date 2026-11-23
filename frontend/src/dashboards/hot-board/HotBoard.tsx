@@ -3,7 +3,7 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./hot-board.css";
-import { heatByKey, type Heat } from "./heat";
+import { HEAT_PARTS, heatByKey, type Heat } from "./heat";
 import {
   DEFAULT_FILTERS,
   DEFAULT_SORT,
@@ -32,7 +32,7 @@ import {
   sinceArmCells,
   sinceCell,
   sortRows,
-  sparkPath,
+  sparkGeometry,
   strengthWords,
   tapeCells,
   tierLabel,
@@ -66,39 +66,39 @@ import { RecordStartNote } from "../RecordStartNote";
 
 const NO_COUNTS = { warming: 0, watch: 0, managing: 0 };
 
-type Column = { key: SortKey | null; label: string; title: string; num?: boolean; cls?: string };
+type Column = { key: SortKey | null; label: string; title: string; num?: boolean; cls?: string; gstart?: boolean };
 
 const COLUMNS: readonly Column[] = [
   { key: "card", label: "Card", title: "Sort by the card's name" },
   { key: "heat", label: "heat (stated formula)", title: "Sort by heat: the mean of four percentiles among the rows shown", num: true },
-  { key: "verdict", label: "Call", title: "The member's verdict on the recorded call (a Warming name: which key its trigger turned)" },
+  { key: "verdict", label: "Call", title: "The member's verdict on the recorded call (a Warming name: which key its trigger turned)", gstart: true },
   { key: "grade", label: "Grade", title: "The weaker key's grade on the recorded call: flip or core" },
   { key: "strength", label: "Setup strength", title: "The call's setup strength: an experimental relative indicator, not a probability", num: true },
   { key: "keys", label: "Keys", title: "The entry triggers that fired. Hover for each one's label, grade, fire date and source" },
   { key: "risk", label: "Risk", title: "Risk signals on the card that name this security", num: true },
-  { key: "arm", label: "Arm night", title: "The first night of the member's current recorded run on this card (R: a night rebuilt by the backfill)", num: true },
+  { key: "arm", label: "Arm night", title: "The first night of the member's current recorded run on this card (R: a night rebuilt by the backfill)", num: true, gstart: true },
   { key: "since", label: "Sess. since", title: "Sessions after the arm night through the as-of, on IWM's bar calendar", num: true },
   { key: "left", label: "Sess. left", title: "Sessions left in the entry window after the as-of (closed N ago past it)", num: true },
   { key: "exit", label: "To exit-by", title: "Calendar days from the as-of to the hold horizon (exit_by)", num: true },
-  { key: "ret", label: "Since arm", title: "As-traded return from the first close on or after the arm night to the as-of", num: true },
+  { key: "ret", label: "Since arm", title: "As-traded return from the first close on or after the arm night to the as-of", num: true, gstart: true },
   { key: "iwm", label: "IWM", title: "IWM over the same dates", num: true },
-  { key: "rvol", label: "RVOL 20", title: "The as-of bar's volume over the mean of the 20 bars before it", num: true },
+  { key: "rvol", label: "RVOL 20", title: "The as-of bar's volume over the mean of the 20 bars before it", num: true, gstart: true },
   { key: "vs50", label: "vs 50d", title: "Close against its 50-day average", num: true },
   { key: "offHigh", label: "Off 52w high", title: "Close against the 52-week closing high", num: true },
   { key: "vsIwm", label: "vs IWM 30D", title: "The 30-trading-day return minus IWM's, in percentage points. A mark means relative strength is at a 13-week high", num: true },
   { key: "ret7", label: "7D", title: "Return over the last 7 trading days", num: true },
   { key: "ret30", label: "30D", title: "Return over the last 30 trading days", num: true },
   { key: "insider", label: "Ins 30d", title: "Open-market insider buys / distinct buyers over the last 30 days", num: true },
-  { key: "adv", label: "$vol 20d", title: "Average dollar volume over the last 20 bars", num: true },
+  { key: "adv", label: "$vol 20d", title: "Average dollar volume over the last 20 bars", num: true, gstart: true },
   { key: "cap", label: "Cap ≈", title: "Approximate market cap: the latest close times the latest shares fact", num: true },
-  { key: null, label: "90d", title: "The last 90 closes" },
+  { key: null, label: "90d", title: "The last 90 closes (tick marks arm night when in range)" },
 ];
 
 const SLOW =
   "Reading every counted card's recorded call and the tape of each armed name — the first load after a run or a basket edit can take a moment.";
 
 function SortTh({ col, sort, onSort }: { col: Column; sort: Sort; onSort: (key: SortKey) => void }) {
-  const cls = col.num ? "hb-num" : undefined;
+  const cls = [col.num ? "hb-num" : "", col.gstart ? "hb-gstart" : ""].filter(Boolean).join(" ") || undefined;
   if (col.key === null) {
     return (
       <th className={cls} title={col.title}>
@@ -121,10 +121,22 @@ function SortTh({ col, sort, onSort }: { col: Column; sort: Sort; onSort: (key: 
   );
 }
 
-function CellTd({ cell, mark }: { cell: Cell; mark?: { text: string; title: string } | null }) {
-  const cls = ["hb-cell", cell.tone ?? "", cell.accent ? "accent" : "", cell.gray ? "gray" : ""].filter(Boolean).join(" ");
+function CellTd({
+  cell,
+  mark,
+  gstart,
+  lapsing,
+}: {
+  cell: Cell;
+  mark?: { text: string; title: string } | null;
+  gstart?: boolean;
+  lapsing?: boolean;
+}) {
+  const cls = ["hb-cell", cell.tone ?? "", cell.accent ? "accent" : "", cell.gray ? "gray" : "", lapsing ? "lapsing" : ""]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <td className="hb-num">
+    <td className={`hb-num${gstart ? " hb-gstart" : ""}`}>
       <span className={cls} title={cell.title}>
         {cell.text}
       </span>
@@ -137,18 +149,27 @@ function CellTd({ cell, mark }: { cell: Cell; mark?: { text: string; title: stri
   );
 }
 
-/** The last 90 closes as a path in a small box, gray; blank when the tape has fewer than two closes. */
-function Spark({ values }: { values: ReadonlyArray<number | null> }) {
-  const d = sparkPath(values, 72, 16);
-  if (!d) return <span className="hb-cell gray">—</span>;
+/** The last 90 closes as a path in a small box, with endpoint dot and optional arm-night tick; blank when <2 closes. */
+function Spark({ values, sessionsSince }: { values: ReadonlyArray<number | null>; sessionsSince: number | null }) {
+  const geo = sparkGeometry(values, 74, 16, sessionsSince);
+  if (!geo) return <span className="hb-cell gray">—</span>;
   return (
-    <svg className="hb-spark" width={72} height={16} viewBox="0 0 72 16" role="img" aria-label="The last 90 closes">
-      <path d={d} fill="none" strokeWidth={1} />
+    <svg
+      className={`hb-spark${geo.tone ? ` ${geo.tone}` : ""}`}
+      width={74}
+      height={16}
+      viewBox="0 0 74 16"
+      role="img"
+      aria-label="The last 90 closes"
+    >
+      {geo.armX !== null && <line className="hb-spark-arm" x1={geo.armX} x2={geo.armX} y1={1} y2={15} />}
+      <path d={geo.d} fill="none" strokeWidth={1.15} />
+      <circle className="hb-spark-end" cx={geo.endX} cy={geo.endY} r={1.6} />
     </svg>
   );
 }
 
-function KeysCell({ r }: { r: HotRowOut }) {
+function KeysCell({ r, flipUp }: { r: HotRowOut; flipUp: boolean }) {
   if (r.triggers.length === 0) {
     return (
       <td>
@@ -158,7 +179,11 @@ function KeysCell({ r }: { r: HotRowOut }) {
   }
   return (
     <td className="hb-keys-td">
-      <span className="hb-keys" tabIndex={0} aria-label={`${keysWords(r)}: ${r.triggers.map(triggerLine).join("; ")}`}>
+      <span
+        className={`hb-keys${flipUp ? " flip-up" : ""}`}
+        tabIndex={0}
+        aria-label={`${keysWords(r)}: ${r.triggers.map(triggerLine).join("; ")}`}
+      >
         {keysWords(r)}
         <span className="hb-tip" role="tooltip">
           {r.triggers.map((t, i) => (
@@ -184,15 +209,34 @@ function KeysCell({ r }: { r: HotRowOut }) {
   );
 }
 
+/** Four-bar neutral equalizer for the four heat percentiles (fresh, loud, leading, unextended); zero text nodes. */
+function HeatEq({ heat }: { heat: Heat }) {
+  return (
+    <span className="hb-eq" aria-hidden="true">
+      {HEAT_PARTS.map((p) => {
+        const v = heat[p];
+        const pct = v == null ? 0 : Math.max(12, Math.round(v * 100));
+        return (
+          <span key={p} className="hb-eq-slot">
+            <span className={`hb-eq-bar${v == null ? " blank" : ""}`} style={{ height: `${pct}%` }} />
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 type RowProps = {
   r: HotRowOut;
   heat: Heat | undefined;
   /** a past view (the payload's clock is "public"): the countdown cells carry their dates too */
   past: boolean;
+  /** near the bottom of the scroll container: flip the keys popover upward so it never clips */
+  flipUp: boolean;
   onSelectThesis: DashboardProps["onSelectThesis"];
 };
 
-const Row = memo(function Row({ r, heat, past, onSelectThesis }: RowProps) {
+const Row = memo(function Row({ r, heat, past, flipUp, onSelectThesis }: RowProps) {
   const tape = tapeCells(r);
   const since = sinceArmCells(r);
   const mark = leadingMark(r);
@@ -224,10 +268,11 @@ const Row = memo(function Row({ r, heat, past, onSelectThesis }: RowProps) {
       <td className="hb-num">
         <span className="hb-heat" title={heatTitle(heat)}>
           {score !== null && <span className="hb-heat-bar" style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />}
+          {score !== null && heat && <HeatEq heat={heat} />}
           <span className={`hb-heat-n${score === null ? " gray" : ""}`}>{heatText(heat)}</span>
         </span>
       </td>
-      <td>
+      <td className="hb-gstart">
         {kind && <span className={`hb-kind ${r.kind}`}>{kind}</span>}
         <span className="hb-cell" title={r.kind === "armed" ? "The member's verdict on the recorded call" : undefined}>
           {verdictWords(r)}
@@ -241,24 +286,30 @@ const Row = memo(function Row({ r, heat, past, onSelectThesis }: RowProps) {
           {strengthWords(r)}
         </span>
       </td>
-      <KeysCell r={r} />
+      <KeysCell r={r} flipUp={flipUp} />
       <CellTd cell={riskCell(r)} />
-      <CellTd cell={armNightCell(r)} />
+      <CellTd cell={armNightCell(r)} gstart />
       <CellTd cell={sinceCell(r)} />
       <CellTd cell={leftCell(r)} />
-      <CellTd cell={exitCell(r, past)} />
-      <CellTd cell={since.ret} />
+      <CellTd cell={exitCell(r, past)} lapsing={r.lapsing} />
+      <CellTd cell={since.ret} gstart />
       <CellTd cell={since.iwm} />
-      <CellTd cell={tape.rvol} />
+      <CellTd cell={tape.rvol} gstart />
       <CellTd cell={tape.vs50} />
       <CellTd cell={tape.offHigh} />
       <CellTd cell={tape.vsIwm} mark={mark ? { text: "RS", title: mark } : null} />
       <CellTd cell={tape.ret7} />
       <CellTd cell={tape.ret30} />
       <CellTd cell={insiderCell(r)} />
-      <CellTd cell={tape.adv} />
+      <CellTd cell={tape.adv} gstart />
       <CellTd cell={capCell(r)} />
-      <td>{r.tape.flag === null ? <Spark values={r.tape.spark} /> : <span className="hb-cell gray">—</span>}</td>
+      <td>
+        {r.tape.flag === null ? (
+          <Spark values={r.tape.spark} sessionsSince={r.clocks.sessions_since} />
+        ) : (
+          <span className="hb-cell gray">—</span>
+        )}
+      </td>
     </tr>
   );
 });
@@ -397,6 +448,16 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
             Entry window open only
           </label>
         )}
+        {onShow.length > 1 && (
+          <input
+            type="search"
+            className="hb-search"
+            aria-label="Search tickers or cards"
+            placeholder="Search ticker or card"
+            value={filters.search ?? ""}
+            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+          />
+        )}
         {filtering && (
           <button type="button" className="hb-clear" onClick={() => setFilters(DEFAULT_FILTERS)}>
             clear filters
@@ -436,6 +497,15 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
         <div className="hb-scroll">
           <table className="hb-table">
             <thead>
+              <tr className="hb-grp-row" aria-hidden="true">
+                <td className="hb-grp hb-grp-tk" />
+                <td className="hb-grp" colSpan={2}>Identity &amp; heat</td>
+                <td className="hb-grp hb-gstart" colSpan={5}>Call</td>
+                <td className="hb-grp hb-gstart" colSpan={4}>Clocks</td>
+                <td className="hb-grp hb-gstart" colSpan={2}>Since arm</td>
+                <td className="hb-grp hb-gstart" colSpan={7}>Tape</td>
+                <td className="hb-grp hb-gstart" colSpan={3}>Size &amp; 90d</td>
+              </tr>
               <tr>
                 <th className="hb-tk" aria-sort={sort.key === "ticker" ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
                   <button type="button" className={`hb-sort${sort.key === "ticker" ? " on" : ""}`} title="Sort by ticker, A to Z" onClick={() => onSort("ticker")}>
@@ -453,12 +523,13 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((r) => (
+              {sorted.map((r, i) => (
                 <Row
                   key={r.key}
                   r={r}
                   heat={heats.get(r.key)}
                   past={data.clock === "public"}
+                  flipUp={sorted.length > 3 && i >= sorted.length - 3}
                   onSelectThesis={onSelectThesis}
                 />
               ))}

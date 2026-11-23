@@ -3,8 +3,8 @@
    sits in the muted grays except a state word, which reads in its Board column's own color (--incub, --warm,
    --armed, --manage). Nothing here is loud; a calm page means nothing moved. */
 
-.wc { display: flex; flex-direction: column; gap: 10px; }
-.wc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.wc { display: flex; flex-direction: column; gap: 10px; max-width: 1080px; }
+.wc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .wc-seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
 .wc-seg button { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 0; padding: 3px 10px; cursor: pointer; }
 .wc-seg button + button { border-left: 1px solid var(--line-2); }
@@ -12,7 +12,24 @@
 .wc-seg button.on { color: var(--txt); background: var(--panel-2); }
 .wc-seg button:disabled { color: var(--txt-4); cursor: default; }
 .wc-date { font: inherit; font-family: var(--mono); font-size: 11px; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 6px; color-scheme: dark; }
+.wc-search { font: inherit; font-size: 11.5px; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 8px; width: 200px; }
+.wc-search::placeholder { color: var(--txt-4); }
+.wc-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.wc-chip:hover { color: var(--txt-2); }
+.wc-chip.on { color: var(--txt); background: var(--panel-2); }
+.wc-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.wc-clear:hover { color: var(--txt); }
 .wc-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); cursor: help; }
+.wc-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--panel) 65%, transparent); }
+.wc-sum-pills { display: flex; flex-wrap: wrap; gap: 5px; }
+.wc-sum-pill { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 8px; cursor: pointer; }
+.wc-sum-pill:hover { color: var(--txt-2); }
+.wc-sum-pill.on { color: var(--txt); background: var(--panel-2); border-color: var(--txt-3); }
+.wc-sum-n { font-family: var(--mono); font-size: 10px; color: var(--txt-4); margin-left: 3px; font-variant-numeric: tabular-nums; }
+.wc-sum-pill.on .wc-sum-n { color: var(--txt-2); }
+.wc-sum-moves { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.wc-sum-lbl { font-family: var(--sans); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+.wc-sum-mv { white-space: nowrap; }
 .wc-quiet { font-size: 12px; color: var(--txt-3); margin-top: 6px; }
 .wc-error { color: var(--txt-3); }
 
@@ -27,7 +44,8 @@
 .wc-cardh .wc-tag { margin-left: 8px; }
 
 .wc-list { list-style: none; margin: 0; padding: 0; }
-.wc-line { font: inherit; font-size: 12px; width: 100%; display: grid; grid-template-columns: minmax(120px, 220px) 64px 1fr; gap: 0 12px; align-items: baseline; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--txt-2); text-align: left; cursor: pointer; }
+.wc-li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
+.wc-line { font: inherit; font-size: 12px; flex: 1 1 320px; min-width: 0; display: grid; grid-template-columns: minmax(120px, 220px) 64px 1fr; gap: 0 12px; align-items: baseline; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--txt-2); text-align: left; cursor: pointer; }
 .wc-line.in-card { grid-template-columns: 64px 1fr; }
 .wc-line:hover { background: var(--panel); color: var(--txt); }
 .wc-line:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
@@ -35,6 +53,8 @@
 .wc-tk { font-family: var(--mono); font-weight: 700; color: var(--txt-2); white-space: nowrap; }
 .wc-what { color: var(--txt-3); }
 .wc-line:hover .wc-what { color: var(--txt-2); }
+.wc-src { font-family: var(--mono); font-size: 10px; color: var(--txt-4); text-decoration: none; white-space: nowrap; padding-right: 6px; }
+a.wc-src:hover { color: var(--txt-2); text-decoration: underline; text-underline-offset: 2px; }
 .wc-arrow { color: var(--txt-4); }
 /* a re-dated trigger (still firing, its event date moved): quieter than a fired / no-longer-firing line —
    the ticker drops to the line's own gray, unbolded; hover lifts it like any line */

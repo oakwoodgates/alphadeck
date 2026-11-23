@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 110,
   label: "Chain Wave",
   description: "One card's links in chain order, week by week against SPY, so a move traveling along the chain shows as a diagonal; its payers beside its counting names.",
+  group: "chain",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./ChainWave")),

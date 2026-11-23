@@ -5,6 +5,7 @@ import { useLogout } from "./api/hooks";
 import { useCurrentUser, useIsSteward } from "./auth/me";
 import { CLOCK_FALLBACK_TITLE, useAppClock } from "./clock";
 import { DASHBOARDS } from "./dashboards/registry";
+import { groupDashboards } from "./dashboards/groups";
 import {
   ASOF,
   adminPath,
@@ -218,18 +219,31 @@ function DashboardsMenu({
               None yet
             </div>
           ) : (
-            DASHBOARDS.map((d) => (
-              <button
-                key={d.slug}
-                type="button"
-                role="menuitem"
-                className="nav-menu-item"
-                onClick={() => go(dashboardPath(d.slug, asofParam))}
-              >
-                <span className="nav-menu-label">{d.label}</span>
-                <span className="nav-menu-desc">{d.description}</span>
-              </button>
-            ))
+            (() => {
+              const groups = groupDashboards(DASHBOARDS);
+              const showHeaders = groups.length > 1;
+              return groups.map((g) => (
+                <div key={g.key} className="nav-menu-sec" role="none">
+                  {showHeaders && (
+                    <div className="nav-menu-group" role="presentation">
+                      {g.label}
+                    </div>
+                  )}
+                  {g.items.map((d) => (
+                    <button
+                      key={d.slug}
+                      type="button"
+                      role="menuitem"
+                      className="nav-menu-item"
+                      onClick={() => go(dashboardPath(d.slug, asofParam))}
+                    >
+                      <span className="nav-menu-label">{d.label}</span>
+                      <span className="nav-menu-desc">{d.description}</span>
+                    </button>
+                  ))}
+                </div>
+              ));
+            })()
           )}
         </div>
       )}

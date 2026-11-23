@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 80,
   label: "Price & Volume Landing",
   description: "Where price closed in each window's range, and whether volume backed the move, by group.",
+  group: "rotation",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./Landing")),

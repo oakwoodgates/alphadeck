@@ -432,4 +432,19 @@ describe("Idea Timeline — the record-start note", () => {
     renderPage();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
+
+  it("renders the state-count ribbon, updates the live hover detail bar, sorts via header click, and filters cards by search", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(screen.getByTestId("it-ribbon")).toBeInTheDocument();
+    const nextCat = within(rowOf("Grid")).getByTitle("Catalyst: PDUFA · Nov 10, 2026 (~2wk) · regulatory");
+    await user.hover(nextCat);
+    expect(screen.getByTestId("it-detail")).toHaveTextContent("Grid · Catalyst: PDUFA");
+    // clickable column header sorts by Times armed
+    await user.click(screen.getByRole("button", { name: /^Times armed/ }));
+    expect(screen.getByRole("columnheader", { name: /Times armed ↓/ })).toBeInTheDocument();
+    // card search filters visible rows
+    await user.type(screen.getByRole("searchbox", { name: "Filter cards" }), "nuc");
+    expect(names()).toEqual(["Nuclear"]);
+  });
 });

@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 0,
   label: "Board",
   description: "Every card in its lifecycle column, with the Decision Queue.",
+  group: "daily",
   status: "core",
   asofAware: true,
   layout: "fill",

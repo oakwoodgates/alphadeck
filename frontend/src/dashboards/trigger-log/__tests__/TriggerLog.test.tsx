@@ -450,4 +450,29 @@ describe("Trigger Log — the record-start note", () => {
     show();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
+
+  it("renders the weekly bar strip, sortable headers, search, collapsible groups, clickable card chip, and expandable detail", async () => {
+    show();
+    expect(screen.getByTestId("tl-weekly")).toHaveTextContent("3 entry triggers · 1 risk signal · 2 weeks");
+
+    // clickable card chip opens the card
+    await userEvent.click(within(rowFor("Open-market buy, 1,000 sh")).getByRole("button", { name: "Open Card A in the Cockpit" }));
+    expect(select).toHaveBeenLastCalledWith("t-a");
+
+    // expand source detail on R1
+    await userEvent.click(screen.getByRole("button", { name: "Show details for AAA" }));
+    expect(screen.getByTestId("tl-row-detail")).toHaveTextContent("shares: 1000");
+
+    // collapse first week group
+    await userEvent.click(screen.getByRole("button", { name: "Collapse Week of Oct 26" }));
+    expect(rows()).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "Expand Week of Oct 26" }));
+    expect(rows()).toHaveLength(4);
+
+    // search filters by ticker/label
+    await userEvent.type(screen.getByRole("searchbox", { name: "Find ticker or label" }), "convertible");
+    expect(rows()).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: "clear filters" }));
+    expect(rows()).toHaveLength(4);
+  });
 });

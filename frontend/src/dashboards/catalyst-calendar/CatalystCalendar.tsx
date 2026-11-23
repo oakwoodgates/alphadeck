@@ -65,6 +65,7 @@ function Line({ item, today, onSelect }: { item: Item; today: string; onSelect: 
           "ccal-line",
           deadline ? "ccal-deadline" : null,
           item.days < 0 ? "ccal-passed" : null,
+          item.days === 0 ? "ccal-today" : item.days > 0 && item.days <= 3 ? "ccal-soon" : null,
         ]
           .filter(Boolean)
           .join(" ")}
@@ -81,7 +82,10 @@ function Line({ item, today, onSelect }: { item: Item; today: string; onSelect: 
         </span>
         <span className="ccal-kind">
           {deadline ? (
-            <span className="ccal-tag" title={DEADLINE_TITLE[item.item]}>
+            <span
+              className={`ccal-tag ${item.item === "entry_window" ? "ccal-tag-entry" : "ccal-tag-exit"}`}
+              title={DEADLINE_TITLE[item.item]}
+            >
               deadline
             </span>
           ) : item.kind ? (
@@ -94,6 +98,122 @@ function Line({ item, today, onSelect }: { item: Item; today: string; onSelect: 
         <StateChip state={item.state} />
       </button>
     </li>
+  );
+}
+
+const HORIZON_DAYS = 90;
+const HORIZON_W = 1080;
+const HORIZON_H = 54;
+const HORIZON_TICKS = [0, 7, 14, 30, 60, 90] as const;
+
+/** Quiet 90-day SVG horizon rug strip: plots upcoming catalysts (top lane) and card deadlines (bottom lane). */
+function HorizonStrip({
+  items,
+  today,
+  onSelect,
+}: {
+  items: readonly Item[];
+  today: string;
+  onSelect: Select;
+}) {
+  const [hoverDay, setHoverDay] = useState<number | null>(null);
+  const inHorizon = items.filter((i) => i.days >= 0 && i.days <= HORIZON_DAYS);
+  const laterCount = items.filter((i) => i.days > HORIZON_DAYS).length;
+  if (inHorizon.length === 0 && laterCount === 0) return null;
+
+  const byDay = new Map<number, Item[]>();
+  for (const it of inHorizon) {
+    byDay.set(it.days, [...(byDay.get(it.days) ?? []), it]);
+  }
+  const padL = 4;
+  const padR = 14;
+  const xOf = (d: number) => padL + (d / HORIZON_DAYS) * (HORIZON_W - padL - padR);
+  const hovered = hoverDay != null ? (byDay.get(hoverDay) ?? []) : [];
+  const readout =
+    hovered.length > 0
+      ? `${fmtDay(hovered[0].on, today)} (${daysAway(hovered[0].days)}): ${hovered
+          .map((i) => `${i.thesis_name} — ${i.label}`)
+          .join(" · ")}`
+      : "Hover a mark to inspect, click to open";
+
+  return (
+    <div className="ccal-horizon" data-testid="ccal-horizon">
+      <div className="ccal-horizon-head">
+        <span className="ccal-horizon-title">Next 90 days</span>
+        <span className="ccal-horizon-meta">
+          {inHorizon.length} in 90d{laterCount > 0 ? ` · ${laterCount} later` : ""}
+        </span>
+      </div>
+      <div
+        className={`ccal-horizon-read${hovered.length > 0 ? " active" : ""}`}
+        aria-live="polite"
+        title={hovered.length > 0 ? readout : undefined}
+      >
+        {readout}
+      </div>
+      <svg
+        className="ccal-horizon-svg"
+        viewBox={`0 0 ${HORIZON_W} ${HORIZON_H}`}
+        preserveAspectRatio="xMinYMid meet"
+        role="img"
+        aria-label="90-day catalyst and deadline horizon"
+        onMouseLeave={() => setHoverDay(null)}
+      >
+        <rect className="ccal-hz-week" x={xOf(0)} y={4} width={xOf(7) - xOf(0)} height={34} rx={2} />
+        <line className="ccal-hz-axis" x1={padL} x2={HORIZON_W - padR} y1={24} y2={24} />
+        {HORIZON_TICKS.map((d) => {
+          const x = xOf(d);
+          return (
+            <g key={d}>
+              <line className="ccal-hz-grid" x1={x} x2={x} y1={4} y2={38} />
+              <text
+                className="ccal-hz-tick"
+                x={x}
+                y={50}
+                textAnchor={d === 0 ? "start" : d === HORIZON_DAYS ? "end" : "middle"}
+              >
+                {d === 0 ? "today" : `${d}d`}
+              </text>
+            </g>
+          );
+        })}
+        {[...byDay.entries()].map(([day, dayItems]) => {
+          const x = xOf(day);
+          const cats = dayItems.filter((i) => i.item === "catalyst");
+          const dls = dayItems.filter((i) => i.item !== "catalyst");
+          const isHi = hoverDay === day;
+          return (
+            <g
+              key={day}
+              className={`ccal-hz-day${isHi ? " hi" : ""}`}
+              onMouseEnter={() => setHoverDay(day)}
+              onClick={() => onSelect(dayItems[0].thesis_id)}
+            >
+              <rect className="ccal-hz-hit" x={x - 6} y={2} width={12} height={38} />
+              {cats.slice(0, 3).map((c, idx) => (
+                <circle
+                  key={`c-${idx}`}
+                  className={`ccal-hz-dot ${stateCls(c.state)}`}
+                  cx={x}
+                  cy={19 - idx * 5.5}
+                  r={isHi ? 3.2 : 2.6}
+                />
+              ))}
+              {dls.slice(0, 2).map((dl, idx) => (
+                <line
+                  key={`d-${idx}`}
+                  className={`ccal-hz-dl ${dl.item === "entry_window" ? "entry" : "exit"}`}
+                  x1={x + idx * 2}
+                  x2={x + idx * 2}
+                  y1={27}
+                  y2={36}
+                />
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 
@@ -295,6 +415,11 @@ export default function CatalystCalendar({ onSelectThesis }: DashboardProps) {
         <div className="ccal-quiet">No live cards.</div>
       ) : (
         <>
+          <HorizonStrip
+            items={buckets.flatMap((b) => b.items)}
+            today={data.today}
+            onSelect={onSelectThesis}
+          />
           <section className="ccal-sec" aria-label="Upcoming">
             <SectionHead label="Upcoming" count={upcoming} />
             {buckets.length === 0 ? (

@@ -21,11 +21,11 @@
 
 .tl-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
 .tl-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.tl-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.tl-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); margin-right: 2px; }
 .tl-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 0; border-bottom: 1px solid transparent; padding: 0 2px; cursor: pointer; }
 .tl-chip:hover { color: var(--txt-2); }
 .tl-chip.on { color: var(--txt); border-bottom-color: var(--txt-3); }
-.tl-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-3); cursor: pointer; }
+.tl-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
 .tl-check input { accent-color: var(--txt-3); }
 .tl-search { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 8px; width: 170px; }
 .tl-search::placeholder { color: var(--txt-4); }
@@ -34,45 +34,69 @@
 
 .tl-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .tl-formula { font-size: 10.5px; line-height: 1.5; color: var(--txt-3); max-width: 1100px; }
-.tl-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+.tl-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-3); }
 .tl-empty { padding: 14px 0; }
 
-/* the table: scrolls inside its wrapper in both directions, so the header sticks to the wrapper's top */
+/* the table: scrolls inside its wrapper in both directions, so the header sticks to the top and the card to the left */
 .tl-scroll { overflow: auto; max-height: 78vh; border-top: 1px solid var(--line); }
 table.tl-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+table.tl-table thead tr.tl-grp-row td.tl-grp {
+  position: sticky; top: 0; z-index: 2; height: 20px; padding: 2px 12px 2px 0;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+  font-family: var(--sans); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-4); font-weight: 600;
+}
+table.tl-table thead tr.tl-grp-row td.tl-grp-card { position: sticky; left: 0; z-index: 3; }
 table.tl-table th {
-  position: sticky; top: 0; z-index: 2; background: var(--bg);
-  text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600;
+  position: sticky; top: 20px; z-index: 2; background: var(--bg);
+  text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600;
   padding: 5px 12px 5px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom;
 }
+table.tl-table th.tl-th-part { color: var(--txt-2); }
 table.tl-table td {
   height: var(--tl-row); padding: 0 12px 0 0; border-bottom: 1px solid var(--line);
   white-space: nowrap; vertical-align: middle; color: var(--txt-2); font-family: var(--mono);
 }
-table.tl-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+table.tl-table td.tl-part { background: color-mix(in srgb, var(--panel) 32%, transparent); }
+table.tl-table .tl-gstart { border-left: 1px solid var(--line); padding-left: 10px; }
+table.tl-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 65%, transparent); }
 table.tl-table .tl-num { text-align: right; padding-right: 14px; }
 table.tl-table th.tl-num .tl-sort { text-align: right; }
 .tl-sort { font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-.tl-sort:hover, .tl-sort.on { color: var(--txt-2); }
+.tl-sort:hover, .tl-sort.on { color: var(--txt); }
 .tl-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
 
-.tl-td-card { min-width: 190px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-.tl-card { font-family: var(--mono); font-size: 11.5px; font-weight: 700; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; max-width: 300px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; }
+/* pinned card column */
+table.tl-table th.tl-th-card, table.tl-table td.tl-td-card { position: sticky; left: 0; background: var(--bg); min-width: 190px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+table.tl-table th.tl-th-card { z-index: 3; }
+table.tl-table td.tl-td-card { z-index: 1; }
+table.tl-table tbody tr:hover td.tl-td-card { background: var(--panel); }
+.tl-card { font-family: var(--mono); font-size: 11.5px; font-weight: 700; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; max-width: 300px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; }
 .tl-card:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 2px; }
 
 /* the state chip: the Board's state color, the one color on the page */
-.tl-state { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); cursor: help; }
+.tl-state { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); cursor: help; }
 .tl-state.armed { color: var(--armed); }
 .tl-state.warming { color: var(--warm); }
 .tl-state.managing { color: var(--manage); }
 .tl-state.incubating { color: var(--incub); }
 .tl-mark { margin-left: 5px; font-size: 9px; letter-spacing: 0.06em; color: var(--txt-3); cursor: help; }
 
-/* the score: a short gray bar behind its number, never a color */
-.tl-score { position: relative; display: inline-block; width: 52px; height: 16px; text-align: right; cursor: help; }
-.tl-score-bar { position: absolute; left: 0; top: 2px; bottom: 2px; background: color-mix(in srgb, var(--txt-4) 45%, transparent); border-radius: 1px; }
-.tl-score-n { position: relative; padding-right: 3px; font-size: 11.5px; color: var(--txt-2); }
+/* the score: a clear gray bar behind its number + 5-bar component equalizer, never a color */
+.tl-score { position: relative; display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; width: 72px; height: 17px; text-align: right; cursor: help; }
+.tl-score-bar { position: absolute; left: 0; top: 2px; bottom: 2px; background: color-mix(in srgb, var(--txt-3) 34%, transparent); border-radius: 2px; }
+.tl-eq { position: relative; display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px; padding-left: 2px; }
+.tl-eq-slot { display: inline-flex; align-items: flex-end; width: 3px; height: 100%; background: color-mix(in srgb, var(--line-2) 60%, transparent); border-radius: 1px; overflow: hidden; }
+.tl-eq-bar { display: block; width: 100%; background: var(--txt-3); border-radius: 1px; }
+.tl-eq-bar.blank { opacity: 0; }
+.tl-score-n { position: relative; padding-right: 3px; font-size: 11.5px; color: var(--txt); }
 .tl-score-n.gray { color: var(--txt-4); }
+
+/* inline micro-visuals inside breadth / RS / keys cells (zero text nodes) */
+.tl-ratio { display: inline-block; width: 28px; height: 4px; margin-left: 6px; vertical-align: middle; background: var(--line-2); border-radius: 2px; overflow: hidden; }
+.tl-ratio-fill { display: block; height: 100%; background: var(--txt-3); border-radius: 2px; }
+.tl-pips { display: inline-flex; align-items: center; gap: 3px; margin-right: 6px; vertical-align: middle; }
+.tl-pip { display: inline-block; width: 5px; height: 5px; border-radius: 50%; border: 1px solid var(--txt-4); background: transparent; }
+.tl-pip.on { border-color: var(--txt-2); background: var(--txt-2); }
 
 /* the number cells: a plain figure, a signed tape figure's sign tinted well toward gray, a reason or a blank gray */
 .tl-cell { font-family: var(--mono); font-size: 11.5px; color: var(--txt-2); cursor: default; }
@@ -80,7 +104,7 @@ table.tl-table th.tl-num .tl-sort { text-align: right; }
 .tl-cell.pos { color: var(--tl-pos); }
 .tl-cell.neg { color: var(--tl-neg); }
 .tl-cell.gray { color: var(--txt-4); font-size: 10.5px; }
-.tl-note { margin-left: 6px; font-size: 9.5px; color: var(--txt-4); cursor: help; }
+.tl-note { margin-left: 6px; font-size: 9.5px; color: var(--txt-3); cursor: help; }
 
 /* a phone: the table becomes one block per card. The score, the card and its state share the first line; the cells
    follow under them, three to a line, each with its column label above it */
@@ -96,12 +120,14 @@ table.tl-table th.tl-num .tl-sort { text-align: right; }
   }
   table.tl-table tbody tr:hover td { background: transparent; }
   table.tl-table td { display: block; height: auto; padding: 0; border-bottom: 0; white-space: normal; text-align: left; }
+  table.tl-table td.tl-part, table.tl-table td.tl-td-card { background: transparent; }
+  table.tl-table .tl-gstart { border-left: 0; padding-left: 0; }
   table.tl-table td.tl-num { text-align: left; padding-right: 0; }
   table.tl-table td::before {
-    content: attr(data-label); display: block; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4);
+    content: attr(data-label); display: block; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3);
   }
   table.tl-table td.tl-td-score { grid-row: 1; grid-column: 1; }
-  table.tl-table td.tl-td-card { grid-row: 1; grid-column: 2; max-width: none; min-width: 0; }
+  table.tl-table td.tl-td-card { position: static; grid-row: 1; grid-column: 2; max-width: none; min-width: 0; }
   table.tl-table td.tl-td-state { grid-row: 1; grid-column: 3; }
   .tl-card { max-width: 100%; white-space: normal; }
   .tl-score { text-align: left; }

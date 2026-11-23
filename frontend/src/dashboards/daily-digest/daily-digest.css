@@ -20,9 +20,28 @@
   --dd-warm: var(--warm);
 }
 
-.dd-framing { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--txt-4); max-width: 760px; }
+.dd-framing { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--txt-3); max-width: 760px; }
 .dd-night { margin: 4px 0 0; font-size: 13px; color: var(--txt); }
 .dd-after { margin: 0; font-size: 11.5px; color: var(--txt-3); }
+
+/* morning orientation strip: strictly monochrome book counts + section jump buttons */
+.dd-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 7px 10px; margin-top: 2px; border: 1px solid var(--line); border-radius: 5px; background: color-mix(in srgb, var(--panel) 65%, transparent); }
+.dd-strip-book { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 11px; color: var(--txt-3); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.dd-strip-kv strong { font-weight: 700; color: var(--txt-2); }
+.dd-strip-kv.is-muted strong { color: var(--txt-3); font-weight: 600; }
+.dd-book-bar { display: inline-flex; width: 72px; height: 4px; gap: 1px; border-radius: 2px; overflow: hidden; background: var(--line); vertical-align: middle; }
+.dd-book-seg { height: 100%; }
+.dd-book-seg.seg-a { background: var(--txt-2); }
+.dd-book-seg.seg-m { background: color-mix(in srgb, var(--txt-2) 65%, var(--txt-3)); }
+.dd-book-seg.seg-w { background: var(--txt-3); }
+.dd-book-seg.seg-i { background: var(--line-2); }
+.dd-jump { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.dd-jump-btn { font: inherit; font-size: 11px; display: inline-flex; align-items: baseline; gap: 5px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--txt-2); cursor: pointer; }
+.dd-jump-btn:hover { background: var(--panel-2); border-color: var(--line-2); color: var(--txt); }
+.dd-jump-btn.is-zero { color: var(--txt-4); border-color: color-mix(in srgb, var(--line) 65%, transparent); }
+.dd-jump-btn.is-zero:hover { color: var(--txt-3); }
+.dd-jump-n { font-family: var(--mono); font-size: 10px; color: var(--txt-3); font-variant-numeric: tabular-nums; }
+.dd-jump-btn.is-zero .dd-jump-n { color: var(--txt-4); }
 
 /* a section: a hairline header with its title (a link to the full page) and its count */
 .dd-sec { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
@@ -79,38 +98,57 @@ a.dd-src:hover { color: var(--txt-2); text-decoration: underline; }
 .dd .dd-neg { color: var(--dd-neg); }
 
 /* section 3: a due line is a date, a card, what it is */
-.dd-due-line { grid-template-columns: 150px minmax(120px, 220px) 1fr; }
-.dd-when { font-family: var(--mono); color: var(--txt-3); white-space: nowrap; }
+.dd-due-line { grid-template-columns: 162px minmax(120px, 220px) 1fr; }
+.dd-when { font-family: var(--mono); color: var(--txt-3); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.dd-due-pip { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--line-2); }
+.dd-due-entry_window .dd-due-pip { border-radius: 1px; background: var(--txt-2); }
+.dd-due-exit_by .dd-due-pip { border-radius: 1px; background: transparent; border: 1.5px solid var(--txt-2); box-sizing: border-box; }
 .dd-today .dd-when { color: var(--txt); font-weight: 600; }
 .dd-cardcol { color: var(--txt-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* sections 2 and 5: the short tables */
 .dd-scroll { overflow-x: auto; border-top: 1px solid var(--line); }
 table.dd-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; }
-table.dd-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 5px 14px 5px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom; }
+table.dd-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; padding: 6px 14px 6px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom; }
 table.dd-table td { padding: 5px 14px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--txt-3); font-family: var(--mono); }
 table.dd-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+table.dd-table tbody tr.dd-tape-split td { border-top: 1px dashed var(--line-2); padding-top: 7px; }
 table.dd-table .dd-num { text-align: right; }
 .dd-card-td { min-width: 150px; max-width: 240px; }
 .dd-fig { color: var(--txt-2); }
 .dd-fig.dd-gray { color: var(--txt-3); }
-.dd-sub { display: block; font-size: 10px; color: var(--txt-4); }
+.dd-em { color: var(--txt); font-weight: 600; }
+.dd-sub { display: block; font-size: 10px; color: var(--txt-3); opacity: 0.85; }
 td .dd-sub, .dd-chips .dd-sub { white-space: normal; }
 .dd-help { cursor: help; border-bottom: 1px dotted var(--txt-4); }
+.dd-kill-btn { font: inherit; color: var(--txt-2); background: none; border: 0; border-bottom: 1px dotted var(--txt-3); padding: 0; cursor: pointer; text-align: left; }
+.dd-kill-btn:hover { color: var(--txt); border-bottom-color: var(--txt-2); }
+.dd-kill-list { list-style: disc; margin: 4px 0 0; padding-left: 14px; font-family: inherit; font-size: 10.5px; line-height: 1.45; color: var(--txt-2); max-width: 280px; white-space: normal; }
+.dd-ret-bar { position: relative; display: block; width: 64px; height: 4px; margin: 3px 0 2px auto; background: var(--panel-2); border-radius: 2px; overflow: visible; }
+.dd-ret-zero { position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--line-2); }
+.dd-ret-fill { position: absolute; top: 0; bottom: 0; border-radius: 1px; background: color-mix(in srgb, var(--txt-3) 65%, transparent); }
+.dd-ret-fill.is-up { background: color-mix(in srgb, var(--txt-2) 55%, transparent); }
+.dd-ret-bench { position: absolute; top: -2px; bottom: -2px; width: 1.5px; background: var(--txt-3); transform: translateX(-50%); }
 .dd-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-3); cursor: pointer; align-self: flex-start; }
 .dd-check input { accent-color: var(--txt-3); }
-.dd-n { font-family: var(--mono); font-size: 10.5px; color: var(--txt-4); }
+.dd-n { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 
 /* section 4: a buy is two short lines */
 .dd-buys { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.dd-buy { padding: 4px 6px; border-bottom: 1px solid var(--line); }
-.dd-buy-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; font-size: 12px; color: var(--txt-2); }
-.dd-buy-sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; font-size: 11px; color: var(--txt-3); }
+.dd-buy { padding: 5px 6px; border-bottom: 1px solid var(--line); }
+.dd-buy-main { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; font-size: 12px; color: var(--txt-2); }
+.dd-buy-sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; font-size: 11px; color: var(--txt-3); margin-top: 1px; }
 .dd-chips { display: inline-flex; flex-wrap: wrap; gap: 0 8px; }
 .dd-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; border-bottom: 1px solid var(--line-2); padding: 0; cursor: pointer; }
 .dd-chip:hover { color: var(--txt-2); }
+.dd-size-wrap { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .dd-size { font-family: var(--mono); color: var(--txt-2); }
+.dd-size-bar { display: inline-block; width: 56px; height: 4px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+.dd-size-fill { display: block; height: 100%; background: var(--line-2); border-radius: 2px; }
 .dd-word { color: var(--txt-2); cursor: help; }
+.dd-cluster-btn { font: inherit; background: none; border: 0; border-bottom: 1px dotted var(--txt-3); padding: 0; cursor: pointer; }
+.dd-cluster-btn:hover { color: var(--txt); }
+.dd-cluster-list { list-style: none; margin: 3px 0 0; padding: 2px 0 0 12px; border-left: 1px solid var(--line-2); font-size: 10.5px; color: var(--txt-3); display: flex; flex-direction: column; gap: 1px; }
 
 /* section 6: one quiet line */
 .dd-forming { margin: 0; font-size: 12px; color: var(--txt-2); }

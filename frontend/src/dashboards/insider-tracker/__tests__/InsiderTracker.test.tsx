@@ -459,4 +459,20 @@ describe("Insider Tracker — the record-start note", () => {
     show();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
+
+  it("renders weekly filing cadence, monochrome $ size bars, click-to-expand cluster co-filers, and search", async () => {
+    const { container } = show();
+    expect(screen.getByTestId("ins-cadence")).toHaveTextContent("2 weeks shown · 4 purchases");
+    expect(container.querySelectorAll(".ins-usd-bar").length).toBeGreaterThan(0);
+
+    // Clicking cluster word expands the row including cluster co-filers
+    await userEvent.click(within(rowFor("Jane Roe")).getByText("cluster · 2 buyers"));
+    expect(screen.getByTestId("ins-more-cluster")).toHaveTextContent("Also filed within 30 days: Sam Poe (Oct 20)");
+
+    // Search filters by filer or ticker and clears with clear filters
+    await userEvent.type(screen.getByRole("searchbox", { name: "Filter ticker, filer, or card" }), "kim");
+    expect(rows()).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: "clear filters" }));
+    expect(rows()).toHaveLength(4);
+  });
 });

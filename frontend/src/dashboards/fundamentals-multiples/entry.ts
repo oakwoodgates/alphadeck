@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 160,
   label: "Fundamentals Multiples",
   description: "One card's revenue series, name by name and link by link: the last twelve quarters as small bars, each dated by its filing, with the link's median growth above the row.",
+  group: "fundamentals",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./FundamentalsMultiples")),

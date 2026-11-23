@@ -464,4 +464,20 @@ describe("Price & Volume Landing — a flagged price history", () => {
     expect(screen.queryByText(/left out for a flagged price history/)).toBeNull();
     expect(screen.queryByText("1 left out")).toBeNull();
   });
+
+  it("draws a stacked quadrant proportion bar, filters by group or ticker, and opens a card directly", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(sevenDay("Turbines").querySelectorAll(".ld-sb-seg")).toHaveLength(3);
+    expect(sevenDay("Miners").querySelector(".ld-split-bar")).toBeNull();
+    // direct card link button does not toggle row expansion
+    const openBtn = within(groupRow("Turbines")).getByRole("button", { name: /Open Grid in Cockpit/ });
+    await user.click(openBtn);
+    expect(onSelectThesis).toHaveBeenCalledWith("t-grid");
+    expect(groupRow("Turbines")).toHaveAttribute("aria-expanded", "false");
+    // search filters groups by label or member ticker
+    const box = screen.getByRole("searchbox", { name: /Filter groups/ });
+    await user.type(box, "TOP");
+    expect(labels()).toEqual(["Turbines · Grid"]);
+  });
 });

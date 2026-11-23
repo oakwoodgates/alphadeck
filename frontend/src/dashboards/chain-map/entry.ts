@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 140,
   label: "Chain Map",
   description: "One card as a picture: its links in chain order, the names inside each, and the payers, counter-cases and direct reads drawn beside the chain by role.",
+  group: "chain",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./ChainMap")),

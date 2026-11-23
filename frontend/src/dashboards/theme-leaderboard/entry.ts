@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 250,
   label: "Theme Leaderboard",
   description: "Every counted card ranked by a stated composite of its tape, its breadth, its keys, its adoption curve and its insiders, with the parts beside the score.",
+  group: "rotation",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

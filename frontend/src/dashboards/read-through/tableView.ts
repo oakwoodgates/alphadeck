@@ -177,15 +177,19 @@ export function tapeCell(tape: ReadThroughTapeOut, which: TapeWindow, spy: ReadT
 export type Filters = {
   /** a card-name query (a substring of any chip's card); "" = every card */
   card: string;
+  /** a company ticker or name query; "" = every company */
+  company?: string;
   /** a business-type key; "" = every type, `NO_TYPE` = the rows with none */
   businessType: string;
+  /** a last-filing form filter; "" = every form */
+  form?: string;
   /** keep the rows whose last filing is within this many days of the as-of; 0 = any row, filed or not */
   withinDays: number;
 };
 
 export const NO_TYPE = "__none__";
 
-export const DEFAULT_FILTERS: Filters = { card: "", businessType: "", withinDays: 0 };
+export const DEFAULT_FILTERS: Filters = { card: "", company: "", businessType: "", form: "", withinDays: 0 };
 
 export const FILING_WINDOWS: readonly { value: number; label: string }[] = [
   { value: 0, label: "Any time" },
@@ -195,22 +199,43 @@ export const FILING_WINDOWS: readonly { value: number; label: string }[] = [
 ];
 
 export function filtersActive(f: Filters): boolean {
-  return f.card.trim() !== "" || f.businessType !== "" || f.withinDays !== 0;
+  return (
+    f.card.trim() !== "" ||
+    (f.company ?? "").trim() !== "" ||
+    f.businessType !== "" ||
+    (f.form ?? "") !== "" ||
+    f.withinDays !== 0
+  );
 }
 
 export function rowMatches(r: ReadThroughRowOut, f: Filters): boolean {
   const q = f.card.trim().toLocaleLowerCase();
   if (q && !r.cards.some((c) => c.thesis_name.toLocaleLowerCase().includes(q))) return false;
+  const co = (f.company ?? "").trim().toLocaleLowerCase();
+  if (co && !`${r.ticker} ${r.name ?? ""}`.toLocaleLowerCase().includes(co)) return false;
   if (f.businessType) {
     const key = r.business_type ?? NO_TYPE;
     if (key !== f.businessType) return false;
   }
+  if (f.form && (r.last_filing?.form ?? "") !== f.form) return false;
   if (f.withinDays > 0 && (r.last_filing == null || r.last_filing.days_ago > f.withinDays)) return false;
   return true;
 }
 
 export const filterRows = (rows: readonly ReadThroughRowOut[], f: Filters): ReadThroughRowOut[] =>
   rows.filter((r) => rowMatches(r, f));
+
+/** Distinct last-filing forms present on the rows, most frequent first then A to Z. */
+export function filingFormOptions(rows: readonly ReadThroughRowOut[]): { value: string; rows: number }[] {
+  const tally = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.last_filing?.form) continue;
+    tally.set(r.last_filing.form, (tally.get(r.last_filing.form) ?? 0) + 1);
+  }
+  return [...tally]
+    .map(([value, count]) => ({ value, rows: count }))
+    .sort((a, b) => b.rows - a.rows || a.value.localeCompare(b.value));
+}
 
 /** The business types the rows hold (and "Unclassified" when some have none), A to Z, each with its row count. */
 export function businessTypeOptions(rows: readonly ReadThroughRowOut[]): { value: string; label: string; rows: number }[] {

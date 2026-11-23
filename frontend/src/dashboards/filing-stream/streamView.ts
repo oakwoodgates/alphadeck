@@ -140,6 +140,8 @@ export type Filters = {
   link: string;
   /** a ticker query; "" = every name */
   name: string;
+  /** a keyword query across headline, form, detail, tags and accession; "" = every row */
+  text: string;
   /** a context role; "" = every role */
   role: string;
   /** leave the Context and Bench names out */
@@ -152,6 +154,7 @@ export const DEFAULT_FILTERS: Filters = {
   kinds: new Set(KIND_ORDER),
   link: "",
   name: "",
+  text: "",
   role: "",
   countingOnly: false,
   showRoutine: false,
@@ -159,7 +162,14 @@ export const DEFAULT_FILTERS: Filters = {
 
 /** Is any row filter narrower than the default? (The fold toggle is not a filter: it hides nothing.) */
 export function filtersActive(f: Filters): boolean {
-  return f.kinds.size < KIND_ORDER.length || f.link !== "" || f.name.trim() !== "" || f.role !== "" || f.countingOnly;
+  return (
+    f.kinds.size < KIND_ORDER.length ||
+    f.link !== "" ||
+    f.name.trim() !== "" ||
+    f.text.trim() !== "" ||
+    f.role !== "" ||
+    f.countingOnly
+  );
 }
 
 /** Does the row pass every filter? A link filter matches a row whose company sits in that link on the card ("No
@@ -174,6 +184,13 @@ export function rowMatches(
   if (f.role && r.role !== f.role) return false;
   const q = f.name.trim().toLocaleLowerCase();
   if (q && !r.ticker.toLocaleLowerCase().includes(q)) return false;
+  const t = f.text.trim().toLocaleLowerCase();
+  if (t) {
+    const hay = [r.headline, r.form, r.ticker, r.accession ?? "", ...r.tags, ...r.detail]
+      .join(" ")
+      .toLocaleLowerCase();
+    if (!hay.includes(t)) return false;
+  }
   if (f.link) {
     const link = links.find((l) => l.key === f.link);
     if (link) {

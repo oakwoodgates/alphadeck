@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 130,
   label: "Read-Throughs",
   description: "Every role-tagged company across your cards (payers, counter-cases, direct reads, participants, financiers, benchmarks) with what it last filed, its next dated catalyst, and its tape against SPY.",
+  group: "fundamentals",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./ReadThrough")),

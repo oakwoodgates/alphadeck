@@ -639,4 +639,19 @@ describe("PeerTable — states", () => {
     setup(payload(), scopesPayload(), { isFetching: true });
     expect(screen.getByText("updating…")).toBeInTheDocument();
   });
+
+  it("draws coverage bars under headers and zero-text inline micro-visuals inside data cells", () => {
+    setup();
+    expect(header(/^Cap/).querySelector(".pt-cov-fill")).toHaveStyle({ width: "50%" });
+    const a = cells(lines()[0]);
+    expect(a[3].querySelector(".pt-vis-bar")).not.toBeNull(); // Cap
+    expect(a[5].querySelector(".pt-vis-div-fill.pos")).not.toBeNull(); // YoY
+    expect(a[8].querySelector(".pt-vis-bar")).not.toBeNull(); // Purity
+    expect(a[9].querySelector(".pt-vis-high-dot")).not.toBeNull(); // Off 52w high
+    expect(a[14].querySelector(".pt-vis-div-fill.pos")).not.toBeNull(); // 30D vs SPY
+    // flagged company gets no price micro-visuals
+    const d = cells(lines()[3]);
+    expect(d[9].querySelector(".pt-vis-high")).toBeNull();
+    expect(d[14].querySelector(".pt-vis-div")).toBeNull();
+  });
 });

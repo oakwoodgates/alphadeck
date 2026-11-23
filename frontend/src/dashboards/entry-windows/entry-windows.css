@@ -30,9 +30,10 @@
 
 .ew-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
 
-/* the table: a sticky header over dense rows */
+/* the table: a sticky header over dense rows, with horizontal scroll containment */
+.ew-scroll { overflow-x: auto; }
 .ew-table { border-collapse: collapse; width: 100%; font-size: 11.5px; color: var(--txt-2); }
-.ew-table th { position: sticky; top: 0; z-index: 2; background: var(--bg); text-align: left; font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); padding: 0 10px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+.ew-table th { position: sticky; top: 0; z-index: 2; background: var(--bg); text-align: left; font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); padding: 0 10px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
 .ew-table th.ew-th-pic { padding: 0 10px 0 0; }
 .ew-table td { padding: 0 10px 0 0; vertical-align: middle; border-bottom: 1px solid var(--line); }
 .ew-row { cursor: pointer; outline: none; }
@@ -41,14 +42,15 @@
 .ew-row:focus-visible td.ew-card { box-shadow: inset 2px 0 0 var(--txt-3); }
 
 /* the card cell: its name, the state, the setup strength, then the armed names as chips */
-.ew-card { min-width: 190px; max-width: 280px; padding: 4px 10px 4px 2px; }
-.ew-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.ew-card { min-width: 196px; max-width: 280px; padding: 4px 10px 4px 2px; }
+.ew-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; }
+.ew-chev { display: inline-block; width: 10px; font-size: 10px; color: var(--txt-3); flex-shrink: 0; }
 .ew-card-name { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
 .ew-card-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ew-state { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); }
 /* the Board's state color only where it marks the minority: a Managing row among Armed ones */
 .ew-state.managing { color: var(--manage); }
-.ew-chips { display: flex; flex-wrap: wrap; gap: 3px 4px; margin-top: 2px; }
+.ew-chips { display: flex; flex-wrap: wrap; gap: 3px 4px; margin-top: 2px; padding-left: 17px; }
 .ew-chip { font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; line-height: 16px; cursor: pointer; }
 .ew-chip:hover { color: var(--txt); border-color: var(--txt-3); }
 .ew-chip.flagged { opacity: 0.5; font-weight: 400; }
@@ -57,23 +59,34 @@
 .ew-pic { width: 440px; min-width: 440px; padding: 0 10px 0 0; }
 .ew-svg { display: block; overflow: visible; }
 .ew-grid { stroke: var(--line); stroke-width: 1; }
-.ew-axis-label { fill: var(--txt-4); font-family: var(--mono); font-size: 9px; }
-.ew-asof { stroke: var(--ew-asof); stroke-width: 1; }
+.ew-axis-label { fill: var(--txt-3); font-family: var(--mono); font-size: 9px; }
+.ew-asof { stroke: var(--ew-asof); stroke-width: 1.15; }
 .ew-asof-label { fill: var(--ew-asof); font-family: var(--mono); font-size: 9px; }
 .ew-bar { stroke: none; }
-.ew-bar.entry { fill: var(--txt-2); }
-.ew-bar.hold { fill: var(--txt-3); }
+.ew-bar.entry.elapsed { fill: color-mix(in srgb, var(--txt-3) 55%, var(--bg)); }
+.ew-bar.entry.rem { fill: var(--txt-2); pointer-events: none; }
+.ew-bar.entry.rem.closing { fill: var(--ew-accent); }
+.ew-bar.hold.elapsed { fill: color-mix(in srgb, var(--txt-4) 65%, var(--bg)); }
+.ew-bar.hold.rem { fill: var(--txt-3); pointer-events: none; }
+.ew-member-tick { stroke: var(--txt-2); stroke-width: 1.5; }
+.ew-member-tick.closing { stroke: var(--ew-accent); stroke-width: 1.75; }
 .ew-arm { stroke: var(--txt-2); stroke-width: 1; }
-.ew-tick { fill: var(--txt-2); stroke: var(--txt-2); stroke-width: 1; }
+.ew-tick-hit { fill: transparent; cursor: pointer; }
+.ew-tick { fill: var(--txt-2); stroke: var(--txt-2); stroke-width: 1; pointer-events: none; }
 .ew-tick.past { fill: var(--bg); }
-.ew-line { fill: none; stroke: var(--txt-2); stroke-width: 1.2; stroke-linejoin: round; }
-.ew-iwm { fill: none; stroke: var(--txt-4); stroke-width: 1; stroke-dasharray: 3 2; stroke-linejoin: round; }
+.ew-line { fill: none; stroke: var(--txt-2); stroke-width: 1.35; stroke-linejoin: round; }
+.ew-line.pos { stroke: var(--ew-pos); }
+.ew-line.neg { stroke: var(--ew-neg); }
+.ew-spark-end { fill: var(--txt-2); }
+.ew-spark-end.pos { fill: var(--pos); }
+.ew-spark-end.neg { fill: var(--neg); }
+.ew-iwm { fill: none; stroke: color-mix(in srgb, var(--leader) 55%, var(--txt-4)); stroke-width: 1; stroke-dasharray: 3 2; stroke-linejoin: round; }
 .ew-base { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 1 3; }
 
 /* the figures: mono, tabular, left-aligned under their headers */
 .ew-fig { font-family: var(--mono); font-variant-numeric: tabular-nums; min-width: 86px; max-width: 170px; padding-top: 3px; padding-bottom: 3px; }
 .ew-main { color: var(--txt-2); font-size: 11.5px; }
-.ew-sub { color: var(--txt-4); font-size: 9.5px; line-height: 1.4; }
+.ew-sub { color: var(--txt-3); font-size: 9.5px; line-height: 1.4; }
 .ew-tag { color: var(--txt-3); }
 .ew-main.closing { color: var(--ew-accent); }
 .ew-main.pos, .ew-fig-n.pos { color: var(--ew-pos); }

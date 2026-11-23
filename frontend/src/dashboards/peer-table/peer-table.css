@@ -25,7 +25,7 @@
 
 .pt-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
 .pt-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.pt-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.pt-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); margin-right: 2px; }
 .pt-search, .pt-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
 .pt-search { width: 150px; }
 .pt-select { max-width: 280px; }
@@ -33,44 +33,68 @@
 .pt-tier { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 8px; cursor: pointer; }
 .pt-tier:hover { color: var(--txt-2); }
 .pt-tier.on { color: var(--txt); background: var(--panel-2); }
-.pt-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-3); cursor: pointer; }
+.pt-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
 .pt-check input { accent-color: var(--txt-3); }
 .pt-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .pt-clear:hover { color: var(--txt); }
 
 .pt-empty { padding: 14px 0; }
 
-/* the table: scrolls sideways inside its wrapper, the Company column stays */
-.pt-scroll { overflow-x: auto; margin-top: 4px; }
-table.pt-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
-table.pt-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+/* the table: scrolls inside its wrapper in both directions, header sticks to top, Company pins left */
+.pt-scroll { overflow: auto; max-height: 76vh; margin-top: 4px; border-top: 1px solid var(--line); }
+table.pt-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.pt-table thead tr.pt-grp-row td.pt-grp {
+  position: sticky; top: 0; z-index: 2; height: 20px; padding: 2px 12px 2px 0;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+  font-family: var(--sans); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-4); font-weight: 600;
+}
+table.pt-table thead tr.pt-grp-row td.pt-grp-co { position: sticky; left: 0; z-index: 3; }
+table.pt-table th { position: sticky; top: 20px; z-index: 2; background: var(--bg); text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; padding: 5px 12px 7px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom; }
 table.pt-table td { padding: 5px 12px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; color: var(--txt-2); }
+table.pt-table .pt-gstart { border-left: 1px solid var(--line); padding-left: 10px; }
 table.pt-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
 .pt-sort { font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-.pt-sort:hover, .pt-sort.on { color: var(--txt-2); }
+.pt-sort:hover, .pt-sort.on { color: var(--txt); }
 .pt-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
 table.pt-table .pt-num { text-align: right; padding-right: 16px; }
 table.pt-table .pt-num .pt-sort { text-align: right; }
-/* a column's coverage ("41 of 58") under its name; the blanks by reason ride in its hover */
-.pt-cov { display: block; margin-top: 2px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0; text-transform: none; font-weight: 400; color: var(--txt-4); cursor: help; }
+/* a column's coverage ("41 of 58") + quiet progress bar under its name */
+.pt-cov { display: block; margin-top: 2px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0; text-transform: none; font-weight: 400; color: var(--txt-3); cursor: help; }
+.pt-cov-bar { display: block; width: 44px; height: 2px; margin-top: 3px; background: var(--line); border-radius: 1px; overflow: hidden; }
+table.pt-table th.pt-num .pt-cov-bar { margin-left: auto; }
+.pt-cov-fill { display: block; height: 100%; background: var(--txt-3); }
 
 /* the pinned Company column */
 table.pt-table th.pt-co, table.pt-table td.pt-co { position: sticky; left: 0; z-index: 1; background: var(--bg); min-width: 140px; max-width: 190px; }
+table.pt-table thead th.pt-co { z-index: 3; }
 table.pt-table tbody tr:hover td.pt-co { background: var(--panel); }
-.pt-chip { font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.pt-chip { font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-2); cursor: pointer; }
 .pt-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
 .pt-name { display: block; margin-top: 2px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; color: var(--txt-3); }
 
 /* the group header rows: the group's name in the pinned cell, its figures under the columns they belong to, each
    saying what it rests on */
-table.pt-table tr.pt-group td, table.pt-table tr.pt-group th.pt-co { background: var(--panel); border-bottom: 1px solid var(--line-2); padding-top: 7px; padding-bottom: 7px; vertical-align: middle; }
+table.pt-table tr.pt-group td, table.pt-table tr.pt-group th.pt-co { position: static; background: var(--panel); border-bottom: 1px solid var(--line-2); padding-top: 7px; padding-bottom: 7px; vertical-align: middle; }
+table.pt-table tr.pt-group th.pt-co { position: sticky; left: 0; top: auto; z-index: 1; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; color: var(--txt); text-align: left; }
 table.pt-table tbody tr.pt-group:hover td { background: var(--panel); }
-table.pt-table tr.pt-group th.pt-co { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; color: var(--txt); text-align: left; }
 tr.pt-group.depth-1 th.pt-group-name { padding-left: 14px; font-weight: 500; }
 .pt-group-label { color: var(--txt); }
-.pt-n { font-size: 10px; font-weight: 400; color: var(--txt-4); }
-.pt-fig { font-family: var(--mono); font-size: 11px; color: var(--txt-3); cursor: help; }
-.pt-sub { display: block; font-size: 9px; color: var(--txt-4); }
+.pt-n { font-size: 10px; font-weight: 400; color: var(--txt-3); }
+.pt-fig { font-family: var(--mono); font-size: 11px; color: var(--txt-2); cursor: help; }
+.pt-sub { display: block; font-size: 9px; color: var(--txt-3); }
+
+/* inline zero-text micro-visuals inside numeric cells */
+.pt-vis-bar { display: block; width: 48px; height: 3px; margin: 3px 0 0 auto; background: var(--line); border-radius: 1.5px; overflow: hidden; }
+.pt-vis-fill { display: block; height: 100%; background: var(--txt-3); }
+.pt-vis-high { position: relative; display: block; width: 52px; height: 6px; margin: 3px 0 0 auto; border-radius: 2px; background: var(--panel-2); border: 1px solid var(--line); }
+.pt-vis-high-fill { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--txt-3) 35%, transparent); }
+.pt-vis-high-dot { position: absolute; top: 50%; width: 4px; height: 4px; border-radius: 50%; background: var(--txt-2); transform: translate(-50%, -50%); }
+.pt-vis-div { position: relative; display: block; width: 46px; height: 3px; margin: 3px 0 0 auto; background: var(--line); border-radius: 1.5px; }
+td:not(.pt-num) .pt-vis-div { margin-left: 0; margin-right: auto; width: 32px; }
+.pt-vis-div-zero { position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--txt-4); }
+.pt-vis-div-fill { position: absolute; top: 0; bottom: 0; border-radius: 1px; }
+.pt-vis-div-fill.pos { background: var(--pt-pos); }
+.pt-vis-div-fill.neg { background: var(--pt-neg); }
 
 /* the Cards column: a count that opens its chips (the whole list rides in the title), then the role or silent tag */
 table.pt-table th.pt-cards, table.pt-table td.pt-cards { min-width: 120px; }

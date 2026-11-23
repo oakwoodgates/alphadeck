@@ -63,6 +63,8 @@ export type NameChart = {
   zeroY: number;
   baseY: number;
   bars: PlacedBar[];
+  /** Polyline runs joining consecutive axis slots that both carry a YoY dot. */
+  dotPaths: string[];
   /** The top bar value, written above the bars (`null` = no bars). */
   top: { value: number; x: number; y: number } | null;
   /** The first and last quarter of the axis, under the bars (`null` = no axis). */
@@ -165,12 +167,30 @@ export function layoutName(c: Pick<MultiplesCompanyOut, "bars">, axis: readonly 
       dot: bar.yoy != null ? dotOf(bar.yoy, r1(x + w / 2), DOT_MID, DOT_HALF) : null,
     });
   });
+  const dotPaths: string[] = [];
+  let dotRun: { slot: number; cx: number; cy: number }[] = [];
+  const flushDots = () => {
+    if (dotRun.length >= 2) {
+      dotPaths.push(dotRun.map((p, i) => `${i === 0 ? "M" : "L"}${p.cx} ${p.cy}`).join(" "));
+    }
+    dotRun = [];
+  };
+  for (const b of bars) {
+    if (!b.dot) {
+      flushDots();
+      continue;
+    }
+    if (dotRun.length > 0 && b.slot > dotRun[dotRun.length - 1].slot + 1) flushDots();
+    dotRun.push({ slot: b.slot, cx: b.dot.cx, cy: b.dot.cy });
+  }
+  flushDots();
   return {
     width: CELL_W,
     height: CELL_H,
     zeroY: DOT_MID,
     baseY: BASE_Y,
     bars,
+    dotPaths,
     top: bars.length > 0 && max > 0 ? { value: max, x: PAD_X, y: BARS_TOP - 3 } : null,
     labels: axisLabels(axis, LABEL_Y),
   };

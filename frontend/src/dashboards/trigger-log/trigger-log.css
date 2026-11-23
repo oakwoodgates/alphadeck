@@ -23,7 +23,9 @@
 .tl-chipbtn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
 .tl-chipbtn:hover { color: var(--txt-2); }
 .tl-chipbtn.on { color: var(--txt); background: var(--panel-2); }
-.tl-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; max-width: 280px; }
+.tl-select, .tl-search { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
+.tl-select { max-width: 280px; }
+.tl-search { width: 150px; }
 .tl-select option { background: var(--panel); color: var(--txt-2); }
 .tl-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
 .tl-chipbtn .tl-n { color: inherit; opacity: 0.7; }
@@ -31,14 +33,37 @@
 .tl-clear:hover { color: var(--txt-2); }
 .tl-empty { padding: 14px 0; }
 
+/* monochrome weekly trigger counts strip */
+.tl-weekly { display: flex; flex-direction: column; gap: 3px; padding: 7px 10px 6px; border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--panel) 65%, transparent); }
+.tl-wk-head { display: flex; flex-wrap: nowrap; align-items: baseline; justify-content: space-between; gap: 12px; }
+.tl-wk-title { font-size: 9.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-3); white-space: nowrap; }
+.tl-wk-meta { font-family: var(--mono); font-size: 10px; color: var(--txt-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tl-wk-read { font-family: var(--mono); font-size: 10.5px; line-height: 16px; height: 16px; color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; font-variant-numeric: tabular-nums; }
+.tl-wk-read.active { color: var(--txt-2); }
+.tl-wk-svg { display: block; width: 100%; height: 42px; overflow: visible; }
+.tl-wk-axis { stroke: var(--line-2); stroke-width: 1; }
+.tl-wk-tick { font-family: var(--mono); font-size: 8.5px; fill: var(--txt-3); }
+.tl-wk-bar { cursor: pointer; }
+.tl-wk-bar.dim { opacity: 0.35; }
+.tl-wk-hit { fill: transparent; }
+.tl-wk-entry { fill: var(--txt-2); }
+.tl-wk-risk { fill: var(--txt-4); }
+.tl-wk-bar.hi .tl-wk-entry { fill: var(--txt); }
+.tl-wk-bar.hi .tl-wk-risk { fill: var(--txt-3); }
+
 /* the table: its own scroll box, so the sticky header and group headers stick inside it */
 .tl-scroll { max-height: 72vh; overflow: auto; border-top: 1px solid var(--line); }
 .tl-table { min-width: 1330px; font-size: 11.5px; color: var(--txt-2); font-variant-numeric: tabular-nums; }
 .tl-head, .tl-row { display: grid; grid-template-columns: var(--tl-cols); align-items: center; gap: 0 8px; padding: 0 8px; }
 .tl-head { position: sticky; top: 0; z-index: 3; min-height: 26px; background: var(--bg); border-bottom: 1px solid var(--line); }
-.tl-h { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; white-space: nowrap; }
+.tl-h { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; white-space: nowrap; }
+.tl-sort { font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.tl-sort:hover, .tl-sort.on { color: var(--txt); }
+.tl-sort-arr { font-size: 9px; }
 .tl-gh { position: sticky; top: 26px; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); padding: 0 8px; }
-.tl-gh-cell { display: flex; align-items: baseline; gap: 10px; min-height: 26px; padding-top: 5px; font-size: 12px; font-weight: 400; color: var(--txt-2); letter-spacing: 0.02em; }
+.tl-gh-cell { display: flex; align-items: baseline; gap: 8px; min-height: 26px; padding-top: 5px; font-size: 12px; font-weight: 400; color: var(--txt-2); letter-spacing: 0.02em; position: sticky; left: 8px; width: fit-content; }
+.tl-gfold { font: inherit; font-size: 10px; color: var(--txt-4); background: none; border: 0; padding: 0 2px; cursor: pointer; }
+.tl-gfold:hover { color: var(--txt); }
 .tl-cardname { font: inherit; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
 .tl-cardname:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
 
@@ -56,8 +81,14 @@
 .tl-c-turns, .tl-c-grade, .tl-c-live, .tl-c-kind { color: var(--txt-3); }
 .tl-c-kind { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tl-c-label { overflow-wrap: anywhere; color: var(--txt-2); }
+.tl-det-btn { margin-left: 6px; font: inherit; font-size: 10px; color: var(--txt-4); background: none; border: 0; padding: 0 3px; cursor: pointer; }
+.tl-det-btn:hover { color: var(--txt); }
+.tl-det { padding: 4px 12px 6px 74px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); background: color-mix(in srgb, var(--panel) 55%, transparent); font-family: var(--mono); font-size: 10.5px; line-height: 1.45; color: var(--txt-3); display: flex; flex-direction: column; gap: 2px; }
+.tl-det-src { color: var(--txt-2); }
 .tl-c-card { overflow: hidden; }
-.tl-chip { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; font-size: 10px; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 0 6px; }
+.tl-chip { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; font-size: 10px; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 0 6px; background: transparent; }
+.tl-chip-btn { font-family: inherit; cursor: pointer; text-align: left; }
+.tl-chip-btn:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
 .tl-tk { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
 .tl-tk:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
 .tl-role { color: var(--txt-3); }
@@ -84,7 +115,7 @@
 .tl-ret.pos { color: var(--tl-pos); }
 .tl-ret.neg { color: var(--tl-neg); }
 .tl-ret.flat { color: var(--txt-2); }
-.tl-bench { color: var(--txt-4); font-size: 9.5px; }
+.tl-bench { color: var(--txt-3); font-size: 9.5px; }
 
 /* the work line and what is set aside */
 .tl-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }

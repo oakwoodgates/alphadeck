@@ -429,4 +429,20 @@ describe("fullscreen", () => {
     renderMap();
     expect(screen.queryByRole("button", { name: "Fullscreen" })).toBeNull();
   });
+
+  it("supports sqrt cap sizing, shows benchmark window returns, spotlights sibling tiles on hover, and dims non-matches on search", async () => {
+    const { container } = renderMap();
+    expect(screen.getByTestId("mm-bench-strip")).toHaveTextContent("SPY +0.5%");
+    const dddBefore = area(tile(container, "/card:t-fuel/link:Core/co:ddd"));
+    await pick("√ Market cap");
+    const dddAfter = area(tile(container, "/card:t-fuel/link:Core/co:ddd"));
+    expect(dddAfter).toBeGreaterThan(dddBefore); // small cap gets more breathing room under sqrt scaling
+    // hovering AAA highlights its sibling tiles across other cards/links
+    fireEvent.mouseMove(tile(container, "/card:t-grid/link:Turbines/co:aaa"), { clientX: 50, clientY: 50 });
+    expect(tile(container, "/card:t-fuel/link:Core/co:aaa")).toHaveClass("sibling");
+    // search dims non-matching tiles and highlights matches
+    await userEvent.type(screen.getByRole("searchbox", { name: /Highlight ticker/ }), "DDD");
+    expect(tile(container, "/card:t-fuel/link:Core/co:ddd")).toHaveClass("match");
+    expect(tile(container, "/card:t-grid/link:Turbines/co:bbb")).toHaveClass("dim");
+  });
 });

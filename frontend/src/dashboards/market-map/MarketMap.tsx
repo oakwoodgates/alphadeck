@@ -109,7 +109,7 @@ export function workLine(d: MarketMapOut, tree: Tree, opts: ViewOpts): string {
     `${plural(tree.tiles, opts.tiles === "groups" ? "group tile" : "tile", opts.tiles === "groups" ? "group tiles" : "tiles")} drawn`,
     `${tree.priced.toLocaleString("en-US")} priced for ${windowLabel(opts.window)}`,
   ];
-  if (opts.sizeBy === "cap") {
+  if (opts.sizeBy === "cap" || opts.sizeBy === "sqrt_cap") {
     parts.push(
       `caps: ${tree.caps.workbench.toLocaleString("en-US")} shared count / ${tree.caps.cover.toLocaleString("en-US")} filing cover / ${tree.caps.none.toLocaleString("en-US")} none`,
     );
@@ -149,13 +149,18 @@ const TileLayer = memo(function TileLayer({
   placed,
   window,
   pinnedKey,
+  activeSecurityId,
+  searchQuery,
   onZoom,
 }: {
   placed: readonly Placed[];
   window: WindowKey;
   pinnedKey: string | null;
+  activeSecurityId: string | null;
+  searchQuery: string;
   onZoom: (n: TreeNode) => void;
 }) {
+  const searching = searchQuery.length > 0;
   return (
     <>
       {placed.map((p) => {
@@ -183,11 +188,29 @@ const TileLayer = memo(function TileLayer({
         }
         const valueText = fmtPct(node.value);
         const t = tileText(rect.w - 1, rect.h - 1, node.label.length, valueText.length);
+        const sid = node.company?.security_id ?? null;
+        const sibling = activeSecurityId != null && sid === activeSecurityId && pinnedKey !== node.key;
+        const matched =
+          searching &&
+          (node.label.toLocaleLowerCase().includes(searchQuery) ||
+            (node.company?.name?.toLocaleLowerCase().includes(searchQuery) ?? false) ||
+            node.key.toLocaleLowerCase().includes(searchQuery));
+        const cls = [
+          "mm-tile",
+          stepClass(colorStep(node.value, window)),
+          node.dashed ? "dashed" : "",
+          pinnedKey === node.key ? "pinned" : "",
+          sibling ? "sibling" : "",
+          searching ? (matched ? "match" : "dim") : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
         return (
           <div
             key={node.key}
             data-k={node.key}
-            className={`mm-tile ${stepClass(colorStep(node.value, window))}${node.dashed ? " dashed" : ""}${pinnedKey === node.key ? " pinned" : ""}`}
+            aria-label={`${node.label} ${valueText}`}
+            className={cls}
             style={{
               left: rect.x + 0.5,
               top: rect.y + 0.5,
@@ -308,7 +331,7 @@ function InfoBox({
         )}
       </div>
       {c.cap == null && c.cap_note && <div className="mm-info-note">{c.cap_note}</div>}
-      {opts.sizeBy === "cap" && c.cap == null && (
+      {(opts.sizeBy === "cap" || opts.sizeBy === "sqrt_cap") && c.cap == null && (
         <div className="mm-info-note">no market cap: drawn at the smallest size</div>
       )}
       <div className="mm-info-row">
@@ -457,15 +480,21 @@ function MapTable({
                 <span className="mm-tk-t">{r.label}</span> <span className="mm-sub">{r.sub}</span>
               </td>
               <td className="mm-group">{r.group}</td>
-              {WINDOWS.map((w) => (
-                <td key={w.key} className={`mm-num mm-v${w.key === window ? " on" : ""}`}>
-                  {fmtPct(r.values[w.key])}
-                </td>
-              ))}
-              <td className="mm-num mm-v">
+              {WINDOWS.map((w) => {
+                const v = r.values[w.key];
+                const tone = v == null || v === 0 ? "" : v > 0 ? " pos" : " neg";
+                return (
+                  <td key={w.key} className={`mm-num mm-v${w.key === window ? " on" : ""}${tone}`}>
+                    {fmtPct(v)}
+                  </td>
+                );
+              })}
+              <td className="mm-num mm-v" title={r.cap == null && r.capNote ? r.capNote : undefined}>
                 {r.cap != null ? `${fmtUsd(r.cap)} · ${bandLabel(r.capTier).split(" · ")[0].toLowerCase()}` : "—"}
               </td>
-              <td className="mm-num mm-v">{fmtUsd(r.dollarVolume)}</td>
+              <td className="mm-num mm-v" title={r.dollarVolume == null && r.dollarVolumeNote ? r.dollarVolumeNote : undefined}>
+                {fmtUsd(r.dollarVolume)}
+              </td>
               <td className="mm-v">{r.sector || "—"}</td>
               <td className="mm-v">{r.businessType || "—"}</td>
               <td className="mm-cards">
@@ -563,6 +592,7 @@ function MapBody({
   const [sortPick, setSortPick] = useState<SortState | null>(null);
   const [hover, setHover] = useState<Spot | null>(null);
   const [pinned, setPinned] = useState<Spot | null>(null);
+  const [search, setSearch] = useState("");
   const [size, setSize] = useState({ w: 0, h: MIN_MAP_H });
   const [fullscreen, setFullscreen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -589,11 +619,20 @@ function MapBody({
     [zoomed, size],
   );
   const byKey = useMemo(() => new Map(placed.map((p) => [p.node.key, p.node])), [placed]);
-  const rows = useMemo(
-    () => (view === "table" ? tableRows(data, zoomed.roots, opts) : []),
+  const searchQuery = search.trim().toLocaleLowerCase();
+  const rows = useMemo(() => {
+    if (view !== "table") return [];
+    const base = tableRows(data, zoomed.roots, opts);
+    if (!searchQuery) return base;
+    return base.filter(
+      (r) =>
+        r.label.toLocaleLowerCase().includes(searchQuery) ||
+        r.sub.toLocaleLowerCase().includes(searchQuery) ||
+        r.group.toLocaleLowerCase().includes(searchQuery) ||
+        r.cards.toLocaleLowerCase().includes(searchQuery),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [view, data, zoomed, opts.compare, opts.includeSilent],
-  );
+  }, [view, data, zoomed, opts.compare, opts.includeSilent, searchQuery]);
   const sort = sortPick ?? DEFAULT_SORT(opts.window);
   const inViewCount = useMemo(() => inView(data, opts.includeSilent).companies.length, [data, opts.includeSilent]);
 
@@ -677,6 +716,9 @@ function MapBody({
 
   const hoverNode = !pinned && hover ? byKey.get(hover.key) : undefined;
   const pinnedNode = pinned ? byKey.get(pinned.key) : undefined;
+  const activeSecurityId = (pinnedNode ?? hoverNode)?.company?.security_id ?? null;
+  const spyRet = benchReturn(data, "spy", opts.window);
+  const iwmRet = benchReturn(data, "iwm", opts.window);
   const groups = opts.groupBy === "card_link" || opts.groupBy === "card";
 
   return (
@@ -704,6 +746,13 @@ function MapBody({
             iwm: compareAvailability(data, "iwm", picked.window).reason,
           }}
         />
+        {(spyRet != null || iwmRet != null) && (
+          <span className="mm-bench-strip" data-testid="mm-bench-strip" title={`${windowLabel(opts.window)} benchmark returns`}>
+            {spyRet != null && <span>SPY {fmtPct(spyRet)}</span>}
+            {spyRet != null && iwmRet != null && <span className="mm-bench-sep">·</span>}
+            {iwmRet != null && <span>IWM {fmtPct(iwmRet)}</span>}
+          </span>
+        )}
         <Seg<SizeBy> label="Size by" options={SIZE_BYS} value={picked.sizeBy} onPick={(v) => setOpt("sizeBy", v)} />
         <Seg<TileMode>
           label="Tiles"
@@ -722,6 +771,14 @@ function MapBody({
           />
           Show Context and Bench
         </label>
+        <input
+          type="search"
+          className="mm-search"
+          aria-label="Highlight ticker or company"
+          placeholder="Find ticker or company…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         <Seg<"map" | "table">
           label="View"
           options={[
@@ -796,7 +853,14 @@ function MapBody({
           onMouseLeave={() => setHover(null)}
           onClick={onMapClick}
         >
-          <TileLayer placed={placed} window={opts.window} pinnedKey={pinned?.key ?? null} onZoom={onZoomNode} />
+          <TileLayer
+            placed={placed}
+            window={opts.window}
+            pinnedKey={pinned?.key ?? null}
+            activeSecurityId={activeSecurityId}
+            searchQuery={searchQuery}
+            onZoom={onZoomNode}
+          />
           {hoverNode && hover && (
             <InfoBox
               node={hoverNode}

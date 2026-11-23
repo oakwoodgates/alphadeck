@@ -13,14 +13,24 @@
 .ld-seg-btn.on { color: var(--txt); background: var(--panel-2); }
 .ld-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
 .ld-check input { accent-color: var(--txt-3); margin: 0; }
+.ld-search { font: inherit; font-size: 11px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 9px; width: 205px; }
+.ld-search::placeholder { color: var(--txt-4); }
+.ld-search:focus-visible { outline: 1px solid var(--txt-3); outline-offset: 1px; }
+.ld-jump { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: auto; }
+.ld-jump-btn { font: inherit; font-size: 11px; display: inline-flex; align-items: baseline; gap: 5px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--txt-2); cursor: pointer; }
+.ld-jump-btn:hover { background: var(--panel-2); border-color: var(--line-2); color: var(--txt); }
+.ld-jump-n { font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
+.ld-foot { display: flex; flex-direction: column; gap: 3px; margin-top: 14px; }
 .ld-work, .ld-legend, .ld-rule { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
-.ld-legend, .ld-rule { font-family: inherit; color: var(--txt-4); }
+.ld-legend, .ld-rule { font-family: inherit; color: var(--txt-3); opacity: 0.85; }
 .ld-empty { padding: 4px 0 2px; }
 
 /* the three sections */
-.ld-sec { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; }
-.ld-h { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: center; }
-.ld-h::after { content: ""; flex: 1; height: 1px; background: var(--line); margin-left: 8px; }
+.ld-sec { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.ld-h-wrap { display: flex; align-items: center; gap: 8px; }
+.ld-h { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-2); white-space: nowrap; }
+.ld-h-ct { font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
+.ld-h-rule { flex: 1; height: 1px; background: var(--line); }
 
 /* the list tabs: a segmented control, each with its count */
 .ld-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
@@ -28,36 +38,43 @@
 .ld-tab:hover { color: var(--txt-2); }
 .ld-tab.on { color: var(--txt); background: var(--panel-2); }
 .ld-tab:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; }
-.ld-tab-n { font-family: var(--mono); font-size: 10px; color: var(--txt-4); }
+.ld-tab-n { font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
 
-.ld-scroll { overflow-x: auto; margin-top: 4px; }
-table.ld-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-table.ld-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.ld-scroll { overflow: auto; max-height: 70vh; margin-top: 4px; border-top: 1px solid var(--line); }
+table.ld-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.ld-table thead th { position: sticky; top: 0; z-index: 2; background: var(--bg); text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; padding: 6px 10px 7px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
 table.ld-table td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.ld-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 55%, transparent); }
 table.ld-table .ld-num { text-align: right; }
 table.ld-table th.ld-num .ld-sort { justify-content: flex-end; }
 .ld-sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
-.ld-sort:hover, .ld-sort.active { color: var(--txt-2); }
+.ld-sort:hover, .ld-sort.active { color: var(--txt); }
 .ld-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
 .ld-arrow { font-size: 8px; line-height: 1; }
 
 .ld-label { color: var(--txt); font-weight: 600; white-space: nowrap; max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
-.ld-v { font-family: var(--mono); font-size: 11px; color: var(--txt-3); white-space: nowrap; }
-.ld-sub { display: block; margin-top: 2px; font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); white-space: nowrap; }
+.ld-v { font-family: var(--mono); font-size: 11px; color: var(--txt-2); white-space: nowrap; }
+.ld-sub { display: block; margin-top: 2px; font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-3); white-space: nowrap; }
+.ld-mbar { display: block; width: 48px; height: 3px; margin: 2px 0 0 auto; border-radius: 1.5px; background: var(--panel-2); overflow: hidden; }
+.ld-mbar-fill { display: block; height: 100%; background: var(--txt-3); border-radius: 1.5px; }
 
 /* a name: ticker (opens its first card), company, a chip per card with its links */
 .ld-id { min-width: 220px; }
-.ld-tk { font: inherit; font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt-2); background: none; border: 0; padding: 0; margin-right: 8px; cursor: pointer; }
-.ld-tk:hover { color: var(--txt); text-decoration: underline; }
+.ld-tk { font: inherit; font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt); background: none; border: 0; padding: 0; margin-right: 8px; cursor: pointer; }
+.ld-tk:hover { text-decoration: underline; }
 .ld-co { font-size: 11px; color: var(--txt-3); margin-right: 8px; }
+.ld-also { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-right: 6px; white-space: nowrap; cursor: help; }
 .ld-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
 .ld-chip { font: inherit; font-size: 10.5px; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
 .ld-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
 .ld-chip-links { color: var(--txt-4); }
 
-/* the several-lists chips: quiet tags, never an accent */
-.ld-lists { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-.ld-list-chip { font-size: 9.5px; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 5px; padding: 0 5px; white-space: nowrap; }
+/* the 5-column aligned confluence matrix in On several lists */
+.ld-matrix { display: grid; grid-template-columns: repeat(5, minmax(60px, 76px)); gap: 4px; align-items: start; }
+.ld-slot { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 28px; }
+.ld-slot.off { align-items: center; justify-content: center; color: var(--txt-4); font-family: var(--mono); opacity: 0.45; }
+.ld-list-chip { font-size: 9.5px; color: var(--txt-2); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; white-space: nowrap; background: color-mix(in srgb, var(--panel) 75%, transparent); }
+.ld-slot-fig { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); white-space: nowrap; padding-left: 2px; }
 
 /* the insider cell: a CLUSTER (2+ distinct buyers) reads the Cockpit's leader-blue Ins 30d accent */
 .ld-ins.cluster { color: var(--leader); font-weight: 600; }

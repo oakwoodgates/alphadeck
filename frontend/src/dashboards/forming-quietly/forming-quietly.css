@@ -29,6 +29,9 @@
 .fq-n { font-family: var(--mono); font-size: 10.5px; color: var(--txt-4); }
 .fq-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 6px; max-width: 240px; }
 .fq-select option { background: var(--panel); color: var(--txt-2); }
+.fq-search { font: inherit; font-size: 11px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 8px; width: 170px; }
+.fq-search::placeholder { color: var(--txt-4); }
+.fq-search:focus-visible { outline: 1px solid var(--txt-3); outline-offset: 1px; }
 .fq-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .fq-clear:hover { color: var(--txt-2); }
 
@@ -36,30 +39,44 @@
 .fq-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); max-width: 1100px; }
 .fq-empty { padding: 14px 0; }
 
-/* the table: scrolls inside its wrapper so the header sticks to the wrapper's top */
+/* the table: scrolls inside its wrapper so the header sticks to the wrapper's top and Card stays pinned */
 .fq-scroll { overflow: auto; max-height: 78vh; border-top: 1px solid var(--line); }
 table.fq-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; }
-table.fq-table th {
-  position: sticky; top: 0; z-index: 2; background: var(--bg);
-  text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600;
-  padding: 5px 14px 5px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom;
+table.fq-table thead tr.fq-super td {
+  position: sticky; top: 0; z-index: 3; background: var(--bg);
+  font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-4);
+  padding: 4px 14px 2px 0; border-bottom: 1px solid var(--line); white-space: nowrap; font-family: inherit;
 }
+table.fq-table thead tr.fq-super td:first-child { left: 0; z-index: 4; padding-left: 2px; }
+table.fq-table thead tr.fq-super td.fq-grp-start { border-left: 1px solid var(--line); padding-left: 10px; }
+table.fq-table th {
+  position: sticky; top: 21px; z-index: 2; background: var(--bg);
+  text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600;
+  padding: 6px 14px 6px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom;
+}
+table.fq-table thead th:first-child { left: 0; z-index: 4; padding-left: 2px; border-right: 1px solid var(--line); }
 table.fq-table td {
-  padding: 5px 14px 5px 0; border-bottom: 1px solid var(--line);
+  padding: 6px 14px 6px 0; border-bottom: 1px solid var(--line);
   vertical-align: top; color: var(--txt-3); font-family: var(--mono);
 }
-table.fq-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+table.fq-table tbody td:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg); padding-left: 2px; border-right: 1px solid var(--line); }
+table.fq-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, var(--bg)); }
+table.fq-table tbody tr:hover td:first-child { background: var(--panel); }
+table.fq-table tbody tr.fq-state-break td { border-top: 1px dashed var(--line-2); padding-top: 8px; }
 table.fq-table .fq-num { text-align: right; }
 table.fq-table th.fq-num .fq-sort { text-align: right; }
 .fq-sort { font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-.fq-sort:hover, .fq-sort.on { color: var(--txt-2); }
+.fq-sort:hover, .fq-sort.on { color: var(--txt); }
 .fq-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
 
 /* the card cell: its name, then how many names count on it */
 .fq-card-td { min-width: 170px; max-width: 260px; }
 .fq-card { display: block; font: inherit; font-size: 11.5px; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fq-card:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 2px; }
-.fq-sub { display: block; font-family: var(--mono); font-size: 10px; color: var(--txt-4); }
+.fq-sub { display: block; font-family: var(--mono); font-size: 10px; color: var(--txt-3); opacity: 0.85; }
+.fq-delta { margin-bottom: 3px; color: var(--txt-3); }
+.fq-bbar { display: block; width: 64px; height: 3px; margin: 2px 0 3px; border-radius: 1.5px; background: var(--panel-2); overflow: hidden; }
+.fq-bbar-fill { display: block; height: 100%; background: var(--txt-3); border-radius: 1.5px; }
 
 /* the state chip: a gray outline, never a color */
 .fq-state { display: inline-block; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 3px; padding: 0 5px; cursor: help; }
@@ -74,7 +91,12 @@ table.fq-table th.fq-num .fq-sort { text-align: right; }
 .fq-tk { font-family: var(--mono); font-size: 11px; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
 .fq-tk:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 2px; }
 .fq-word { font-size: 9.5px; color: var(--txt-4); }
-.fq-more { font-size: 10px; color: var(--txt-4); }
+.fq-more { font: inherit; font-family: var(--mono); font-size: 10px; color: var(--txt-3); background: none; border: 0; border-bottom: 1px dotted var(--txt-4); padding: 0; cursor: pointer; }
+.fq-more:hover { color: var(--txt); }
+.fq-risk-btn { font: inherit; background: none; border: 0; border-bottom: 1px dotted var(--txt-4); padding: 0; cursor: pointer; }
+.fq-risk-btn:hover .fq-fig { color: var(--txt); }
+.fq-risk-list { list-style: none; margin: 4px 0 0; padding: 2px 0 0 8px; border-left: 1px solid var(--line-2); text-align: left; font-family: inherit; font-size: 10px; line-height: 1.4; color: var(--txt-3); max-width: 220px; white-space: normal; }
+.fq-risk-list strong { font-family: var(--mono); color: var(--txt-2); }
 
 /* a figure: a plain gray number, a blank or a reason dimmer; the adoption percent's sign is the one tint */
 .fq-fig { font-family: var(--mono); font-size: 11.5px; color: var(--txt-2); cursor: default; }
@@ -85,7 +107,8 @@ table.fq-table th.fq-num .fq-sort { text-align: right; }
 
 /* a name behind the key that turned: its trigger lines and source links in a hover panel */
 .fq-name { position: relative; display: inline-block; }
-.fq-tip { display: none; position: absolute; left: 0; top: 100%; z-index: 5; min-width: 280px; max-width: 480px; white-space: normal; padding: 7px 9px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; font-size: 10.5px; line-height: 1.45; color: var(--txt-2); }
+.fq-tip { display: none; position: absolute; left: 0; top: 100%; z-index: 6; min-width: 280px; max-width: 480px; white-space: normal; padding: 7px 9px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; font-size: 10.5px; line-height: 1.45; color: var(--txt-2); }
+.fq-tip.flip-up { top: auto; bottom: 100%; margin-bottom: 2px; }
 .fq-name:hover .fq-tip, .fq-name:focus-within .fq-tip { display: flex; flex-direction: column; gap: 5px; }
 .fq-tip-row { display: flex; flex-direction: column; gap: 1px; }
 .fq-tip a { color: var(--txt-3); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }

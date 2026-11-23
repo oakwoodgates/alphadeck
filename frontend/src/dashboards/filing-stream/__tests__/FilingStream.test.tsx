@@ -512,4 +512,25 @@ describe("FilingStream", () => {
     expect(screen.getByText(/Reading this card's filings/)).toBeInTheDocument();
     expect(screen.getAllByTestId("fs-row").length).toBeGreaterThan(0);
   });
+
+  it("renders the cadence strip, roster activity chips, keyword search, clear button, and accession in detail", async () => {
+    setup();
+    const cadence = screen.getByTestId("fs-cadence");
+    expect(cadence).toHaveTextContent("5 material · 2 routine · 3 active days");
+    const roster = screen.getByTestId("fs-roster");
+    expect(within(roster).getByRole("button", { name: /OKLO/ })).toHaveTextContent("OKLO3");
+
+    // clicking a roster chip filters to that ticker, and Clear filters resets it
+    await userEvent.click(within(roster).getByRole("button", { name: /SMR/ }));
+    expect(screen.getAllByTestId("fs-row").map((r) => r.querySelector(".fs-chip")?.textContent)).toEqual(["SMR"]);
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getAllByTestId("fs-row").length).toBeGreaterThan(1);
+
+    // keyword search filters headlines and detail includes accession + links
+    await userEvent.type(screen.getByRole("searchbox", { name: "Filter text" }), "5.02");
+    expect(screen.getAllByTestId("fs-row")).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: /5\.02 officer\/director/ }));
+    expect(screen.getByTestId("fs-detail")).toHaveTextContent("Accession 0000876543-26-000010");
+    expect(screen.getByTestId("fs-detail")).toHaveTextContent("Links: Reactors");
+  });
 });

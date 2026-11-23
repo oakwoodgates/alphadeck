@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 300,
   label: "Overlap Map",
   description: "Where the cards overlap: cards as bubbles joined by the companies they share, a Venn of any two or three, and each card's sector mix.",
+  group: "chain",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./OverlapMap")),

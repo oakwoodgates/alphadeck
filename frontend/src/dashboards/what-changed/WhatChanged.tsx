@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
+import { ExternalLink } from "../../components/ExternalLink";
 import { fmtDate, STATE_LABEL } from "../../util/format";
 import type { DashboardProps } from "../registry";
 import "./what-changed.css";
@@ -139,8 +140,9 @@ function Line({
   // opens the card
   const nameKey = item.ticker ?? item.security_id;
   const open = () => (nameKey ? onSelect(item.thesis_id, nameKey) : onSelect(item.thesis_id));
+  const src = item.source;
   return (
-    <li>
+    <li className="wc-li">
       <button
         type="button"
         // a re-dated trigger is still firing: quieter than a fired / no-longer-firing line (WB#3)
@@ -160,6 +162,16 @@ function Line({
           {showCard && item.reconstructed && <ReconstructedTag />}
         </span>
       </button>
+      {src &&
+        (src.url ? (
+          <ExternalLink className="wc-src" href={src.url}>
+            {src.source} {src.ref}
+          </ExternalLink>
+        ) : (
+          <span className="wc-src">
+            {src.source} {src.ref}
+          </span>
+        ))}
     </li>
   );
 }
@@ -190,10 +202,24 @@ function BySection({ items, onSelect }: ListProps) {
   );
 }
 
-type CardGroup = { thesis_id: string; thesis_name: string; reconstructed: boolean; items: Item[] };
+type CardGroup = { thesis_id: string; thesis_name: string; reconstructed: boolean; items: Item[]; touchesArmed: boolean };
 
-/** Each card's lines together (in the server's section order), cards by name. */
-function groupByCard(items: Item[]): CardGroup[] {
+function itemTouchesArmed(i: Item): boolean {
+  return (
+    i.to_state === "armed" ||
+    i.from_state === "armed" ||
+    i.change === "armed" ||
+    i.change === "no_longer_armed" ||
+    i.change === "entry_window"
+  );
+}
+
+const ROUTINE_CHANGES = new Set<Item["change"]>(["trigger_redated", "trigger_gone", "new_watch"]);
+const isRoutineItem = (i: Item) => ROUTINE_CHANGES.has(i.change);
+const AUTO_FOLD_THRESHOLD = 12;
+
+/** Each card's lines together (in the server's section order), cards by name (or Armed-touching first on request). */
+function groupByCard(items: Item[], armedFirst: boolean): CardGroup[] {
   const groups = new Map<string, CardGroup>();
   for (const i of items) {
     let g = groups.get(i.thesis_id);
@@ -203,22 +229,25 @@ function groupByCard(items: Item[]): CardGroup[] {
         thesis_name: i.thesis_name,
         reconstructed: i.reconstructed,
         items: [],
+        touchesArmed: false,
       };
       groups.set(i.thesis_id, g);
     }
     g.items.push(i);
+    if (itemTouchesArmed(i)) g.touchesArmed = true;
   }
   return [...groups.values()].sort(
     (a, b) =>
+      (armedFirst ? Number(b.touchesArmed) - Number(a.touchesArmed) : 0) ||
       a.thesis_name.localeCompare(b.thesis_name, undefined, { sensitivity: "base" }) ||
       a.thesis_id.localeCompare(b.thesis_id),
   );
 }
 
-function ByCard({ items, onSelect }: ListProps) {
+function ByCard({ items, onSelect, armedFirst }: ListProps & { armedFirst: boolean }) {
   return (
     <>
-      {groupByCard(items).map((g) => (
+      {groupByCard(items, armedFirst).map((g) => (
         <section className="wc-sec" key={g.thesis_id} aria-label={g.thesis_name}>
           <h2 className="wc-h wc-cardh">
             <button type="button" className="wc-cardname" onClick={() => onSelect(g.thesis_id)}>
@@ -235,6 +264,66 @@ function ByCard({ items, onSelect }: ListProps) {
         </section>
       ))}
     </>
+  );
+}
+
+/** Top summary strip: clickable section counts to isolate one section + net state-transition tally. */
+function SummaryStrip({
+  items,
+  activeSection,
+  onPickSection,
+}: {
+  items: readonly Item[];
+  activeSection: Item["section"] | null;
+  onPickSection: (sec: Item["section"] | null) => void;
+}) {
+  const counts = SECTIONS.map((s) => ({
+    ...s,
+    count: items.filter((i) => i.section === s.key).length,
+  })).filter((s) => s.count > 0);
+
+  const moves = items.filter((i) => i.change === "state");
+  const netByState = new Map<string, number>();
+  for (const m of moves) {
+    if (m.to_state) netByState.set(m.to_state, (netByState.get(m.to_state) ?? 0) + 1);
+    if (m.from_state) netByState.set(m.from_state, (netByState.get(m.from_state) ?? 0) - 1);
+  }
+  const transitions = ["armed", "managing", "warming", "incubating"]
+    .map((st) => ({ st, net: netByState.get(st) ?? 0 }))
+    .filter((x) => x.net !== 0);
+
+  if (counts.length === 0) return null;
+
+  return (
+    <div className="wc-summary" data-testid="wc-summary">
+      <div className="wc-sum-pills" role="group" aria-label="Sections">
+        {counts.map((s) => {
+          const on = activeSection === s.key;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              className={`wc-sum-pill${on ? " on" : ""}`}
+              aria-pressed={on}
+              title={on ? "Show all sections" : `Show only ${s.label}`}
+              onClick={() => onPickSection(on ? null : s.key)}
+            >
+              {s.label} <span className="wc-sum-n">{s.count}</span>
+            </button>
+          );
+        })}
+      </div>
+      {transitions.length > 0 && (
+        <div className="wc-sum-moves" aria-label="Net column moves">
+          <span className="wc-sum-lbl">Net moves</span>
+          {transitions.map((t) => (
+            <span key={t.st} className="wc-sum-mv">
+              <StateWord state={t.st} /> {t.net > 0 ? `+${t.net}` : t.net}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -291,8 +380,31 @@ export default function WhatChanged({ onSelectThesis }: DashboardProps) {
     max: null,
   });
   const [groupBy, setGroupBy] = useState<GroupBy>("kind");
+  const [sectionFilter, setSectionFilter] = useState<Item["section"] | null>(null);
+  const [search, setSearch] = useState("");
+  const [armedFirst, setArmedFirst] = useState(false);
+  const [foldOverride, setFoldOverride] = useState<boolean | null>(null);
   const q = useWhatChanged(mode !== "date" ? mode : (picked ?? "last_night"));
   const data = q.data;
+
+  const allItems = useMemo(() => data?.items ?? [], [data]);
+  const routineCount = useMemo(() => allItems.filter(isRoutineItem).length, [allItems]);
+  const foldRoutine = foldOverride ?? routineCount >= AUTO_FOLD_THRESHOLD;
+
+  const visibleItems = useMemo(() => {
+    const t = search.trim().toLocaleLowerCase();
+    return allItems.filter((i) => {
+      if (sectionFilter && i.section !== sectionFilter) return false;
+      if (foldRoutine && isRoutineItem(i)) return false;
+      if (t) {
+        const hay = `${i.thesis_name} ${i.ticker ?? ""} ${i.label ?? ""} ${i.signal_kind ?? ""} ${i.from_state ?? ""} ${i.to_state ?? ""}`.toLocaleLowerCase();
+        if (!hay.includes(t)) return false;
+      }
+      return true;
+    });
+  }, [allItems, sectionFilter, foldRoutine, search]);
+
+  const hasFilters = sectionFilter !== null || search.trim() !== "";
 
   const choose = (m: Mode) => {
     if (m === "date") {
@@ -354,6 +466,49 @@ export default function WhatChanged({ onSelectThesis }: DashboardProps) {
             By card
           </button>
         </div>
+        {groupBy === "card" && allItems.length > 0 && (
+          <button
+            type="button"
+            className={`wc-chip${armedFirst ? " on" : ""}`}
+            aria-pressed={armedFirst}
+            onClick={() => setArmedFirst((v) => !v)}
+          >
+            Armed first
+          </button>
+        )}
+        {allItems.length > 0 && (
+          <input
+            type="search"
+            className="wc-search"
+            aria-label="Filter changes"
+            placeholder="Filter card, ticker, or label"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        )}
+        {routineCount > 0 && (
+          <button
+            type="button"
+            className={`wc-chip${foldRoutine ? " on" : ""}`}
+            aria-pressed={foldRoutine}
+            title="Fold routine churn (re-dated triggers, no-longer-firing triggers, new watch names)"
+            onClick={() => setFoldOverride(!foldRoutine)}
+          >
+            {foldRoutine ? `Show ${routineCount} routine` : `Fold routine (${routineCount})`}
+          </button>
+        )}
+        {hasFilters && (
+          <button
+            type="button"
+            className="wc-clear"
+            onClick={() => {
+              setSectionFilter(null);
+              setSearch("");
+            }}
+          >
+            Clear filters
+          </button>
+        )}
         {q.isFetching && <span className="dash-note">updating…</span>}
       </div>
 
@@ -365,12 +520,15 @@ export default function WhatChanged({ onSelectThesis }: DashboardProps) {
         <>
           <RecordStartNote empty={data.latest === null} />
           <WorkLine data={data} />
+          <SummaryStrip items={allItems} activeSection={sectionFilter} onPickSection={setSectionFilter} />
           {data.items.length === 0 ? (
             <div className="wc-quiet">{quietNote(data)}</div>
+          ) : visibleItems.length === 0 ? (
+            <div className="wc-quiet">No changes match these filters.</div>
           ) : groupBy === "kind" ? (
-            <BySection items={data.items} onSelect={onSelectThesis} />
+            <BySection items={visibleItems} onSelect={onSelectThesis} />
           ) : (
-            <ByCard items={data.items} onSelect={onSelectThesis} />
+            <ByCard items={visibleItems} onSelect={onSelectThesis} armedFirst={armedFirst} />
           )}
         </>
       )}

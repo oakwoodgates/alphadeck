@@ -14,6 +14,7 @@ import {
   medianKey,
   moveFocus,
   nameKey,
+  slotWidth,
   stepItem,
   type Dir,
   type Group,
@@ -94,9 +95,52 @@ const rowTag = (r: MultiplesRowOut): string => {
   }
 };
 
+type TileSort = "default" | "yoy" | "recent";
+const TILE_SORTS: readonly { key: TileSort; label: string }[] = [
+  { key: "default", label: "Default" },
+  { key: "yoy", label: "Latest YoY" },
+  { key: "recent", label: "Most recent" },
+];
+
+function sortCompanyKeys(
+  keys: readonly string[],
+  byCompany: ReadonlyMap<string, MultiplesCompanyOut>,
+  sort: TileSort,
+): string[] {
+  if (sort === "default") return [...keys];
+  return [...keys].sort((a, b) => {
+    const ca = byCompany.get(a);
+    const cb = byCompany.get(b);
+    if (sort === "yoy") {
+      const va = ca?.last_print?.yoy ?? null;
+      const vb = cb?.last_print?.yoy ?? null;
+      if (va == null && vb != null) return 1;
+      if (vb == null && va != null) return -1;
+      if (va != null && vb != null && va !== vb) return vb - va;
+    } else if (sort === "recent") {
+      const da = ca?.last_print?.days_before ?? null;
+      const db = cb?.last_print?.days_before ?? null;
+      if (da == null && db != null) return 1;
+      if (db == null && da != null) return -1;
+      if (da != null && db != null && da !== db) return da - db;
+    }
+    return (ca?.ticker ?? a).localeCompare(cb?.ticker ?? b);
+  });
+}
+
 // --- the readout -----------------------------------------------------------------------------------------------
 
-function Readout({ cell, item, data }: { cell: CellInfo | null; item: number | null; data: MultiplesOut }) {
+function Readout({
+  cell,
+  item,
+  data,
+  onClear,
+}: {
+  cell: CellInfo | null;
+  item: number | null;
+  data: MultiplesOut;
+  onClear: () => void;
+}) {
   if (!cell) {
     return (
       <div className="fm-readout" data-testid="fm-readout" aria-live="polite">
@@ -108,12 +152,15 @@ function Readout({ cell, item, data }: { cell: CellInfo | null; item: number | n
     const point = item != null ? cell.chart.points[item] : undefined;
     const p = point ? cell.median.points[point.index] : undefined;
     return (
-      <div className="fm-readout" data-testid="fm-readout" aria-live="polite">
+      <div className="fm-readout active" data-testid="fm-readout" aria-live="polite">
         <div className="fm-ro-head">
           <span className="fm-ro-tk">{cell.of}</span>
           <span className="fm-n">
             median year-over-year change · {plural(cell.median.counting, "name", "names")} · equal weight, no score
           </span>
+          <button type="button" className="fm-ro-clear" onClick={onClear} title="Clear readout (Escape)">
+            clear
+          </button>
         </div>
         <div className="fm-ro-line">
           {p
@@ -126,13 +173,21 @@ function Readout({ cell, item, data }: { cell: CellInfo | null; item: number | n
   const { company, row } = cell;
   const placed = item != null ? cell.chart.bars.find((b) => b.index === item) : undefined;
   const bar = placed?.bar;
+  const fiscal =
+    bar && (bar.fiscal_period || bar.fiscal_year)
+      ? [bar.fiscal_period, bar.fiscal_year ? `FY${bar.fiscal_year}` : null].filter(Boolean).join(" ")
+      : null;
   return (
-    <div className="fm-readout" data-testid="fm-readout" aria-live="polite">
+    <div className="fm-readout active" data-testid="fm-readout" aria-live="polite">
       <div className="fm-ro-head">
         <span className="fm-ro-tk">{company.ticker}</span>
         {company.name && <span className="fm-ro-name">{company.name}</span>}
         <span className="fm-n">{row.label}</span>
+        {fiscal && <span className="fm-ro-fiscal">{fiscal}</span>}
         {company.state === "thin" && <span className="fm-n">thin: fewer than {data.thin_below} quarters</span>}
+        <button type="button" className="fm-ro-clear" onClick={onClear} title="Clear readout (Escape)">
+          clear
+        </button>
       </div>
       {bar ? (
         <>
@@ -193,14 +248,19 @@ function NameSvg({
   company,
   chart,
   selected,
+  syncSlot,
+  slots,
   onHover,
 }: {
   company: MultiplesCompanyOut;
   chart: NameChart;
   selected: number | null;
+  syncSlot: number | null;
+  slots: number;
   onHover: (item: number) => void;
 }) {
   const empty = chart.bars.length === 0;
+  const sw = slotWidth(slots);
   return (
     <svg
       className="fm-svg"
@@ -218,12 +278,25 @@ function NameSvg({
         </>
       ) : (
         <>
+          {syncSlot != null && syncSlot >= 0 && (
+            <rect
+              className="fm-sync-band"
+              data-testid="fm-sync"
+              x={PAD_X + syncSlot * sw}
+              y={4}
+              width={sw}
+              height={BASE_Y - 4}
+            />
+          )}
           <line className="fm-zero" x1={PAD_X} x2={CELL_W - PAD_X} y1={chart.zeroY} y2={chart.zeroY} />
           <line className="fm-base" x1={PAD_X} x2={CELL_W - PAD_X} y1={chart.baseY} y2={chart.baseY} />
+          {chart.dotPaths.map((d) => (
+            <path key={d} className="fm-dot-line" d={d} />
+          ))}
           {chart.bars.map((b) => (
             <g
               key={b.index}
-              className={`fm-bar-g${selected === b.index ? " sel" : ""}`}
+              className={`fm-bar-g${selected === b.index ? " sel" : ""}${syncSlot === b.slot ? " sync" : ""}`}
               data-testid="fm-bar"
               data-index={b.index}
               onMouseEnter={() => onHover(b.index)}
@@ -237,7 +310,7 @@ function NameSvg({
                   data-testid="fm-dot"
                   cx={b.dot.cx}
                   cy={b.dot.cy}
-                  r={2.4}
+                  r={selected === b.index ? 3 : 2.4}
                 />
               )}
             </g>
@@ -258,13 +331,20 @@ function MedianSvg({
   median,
   chart,
   selected,
+  syncSlot,
+  slots,
+  axis,
   onHover,
 }: {
   median: MultiplesMedianOut;
   chart: MedianChart;
   selected: number | null;
+  syncSlot: number | null;
+  slots: number;
+  axis: readonly string[];
   onHover: (item: number) => void;
 }) {
+  const sw = slotWidth(slots);
   return (
     <svg
       className="fm-svg"
@@ -273,6 +353,16 @@ function MedianSvg({
       viewBox={`0 0 ${chart.width} ${chart.height}`}
       aria-hidden="true"
     >
+      {syncSlot != null && syncSlot >= 0 && (
+        <rect
+          className="fm-sync-band"
+          data-testid="fm-sync"
+          x={PAD_X + syncSlot * sw}
+          y={chart.topY - 4}
+          width={sw}
+          height={chart.bottomY - chart.topY + 8}
+        />
+      )}
       <line className="fm-zero" x1={PAD_X} x2={CELL_W - PAD_X} y1={chart.zeroY} y2={chart.zeroY} />
       <text className="fm-axis" x={CELL_W - PAD_X} y={chart.topY - 3} textAnchor="end">
         +{YOY_CAP}%
@@ -286,19 +376,23 @@ function MedianSvg({
       {chart.paths.map((d) => (
         <path key={d} className="fm-line" d={d} />
       ))}
-      {chart.points.map((p, i) => (
-        <g
-          key={p.index}
-          className={`fm-pt-g${selected === i ? " sel" : ""}`}
-          data-testid="fm-point"
-          data-index={i}
-          onMouseEnter={() => onHover(i)}
-        >
-          <title>{pointWords(median.points[p.index], median.counting)}</title>
-          <circle className="fm-hit-dot" cx={p.cx} cy={p.cy} r={7} />
-          <circle className={`fm-dot ${p.tone}${p.clipped ? " clipped" : ""}`} cx={p.cx} cy={p.cy} r={2.6} />
-        </g>
-      ))}
+      {chart.points.map((p, i) => {
+        const slot = axis.indexOf(p.quarter);
+        const r = Math.min(3.8, 2.2 + Math.log2(Math.max(1, p.n)) * 0.45);
+        return (
+          <g
+            key={p.index}
+            className={`fm-pt-g${selected === i ? " sel" : ""}${syncSlot != null && syncSlot === slot ? " sync" : ""}`}
+            data-testid="fm-point"
+            data-index={i}
+            onMouseEnter={() => onHover(i)}
+          >
+            <title>{pointWords(median.points[p.index], median.counting)}</title>
+            <circle className="fm-hit-dot" cx={p.cx} cy={p.cy} r={7} />
+            <circle className={`fm-dot ${p.tone}${p.clipped ? " clipped" : ""}`} cx={p.cx} cy={p.cy} r={selected === i ? r + 0.6 : r} />
+          </g>
+        );
+      })}
       <AxisLabels labels={chart.labels} />
     </svg>
   );
@@ -309,10 +403,14 @@ function MedianSvg({
 function Body({
   data,
   showSilent,
+  tileSort,
+  hideEmpty,
   onSelectThesis,
 }: {
   data: MultiplesOut;
   showSilent: boolean;
+  tileSort: TileSort;
+  hideEmpty: boolean;
   onSelectThesis: DashboardProps["onSelectThesis"];
 }) {
   const frame = useRef<HTMLDivElement>(null);
@@ -355,11 +453,33 @@ function Body({
     }
     return out;
   }, [data, byCompany]);
-  const groups: Group[] = useMemo(() => groupsFor(data.rows, showSilent), [data.rows, showSilent]);
+
+  const orderedRows = useMemo(
+    () =>
+      data.rows.map((row) => {
+        const filtered = hideEmpty
+          ? row.companies.filter((ck) => (byCompany.get(ck)?.bars.length ?? 0) > 0)
+          : row.companies;
+        return { ...row, companies: sortCompanyKeys(filtered, byCompany, tileSort) };
+      }),
+    [data.rows, byCompany, tileSort, hideEmpty],
+  );
+  const groups: Group[] = useMemo(() => groupsFor(orderedRows, showSilent), [orderedRows, showSilent]);
   const keys = useMemo(() => groups.flatMap((g) => g.keys), [groups]);
   const tab = active != null && keys.includes(active) ? active : (keys[0] ?? null);
   // a chart the toggle has hidden since it was looked at leaves the readout
   const cell = shown != null && keys.includes(shown.key) ? (cells.get(shown.key) ?? null) : null;
+
+  // synchronized quarter slot across all tiles when any bar or median point is active
+  const syncSlot = useMemo(() => {
+    if (!cell || shown?.item == null) return null;
+    if (cell.kind === "name") {
+      const bar = cell.chart.bars.find((b) => b.index === shown.item);
+      return bar ? bar.slot : null;
+    }
+    const pt = cell.chart.points[shown.item];
+    return pt ? data.axis.indexOf(pt.quarter) : null;
+  }, [cell, shown, data.axis]);
 
   const itemCount = (c: CellInfo): number => (c.kind === "name" ? c.company.bars.length : c.chart.points.length);
   const focusCell = (key: string) => {
@@ -413,7 +533,15 @@ function Body({
           <span className="fm-cell-title">{label}</span>
           <span className="fm-n">{sub}</span>
         </div>
-        <MedianSvg median={c.median} chart={c.chart} selected={sel} onHover={(i) => show(c, i)} />
+        <MedianSvg
+          median={c.median}
+          chart={c.chart}
+          selected={sel}
+          syncSlot={syncSlot}
+          slots={data.axis.length}
+          axis={data.axis}
+          onHover={(i) => show(c, i)}
+        />
         <div className="fm-cell-foot fm-n">
           {c.chart.points.length > 0
             ? `${plural(c.chart.points.length, "quarter", "quarters")} drawn`
@@ -458,7 +586,14 @@ function Body({
             </span>
           )}
         </div>
-        <NameSvg company={co} chart={c.chart} selected={sel} onHover={(i) => show(c, i)} />
+        <NameSvg
+          company={co}
+          chart={c.chart}
+          selected={sel}
+          syncSlot={syncSlot}
+          slots={data.axis.length}
+          onHover={(i) => show(c, i)}
+        />
         <div className="fm-cell-foot">
           {co.last_print && (
             <>
@@ -475,11 +610,11 @@ function Body({
   };
 
   const cardMedian = cells.get(medianKey(CARD_KEY)) as MedianCellInfo;
-  const visible = data.rows.filter((r) => showSilent || r.kind !== "silent");
+  const visible = orderedRows.filter((r) => showSilent || r.kind !== "silent");
   return (
     <>
       <Defs />
-      <Readout cell={cell} item={shown?.item ?? null} data={data} />
+      <Readout cell={cell} item={shown?.item ?? null} data={data} onClear={() => setShown(null)} />
       <div ref={frame} className="fm-frame" data-testid="fm-frame">
         <section className="fm-row fm-card" data-testid="fm-card-line" aria-label="The card line">
           <div className="fm-grid">
@@ -495,7 +630,9 @@ function Body({
           </div>
         </section>
         {visible.map((row) => {
+          const origRow = data.rows.find((r) => r.key === row.key)!;
           const m = cells.get(medianKey(row.key));
+          const folded = origRow.companies.length - row.companies.length;
           return (
             <section
               key={row.key}
@@ -507,13 +644,16 @@ function Body({
               <header className="fm-row-head">
                 <h3 className="fm-row-title">{row.label}</h3>
                 {rowTag(row) && <span className="fm-row-tag">{rowTag(row)}</span>}
-                <span className="fm-n">{plural(row.companies.length, "name", "names")}</span>
+                <span className="fm-n">
+                  {plural(origRow.companies.length, "name", "names")}
+                  {folded > 0 ? ` (${folded} empty hidden)` : ""}
+                </span>
               </header>
-              {row.companies.length === 0 ? (
+              {origRow.companies.length === 0 ? (
                 <p className="fm-n fm-nobody">Nobody sits in this link on the roster at this as-of.</p>
               ) : (
                 <div className="fm-grid">
-                  {m && m.kind === "median" && medianCell(m, "Link median", `median of ${plural(row.companies.length, "name", "names")}`)}
+                  {m && m.kind === "median" && medianCell(m, "Link median", `median of ${plural(origRow.companies.length, "name", "names")}`)}
                   {row.companies.map((ck) => {
                     const c = cells.get(nameKey(row.key, ck));
                     return c && c.kind === "name" ? nameCell(c) : null;
@@ -534,6 +674,8 @@ export default function FundamentalsMultiples({ asof, onSelectThesis }: Dashboar
   const [picked, setPicked] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [showSilent, setShowSilent] = useState(false);
+  const [tileSort, setTileSort] = useState<TileSort>("default");
+  const [hideEmpty, setHideEmpty] = useState(false);
 
   const cardsQ = useMultiplesCards(asof);
   const cards = useMemo(() => cardsQ.data?.cards ?? [], [cardsQ.data]);
@@ -555,6 +697,7 @@ export default function FundamentalsMultiples({ asof, onSelectThesis }: Dashboar
 
   const stale = data != null && (data.thesis_id !== thesisId || data.asof !== asof);
   const hidden = data?.counts.silent_companies ?? 0;
+  const emptyCount = data ? data.companies.filter((c) => c.bars.length === 0).length : 0;
 
   return (
     <div className="fm">
@@ -587,6 +730,32 @@ export default function FundamentalsMultiples({ asof, onSelectThesis }: Dashboar
             </span>
           )}
         </div>
+        {data && (
+          <div className="fm-seg" role="group" aria-label="Sort tiles">
+            <span className="fm-seg-label">Sort</span>
+            {TILE_SORTS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className={`fm-seg-btn${tileSort === s.key ? " on" : ""}`}
+                aria-pressed={tileSort === s.key}
+                onClick={() => setTileSort(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {emptyCount > 0 && (
+          <button
+            type="button"
+            className={`fm-seg-btn${hideEmpty ? " on" : ""}`}
+            aria-pressed={hideEmpty}
+            onClick={() => setHideEmpty((v) => !v)}
+          >
+            {hideEmpty ? `Show empty (${emptyCount})` : `Hide empty (${emptyCount})`}
+          </button>
+        )}
         {hidden > 0 && (
           <label
             className="fm-check"
@@ -617,8 +786,22 @@ export default function FundamentalsMultiples({ asof, onSelectThesis }: Dashboar
             <span className="fm-n">
               {plural(data.counts.links_today, "link", "links")} today · {plural(data.counts.companies, "name", "names")}
             </span>
+            <span className="fm-key-strip" aria-hidden="true">
+              <span className="fm-key-item"><i className="fm-k-bar" />native</span>
+              <span className="fm-key-item"><i className="fm-k-bar derived" />derived</span>
+              <span className="fm-key-item"><i className="fm-k-dot pos" />YoY +</span>
+              <span className="fm-key-item"><i className="fm-k-dot neg" />YoY −</span>
+              <span className="fm-key-item"><i className="fm-k-dot ring" />&gt;±100%</span>
+            </span>
           </div>
-          <Body key={data.thesis_id} data={data} showSilent={showSilent} onSelectThesis={onSelectThesis} />
+          <Body
+            key={data.thesis_id}
+            data={data}
+            showSilent={showSilent}
+            tileSort={tileSort}
+            hideEmpty={hideEmpty}
+            onSelectThesis={onSelectThesis}
+          />
           <div className="dash-note fm-work">{workLine(data)}</div>
           {data.roster_fallback && (
             <div className="dash-note fm-work">

@@ -63,7 +63,7 @@ export const CARDS: DigestCardOut[] = [
   card({
     lines: [
       line({ change: "armed", tone: "accent" }),
-      line({ section: "clocks", change: "entry_window", security_id: null, ticker: null, on: "2026-09-19", days: 2, tone: "accent" }),
+      line({ section: "clocks", change: "entry_window", security_id: null, ticker: null, on: "2026-09-19", days: 2, tone: "warm" }),
     ],
   }),
   card({

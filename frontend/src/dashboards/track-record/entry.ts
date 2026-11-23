@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 230,
   label: "Track Record",
   description: "What happened after each Armed call, by market-cap tier at the event: fixed horizons, against SPY and IWM, with n and the hit rate in every cell.",
+  group: "daily",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

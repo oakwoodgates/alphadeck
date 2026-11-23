@@ -38,6 +38,7 @@ const item = (
   on: null,
   previous_on: null,
   days: null,
+  source: null,
   ...over,
 });
 
@@ -396,5 +397,65 @@ describe("What Changed — the record-start note", () => {
     setRecordStart("2026-12-03");
     renderPage();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
+  });
+
+  it("renders the summary strip, section filter, search, routine churn fold, and Armed-first By-card sort", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const summary = screen.getByTestId("wc-summary");
+    expect(summary).toHaveTextContent("Column moves 2");
+
+    // section filter pill isolates that section and clears cleanly
+    await user.click(within(summary).getByRole("button", { name: /^Clocks/ }));
+    expect(sections().map((s) => s.heading)).toEqual(["Clocks · 2"]);
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(sections()).toHaveLength(6);
+
+    // fold routine churn hides trigger_gone + new_watch (2 items in DATA)
+    await user.click(screen.getByRole("button", { name: "Fold routine (2)" }));
+    expect(screen.getByRole("region", { name: "Triggers" })).not.toHaveTextContent("no longer firing");
+    await user.click(screen.getByRole("button", { name: "Show 2 routine" }));
+
+    // search filters by card/ticker/label
+    await user.type(screen.getByRole("searchbox", { name: "Filter changes" }), "breakout");
+    expect(sections().map((s) => s.heading)).toEqual(["Triggers · 1"]);
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    // By card + Armed first puts coal & Grid ahead of Aardvark
+    await user.click(screen.getByRole("button", { name: "By card" }));
+    await user.click(screen.getByRole("button", { name: "Armed first" }));
+    expect(sections().map((s) => s.heading)).toEqual(["coal · 6", "Grid · 6", "Aardvark · 1reconstructed"]);
+  });
+
+  it("renders trigger provenance links via ExternalLink when a URL is present and quiet text otherwise", () => {
+    const linked = item(GRID, "triggers", "trigger_new", {
+      security_id: "s-aaa",
+      ticker: "AAA",
+      label: "Insider cluster buy",
+      signal_kind: "insider",
+      on: "2026-10-28",
+      source: {
+        source: "sec_edgar",
+        ref: "0001234567-26-000123",
+        url: "https://www.sec.gov/Archives/edgar/data/1234567/000123456726000123/0001234567-26-000123-index.htm",
+      },
+    });
+    const plain = item(COAL, "triggers", "risk_new", {
+      security_id: "s-bbb",
+      ticker: "BBB",
+      label: "Below 200d SMA",
+      signal_kind: "breakdown",
+      on: "2026-10-28",
+      source: { source: "price", ref: "2026-10-28", url: null },
+    });
+    h.useWhatChanged.mockReturnValue(query({ ...DATA, items: [linked, plain] }));
+    renderPage();
+    const secLink = screen.getByRole("link", { name: /sec_edgar 0001234567-26-000123/ });
+    expect(secLink).toHaveAttribute(
+      "href",
+      "https://www.sec.gov/Archives/edgar/data/1234567/000123456726000123/0001234567-26-000123-index.htm",
+    );
+    expect(secLink).toHaveAttribute("target", "_blank");
+    expect(screen.getByText("price 2026-10-28").tagName).toBe("SPAN");
   });
 });

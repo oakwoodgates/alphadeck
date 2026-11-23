@@ -357,4 +357,16 @@ describe("Theme Leaderboard — the record-start note", () => {
     setup();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
+
+  it("draws the 5-bar score equalizer, key pips, breadth ratio bars, and filters to scored cards only", async () => {
+    const user = userEvent.setup();
+    setup();
+    expect(rowOf("Card A").querySelectorAll(".tl-eq-bar")).toHaveLength(5);
+    expect(rowOf("Card C").querySelector(".tl-eq")).toBeNull();
+    expect(rowOf("Card A").querySelectorAll(".tl-pip.on")).toHaveLength(2);
+    expect(rowOf("Card B").querySelectorAll(".tl-pip.on")).toHaveLength(1);
+    expect(rowOf("Card A").querySelectorAll(".tl-ratio-fill")).toHaveLength(3); // 50d, 200d, RS leaders
+    await user.click(screen.getByRole("checkbox", { name: /scored only/ }));
+    expect(names()).toEqual(["Card A", "Card B"]);
+  });
 });

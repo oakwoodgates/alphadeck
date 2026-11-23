@@ -435,4 +435,20 @@ describe("Hot Board — the record-start note", () => {
     setup();
     expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
+
+  it("draws the 4-bar heat equalizer, arm-night tick on sparklines, flips bottom-row popovers up, and filters by search", async () => {
+    setup();
+    expect(rowOf("AAA").querySelectorAll(".hb-eq-bar")).toHaveLength(4);
+    expect(rowOf("FLG").querySelector(".hb-eq")).toBeNull();
+    expect(rowOf("AAA").querySelector(".hb-spark-arm")).not.toBeNull();
+    // 4 rows total: last 3 rows flip the keys popover upward
+    expect(rowOf("AAA").querySelector(".hb-keys")).not.toHaveClass("flip-up");
+    expect(rowOf("BBB").querySelector(".hb-keys")).toHaveClass("flip-up");
+    // search by ticker or card name
+    const box = screen.getByRole("searchbox", { name: "Search tickers or cards" });
+    await userEvent.type(box, "ccc");
+    expect(tickers()).toEqual(["CCC"]);
+    await userEvent.click(screen.getByRole("button", { name: "clear filters" }));
+    expect(tickers()).toHaveLength(4);
+  });
 });

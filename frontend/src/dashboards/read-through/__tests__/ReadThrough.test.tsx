@@ -382,4 +382,21 @@ describe("ReadThrough — states", () => {
     expect(lines()).toHaveLength(5);
     expect(screen.getByText(/the first load after a run or a basket edit can take a moment/)).toBeInTheDocument();
   });
+
+  it("shows the SPY baseline bar, inline filing age, diverging tape bars, company/form filters, and clickable catalyst", async () => {
+    const { onSelectThesis } = setup();
+    expect(screen.getByTestId("rt-bench-bar")).toHaveTextContent("SPY baseline: 7D +1.5% · 30D +4.0%");
+    expect(lines()[1]).toHaveTextContent("8d ago");
+    expect(lines()[1].querySelectorAll(".rt-bar").length).toBe(2);
+
+    await userEvent.click(lines()[1].querySelector(".rt-cat-btn") as Element);
+    expect(onSelectThesis).toHaveBeenLastCalledWith("t-grid");
+
+    await userEvent.type(screen.getByRole("searchbox", { name: "Find a company" }), "xylo");
+    expect(keys()).toEqual(["XXX:payer"]);
+    await userEvent.click(screen.getByRole("button", { name: "clear filters" }));
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Filing form" }), "8-K");
+    expect(keys()).toEqual(["XXX:payer"]);
+  });
 });

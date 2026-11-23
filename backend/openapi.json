@@ -48993,6 +48993,16 @@
               }
             ],
             "title": "Days"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WhatChangedSourceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -49013,7 +49023,7 @@
           "days"
         ],
         "title": "WhatChangedItemOut",
-        "description": "One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are\nset for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has\nnone). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's\ndate (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night\n(``null`` on every other line); ``days`` = calendar days from the countdown origin (the action day, the session\nafter the newest night) to ``arm_until``.\n``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."
+        "description": "One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are\nset for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has\nnone). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's\ndate (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night\n(``null`` on every other line); ``days`` = calendar days from the countdown origin (the action day, the session\nafter the newest night) to ``arm_until``. ``source`` = the first provenance on a trigger or risk line (``null``\non other lines or when none is stored).\n``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."
       },
       "WhatChangedOut": {
         "properties": {
@@ -49111,6 +49121,37 @@
         ],
         "title": "WhatChangedOut",
         "description": "The whole page. ``latest`` = the newest recorded night across the live cards (``null`` = no recorded\ncall yet); ``baseline`` = the night compared against (``null`` = no earlier night, so every recorded card\nis new). ``first_recorded`` bounds the date picker. ``unrecorded`` = live cards with no recorded call yet,\ncounted on the quiet line. Items come in section order, then card name."
+      },
+      "WhatChangedSourceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref",
+          "url"
+        ],
+        "title": "WhatChangedSourceOut",
+        "description": "First provenance on a trigger or risk line; ``url`` is ``null`` when no link can be built."
       },
       "WorkbenchScored": {
         "properties": {

@@ -147,21 +147,54 @@ export function sortGroups(
   });
 }
 
-/** A group's names, by the active return window when one is sorted (else the 7d), "—" last. */
+/** A group's names, following the active column (return window, RVOL, above 50d, cross, RS leader) and breaking
+ *  ties by 7d return highest first, "—" last. */
 export function sortNames(
   names: readonly RotationNameOut[],
   sort: SortState,
 ): RotationNameOut[] {
-  const key = WINDOWS.some((w) => w.key === sort.col) ? sort.col : "ret_7d";
-  const sign = WINDOWS.some((w) => w.key === sort.col) && sort.dir === "asc" ? 1 : -1;
+  const isWin = WINDOWS.some((w) => w.key === sort.col);
+  const winKey = isWin ? sort.col : "ret_7d";
+  const winSign = isWin && sort.dir === "asc" ? 1 : -1;
+  const colSign = sort.dir === "asc" ? 1 : -1;
+
+  const extra = (m: RotationNameOut): number | null => {
+    switch (sort.col) {
+      case "rvol20":
+        return m.rvol20 ?? null;
+      case "above_50d":
+        return m.above_50d == null ? null : m.above_50d ? 1 : 0;
+      case "golden":
+        return m.cross === "golden" ? 1 : 0;
+      case "death":
+        return m.cross === "death" ? 1 : 0;
+      case "rs_leaders":
+        return m.rs_leading ? 1 : 0;
+      default:
+        return null;
+    }
+  };
+
   return [...names].sort((a, b) => {
-    const va = a.returns[key] ?? null;
-    const vb = b.returns[key] ?? null;
+    if (!isWin && sort.col !== "label" && sort.col !== "names") {
+      const ea = extra(a);
+      const eb = extra(b);
+      if (ea == null || eb == null) {
+        if (ea == null && eb != null) return 1;
+        if (eb == null && ea != null) return -1;
+      } else if (ea !== eb) {
+        // for binary flags (golden/death/rs_leaders), matching names always sort first
+        const dir = sort.col === "golden" || sort.col === "death" || sort.col === "rs_leaders" ? -1 : colSign;
+        return (ea < eb ? -1 : 1) * dir;
+      }
+    }
+    const va = a.returns[winKey] ?? null;
+    const vb = b.returns[winKey] ?? null;
     if (va == null || vb == null) {
       if (va == null && vb != null) return 1;
       if (vb == null && va != null) return -1;
     } else if (va !== vb) {
-      return (va < vb ? -1 : 1) * sign;
+      return (va < vb ? -1 : 1) * winSign;
     }
     return a.ticker.localeCompare(b.ticker);
   });

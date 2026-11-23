@@ -373,4 +373,34 @@ describe("the picker and the page", () => {
     expect(screen.getByText(/no quarter to draw/)).toBeInTheDocument();
     expect(screen.getByTestId("fm-card-line")).toHaveTextContent("no quarter has a median");
   });
+
+  it("connects YoY dots, syncs hovered quarters across charts, sorts tiles, and hides empty frames via button", async () => {
+    setup();
+    const aaa = cellEl(AAA_T);
+    expect(aaa.querySelectorAll(".fm-dot-line").length).toBeGreaterThan(0);
+
+    // Hovering a bar lights up a synchronized quarter band across charts
+    const bars = within(aaa).getAllByTestId("fm-bar");
+    await userEvent.hover(bars[bars.length - 1]);
+    expect(screen.getAllByTestId("fm-sync").length).toBeGreaterThan(1);
+
+    // Clear button resets the readout and synced quarter
+    await userEvent.click(screen.getByRole("button", { name: "clear" }));
+    expect(screen.queryAllByTestId("fm-sync")).toHaveLength(0);
+
+    // Sort by Latest YoY keeps the link median first and places AAA (+150%) ahead of BBB and unresolved rows in Turbines
+    await userEvent.click(screen.getByRole("button", { name: "Latest YoY" }));
+    const turbinesCells = within(rowEl("link:Turbines")).getAllByTestId("fm-cell").map((c) => c.getAttribute("data-key"));
+    expect(turbinesCells[0]).toBe("m|link:Turbines");
+    expect(turbinesCells[1]).toBe(AAA_T);
+
+    // Hide empty is a button (not a checkbox) and hides empty-frame tiles
+    const hideBtn = screen.getByRole("button", { name: /Hide empty/ });
+    expect(hideBtn).toHaveAttribute("aria-pressed", "false");
+    expect(cellKeys()).toContain("n|link:Turbines|ticker:UNR");
+    await userEvent.click(hideBtn);
+    expect(hideBtn).toHaveAttribute("aria-pressed", "true");
+    expect(cellKeys()).not.toContain("n|link:Turbines|ticker:UNR");
+    expect(cellKeys()).not.toContain("n|link:Cables|s-EEE");
+  });
 });

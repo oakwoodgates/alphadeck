@@ -20971,7 +20971,8 @@ export interface components {
          *     none). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's
          *     date (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night
          *     (``null`` on every other line); ``days`` = calendar days from the countdown origin (the action day, the session
-         *     after the newest night) to ``arm_until``.
+         *     after the newest night) to ``arm_until``. ``source`` = the first provenance on a trigger or risk line (``null``
+         *     on other lines or when none is stored).
          *     ``reconstructed`` = the card's newest row was written by ``pipeline.backfill``.
          */
         WhatChangedItemOut: {
@@ -21009,6 +21010,7 @@ export interface components {
             previous_on: string | null;
             /** Days */
             days: number | null;
+            source?: components["schemas"]["WhatChangedSourceOut"] | null;
         };
         /**
          * WhatChangedOut
@@ -21039,6 +21041,18 @@ export interface components {
             unrecorded: components["schemas"]["WhatChangedCardRefOut"][];
             /** Items */
             items: components["schemas"]["WhatChangedItemOut"][];
+        };
+        /**
+         * WhatChangedSourceOut
+         * @description First provenance on a trigger or risk line; ``url`` is ``null`` when no link can be built.
+         */
+        WhatChangedSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
         };
         /**
          * WorkbenchScored

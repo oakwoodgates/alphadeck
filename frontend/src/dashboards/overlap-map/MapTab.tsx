@@ -152,11 +152,38 @@ export default function MapTab({
   const [hoverPair, setHoverPair] = useState<string | null>(null);
   const [hoverDot, setHoverDot] = useState<number | null>(null);
   const [pinned, setPinned] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
 
   const lines = useMemo(() => visiblePairs(d, threshold), [d, threshold]);
   const dots = useMemo<Dot[]>(() => (showShared ? sharedDots(d) : []), [d, showShared]);
   const placed = useMemo(() => d.cards.map((c, i) => ({ c, i })).filter(({ c }) => c.x != null), [d]);
   const strip = useMemo(() => d.cards.map((c, i) => ({ c, i })).filter(({ c }) => c.shares_nothing), [d]);
+
+  const qNorm = query.trim().toLowerCase();
+  const matchedCards = useMemo(() => {
+    if (!qNorm) return null;
+    const set = new Set<number>();
+    d.cards.forEach((c, i) => {
+      if (c.name.toLowerCase().includes(qNorm)) set.add(i);
+    });
+    for (const co of d.companies) {
+      if (co.ticker.toLowerCase().includes(qNorm) || (co.name ?? "").toLowerCase().includes(qNorm)) {
+        for (const r of co.rows) set.add(r.card);
+      }
+    }
+    return set;
+  }, [d, qNorm]);
+
+  const focusNode = hoverCard ?? selected;
+  const connected = useMemo(() => {
+    if (focusNode == null) return null;
+    const set = new Set<number>([focusNode]);
+    for (const p of lines) {
+      if (p.a === focusNode) set.add(p.b);
+      if (p.b === focusNode) set.add(p.a);
+    }
+    return set;
+  }, [focusNode, lines]);
 
   const dotCompany = pinned ?? hoverDot;
   const dotShown = dotCompany != null ? dots.find((x) => x.company === dotCompany) : undefined;
@@ -215,6 +242,14 @@ export default function MapTab({
           <input type="checkbox" checked={showShared} onChange={(e) => onShowShared(e.target.checked)} />
           Show shared companies
         </label>
+        <input
+          type="search"
+          className="om-map-search"
+          aria-label="Highlight card or ticker"
+          placeholder="Find card or ticker…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
       <div className="om-quiet" data-testid="om-groups">
         {groupsWords(d, threshold)}
@@ -234,17 +269,26 @@ export default function MapTab({
               onKeyDown={onKey}
               onFocus={() => setFocus((f) => f ?? firstFocus())}
               onBlur={() => setFocus(null)}
-              onClick={() => setPinned(null)}
+              onClick={() => {
+                setPinned(null);
+                setSelected(null);
+              }}
             >
               <g className="om-lines">
                 {lines.map((p) => {
                   const a = d.cards[p.a];
                   const b = d.cards[p.b];
                   const key = `${p.a}-${p.b}`;
+                  const pairActive = hoverPair === key;
+                  const touchesFocus = focusNode != null && (p.a === focusNode || p.b === focusNode);
+                  const lineDim =
+                    (hoverPair != null && !pairActive) ||
+                    (focusNode != null && !touchesFocus) ||
+                    (matchedCards != null && !(matchedCards.has(p.a) && matchedCards.has(p.b)));
                   return (
                     <g
                       key={key}
-                      className={`om-line-g${hoverPair === key ? " hover" : ""}`}
+                      className={`om-line-g${pairActive ? " hover" : ""}${touchesFocus ? " hi" : ""}${lineDim ? " dim" : ""}`}
                       data-testid={`om-line-${key}`}
                       onMouseEnter={() => setHoverPair(key)}
                       onMouseLeave={() => setHoverPair(null)}
@@ -268,10 +312,14 @@ export default function MapTab({
                 {placed.map(({ c, i }) => {
                   const on = i === selected;
                   const lit = i === hoverCard || i === focus;
+                  const isMatch = matchedCards != null && matchedCards.has(i);
+                  const isDim =
+                    (connected != null && !connected.has(i)) ||
+                    (matchedCards != null && !isMatch);
                   return (
                     <g
                       key={c.thesis_id}
-                      className={`om-bubble${on ? " selected" : ""}${lit ? " hover" : ""}`}
+                      className={`om-bubble${on ? " selected" : ""}${lit ? " hover" : ""}${isMatch ? " match" : ""}${isDim ? " dim" : ""}`}
                       data-testid={`om-bubble-${i}`}
                       onMouseEnter={() => setHoverCard(i)}
                       onMouseLeave={() => setHoverCard(null)}
@@ -315,20 +363,24 @@ export default function MapTab({
               </g>
               <g className="om-dots">
                 {dots.map((x) => (
-                  <circle
+                  <g
                     key={x.company}
-                    className={`om-dot${x.company === dotCompany ? " on" : ""}`}
-                    data-testid={`om-dot-${x.company}`}
-                    cx={x.x}
-                    cy={x.y}
-                    r={3}
                     onMouseEnter={() => setHoverDot(x.company)}
                     onMouseLeave={() => setHoverDot(null)}
                     onClick={(e) => {
                       e.stopPropagation();
                       setPinned((p) => (p === x.company ? null : x.company));
                     }}
-                  />
+                  >
+                    <circle className="om-dot-hit" cx={x.x} cy={x.y} r={9} />
+                    <circle
+                      className={`om-dot${x.company === dotCompany ? " on" : ""}`}
+                      data-testid={`om-dot-${x.company}`}
+                      cx={x.x}
+                      cy={x.y}
+                      r={x.company === dotCompany ? 4.5 : 3.2}
+                    />
+                  </g>
                 ))}
               </g>
             </svg>

@@ -14,19 +14,35 @@
 .rm-seg-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .rm-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
 .rm-check input { accent-color: var(--txt-3); margin: 0; }
+.rm-search { font: inherit; font-size: 11px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 9px; width: 175px; }
+.rm-search::placeholder { color: var(--txt-4); }
+.rm-search:focus-visible { outline: 1px solid var(--txt-3); outline-offset: 1px; }
+.rm-foot { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
 .rm-work, .rm-legend { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
-.rm-legend { font-family: inherit; color: var(--txt-4); }
+.rm-legend { font-family: inherit; color: var(--txt-3); opacity: 0.85; }
 
-.rm-scroll { overflow-x: auto; margin-top: 6px; }
-table.rm-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-table.rm-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
-table.rm-table td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.rm-scroll { overflow: auto; max-height: 76vh; margin-top: 4px; border-top: 1px solid var(--line); }
+table.rm-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.rm-table thead tr.rm-super td { position: sticky; top: 0; z-index: 3; background: var(--bg); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-4); padding: 4px 10px 2px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.rm-table thead tr.rm-super td:first-child { left: 0; z-index: 4; padding-left: 2px; }
+table.rm-table thead tr.rm-super td.rm-grp-start { border-left: 1px solid var(--line); padding-left: 10px; }
+table.rm-table thead th { position: sticky; top: 21px; z-index: 2; background: var(--bg); text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; padding: 6px 10px 7px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+table.rm-table thead th:first-child { left: 0; z-index: 4; padding-left: 2px; border-right: 1px solid var(--line); }
+table.rm-table td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.rm-table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg); padding-left: 2px; border-right: 1px solid var(--line); }
 table.rm-table .rm-num { text-align: right; }
 table.rm-table th.rm-num .rm-sort { justify-content: flex-end; }
 .rm-sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
-.rm-sort:hover, .rm-sort.active { color: var(--txt-2); }
+.rm-sort:hover, .rm-sort.active { color: var(--txt); }
 .rm-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
 .rm-arrow { font-size: 8px; line-height: 1; }
+
+/* pinned SPY benchmark reference row */
+tr.rm-spy-row td { background: color-mix(in srgb, var(--panel) 80%, var(--bg)); border-bottom: 1px solid var(--line-2); padding-top: 5px; padding-bottom: 5px; }
+tr.rm-spy-row td:first-child { background: var(--panel); }
+.rm-spy-label { display: flex; align-items: baseline; gap: 8px; }
+.rm-spy-tag { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--txt-2); letter-spacing: 0.04em; }
+.rm-spy-hint { font-size: 10px; font-weight: 400; color: var(--txt-3); }
 
 /* a group row: click to show its names */
 tr.rm-group { cursor: pointer; }
@@ -35,17 +51,25 @@ tr.rm-group:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1
 tr.rm-group.open td { background: var(--panel); }
 tr.rm-group.quiet .rm-label { color: var(--txt-3); }
 .rm-label { color: var(--txt); font-weight: 600; white-space: nowrap; max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
-.rm-chev { display: inline-block; width: 14px; color: var(--txt-4); font-size: 10px; }
+.rm-label-txt { overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.rm-chev { display: inline-block; width: 14px; color: var(--txt-3); font-size: 10px; }
+.rm-open { display: inline-flex; align-items: center; justify-content: center; margin-left: 6px; padding: 1px 3px; border: 0; border-radius: 3px; background: transparent; color: var(--txt-4); cursor: pointer; vertical-align: middle; opacity: 0.6; }
+tr.rm-group:hover .rm-open, .rm-open:focus-visible { opacity: 1; color: var(--txt-2); }
+.rm-open:hover { color: var(--txt); background: var(--panel-2); }
 
 /* numbers: mono, gray by default; the toned median is the only color on the page */
-.rm-v, .rm-ret { font-family: var(--mono); font-size: 11px; color: var(--txt-3); white-space: nowrap; }
+.rm-v, .rm-ret { font-family: var(--mono); font-size: 11px; color: var(--txt-2); white-space: nowrap; }
+.rm-zero { color: var(--txt-4); }
 .rm-ret { display: block; }
 .rm-ret.pos { color: var(--pos); }
 .rm-ret.neg { color: var(--neg); }
-.rm-sub { display: block; margin-top: 2px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); white-space: nowrap; }
+.rm-sub { display: block; margin-top: 2px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); white-space: nowrap; }
+.rm-bar { display: block; width: 46px; height: 3px; margin: 2px 0 0 auto; border-radius: 1.5px; background: var(--panel-2); overflow: hidden; }
+.rm-bar-fill { display: block; height: 100%; background: var(--txt-3); border-radius: 1.5px; }
 
 /* a group's names, under its row: quieter and indented */
-tr.rm-name td { padding-top: 4px; padding-bottom: 4px; background: color-mix(in srgb, var(--panel) 50%, transparent); }
+tr.rm-name td { padding-top: 4px; padding-bottom: 4px; background: color-mix(in srgb, var(--panel) 50%, var(--bg)); }
+tr.rm-name td:first-child { background: color-mix(in srgb, var(--panel) 75%, var(--bg)); }
 /* a name left out for a flagged price history: grayed, never gone (WB#2) */
 tr.rm-name.flagged td { opacity: 0.6; }
 .rm-off { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }

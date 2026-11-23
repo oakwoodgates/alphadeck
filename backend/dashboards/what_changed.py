@@ -45,6 +45,7 @@ from datetime import date, timedelta
 from typing import Literal
 from uuid import UUID
 
+from dashboards.filings import source_url
 from domain.call import CallCard, MemberCall, TriggerRef
 from domain.enums import Kind, State
 
@@ -157,12 +158,22 @@ class CardRef:
 
 
 @dataclass(frozen=True)
+class SourceLink:
+    """First provenance on a trigger or risk line; ``url`` is ``None`` when no link can be built."""
+
+    source: str
+    ref: str
+    url: str | None = None
+
+
+@dataclass(frozen=True)
 class ChangeItem:
     """One line. ``security_id`` / ``ticker`` are set for a name or a trigger (``None`` = a card-level line);
     ``ticker`` is ``None`` when the master has no ticker for it. ``label`` = the key's own label, or the
     trigger's. ``on`` = the trigger's event date, or the clock's date (``arm_until`` / ``exit_by``);
     ``previous_on`` = a re-dated trigger's event date on the baseline card (``None`` on every other line);
     ``days`` = calendar days from the countdown origin to ``arm_until`` (0 = it closes on the origin day).
+    ``source`` = the first provenance on a trigger or risk line (``None`` when none is stored or on other lines).
     ``reconstructed`` = the card's NOW row was written by
     ``pipeline.backfill``."""
 
@@ -180,6 +191,7 @@ class ChangeItem:
     on: date | None = None
     previous_on: date | None = None
     days: int | None = None
+    source: SourceLink | None = None
 
 
 @dataclass(frozen=True)
@@ -237,12 +249,22 @@ def _members(members: Iterable[MemberCall]) -> list[UUID]:
     return seen
 
 
+def _first_source(
+    t: TriggerRef, ciks: Mapping[UUID, str | None] | None
+) -> SourceLink | None:
+    cik = ciks.get(t.security_id) if ciks else None
+    for p in t.sources:
+        return SourceLink(p.source, p.ref, source_url(p.ref, cik))
+    return None
+
+
 def _card_changes(
     ref: CardRef,
     now: RecordedCall,
     base: RecordedCall | None,
     tickers: Mapping[UUID, str | None],
     *,
+    ciks: Mapping[UUID, str | None] | None = None,
     latest: date,
     baseline_on: date | None,
     origin: date,
@@ -319,6 +341,7 @@ def _card_changes(
                 label=t.label,
                 signal_kind=t.kind,
                 on=t.event_date,
+                source=_first_source(t, ciks),
             )
     for t, was in sorted(redated, key=lambda pair: trigger_order(pair[0])):
         add(
@@ -329,6 +352,7 @@ def _card_changes(
             signal_kind=t.kind,
             on=t.event_date,
             previous_on=was.event_date,
+            source=_first_source(t, ciks),
         )
 
     # 5. clocks, on the now card as of T: the entry window counts down from the origin (F2), the exit-by is a span
@@ -362,6 +386,7 @@ def what_changed(
     baseline: Mapping[UUID, RecordedCall],
     tickers: Mapping[UUID, str | None],
     *,
+    ciks: Mapping[UUID, str | None] | None = None,
     latest: date | None,
     baseline_on: date | None,
     origin: date | None = None,
@@ -384,6 +409,7 @@ def what_changed(
             row,
             baseline.get(ref.thesis_id),
             tickers,
+            ciks=ciks,
             latest=latest,
             baseline_on=baseline_on,
             origin=origin or latest,

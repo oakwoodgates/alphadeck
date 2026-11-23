@@ -83,7 +83,18 @@ export const januarySlots = (axis: readonly string[]): number[] =>
 type MonthNumbers = Pick<
   AdoptionMonthOut,
   "counted" | "documents" | "reports" | "events" | "issuance" | "other"
->;
+> &
+  Partial<Pick<AdoptionMonthOut, "closed" | "read_early" | "terms_counted">>;
+
+export type BarMode = "counts" | "share";
+export type BarLayoutOptions = {
+  /** Which form groups are stacked (default: all four). */
+  groups?: ReadonlySet<Group>;
+  /** "counts" = raw document counts; "share" = 0–100% composition per counted non-zero month. */
+  mode?: BarMode;
+  /** The card's SIGNAL term count; when provided, bars resting on fewer terms are marked partial. */
+  signalTerms?: number;
+};
 
 export type Segment = { group: Group; y: number; h: number };
 export type PlacedBar = {
@@ -92,56 +103,88 @@ export type PlacedBar = {
   x: number;
   w: number;
   total: number;
+  /** Top y of the highest drawn segment (or baseY when zero). */
+  topY: number;
   /** Counted, and no document matched: a stored zero, drawn as a baseline tick (an absent month draws nothing). */
   zero: boolean;
+  /** Counted before month close or resting on fewer than all SIGNAL terms. */
+  partial: boolean;
   segments: Segment[];
 };
+export type UnclosedSlot = { index: number; x: number; w: number };
 export type BarChart = {
+  mode: BarMode;
   max: number;
   bars: PlacedBar[];
+  unclosed: UnclosedSlot[];
   baseY: number;
   topY: number;
   ticks: { v: number; y: number }[];
 };
 
-/** The stacked bars: a bar per COUNTED month on one y scale (0 to a round maximum), each form group a segment
- *  from the baseline up in the order of GROUPS. An absent month (not counted) has no bar at all, and a stored zero
- *  has a baseline tick only. */
-export function layoutBars(months: readonly MonthNumbers[], panel: Panel = DOC_PANEL): BarChart {
+/** The stacked bars: a bar per COUNTED month on one y scale (0 to a round maximum, or 0–100% in share mode),
+ *  each active form group a segment from the baseline up in the order of GROUPS. An absent month (not counted)
+ *  has no bar at all (an unclosed current month is noted as an outline slot), and a stored zero has a baseline tick only. */
+export function layoutBars(
+  months: readonly MonthNumbers[],
+  panel: Panel = DOC_PANEL,
+  options?: BarLayoutOptions,
+): BarChart {
   const n = months.length;
   const ph = plotHeight(panel);
   const base = baseY(panel);
-  const max = niceMax(Math.max(0, ...months.map((m) => (m.counted ? (m.documents ?? 0) : 0))));
+  const mode: BarMode = options?.mode ?? "counts";
+  const active = options?.groups ? GROUPS.filter((g) => options.groups!.has(g)) : [...GROUPS];
+  const allGroupsActive = active.length === GROUPS.length;
+  const monthTotal = (m: MonthNumbers) =>
+    allGroupsActive ? (m.documents ?? 0) : active.reduce((acc, g) => acc + (m[g] ?? 0), 0);
+  const max = mode === "share" ? 100 : niceMax(Math.max(0, ...months.map((m) => (m.counted ? monthTotal(m) : 0))));
   const sw = slotWidth(n);
   const bars: PlacedBar[] = [];
+  const unclosed: UnclosedSlot[] = [];
   months.forEach((m, index) => {
-    if (!m.counted) return;
-    const total = m.documents ?? 0;
+    const x = r1(slotX(index, n) + 1);
+    const w = r1(Math.max(1.5, sw - 2));
+    if (!m.counted) {
+      if (m.closed === false) unclosed.push({ index, x, w });
+      return;
+    }
+    const total = monthTotal(m);
+    const denom = mode === "share" ? (total > 0 ? total : 1) : max;
     const segments: Segment[] = [];
     let cum = 0;
     let prevY = base;
-    for (const group of GROUPS) {
+    for (const group of active) {
       const v = m[group] ?? 0;
       cum += v;
-      const y = r1(base - (cum / max) * ph);
+      const frac = mode === "share" ? (total > 0 ? cum / denom : 0) : cum / max;
+      const y = r1(base - frac * ph);
       if (v > 0) segments.push({ group, y, h: r1(prevY - y) });
       prevY = y;
     }
+    const partial =
+      Boolean(m.read_early) ||
+      (options?.signalTerms != null && options.signalTerms > 0 && (m.terms_counted ?? options.signalTerms) < options.signalTerms);
     bars.push({
       index,
-      x: r1(slotX(index, n) + 1),
-      w: r1(Math.max(1.5, sw - 2)),
+      x,
+      w,
       total,
+      topY: segments.length > 0 ? segments[segments.length - 1].y : base,
       zero: total === 0,
+      partial,
       segments,
     });
   });
+  const tickVals = mode === "share" ? [0, 50, 100] : [0, max / 2, max];
   return {
+    mode,
     max,
     bars,
+    unclosed,
     baseY: base,
     topY: panel.top,
-    ticks: [0, max / 2, max].map((v) => ({ v, y: r1(base - (v / max) * ph) })),
+    ticks: tickVals.map((v) => ({ v, y: r1(base - (v / max) * ph) })),
   };
 }
 
@@ -222,23 +265,35 @@ export function yDomain(lines: readonly (readonly number[] | null | undefined)[]
 export const yAt = (v: number, [lo, hi]: Domain, panel: Panel): number =>
   r1(panel.top + ((hi - v) / (hi - lo)) * plotHeight(panel));
 
+export type OverlayPoint = { x: number; y: number; value: number };
 export type OverlayChart = {
   domain: Domain;
   card: string | null;
   spy: string | null;
+  cardEnd: OverlayPoint | null;
+  spyEnd: OverlayPoint | null;
   baseline: number;
   ticks: { v: number; y: number }[];
 };
 
-function pathOver(dates: readonly string[], values: readonly number[], axis: readonly string[], domain: Domain, panel: Panel): string {
+function pathOver(
+  dates: readonly string[],
+  values: readonly number[],
+  axis: readonly string[],
+  domain: Domain,
+  panel: Panel,
+): { path: string; end: OverlayPoint | null } {
   const pts: string[] = [];
+  let end: OverlayPoint | null = null;
   dates.forEach((d, i) => {
     const x = xOfDate(axis, d);
     const v = values[i];
     if (x == null || v == null) return;
-    pts.push(`${pts.length === 0 ? "M" : "L"}${x} ${yAt(v, domain, panel)}`);
+    const y = yAt(v, domain, panel);
+    pts.push(`${pts.length === 0 ? "M" : "L"}${x} ${y}`);
+    end = { x, y, value: v };
   });
-  return pts.join(" ");
+  return { path: pts.join(" "), end };
 }
 
 /** The two lines of the overlay on the shared month axis (`axis` = the months' first days), both from 100 at the
@@ -249,12 +304,39 @@ export function layoutOverlay(
   panel: Panel = INDEX_PANEL,
 ): OverlayChart {
   const domain = yDomain([overlay.card, overlay.spy]);
+  const card = overlay.card && overlay.card.length > 1 ? pathOver(overlay.dates, overlay.card, axis, domain, panel) : null;
+  const spy = overlay.spy && overlay.spy.length > 1 ? pathOver(overlay.dates, overlay.spy, axis, domain, panel) : null;
   return {
     domain,
-    card: overlay.card && overlay.card.length > 1 ? pathOver(overlay.dates, overlay.card, axis, domain, panel) : null,
-    spy: overlay.spy && overlay.spy.length > 1 ? pathOver(overlay.dates, overlay.spy, axis, domain, panel) : null,
+    card: card ? card.path : null,
+    spy: spy ? spy.path : null,
+    cardEnd: card ? card.end : null,
+    spyEnd: spy ? spy.end : null,
     baseline: yAt(100, domain, panel),
     ticks: apartTicks(domain, panel),
+  };
+}
+
+/** The overlay's card and SPY coordinates at a given calendar month (its last session on or before month end, capped at asof). */
+export function overlayPointAtMonth(
+  overlay: Pick<AdoptionOverlayOut, "dates" | "card" | "spy">,
+  axis: readonly string[],
+  monthFirst: string,
+  asof: string,
+  domain: Domain,
+  panel: Panel = INDEX_PANEL,
+): { card: OverlayPoint | null; spy: OverlayPoint | null } {
+  if (overlay.dates.length === 0) return { card: null, spy: null };
+  const end = monthEnd(monthFirst) < asof ? monthEnd(monthFirst) : asof;
+  const idx = lastOnOrBefore(overlay.dates, end);
+  if (idx < 0) return { card: null, spy: null };
+  const x = xOfDate(axis, overlay.dates[idx]);
+  if (x == null) return { card: null, spy: null };
+  const cardVal = overlay.card?.[idx];
+  const spyVal = overlay.spy?.[idx];
+  return {
+    card: cardVal != null ? { x, y: yAt(cardVal, domain, panel), value: cardVal } : null,
+    spy: spyVal != null ? { x, y: yAt(spyVal, domain, panel), value: spyVal } : null,
   };
 }
 

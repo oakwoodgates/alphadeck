@@ -409,4 +409,25 @@ describe("Rotation Map — a flagged price history", () => {
     expect(screen.queryByText(/left out for a flagged price history/)).toBeNull();
     expect(screen.queryByText("1 left out")).toBeNull();
   });
+
+  it("renders a pinned SPY reference row, proportional breadth bars, Cockpit open button, and group/ticker search", async () => {
+    const user = userEvent.setup();
+    const { container } = renderPage();
+    const spyRow = screen.getByTestId("rm-spy-row");
+    expect(spyRow).toHaveTextContent("SPY");
+    expect(spyRow).toHaveTextContent("+1.0%");
+    expect(spyRow).toHaveTextContent("+10.0%");
+
+    // Neutral breadth bars render without adding colored medians
+    expect(container.querySelectorAll(".rm-bar").length).toBeGreaterThan(0);
+
+    // Direct Cockpit open icon on Link row opens the thesis without toggling expansion
+    const openBtns = within(groupRow("Turbines")).getAllByRole("button", { name: /Open Grid in Cockpit/ });
+    await user.click(openBtns[0]);
+    expect(onSelectThesis).toHaveBeenCalledWith("t-grid");
+
+    // Search filters by member ticker or group label
+    await user.type(screen.getByRole("searchbox", { name: "Filter group or ticker" }), "high");
+    expect(labels()).toEqual(["Turbines · Grid"]);
+  });
 });

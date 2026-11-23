@@ -175,6 +175,44 @@ function NameRow({
   );
 }
 
+/** Quiet monochrome proportional bar (0–100%) rendered under a ratio cell. */
+function RatioBar({ num, den }: { num: number | null | undefined; den: number }) {
+  if (num == null || den <= 0) return null;
+  const pct = Math.max(0, Math.min(100, (num / den) * 100));
+  return (
+    <span className="rm-bar" aria-hidden="true">
+      <span className="rm-bar-fill" style={{ width: `${pct}%` }} />
+    </span>
+  );
+}
+
+/** Pinned SPY reference row at the top of the table so group medians always have a live market anchor. */
+function SpyRow({ spy, vsSpy }: { spy: NonNullable<RotationMapOut["spy"]>; vsSpy: boolean }) {
+  return (
+    <tr className="rm-spy-row" data-testid="rm-spy-row">
+      <td className="rm-label rm-spy-label">
+        <span className="rm-spy-tag">SPY</span>
+        <span className="rm-spy-hint">{vsSpy ? "benchmark (0.0% baseline)" : "benchmark"}</span>
+      </td>
+      <td className="rm-num rm-v rm-zero">—</td>
+      {WINDOWS.map((w) => {
+        const raw = spy[w.key] ?? null;
+        return (
+          <td key={w.key} className="rm-num">
+            <span className="rm-v">{vsSpy ? (raw == null ? "—" : "0.0%") : fmtPct(raw)}</span>
+            {vsSpy && raw != null && <span className="rm-sub">SPY {fmtPct(raw)}</span>}
+          </td>
+        );
+      })}
+      <td className="rm-num rm-v rm-zero">—</td>
+      <td className="rm-num rm-v rm-zero">—</td>
+      <td className="rm-num rm-v rm-zero">—</td>
+      <td className="rm-num rm-v rm-zero">—</td>
+      <td className="rm-num rm-v rm-zero">—</td>
+    </tr>
+  );
+}
+
 function GroupRow({
   g,
   data,
@@ -196,6 +234,7 @@ function GroupRow({
 }) {
   const label = groupLabel(g, groupBy);
   const silent = groupBy === "link" && (g.link === "Context" || g.link === "Bench");
+  const canOpenCard = (groupBy === "link" || groupBy === "card") && g.thesis_id != null;
   return (
     <>
       <tr
@@ -210,11 +249,27 @@ function GroupRow({
           }
         }}
       >
-        <td className="rm-label">
+        <td className="rm-label" title={label}>
           <span className="rm-chev" aria-hidden="true">
             {open ? "▾" : "▸"}
           </span>
-          {label}
+          <span className="rm-label-txt">{label}</span>
+          {canOpenCard && (
+            <button
+              type="button"
+              className="rm-open"
+              aria-label={`Open ${g.thesis_name ?? "card"} in Cockpit`}
+              title={`Open ${g.thesis_name ?? "card"} in Cockpit`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (g.thesis_id) onSelect(g.thesis_id);
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M4.5 2.5H9.5V7.5M9.5 2.5L3 9" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
         </td>
         <td className="rm-num">
           <span className="rm-v">{g.names}</span>
@@ -237,19 +292,24 @@ function GroupRow({
               <span className="rm-sub">
                 {x == null ? `n ${n}` : `${x}/${n} ${vsSpy ? "> SPY" : "up"}`}
               </span>
+              <RatioBar num={x} den={n} />
             </td>
           );
         })}
         <td className="rm-num rm-v">
-          {g.above_50d_n === 0 ? "—" : `${g.above_50d}/${g.above_50d_n}`}
+          <span>{g.above_50d_n === 0 ? "—" : `${g.above_50d}/${g.above_50d_n}`}</span>
+          <RatioBar num={g.above_50d} den={g.above_50d_n} />
         </td>
         <td className="rm-num">
           <span className="rm-v">{fmtRatio(g.rvol20_median)}</span>
           <span className="rm-sub">n {g.rvol20_n}</span>
         </td>
-        <td className="rm-num rm-v">{g.golden > 0 ? `↑ ${g.golden}` : "0"}</td>
-        <td className="rm-num rm-v">{g.death > 0 ? `↓ ${g.death}` : "0"}</td>
-        <td className="rm-num rm-v">{g.rs_n === 0 ? "—" : `${g.rs_leaders}/${g.rs_n}`}</td>
+        <td className={`rm-num rm-v${g.golden === 0 ? " rm-zero" : ""}`}>{g.golden > 0 ? `↑ ${g.golden}` : "—"}</td>
+        <td className={`rm-num rm-v${g.death === 0 ? " rm-zero" : ""}`}>{g.death > 0 ? `↓ ${g.death}` : "—"}</td>
+        <td className="rm-num rm-v">
+          <span>{g.rs_n === 0 ? "—" : `${g.rs_leaders}/${g.rs_n}`}</span>
+          <RatioBar num={g.rs_leaders} den={g.rs_n} />
+        </td>
       </tr>
       {open &&
         sortNames(g.members, sort).map((m) => (
@@ -272,13 +332,21 @@ export default function RotationMap({ asof, onSelectThesis }: DashboardProps) {
   const [vsSpyPick, setVsSpy] = useState(false);
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const [query, setQuery] = useState("");
   const q = useRotationMap(asof, groupBy, includeSilent);
   const data = q.data;
 
-  const groups = useMemo(
-    () => (data ? sortGroups(data.groups, sort, data.group_by, data.min_priced) : []),
-    [data, sort],
-  );
+  const qNorm = query.trim().toLowerCase();
+  const groups = useMemo(() => {
+    if (!data) return [];
+    const sorted = sortGroups(data.groups, sort, data.group_by, data.min_priced);
+    if (!qNorm) return sorted;
+    return sorted.filter(
+      (g) =>
+        groupLabel(g, data.group_by).toLowerCase().includes(qNorm) ||
+        g.members.some((m) => m.ticker.toLowerCase().includes(qNorm)),
+    );
+  }, [data, sort, qNorm]);
 
   if (q.isLoading) {
     return (
@@ -354,6 +422,14 @@ export default function RotationMap({ asof, onSelectThesis }: DashboardProps) {
           />
           Show Context and Bench
         </label>
+        <input
+          type="search"
+          className="rm-search"
+          aria-label="Filter group or ticker"
+          placeholder="Find group or ticker…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
         {q.isFetching && (
           <span className="dash-note">
             {data.asof !== asof
@@ -362,28 +438,22 @@ export default function RotationMap({ asof, onSelectThesis }: DashboardProps) {
           </span>
         )}
       </div>
-      <div className="dash-note rm-work">{workLine(data, groups.length, vsSpy)}</div>
-      <FlaggedNote flagged={data.flagged} />
-      {data.roster_fallback_cards > 0 && (
-        <div className="dash-note rm-work">
-          Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are
-          point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
-        </div>
-      )}
-      <div className="dash-note rm-legend">
-        Each return is the median of the group's priced names, with how many are{" "}
-        {vsSpy ? "above SPY" : "up"} under it; fewer than {data.min_priced} priced shows —. Green / red
-        marks a median in the top / bottom 10% of the groups shown in that column; everything else stays
-        gray. Crosses count a golden / death cross in the last {data.cross_days} days. Click a row for
-        its names.
-      </div>
 
       {groups.length === 0 ? (
-        <div className="dash-note">No companies in this view.</div>
+        <div className="dash-note">{qNorm ? "No group or ticker matches that filter." : "No companies in this view."}</div>
       ) : (
         <div className="rm-scroll">
           <table className="rm-table">
             <thead>
+              <tr className="rm-super" aria-hidden="true">
+                <td colSpan={2}>Group</td>
+                <td colSpan={WINDOWS.length} className="rm-grp-start">
+                  Median returns ({vsSpy ? "vs SPY" : "raw"})
+                </td>
+                <td colSpan={5} className="rm-grp-start">
+                  Breadth, volume &amp; crosses
+                </td>
+              </tr>
               <tr>
                 <SortTh
                   col="label"
@@ -436,6 +506,7 @@ export default function RotationMap({ asof, onSelectThesis }: DashboardProps) {
               </tr>
             </thead>
             <tbody>
+              {data.spy != null && <SpyRow spy={data.spy} vsSpy={vsSpy} />}
               {groups.map((g) => (
                 <GroupRow
                   key={g.key}
@@ -453,6 +524,24 @@ export default function RotationMap({ asof, onSelectThesis }: DashboardProps) {
           </table>
         </div>
       )}
+
+      <div className="rm-foot">
+        <div className="dash-note rm-work">{workLine(data, groups.length, vsSpy)}</div>
+        <FlaggedNote flagged={data.flagged} />
+        {data.roster_fallback_cards > 0 && (
+          <div className="dash-note rm-work">
+            Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are
+            point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
+          </div>
+        )}
+        <div className="dash-note rm-legend">
+          Each return is the median of the group's priced names, with how many are{" "}
+          {vsSpy ? "above SPY" : "up"} under it; fewer than {data.min_priced} priced shows —. Green / red
+          marks a median in the top / bottom 10% of the groups shown in that column; everything else stays
+          gray. Crosses count a golden / death cross in the last {data.cross_days} days. Click a row for
+          its names.
+        </div>
+      </div>
     </div>
   );
 }

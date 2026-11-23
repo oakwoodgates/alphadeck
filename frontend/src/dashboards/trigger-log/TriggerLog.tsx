@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { fmtDate, STATE_CLASS } from "../../util/format";
+import { fmtDate, STATE_CLASS, STATE_LABEL } from "../../util/format";
 import type { DashboardProps } from "../registry";
 import "./trigger-log.css";
 import {
@@ -8,6 +8,7 @@ import {
   DEFAULT_DAYS,
   DEFAULT_FILTERS,
   DEFAULT_ROLE,
+  DEFAULT_SORT,
   GRADE_LABEL,
   GROUP_BYS,
   LIMITS,
@@ -27,9 +28,11 @@ import {
   kindWords,
   labelTitle,
   liveWords,
+  nextSort,
   pct,
   plural,
   roleWords,
+  sortGroupRows,
   sourceView,
   statePair,
   statePairWords,
@@ -37,6 +40,7 @@ import {
   toggleDiscriminates,
   tone,
   turnsWords,
+  weekLabel,
   workLines,
   type Dim,
   type Filters,
@@ -44,6 +48,8 @@ import {
   type GroupBy,
   type Role,
   type Row,
+  type SortKey,
+  type SortState,
   type Toggle,
 } from "./logView";
 import {
@@ -66,10 +72,10 @@ import { RecordStartNote } from "../RecordStartNote";
 
 const SLOW = "Reading the recorded calls — the first load after a run or a basket edit can take a moment.";
 
-const COLUMNS: readonly { key: string; label: string }[] = [
-  { key: "night", label: "recorded" },
-  { key: "fired", label: "fired" },
-  { key: "tk", label: "ticker" },
+const COLUMNS: readonly { key: string; label: string; sortKey?: SortKey }[] = [
+  { key: "night", label: "recorded", sortKey: "night" },
+  { key: "fired", label: "fired", sortKey: "fired" },
+  { key: "tk", label: "ticker", sortKey: "tk" },
   { key: "card", label: "card" },
   { key: "kind", label: "kind" },
   { key: "turns", label: "turns" },
@@ -78,14 +84,14 @@ const COLUMNS: readonly { key: string; label: string }[] = [
   { key: "src", label: "source" },
   { key: "state", label: "state that night" },
   { key: "live", label: "live" },
-  { key: "sess", label: "sessions" },
-  { key: "since", label: "since · IWM" },
+  { key: "sess", label: "sessions", sortKey: "sess" },
+  { key: "since", label: "since · IWM", sortKey: "since" },
 ];
 
 function StateCell({ row }: { row: Row }) {
   const p = statePair(row);
   const word = (s: string) => (
-    <span className={`tl-st ${STATE_CLASS[s] ?? ""}`}>{s}</span>
+    <span className={`tl-st ${STATE_CLASS[s] ?? ""}`}>{STATE_LABEL[s] ?? s}</span>
   );
   return (
     <div role="cell" className="tl-c tl-c-state" data-label="state" aria-label={statePairWords(p)}>
@@ -145,85 +151,233 @@ function SinceCell({ row }: { row: Row }) {
   );
 }
 
-function TriggerRow({ row, onSelectThesis }: { row: Row; onSelectThesis: DashboardProps["onSelectThesis"] }) {
+function TriggerRow({
+  row,
+  expanded,
+  onToggleExpand,
+  onSelectThesis,
+}: {
+  row: Row;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onSelectThesis: DashboardProps["onSelectThesis"];
+}) {
   const note = fireNote(row);
   const grade = row.grade;
+  const sourceDetails = row.sources.filter((s) => s.detail.length > 0);
+  const hasDetails = row.label_changes > 0 || sourceDetails.length > 0;
   return (
-    <div role="row" className={`tl-row${row.newest ? " newest" : ""}`} data-testid="tl-row" data-role={row.role}>
-      <div role="cell" className="tl-c tl-c-night" title={row.recorded_on}>
-        {fmtDate(row.recorded_on)}
-        {row.reconstructed && (
-          <span className="tl-rc" title={RECONSTRUCTED_TITLE} aria-label="reconstructed night">
-            †
-          </span>
-        )}
+    <>
+      <div role="row" className={`tl-row${row.newest ? " newest" : ""}`} data-testid="tl-row" data-role={row.role}>
+        <div role="cell" className="tl-c tl-c-night" title={row.recorded_on}>
+          {fmtDate(row.recorded_on)}
+          {row.reconstructed && (
+            <span className="tl-rc" title={RECONSTRUCTED_TITLE} aria-label="reconstructed night">
+              †
+            </span>
+          )}
+        </div>
+        <div role="cell" className="tl-c tl-c-fired" data-label="fired" title={row.event_date ?? "no fire date stated"}>
+          {row.event_date ? fmtDate(row.event_date) : <span className="tl-quiet">undated</span>}
+          {note && <span className="tl-note">{note}</span>}
+        </div>
+        <div role="cell" className="tl-c tl-c-tk">
+          <button
+            type="button"
+            className="tl-tk"
+            title={`Open ${row.thesis_name}${row.ticker ? ` on ${row.ticker}` : ""}`}
+            onClick={() => onSelectThesis(row.thesis_id, row.ticker ?? row.security_id)}
+          >
+            {row.ticker ?? "—"}
+          </button>
+        </div>
+        <div role="cell" className="tl-c tl-c-card" title={row.thesis_name}>
+          <button
+            type="button"
+            className="tl-chip tl-chip-btn"
+            aria-label={`Open ${row.thesis_name} in the Cockpit`}
+            onClick={() => onSelectThesis(row.thesis_id)}
+          >
+            {row.thesis_name}
+          </button>
+        </div>
+        <div role="cell" className="tl-c tl-c-kind">
+          <span className="tl-role" role="img" aria-label={ROLE_LABEL[row.role]} title={ROLE_LABEL[row.role]}>
+            {ROLE_GLYPH[row.role]}
+          </span>{" "}
+          {kindWords(row.kind)}
+        </div>
+        <div role="cell" className="tl-c tl-c-turns" data-label="turns">
+          {turnsWords(row)}
+        </div>
+        <div role="cell" className="tl-c tl-c-grade" data-label="grade">
+          {grade ?? <span className="tl-quiet">—</span>}
+        </div>
+        <div role="cell" className="tl-c tl-c-label" title={labelTitle(row)}>
+          {row.label}
+        </div>
+        <div role="cell" className="tl-c tl-c-src" data-label="source">
+          {row.sources.length === 0 ? (
+            <span className="tl-quiet" title="no source stated">
+              —
+            </span>
+          ) : (
+            row.sources.map((s, i) => {
+              const v = sourceView(s);
+              return v.href ? (
+                <ExternalLink
+                  key={i}
+                  className="tl-link"
+                  href={v.href}
+                  title={v.title}
+                  ariaLabel={`Open ${row.ticker ?? "the name"} source ${s.ref ?? s.source}`}
+                >
+                  {v.text}
+                </ExternalLink>
+              ) : (
+                <span key={i} className="tl-bar" title={v.title}>
+                  {v.text}
+                </span>
+              );
+            })
+          )}
+          {hasDetails && (
+            <button
+              type="button"
+              className="tl-det-btn"
+              aria-expanded={expanded}
+              aria-label={`${expanded ? "Hide" : "Show"} details for ${row.ticker ?? row.thesis_name}`}
+              onClick={onToggleExpand}
+            >
+              {expanded ? "▾" : "▸"}
+            </button>
+          )}
+        </div>
+        <StateCell row={row} />
+        <div role="cell" className={`tl-c tl-c-live${row.live === true ? " on" : ""}`}>
+          {liveWords(row)}
+        </div>
+        <div role="cell" className="tl-c tl-c-sess" data-label="sessions" title="sessions between the entry bar and the as-of, on IWM's calendar">
+          {row.sessions_since ?? "—"}
+        </div>
+        <SinceCell row={row} />
       </div>
-      <div role="cell" className="tl-c tl-c-fired" data-label="fired" title={row.event_date ?? "no fire date stated"}>
-        {row.event_date ? fmtDate(row.event_date) : <span className="tl-quiet">undated</span>}
-        {note && <span className="tl-note">{note}</span>}
+      {expanded && hasDetails && (
+        <div className="tl-det" data-testid="tl-row-detail">
+          {row.label_changes > 0 && (
+            <div>Label changed {plural(row.label_changes, "time", "times")} after the first night</div>
+          )}
+          {sourceDetails.map((s, i) => (
+            <div key={i}>
+              <span className="tl-det-src">
+                {s.source}
+                {s.ref ? ` · ${s.ref}` : ""}:
+              </span>{" "}
+              {s.detail.join(" · ")}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+const WK_W = 960;
+const WK_H = 42;
+const WK_BASE = 28;
+const WK_MAX = 24;
+
+/** Rule-6-safe monochrome weekly trigger-frequency strip: pure counts (entry triggers bottom, risk signals top),
+ *  click a week bar to filter to that week (click again to clear). Zero-shift fixed-height hover readout. */
+function WeeklyStrip({
+  rows,
+  activeWeek,
+  onPickWeek,
+}: {
+  rows: readonly Row[];
+  activeWeek: string;
+  onPickWeek: (week: string) => void;
+}) {
+  const [hoverWeek, setHoverWeek] = useState<string | null>(null);
+  const weeks = useMemo(() => {
+    const map = new Map<string, { week: string; entry: number; risk: number }>();
+    for (const r of rows) {
+      const cur = map.get(r.week) ?? { week: r.week, entry: 0, risk: 0 };
+      if (r.role === "entry_trigger") cur.entry += 1;
+      else cur.risk += 1;
+      map.set(r.week, cur);
+    }
+    return [...map.values()].sort((a, b) => a.week.localeCompare(b.week));
+  }, [rows]);
+
+  if (weeks.length < 2) return null;
+
+  const maxTotal = Math.max(1, ...weeks.map((w) => w.entry + w.risk));
+  const totalEntry = weeks.reduce((s, w) => s + w.entry, 0);
+  const totalRisk = weeks.reduce((s, w) => s + w.risk, 0);
+  const padL = 6;
+  const padR = 6;
+  const step = (WK_W - padL - padR) / weeks.length;
+  const barW = Math.max(4, Math.min(24, step * 0.65));
+  const hovered = hoverWeek ? weeks.find((w) => w.week === hoverWeek) ?? null : null;
+  const readout = hovered
+    ? `${weekLabel(hovered.week)}: ${roleWords(hovered.entry, hovered.risk)}`
+    : activeWeek
+      ? `Filtered to ${weekLabel(activeWeek)} · click bar again to show all weeks`
+      : "Hover a week to inspect, click to filter";
+
+  return (
+    <div className="tl-weekly" data-testid="tl-weekly">
+      <div className="tl-wk-head">
+        <span className="tl-wk-title">Weekly counts</span>
+        <span className="tl-wk-meta">
+          {roleWords(totalEntry, totalRisk)} · {plural(weeks.length, "week", "weeks")}
+        </span>
       </div>
-      <div role="cell" className="tl-c tl-c-tk">
-        <button
-          type="button"
-          className="tl-tk"
-          title={`Open ${row.thesis_name}${row.ticker ? ` on ${row.ticker}` : ""}`}
-          onClick={() => onSelectThesis(row.thesis_id, row.ticker ?? row.security_id)}
-        >
-          {row.ticker ?? "—"}
-        </button>
+      <div className={`tl-wk-read${hovered || activeWeek ? " active" : ""}`} aria-live="polite">
+        {readout}
       </div>
-      <div role="cell" className="tl-c tl-c-card" title={row.thesis_name}>
-        <span className="tl-chip">{row.thesis_name}</span>
-      </div>
-      <div role="cell" className="tl-c tl-c-kind">
-        <span className="tl-role" role="img" aria-label={ROLE_LABEL[row.role]} title={ROLE_LABEL[row.role]}>
-          {ROLE_GLYPH[row.role]}
-        </span>{" "}
-        {kindWords(row.kind)}
-      </div>
-      <div role="cell" className="tl-c tl-c-turns" data-label="turns">
-        {turnsWords(row)}
-      </div>
-      <div role="cell" className="tl-c tl-c-grade" data-label="grade">
-        {grade ?? <span className="tl-quiet">—</span>}
-      </div>
-      <div role="cell" className="tl-c tl-c-label" title={labelTitle(row)}>
-        {row.label}
-      </div>
-      <div role="cell" className="tl-c tl-c-src" data-label="source">
-        {row.sources.length === 0 ? (
-          <span className="tl-quiet" title="no source stated">
-            —
-          </span>
-        ) : (
-          row.sources.map((s, i) => {
-            const v = sourceView(s);
-            return v.href ? (
-              <ExternalLink
-                key={i}
-                className="tl-link"
-                href={v.href}
-                title={v.title}
-                ariaLabel={`Open ${row.ticker ?? "the name"} source ${s.ref ?? s.source}`}
-              >
-                {v.text}
-              </ExternalLink>
-            ) : (
-              <span key={i} className="tl-bar" title={v.title}>
-                {v.text}
-              </span>
-            );
-          })
-        )}
-      </div>
-      <StateCell row={row} />
-      <div role="cell" className={`tl-c tl-c-live${row.live === true ? " on" : ""}`}>
-        {liveWords(row)}
-      </div>
-      <div role="cell" className="tl-c tl-c-sess" data-label="sessions" title="sessions between the entry bar and the as-of, on IWM's calendar">
-        {row.sessions_since ?? "—"}
-      </div>
-      <SinceCell row={row} />
+      <svg
+        className="tl-wk-svg"
+        viewBox={`0 0 ${WK_W} ${WK_H}`}
+        preserveAspectRatio="xMinYMid meet"
+        role="img"
+        aria-label="Weekly trigger counts"
+        onMouseLeave={() => setHoverWeek(null)}
+      >
+        <line className="tl-wk-axis" x1={padL} x2={WK_W - padR} y1={WK_BASE} y2={WK_BASE} />
+        <text className="tl-wk-tick" x={padL} y={39} textAnchor="start">
+          {fmtDate(weeks[0].week)}
+        </text>
+        <text className="tl-wk-tick" x={WK_W - padR} y={39} textAnchor="end">
+          {fmtDate(weeks[weeks.length - 1].week)}
+        </text>
+        {weeks.map((w, i) => {
+          const cx = padL + (i + 0.5) * step;
+          const total = w.entry + w.risk;
+          const totalH = Math.max(2, (Math.sqrt(total) / Math.sqrt(maxTotal)) * WK_MAX);
+          const entryH = w.entry > 0 ? Math.max(2, (w.entry / total) * totalH) : 0;
+          const riskH = Math.max(0, totalH - entryH);
+          const isOn = activeWeek === w.week;
+          const isDim = activeWeek !== "" && !isOn;
+          return (
+            <g
+              key={w.week}
+              className={`tl-wk-bar${hoverWeek === w.week || isOn ? " hi" : ""}${isDim ? " dim" : ""}`}
+              onMouseEnter={() => setHoverWeek(w.week)}
+              onClick={() => onPickWeek(isOn ? "" : w.week)}
+            >
+              <rect className="tl-wk-hit" x={cx - step / 2} y={2} width={step} height={WK_BASE} />
+              {riskH > 0 && (
+                <rect className="tl-wk-risk" x={cx - barW / 2} y={WK_BASE - entryH - riskH} width={barW} height={riskH} rx={1} />
+              )}
+              {entryH > 0 && (
+                <rect className="tl-wk-entry" x={cx - barW / 2} y={WK_BASE - entryH} width={barW} height={entryH} rx={1} />
+              )}
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -314,13 +468,19 @@ export default function TriggerLog({ asof, onSelectThesis }: DashboardProps) {
   const [days, setDays] = useState<TriggerLogDays>(DEFAULT_DAYS);
   const [role, setRole] = useState<TriggerLogRole>(DEFAULT_ROLE);
   const [groupBy, setGroupBy] = useState<GroupBy>("week");
+  const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(new Set());
   const q = useTriggerLog(asof, days, role);
   const data: TriggerLogOut | undefined = q.data;
   const rows = useMemo(() => data?.rows ?? [], [data]);
 
   const filtered = useMemo(() => filterRows(rows, filters), [rows, filters]);
-  const groups = useMemo(() => groupRows(filtered, groupBy), [filtered, groupBy]);
+  const groups = useMemo(
+    () => groupRows(filtered, groupBy).map((g) => ({ ...g, rows: sortGroupRows(g.rows, sort) })),
+    [filtered, groupBy, sort],
+  );
   const filtering = filtersActive(filters);
   const stale = data != null && (data.asof !== asof || data.window_days !== days || data.role !== role);
 
@@ -358,18 +518,26 @@ export default function TriggerLog({ asof, onSelectThesis }: DashboardProps) {
         </div>
         <div className="tl-seg" role="group" aria-label="Load">
           <span className="tl-seg-label">Load</span>
-          {ROLE_OPTIONS.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              className={`tl-chipbtn${role === o.value ? " on" : ""}`}
-              aria-pressed={role === o.value}
-              title={o.title}
-              onClick={() => setRole(o.value)}
-            >
-              {o.label}
-            </button>
-          ))}
+          {ROLE_OPTIONS.map((o) => {
+            const otherHint =
+              data &&
+              ((data.role === "entry" && o.value === "risk") || (data.role === "risk" && o.value === "entry")) &&
+              data.counts.other_role_rows > 0
+                ? ` (${data.counts.other_role_rows.toLocaleString("en-US")} in window)`
+                : "";
+            return (
+              <button
+                key={o.value}
+                type="button"
+                className={`tl-chipbtn${role === o.value ? " on" : ""}`}
+                aria-pressed={role === o.value}
+                title={`${o.title}${otherHint}`}
+                onClick={() => setRole(o.value)}
+              >
+                {o.label}
+              </button>
+            );
+          })}
         </div>
         <div className="tl-seg" role="group" aria-label="Group by">
           <span className="tl-seg-label">Group</span>
@@ -395,7 +563,25 @@ export default function TriggerLog({ asof, onSelectThesis }: DashboardProps) {
       ) : (
         <>
           <RecordStartNote empty={data.rows.length === 0} />
+          <WeeklyStrip
+            rows={rows}
+            activeWeek={filters.week ?? ""}
+            onPickWeek={(week) => setFilters((f) => ({ ...f, week }))}
+          />
           <div className="tl-filters">
+            {rows.length > 1 && (
+              <label className="tl-field">
+                <span className="tl-seg-label">Search</span>
+                <input
+                  type="search"
+                  className="tl-search"
+                  aria-label="Find ticker or label"
+                  placeholder="Ticker or label"
+                  value={filters.text ?? ""}
+                  onChange={(e) => setFilters((f) => ({ ...f, text: e.target.value }))}
+                />
+              </label>
+            )}
             <Chips
               dim="role"
               label="Role"
@@ -478,38 +664,76 @@ export default function TriggerLog({ asof, onSelectThesis }: DashboardProps) {
             <div className="tl-scroll">
               <div className="tl-table" role="table" aria-label="Triggers">
                 <div className="tl-head" role="row">
-                  {COLUMNS.map((c) => (
-                    <div key={c.key} role="columnheader" className={`tl-h tl-c-${c.key}`}>
-                      {c.label}
-                    </div>
-                  ))}
-                </div>
-                {groups.map((g) => (
-                  <div key={g.key} role="rowgroup" aria-label={g.label}>
-                    <div className="tl-gh" role="row">
-                      <div role="columnheader" aria-colspan={COLUMNS.length} className="tl-gh-cell">
-                        {g.thesisId ? (
+                  {COLUMNS.map((c) => {
+                    const isSorted = c.sortKey != null && sort.key === c.sortKey;
+                    return (
+                      <div
+                        key={c.key}
+                        role="columnheader"
+                        className={`tl-h tl-c-${c.key}`}
+                        aria-sort={isSorted ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
+                      >
+                        {c.sortKey ? (
                           <button
                             type="button"
-                            className="tl-cardname"
-                            title={`Open ${g.label} in the Cockpit`}
-                            onClick={() => onSelectThesis(g.thesisId as string)}
+                            className={`tl-sort${isSorted ? " on" : ""}`}
+                            onClick={() => setSort((s) => nextSort(s, c.sortKey!))}
                           >
-                            {g.label}
+                            {c.label}
+                            {isSorted && <span className="tl-sort-arr">{sort.dir === "asc" ? " ↑" : " ↓"}</span>}
                           </button>
                         ) : (
-                          <span className="tl-gname" title={groupBy === "week" ? g.key : undefined}>
-                            {g.label}
-                          </span>
+                          c.label
                         )}
-                        <span className="tl-n">{roleWords(g.entry, g.risk)}</span>
                       </div>
+                    );
+                  })}
+                </div>
+                {groups.map((g) => {
+                  const isFolded = collapsed.has(g.key);
+                  return (
+                    <div key={g.key} role="rowgroup" aria-label={g.label}>
+                      <div className="tl-gh" role="row">
+                        <div role="columnheader" aria-colspan={COLUMNS.length} className="tl-gh-cell">
+                          <button
+                            type="button"
+                            className="tl-gfold"
+                            aria-expanded={!isFolded}
+                            aria-label={`${isFolded ? "Expand" : "Collapse"} ${g.label}`}
+                            onClick={() => setCollapsed((s) => toggled(s, g.key))}
+                          >
+                            {isFolded ? "▸" : "▾"}
+                          </button>
+                          {g.thesisId ? (
+                            <button
+                              type="button"
+                              className="tl-cardname"
+                              title={`Open ${g.label} in the Cockpit`}
+                              onClick={() => onSelectThesis(g.thesisId as string)}
+                            >
+                              {g.label}
+                            </button>
+                          ) : (
+                            <span className="tl-gname" title={groupBy === "week" ? g.key : undefined}>
+                              {g.label}
+                            </span>
+                          )}
+                          <span className="tl-n">{roleWords(g.entry, g.risk)}</span>
+                        </div>
+                      </div>
+                      {!isFolded &&
+                        g.rows.map((r) => (
+                          <TriggerRow
+                            key={r.key}
+                            row={r}
+                            expanded={expandedRows.has(r.key)}
+                            onToggleExpand={() => setExpandedRows((s) => toggled(s, r.key))}
+                            onSelectThesis={onSelectThesis}
+                          />
+                        ))}
                     </div>
-                    {g.rows.map((r) => (
-                      <TriggerRow key={r.key} row={r} onSelectThesis={onSelectThesis} />
-                    ))}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

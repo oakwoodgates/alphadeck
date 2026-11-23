@@ -9,8 +9,14 @@
 .sn-check input { accent-color: var(--txt-3); margin: 0; }
 .sn-toggle { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
 .sn-toggle:hover { color: var(--txt-2); }
-.sn-toggle.on { color: var(--txt); background: var(--panel-2); }
-.sn-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.sn-toggle.on { color: var(--warm); border-color: color-mix(in srgb, var(--warm) 55%, var(--line-2)); background: color-mix(in srgb, var(--warm) 10%, var(--panel)); }
+.sn-search, .sn-select { font: inherit; font-size: 11px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; }
+.sn-search { width: 195px; }
+.sn-search::placeholder { color: var(--txt-4); }
+.sn-select { max-width: 220px; }
+.sn-select option { background: var(--panel); color: var(--txt-2); }
+.sn-work, .sn-denom { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.sn-denom { opacity: 0.85; }
 
 .sn-sec { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; scroll-margin-top: 12px; }
 .sn-h { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: center; }
@@ -21,15 +27,25 @@
 .sn-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .sn-clear:hover { color: var(--txt); }
 
-table.sn-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-table.sn-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.sn-main-scroll { max-height: 68vh; overflow: auto; border-top: 1px solid var(--line); }
+table.sn-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.sn-table thead th { position: sticky; top: 0; z-index: 2; background: var(--bg); text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); font-weight: 600; padding: 6px 10px 7px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+.sn-main-scroll table.sn-table thead th:first-child { left: 0; z-index: 3; padding-left: 4px; border-right: 1px solid var(--line); }
 table.sn-table td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.sn-main-scroll table.sn-table tbody td:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg); padding-left: 6px; border-right: 1px solid var(--line); }
+table.sn-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 55%, var(--bg)); }
+.sn-main-scroll table.sn-table tbody tr:hover td:first-child { background: var(--panel); }
+table.sn-table tbody tr.is-opp td:first-child { border-left: 2px solid var(--warm); }
 table.sn-table .tk { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
 table.sn-table .co { color: var(--txt-2); }
 table.sn-table .sn-num { text-align: right; padding-right: 16px; }
 table.sn-table td.sn-num { font-family: var(--mono); color: var(--txt-2); }
+.sn-sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.sn-sort:hover, .sn-sort.on { color: var(--txt); }
+.sn-bar { display: block; width: 42px; height: 3px; margin: 3px 0 0 auto; border-radius: 1.5px; background: var(--panel-2); overflow: hidden; }
+.sn-bar-fill { display: block; height: 100%; background: var(--txt-3); border-radius: 1.5px; }
 .sn-co-name { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sn-opp { display: block; margin-top: 3px; font-family: var(--sans); font-weight: 400; font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-3); cursor: help; }
+.sn-opp { display: block; margin-top: 3px; font-family: var(--sans); font-weight: 600; font-size: 9.5px; letter-spacing: 0.02em; color: var(--warm); cursor: help; }
 
 /* the flex wrapper sits INSIDE the cell: a flex td stops being a table cell and its border drifts off the row */
 .sn-chips { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -40,6 +56,7 @@ table.sn-table td.sn-num { font-family: var(--mono); color: var(--txt-2); }
 .sn-chip .silent-tag, .sn-chip .role-tag { margin-left: 0; }
 /* a membership that never counts (Context / Bench) is the quietest chip, like its Cockpit row */
 .sn-chip.quiet { border-style: dashed; color: var(--txt-3); background: transparent; }
+.sn-chip.is-counter { border-color: color-mix(in srgb, var(--warm) 50%, var(--line-2)); }
 
 .sn-pairs-scroll { max-height: 420px; overflow: auto; }
 .sn-pairs-scroll table.sn-table thead th { position: sticky; top: 0; background: var(--bg); z-index: 1; padding-top: 2px; }

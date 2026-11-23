@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 210,
   label: "Trigger Log",
   description: "Every entry trigger and risk signal the record shows firing across the cards in the last 90 days, newest first, with its source, the state it moved, and what the name's tape did after.",
+  group: "filings",
   status: "experimental",
   asofAware: true,
   readsRecord: true,

@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 30,
   label: "Rotation Map",
   description: "Which links, business types and sectors are moving: returns, breadth, volume and crosses by group.",
+  group: "rotation",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./RotationMap")),

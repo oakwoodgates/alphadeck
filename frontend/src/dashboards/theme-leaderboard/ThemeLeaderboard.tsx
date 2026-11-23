@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
@@ -19,6 +19,7 @@ import {
   cardMatches,
   filterControls,
   filtersActive,
+  hasScoredFilter,
   insidersCell,
   keysCell,
   namesCell,
@@ -39,7 +40,7 @@ import {
   type SortKey,
   type StateKey,
 } from "./boardView";
-import { scoreByKey, type Score } from "./score";
+import { PARTS, scoreByKey, type Score } from "./score";
 import { useThemeLeaderboard, type LeaderboardCardOut } from "./useThemeLeaderboard";
 import { RecordStartNote } from "../RecordStartNote";
 
@@ -51,27 +52,27 @@ import { RecordStartNote } from "../RecordStartNote";
 // exception: the sign tone only on the signed tape figures, the Board's state color only on a state chip, no accent
 // (this page has no exception to mark).
 
-type Column = { key: SortKey; label: string; title: string; num?: boolean };
+type Column = { key: SortKey; label: string; title: string; num?: boolean; part?: boolean; gstart?: boolean; card?: boolean };
 
 const COLUMNS: readonly Column[] = [
-  { key: "card", label: "Card", title: "Sort by the card's name. Click a name to open the card" },
+  { key: "card", label: "Card", title: "Sort by the card's name. Click a name to open the card", card: true },
   { key: "state", label: "State", title: "The state of the card's recorded call in effect at the as-of (R: a night rebuilt by the backfill)" },
   { key: "score", label: "Score (stated formula)", title: "Sort by score: the mean of five percentiles among the cards shown", num: true },
-  { key: "tape", label: "30D vs IWM", title: "Tape: the median 30-day return of the card's priced counting names minus IWM's, in percentage points", num: true },
-  { key: "breadth", label: "Above 50d", title: "Breadth: the counting names above their 50-day average, x/n", num: true },
+  { key: "tape", label: "30D vs IWM", title: "Tape: the median 30-day return of the card's priced counting names minus IWM's, in percentage points", num: true, part: true, gstart: true },
+  { key: "breadth", label: "Above 50d", title: "Breadth: the counting names above their 50-day average, x/n", num: true, part: true },
   { key: "above200", label: "Above 200d", title: "The counting names above their 200-day average, x/n (beside the breadth part, not one of the five)", num: true },
-  { key: "keys", label: "Keys", title: "Keys: how many of the two keys the recorded call has turned (Managing counts as 2)", num: true },
-  { key: "adoption", label: "Adoption", title: "Adoption: the slope of the documents mentioning the card's SIGNAL terms, the last three closed months against the three before", num: true },
-  { key: "insiders", label: "Buyers 30d", title: "Insiders: distinct open-market buyers in the last 30 days, summed across the counting names", num: true },
-  { key: "names", label: "Names", title: "Names priced / counting (Context and Bench never count); flagged price histories are left out of every price reading", num: true },
+  { key: "keys", label: "Keys", title: "Keys: how many of the two keys the recorded call has turned (Managing counts as 2)", num: true, part: true },
+  { key: "adoption", label: "Adoption", title: "Adoption: the slope of the documents mentioning the card's SIGNAL terms, the last three closed months against the three before", num: true, part: true },
+  { key: "insiders", label: "Buyers 30d", title: "Insiders: distinct open-market buyers in the last 30 days, summed across the counting names", num: true, part: true },
+  { key: "names", label: "Names", title: "Names priced / counting (Context and Bench never count); flagged price histories are left out of every price reading", num: true, gstart: true },
   { key: "ret7", label: "7D", title: "The median 7-day return of the priced counting names", num: true },
   { key: "rs", label: "RS leaders", title: "Counting names whose relative strength is at a 13-week high, of those with a reading", num: true },
-  { key: "nano", label: "nano", title: "Counting names in the nano band (approximate cap under $50M)", num: true },
+  { key: "nano", label: "nano", title: "Counting names in the nano band (approximate cap under $50M)", num: true, gstart: true },
   { key: "micro", label: "micro", title: "Counting names in the micro band (approximate cap $50M to $300M)", num: true },
   { key: "small", label: "small", title: "Counting names in the small band (approximate cap $300M to $2B)", num: true },
   { key: "mid", label: "mid", title: "Counting names in the mid band (approximate cap $2B to $10B)", num: true },
   { key: "large", label: "large", title: "Counting names in the large band (approximate cap $10B or more)", num: true },
-  { key: "armed", label: "Armed", title: "The armed names on the recorded call, for an Armed card", num: true },
+  { key: "armed", label: "Armed", title: "The armed names on the recorded call, for an Armed card", num: true, gstart: true },
 ];
 
 const SLOW =
@@ -79,8 +80,16 @@ const SLOW =
 
 function SortTh({ col, sort, onSort }: { col: Column; sort: Sort; onSort: (key: SortKey) => void }) {
   const on = sort.key === col.key;
+  const cls = [
+    col.num ? "tl-num" : "",
+    col.card ? "tl-th-card" : "",
+    col.part ? "tl-th-part" : "",
+    col.gstart ? "tl-gstart" : "",
+  ]
+    .filter(Boolean)
+    .join(" ") || undefined;
   return (
-    <th className={col.num ? "tl-num" : undefined} aria-sort={on ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+    <th className={cls} aria-sort={on ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
       <button type="button" className={`tl-sort${on ? " on" : ""}`} title={col.title} onClick={() => onSort(col.key)}>
         {col.label}
         {on && (
@@ -93,13 +102,65 @@ function SortTh({ col, sort, onSort }: { col: Column; sort: Sort; onSort: (key: 
   );
 }
 
-function CellTd({ cell, label, part }: { cell: Cell; label: string; part?: boolean }) {
-  const cls = ["tl-cell", cell.tone ?? "", cell.gray ? "gray" : ""].filter(Boolean).join(" ");
+/** Five-bar neutral equalizer for the five score percentiles (tape, breadth, keys, adoption, insiders); zero text nodes. */
+function ScoreEq({ score }: { score: Score }) {
   return (
-    <td className={`tl-num${part ? " tl-part" : ""}`} data-label={label}>
+    <span className="tl-eq" aria-hidden="true">
+      {PARTS.map((p) => {
+        const v = score[p];
+        const pct = v == null ? 0 : Math.max(12, Math.round(v * 100));
+        return (
+          <span key={p} className="tl-eq-slot">
+            <span className={`tl-eq-bar${v == null ? " blank" : ""}`} style={{ height: `${pct}%` }} />
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/** Two quiet pips showing conviction + confirmation keys turned (zero text nodes). */
+function KeyPips({ c }: { c: LeaderboardCardOut }) {
+  if (c.keys.turned === null) return null;
+  const managing = c.state === "managing";
+  const conv = managing || c.keys.conviction;
+  const conf = managing || c.keys.confirmation;
+  return (
+    <span className="tl-pips" aria-hidden="true">
+      <span className={`tl-pip${conv ? " on" : ""}`} />
+      <span className={`tl-pip${conf ? " on" : ""}`} />
+    </span>
+  );
+}
+
+function CellTd({
+  cell,
+  label,
+  part,
+  gstart,
+  ratio,
+  prefix,
+}: {
+  cell: Cell;
+  label: string;
+  part?: boolean;
+  gstart?: boolean;
+  ratio?: number | null;
+  prefix?: ReactNode;
+}) {
+  const cls = ["tl-cell", cell.tone ?? "", cell.gray ? "gray" : ""].filter(Boolean).join(" ");
+  const tdCls = ["tl-num", part ? "tl-part" : "", gstart ? "tl-gstart" : ""].filter(Boolean).join(" ");
+  return (
+    <td className={tdCls} data-label={label}>
+      {prefix}
       <span className={cls} title={cell.title}>
         {cell.text}
       </span>
+      {ratio != null && (
+        <span className="tl-ratio" aria-hidden="true">
+          <span className="tl-ratio-fill" style={{ width: `${Math.max(0, Math.min(100, Math.round(ratio * 100)))}%` }} />
+        </span>
+      )}
       {cell.note && (
         <>
           {" "}
@@ -122,6 +183,9 @@ type RowProps = {
 const Row = memo(function Row({ c, score, ctx, onSelectThesis }: RowProps) {
   const state = stateOf(c);
   const total = score?.score ?? null;
+  const breadth50Ratio = c.breadth.counted > 0 && c.breadth.pct != null ? c.breadth.above / c.breadth.counted : null;
+  const breadth200Ratio = c.breadth.n_200 > 0 ? c.breadth.above_200 / c.breadth.n_200 : null;
+  const rsRatio = c.rs_n > 0 ? c.rs_leaders / c.rs_n : null;
   return (
     <tr data-testid="tl-row" className="tl-row">
       <td className="tl-td-card" data-label="Card">
@@ -145,22 +209,23 @@ const Row = memo(function Row({ c, score, ctx, onSelectThesis }: RowProps) {
       <td className="tl-num tl-td-score" data-label="Score">
         <span className="tl-score" title={scoreTitle(score)}>
           {total !== null && <span className="tl-score-bar" style={{ width: `${Math.max(0, Math.min(100, total))}%` }} />}
+          {total !== null && score && <ScoreEq score={score} />}
           <span className={`tl-score-n${total === null ? " gray" : ""}`}>{scoreText(score)}</span>
         </span>
       </td>
-      <CellTd label="30D vs IWM" cell={tapeCell(c, ctx)} part />
-      <CellTd label="Above 50d" cell={breadthCell(c)} part />
-      <CellTd label="Above 200d" cell={above200Cell(c)} />
-      <CellTd label="Keys" cell={keysCell(c)} part />
+      <CellTd label="30D vs IWM" cell={tapeCell(c, ctx)} part gstart />
+      <CellTd label="Above 50d" cell={breadthCell(c)} part ratio={breadth50Ratio} />
+      <CellTd label="Above 200d" cell={above200Cell(c)} ratio={breadth200Ratio} />
+      <CellTd label="Keys" cell={keysCell(c)} part prefix={<KeyPips c={c} />} />
       <CellTd label="Adoption" cell={adoptionCell(c, ctx)} part />
       <CellTd label="Buyers 30d" cell={insidersCell(c)} part />
-      <CellTd label="Names" cell={namesCell(c)} />
+      <CellTd label="Names" cell={namesCell(c)} gstart />
       <CellTd label="7D" cell={ret7Cell(c, ctx)} />
-      <CellTd label="RS leaders" cell={rsCell(c)} />
-      {CAP_TIERS.map((tier) => (
-        <CellTd key={tier} label={tier} cell={capCell(c, tier)} />
+      <CellTd label="RS leaders" cell={rsCell(c)} ratio={rsRatio} />
+      {CAP_TIERS.map((tier, idx) => (
+        <CellTd key={tier} label={tier} cell={capCell(c, tier)} gstart={idx === 0} />
       ))}
-      <CellTd label="Armed" cell={armedCell(c)} />
+      <CellTd label="Armed" cell={armedCell(c)} gstart />
     </tr>
   );
 });
@@ -172,6 +237,7 @@ export default function ThemeLeaderboard({ asof, onSelectThesis }: DashboardProp
   const data = q.data;
 
   const controls = useMemo(() => filterControls(data?.cards ?? []), [data]);
+  const showScoredFilter = useMemo(() => hasScoredFilter(data?.cards ?? []), [data]);
   const shown = useMemo(() => (data?.cards ?? []).filter((c) => cardMatches(c, filters)), [data, filters]);
   // the score is among the cards SHOWN: a filter changes it
   const scores = useMemo(() => scoreByKey(shown), [shown]);
@@ -222,6 +288,16 @@ export default function ThemeLeaderboard({ asof, onSelectThesis }: DashboardProp
             has adoption months
           </label>
         )}
+        {showScoredFilter && (
+          <label className="tl-check" title="Only cards with all five score inputs present">
+            <input
+              type="checkbox"
+              checked={Boolean(filters.scoredOnly)}
+              onChange={(e) => setFilters((f) => ({ ...f, scoredOnly: e.target.checked }))}
+            />
+            scored only
+          </label>
+        )}
         {controls.search && (
           <input
             type="search"
@@ -261,6 +337,14 @@ export default function ThemeLeaderboard({ asof, onSelectThesis }: DashboardProp
         <div className="tl-scroll">
           <table className="tl-table">
             <thead>
+              <tr className="tl-grp-row" aria-hidden="true">
+                <td className="tl-grp tl-grp-card">Card</td>
+                <td className="tl-grp" colSpan={2}>State &amp; score</td>
+                <td className="tl-grp tl-gstart" colSpan={6}>Five formula parts (+ 200d)</td>
+                <td className="tl-grp tl-gstart" colSpan={3}>Tape context</td>
+                <td className="tl-grp tl-gstart" colSpan={5}>Cap mix (display slice)</td>
+                <td className="tl-grp tl-gstart">Calls</td>
+              </tr>
               <tr>
                 {COLUMNS.map((c) => (
                   <SortTh key={c.key} col={c} sort={sort} onSort={onSort} />

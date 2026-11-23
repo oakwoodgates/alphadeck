@@ -17,6 +17,41 @@
 .el-seg-btn.on { color: var(--txt); background: var(--panel-2); }
 .el-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
 .el-check input { accent-color: var(--txt-3); margin: 0; }
+.el-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.el-clear:hover { color: var(--txt); }
+
+/* monochrome provenance composition strip + roster strip */
+.el-comp { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 18px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--panel) 65%, transparent); margin-top: 2px; }
+.el-comp-block { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.el-comp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.el-comp-title { font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-3); }
+.el-comp-total { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); font-variant-numeric: tabular-nums; }
+.el-comp-bar { display: flex; height: 7px; border-radius: 3px; overflow: hidden; gap: 1px; background: var(--line); }
+.el-comp-seg { border: 0; padding: 0; margin: 0; min-width: 3px; cursor: pointer; }
+.el-comp-seg.static { cursor: default; }
+.el-comp-seg-0 { background: var(--txt); }
+.el-comp-seg-1 { background: var(--txt-2); }
+.el-comp-seg-2 { background: var(--txt-3); }
+.el-comp-seg-3 { background: var(--txt-4); }
+.el-comp-seg-4 { background: var(--line-2); }
+.el-comp-seg.dim { opacity: 0.25; }
+.el-comp-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; font-family: var(--mono); font-size: 10px; color: var(--txt-3); font-variant-numeric: tabular-nums; }
+.el-comp-item { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.el-comp-item.static { cursor: default; }
+.el-comp-item:hover:not(.static) { color: var(--txt); }
+.el-comp-item.dim { opacity: 0.45; }
+.el-comp-sw { width: 6px; height: 6px; border-radius: 1.5px; flex: 0 0 auto; }
+
+.el-roster { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 2px 0; }
+.el-roster-chip { display: inline-flex; align-items: baseline; gap: 4px; font-family: var(--mono); font-size: 10px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 6px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.el-roster-chip:hover { color: var(--txt); border-color: var(--txt-3); background: var(--panel); }
+.el-roster-chip.on { color: var(--txt); background: var(--panel-2); border-color: var(--txt-3); }
+.el-roster-chip.quiet { color: var(--txt-4); border-style: dashed; border-color: var(--line); }
+.el-roster-chip.quiet:hover { color: var(--txt-2); }
+.el-roster-ct { font-size: 9.5px; color: var(--txt-3); }
+.el-roster-chip.quiet .el-roster-ct { color: var(--txt-4); }
+.el-roster-more { font: inherit; font-size: 10px; color: var(--txt-3); background: none; border: 0; padding: 1px 4px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.el-roster-more:hover { color: var(--txt); }
 
 .el-title { display: flex; align-items: baseline; gap: 10px; margin-top: 2px; }
 .el-card { font: inherit; font-size: 14px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; }
@@ -28,16 +63,20 @@
 
 /* the ledger: the standing section, then a day header over its rows */
 .el-ledger { display: flex; flex-direction: column; gap: 14px; margin-top: 6px; }
+.el-day-wrap { display: flex; flex-direction: column; gap: 14px; }
+.el-asof-divider { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); margin: 2px 0; }
+.el-asof-divider::before, .el-asof-divider::after { content: ""; flex: 1; border-top: 1px dashed var(--line-2); }
 .el-day-head { margin: 0 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--txt-2); letter-spacing: 0.02em; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .el-sub { font-size: 10.5px; font-weight: 400; color: var(--txt-4); letter-spacing: 0; }
 .el-list { list-style: none; margin: 0; padding: 0; }
 .el-row { padding: 2px 0; }
-.el-line { display: grid; grid-template-columns: 62px 104px minmax(0, 1fr) 62px; align-items: baseline; gap: 0 10px; }
+.el-line { display: grid; grid-template-columns: 62px 104px minmax(0, 1fr) 86px 96px; align-items: baseline; gap: 0 10px; }
 .el-chip { justify-self: start; font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
 .el-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
 .el-chip.none { border: 0; cursor: default; }
 .el-form { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .el-main { min-width: 0; font-size: 12px; line-height: 1.45; color: var(--txt-2); }
+.el-recon { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); border: 1px dashed var(--line-2); border-radius: 4px; padding: 0 4px; white-space: nowrap; }
 /* Interaction states are NEUTRAL, never a state color (#7 / WB#3: loudness marks the exception, not hover or open).
    Every state of the headline and the source link is set here from the text tokens, so none is left to a browser
    default (a button's :active, a link's :visited / :active): rest = --txt-2, hover and open = the brighter --txt
@@ -49,9 +88,13 @@
 .el-head.plain, .el-head.plain:hover { cursor: default; color: var(--txt-2); text-decoration: none; }
 .el-row.open { background: color-mix(in srgb, var(--panel) 70%, transparent); border-radius: 4px; }
 .el-chev { display: inline-block; width: 12px; color: var(--txt-4); font-size: 10px; }
-.el-tag { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); white-space: nowrap; }
+.el-auth-col { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 6px; }
+.el-tag { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); white-space: nowrap; }
+.el-src-col { display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; white-space: nowrap; }
 .el-src, .el-src:visited, .el-src:active { font-family: var(--mono); font-size: 10px; color: var(--txt-3); text-align: right; text-decoration: none; white-space: nowrap; }
 .el-src:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+.el-src-more { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
+.el-src-kind { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); font-style: italic; }
 
 /* the expanded row: an indented block under its line */
 .el-detail { margin: 3px 0 6px 72px; padding-left: 12px; border-left: 1px solid var(--line); font-size: 11.5px; line-height: 1.5; color: var(--txt-3); font-variant-numeric: tabular-nums; }
@@ -68,10 +111,11 @@
 @media (max-width: 640px) {
   .el-search { width: 110px; }
   .el-select { max-width: 220px; }
-  .el-line { grid-template-columns: 62px minmax(0, 1fr) auto; row-gap: 1px; }
+  .el-line { grid-template-columns: 62px minmax(0, 1fr) auto auto; row-gap: 1px; }
   .el-chip { grid-column: 1; grid-row: 1 / span 2; align-self: start; }
   .el-form { grid-column: 2; grid-row: 1; }
-  .el-src { grid-column: 3; grid-row: 1; }
+  .el-auth-col { grid-column: 3; grid-row: 1; }
+  .el-src-col { grid-column: 4; grid-row: 1; }
   .el-src.none { display: none; }
   .el-main { grid-column: 2 / -1; grid-row: 2; }
   .el-detail { margin-left: 24px; }

@@ -282,4 +282,27 @@ describe("the page", () => {
     expect(container.textContent ?? "").not.toMatch(/\b(early|crowded)\b/i);
     expect(counted("2026-09-01", {}).month).toBe("2026-09-01"); // the fixture builders stay in use
   });
+
+  it("toggles form groups, switches to 100% share mode, pins a month on click, and sorts the term table", async () => {
+    setup();
+    // Toggle off Reports — Sep 2026 should lose its reports segment
+    await userEvent.click(screen.getByRole("button", { name: "Reports" }));
+    const sepBar = within(panel("docs")).getAllByTestId("na-bar").find((b) => b.getAttribute("data-index") === "35")!;
+    expect(sepBar.querySelector(".na-g-reports")).toBeNull();
+    // Switch to 100% share mode
+    await userEvent.click(screen.getByRole("button", { name: "100%" }));
+    expect(within(panel("docs")).getByText("100%")).toBeInTheDocument();
+    // Click to pin a month — stays in readout after leaving frame
+    await userEvent.click(hitAt("docs", "2026-09-01"));
+    await userEvent.unhover(screen.getByTestId("na-frame"));
+    expect(readout()).toHaveTextContent("Sep 2026: 54 documents");
+    await userEvent.click(screen.getByRole("button", { name: /pinned · clear/ }));
+    expect(readout()).toHaveTextContent("Hover a month for its counts");
+    // Sort term table by Last month ascending (click twice: desc then asc)
+    const lastCol = screen.getByRole("columnheader", { name: /Last month/ });
+    await userEvent.click(within(lastCol).getByRole("button"));
+    await userEvent.click(within(lastCol).getByRole("button"));
+    const rows = screen.getAllByTestId("na-term");
+    expect(rows.map((r) => within(r).getAllByRole("cell")[0].textContent)).toEqual(["beta", "alpha", "gamma"]);
+  });
 });

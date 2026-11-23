@@ -10,6 +10,7 @@ export const entry: DashboardEntry = {
   order: 270,
   label: "Market Map",
   description: "A heat map of every company on the cards: tiles sized by market cap, colored by the return over a chosen window.",
+  group: "chain",
   status: "experimental",
   asofAware: true,
   layout: "page",
