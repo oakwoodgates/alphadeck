@@ -61,12 +61,17 @@ pieces drop when its stamp moves (above); a soft move keeps them. At most ``MAX_
 ``(workspace, asof, clock, known_at)`` are kept, the least recently used group evicted whole. The pieces' readers live in ``dashboards.baskets``.
 
 Display only (rule 1): this module READS the run artifacts, ``data_repair``, ``basket_snapshot``, ``thesis``,
-``security_change`` and (for the benchmark ids) ``security_master``; it writes nothing anywhere but its own
-in-memory dict.
+``security_change`` and (for the benchmark ids) ``security_master``; it writes nothing to the database (only
+its own in-memory store and optional fail-open disk cache for top-level page entries).
 """
 
 from __future__ import annotations
 
+import functools
+import hashlib
+import os
+import pickle
+import tempfile
 import threading
 import time
 from collections import OrderedDict
@@ -74,6 +79,7 @@ from collections.abc import Callable, Hashable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Generic, Literal, NamedTuple, TypeVar
 from uuid import UUID
 
@@ -81,6 +87,7 @@ import psycopg
 
 from db.change_stamp import stamp_fingerprint, stamp_map
 from domain.scopes import DATA_TENANT_ID
+from domain.settings import get_settings
 from pipeline.cron_run_log import list_run_logs
 from signals.display.relative_strength import BENCHMARKS
 
@@ -89,6 +96,37 @@ T = TypeVar("T")
 MAX_ENTRIES = 64
 # piece groups kept, each one ``(workspace, asof, clock, known_at)``: the least recently used goes whole
 MAX_PIECE_GROUPS = 3
+
+DEFAULT_DISK_DIR = Path(__file__).resolve().parents[2] / "data" / "dashboard_cache"
+DISK_CACHE_ENV = "ALPHADECK_DASHBOARD_DISK_CACHE"
+
+
+@functools.lru_cache(maxsize=1)
+def code_fingerprint() -> tuple[str | None, int]:
+    """Process-stable fingerprint of the dashboard code: ``(image_sha, max_mtime_ns)``.
+
+    A new prod image SHA or any live file edit under ``--reload`` in dev moves this value so stale disk
+    entries from an earlier build or edit are never served.
+    """
+    image_sha = get_settings().image_sha
+    backend_dir = Path(__file__).resolve().parents[1]
+    roots = (
+        Path(__file__).resolve().parent,
+        backend_dir / "app" / "routers" / "dashboards",
+    )
+    max_mtime_ns = 0
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*.py"):
+            try:
+                mtime = p.stat().st_mtime_ns
+            except OSError:
+                continue
+            if mtime > max_mtime_ns:
+                max_mtime_ns = mtime
+    return (image_sha, max_mtime_ns)
+
 
 CacheStatus = Literal["hit", "computed"]
 Key = tuple[UUID, str, tuple[Hashable, ...], date]
@@ -199,9 +237,11 @@ class DashboardCache:
         *,
         max_entries: int = MAX_ENTRIES,
         token: Callable[[psycopg.Connection], Hashable] | None = None,
+        disk_dir: Path | None = None,
     ) -> None:
         self._max = max_entries
         self._token_fn = token
+        self._disk_dir: Path | None = disk_dir
         self._lock = threading.Lock()  # guards everything below
         self._generation: Generation | None = None
         # the stamp map (``{security_id: seq}``) the current generation was synced to; None = not read
@@ -209,6 +249,103 @@ class DashboardCache:
         self._entries: OrderedDict[Key, tuple[Any, int]] = OrderedDict()
         self._inflight: dict[Key, threading.Lock] = {}
         self._pieces: OrderedDict[PieceGroup, dict[PieceSub, Any]] = OrderedDict()
+
+    def _active_disk_dir(self) -> Path | None:
+        if self._disk_dir is None:
+            return None
+        if self._disk_dir == DEFAULT_DISK_DIR:
+            if (
+                os.environ.get("PYTEST_CURRENT_TEST")
+                or os.environ.get(DISK_CACHE_ENV) == "0"
+                or self._token_fn is not None
+            ):
+                return None
+        return self._disk_dir
+
+    def _disk_path(self, ddir: Path, token: Generation, key: Key) -> Path | None:
+        try:
+            raw = pickle.dumps((code_fingerprint(), token, key), protocol=pickle.HIGHEST_PROTOCOL)
+        except (pickle.PickleError, TypeError, AttributeError):
+            return None
+        digest = hashlib.sha256(raw).hexdigest()
+        return ddir / f"{digest}.pkl"
+
+    def _read_disk(self, token: Generation, key: Key) -> tuple[Any, int] | None:
+        ddir = self._active_disk_dir()
+        if ddir is None:
+            return None
+        path = self._disk_path(ddir, token, key)
+        if path is None or not path.is_file():
+            return None
+        try:
+            stored_gen, stored_key, value, ms = pickle.loads(path.read_bytes())
+        except (
+            OSError,
+            EOFError,
+            pickle.PickleError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            ImportError,
+        ):
+            return None
+        if stored_gen == (code_fingerprint(), token) and stored_key == key:
+            return (value, int(ms))
+        return None
+
+    def _prune_disk(self, ddir: Path) -> None:
+        limit = max(self._max, 0)
+        entries: list[tuple[int, Path]] = []
+        for p in ddir.glob("*.pkl"):
+            try:
+                entries.append((p.stat().st_mtime_ns, p))
+            except OSError:
+                continue
+        if len(entries) <= limit:
+            return
+        entries.sort(key=lambda item: item[0])
+        for _, victim in entries[: len(entries) - limit]:
+            try:
+                victim.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _write_disk(self, token: Generation, key: Key, value: Any, ms: int) -> None:
+        ddir = self._active_disk_dir()
+        if ddir is None:
+            return
+        path = self._disk_path(ddir, token, key)
+        if path is None:
+            return
+        tmp_name: str | None = None
+        try:
+            payload = pickle.dumps(
+                ((code_fingerprint(), token), key, value, ms),
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+            ddir.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=ddir, suffix=".tmp", delete=False) as tmp:
+                tmp_name = tmp.name
+                tmp.write(payload)
+            os.replace(tmp_name, path)
+            tmp_name = None
+            self._prune_disk(ddir)
+        except (OSError, pickle.PickleError, TypeError, AttributeError):
+            if tmp_name is not None:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+
+    def _clear_disk(self) -> None:
+        ddir = self._active_disk_dir()
+        if ddir is None or not ddir.is_dir():
+            return
+        for p in ddir.glob("*.pkl"):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _token(self, conn: psycopg.Connection) -> Generation:
         return _as_generation((self._token_fn or generation_token)(conn))
@@ -312,12 +449,26 @@ class DashboardCache:
             flight = self._inflight.setdefault(key, threading.Lock())
         with flight:
             try:
+                check_disk = False
                 with self._lock:
                     # another request may have computed it while this one waited on the flight lock
                     if self._generation == token:
                         hit = self._hit(key)
                         if hit is not None:
                             return hit
+                        check_disk = True
+                if check_disk:
+                    disk_hit = self._read_disk(token, key)
+                    if disk_hit is not None:
+                        with self._lock:
+                            if self._generation == token:
+                                self._entries[key] = disk_hit
+                                self._entries.move_to_end(key)
+                                while len(self._entries) > self._max:
+                                    self._entries.popitem(last=False)
+                                return Cached(
+                                    value=disk_hit[0], status="hit", compute_ms=disk_hit[1]
+                                )
                 started = time.perf_counter()
                 session = _PieceSession(self, workspace, token)
                 active = _SESSION.set(session)
@@ -327,6 +478,7 @@ class DashboardCache:
                     _SESSION.reset(active)  # a nested ``cached()`` hands the outer session back
                 ms = round((time.perf_counter() - started) * 1000)
                 after = self._token(conn)
+                stored = False
                 with self._lock:
                     # stored only when neither level moved during the compute AND the cache is still synced
                     # to the generation the compute started under (another request may have moved it)
@@ -336,6 +488,9 @@ class DashboardCache:
                         while len(self._entries) > self._max:
                             self._entries.popitem(last=False)
                         self._store_pieces(session.staged)
+                        stored = True
+                if stored:
+                    self._write_disk(token, key, value, ms)
                 return Cached(value=value, status="computed", compute_ms=ms)
             finally:
                 with self._lock:
@@ -348,6 +503,7 @@ class DashboardCache:
             self._pieces.clear()
             self._generation = None
             self._stamps = None
+        self._clear_disk()
 
     def __len__(self) -> int:
         with self._lock:
@@ -360,7 +516,7 @@ class DashboardCache:
 
 
 # The process-wide instance every dashboard shares.
-CACHE = DashboardCache()
+CACHE = DashboardCache(disk_dir=DEFAULT_DISK_DIR)
 
 
 # --- pieces: one company's result, shared by every page of a generation ------------------------------------

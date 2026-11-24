@@ -8,7 +8,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app import workspace_caps
+from app import call_cache, workspace_caps
 from app.auth import CurrentUser, require_user
 from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.routers.data_flags import MemberDataFlagsOut, read_member_data_flags
@@ -249,30 +249,45 @@ def read_call(
     are read on (omitted: ``serve_view`` for the as-of and the clock's night, what the route uses).
     """
     known_at, clock = view if view is not None else serve_view(asof, night=mclock.night)
-    card = call_for_thesis(
+    decisions_asof = serve_decisions_asof(asof, mclock)
+
+    def _compute() -> CallCardResponse:
+        card = call_for_thesis(
+            conn,
+            thesis.id,
+            asof,
+            known_at=known_at,
+            clock=clock,
+            record=False,
+            decisions_asof=decisions_asof,
+            workspace=thesis.tenant_id,  # the owned thesis's workspace (get_thesis_or_404 checked the caller's)
+            loaded_thesis=thesis,
+        )
+        sec_ids = (
+            {t.security_id for t in card.triggers_fired}
+            | {r.security_id for r in card.risk_signals}
+            | {
+                m.security_id for m in card.armed_members
+            }  # the per-member menu needs each member's ticker
+            | {m.security_id for m in card.watch_members}
+        )
+        # Resolve tickers/CIKs in the DATA tenant — the master is shared data (domain.scopes, docs/TENANT_SCOPES.md),
+        # one master for every workspace.
+        cik_for = master.ciks_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+        ticker_for = master.tickers_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+        return CallCardResponse.from_card(card, cik_for, ticker_for)
+
+    return call_cache.CACHE.get_or_compute(
         conn,
-        thesis.id,
-        asof,
+        kind="call",
+        thesis=thesis,
+        asof=asof,
         known_at=known_at,
         clock=clock,
-        record=False,
-        decisions_asof=serve_decisions_asof(asof, mclock),
-        workspace=thesis.tenant_id,  # the owned thesis's workspace (get_thesis_or_404 checked the caller's)
-        loaded_thesis=thesis,
+        decisions_asof=decisions_asof,
+        fn_token=id(call_for_thesis),
+        compute=_compute,
     )
-    sec_ids = (
-        {t.security_id for t in card.triggers_fired}
-        | {r.security_id for r in card.risk_signals}
-        | {
-            m.security_id for m in card.armed_members
-        }  # the per-member menu needs each member's ticker
-        | {m.security_id for m in card.watch_members}
-    )
-    # Resolve tickers/CIKs in the DATA tenant — the master is shared data (domain.scopes, docs/TENANT_SCOPES.md),
-    # one master for every workspace.
-    cik_for = master.ciks_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
-    ticker_for = master.tickers_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
-    return CallCardResponse.from_card(card, cik_for, ticker_for)
 
 
 @router.get("/{thesis_id}/display-signals", response_model=DisplaySignalsResponse)
@@ -299,54 +314,67 @@ def read_display_signals(
     view: tuple[datetime | None, Literal["record", "public"]],
 ) -> DisplaySignalsResponse:
     """Canonical display computation on the supplied clock and current displayed roster."""
-    sids: list[UUID] = []
-    for m in thesis.basket:
-        if m.security_id is not None and m.security_id not in sids:
-            sids.append(m.security_id)
-    # the resolved basket = the PIT's prefetch scope; ``display_bounds()`` = the registry-derived read
-    # bounds over every display member + the two thesis-level readers (signals/horizons.py).
-    # ``known_at`` + ``clock`` (#1, the PUBLIC clock): a scrubbed-back ``asof`` reads each fact as it was
-    # public by that market day's end, exactly like the call above — the tape context beside a past card is
-    # the tape as it was public then; a live ``asof`` threads ``(None, "record")`` (the unchanged live read).
     known_at, clock = view
-    pit = PointInTimeData(
+
+    def _compute() -> DisplaySignalsResponse:
+        sids: list[UUID] = []
+        for m in thesis.basket:
+            if m.security_id is not None and m.security_id not in sids:
+                sids.append(m.security_id)
+        # the resolved basket = the PIT's prefetch scope; ``display_bounds()`` = the registry-derived read
+        # bounds over every display member + the two thesis-level readers (signals/horizons.py).
+        # ``known_at`` + ``clock`` (#1, the PUBLIC clock): a scrubbed-back ``asof`` reads each fact as it was
+        # public by that market day's end, exactly like the call above — the tape context beside a past card is
+        # the tape as it was public then; a live ``asof`` threads ``(None, "record")`` (the unchanged live read).
+        pit = PointInTimeData(
+            conn,
+            asof=asof,
+            known_at=known_at,
+            data_tenant=DATA_TENANT_ID,
+            workspace=thesis.tenant_id,
+            basket=sids,
+            bounds=display_bounds(),
+            clock=clock,
+        )
+        ticker_for = master.tickers_for(conn, set(sids), tenant_id=DATA_TENANT_ID)
+        members = [
+            MemberDisplaySignalsOut(
+                security_id=sid,
+                ticker=ticker_for.get(sid),
+                signals=[
+                    sig
+                    for member in registered_display_members()
+                    if (sig := member(pit, sid, asof)) is not None
+                ],
+            )
+            for sid in sids
+        ]
+        # §1.1 — the thesis-level theme-breadth thrust (DISPLAY-only, #4/#7): one aggregate over the same
+        # resolved members, re-derived from the same as-of bitemporal prices; ``None`` for an empty basket.
+        breadth = theme_breadth.breadth_for(pit, sids)
+        # §1.3 — the supersector RS rollup (DISPLAY-only, #4): "which theme is leading the market". The
+        # member -> BusinessSupersector map is IDENTITY, resolved HERE (off the display seam, which cannot
+        # read the master) and passed in as an opaque grouping label; ``None`` when no benchmark tape is
+        # ingested yet (RS is uncomputable) or the basket is empty.
+        identity = master.identity_for(conn, set(sids), tenant_id=DATA_TENANT_ID)
+        supersector_by_sid = {
+            sid: (str(info["business_supersector"]) if info.get("business_supersector") else None)
+            for sid, info in identity.items()
+        }
+        sector_rs = relative_strength.sector_rs_for(pit, sids, supersector_by_sid)
+        return DisplaySignalsResponse(
+            thesis_id=thesis.id, asof=asof, breadth=breadth, sector_rs=sector_rs, members=members
+        )
+
+    return call_cache.CACHE.get_or_compute(
         conn,
+        kind="display_signals",
+        thesis=thesis,
         asof=asof,
         known_at=known_at,
-        data_tenant=DATA_TENANT_ID,
-        workspace=thesis.tenant_id,
-        basket=sids,
-        bounds=display_bounds(),
         clock=clock,
-    )
-    ticker_for = master.tickers_for(conn, set(sids), tenant_id=DATA_TENANT_ID)
-    members = [
-        MemberDisplaySignalsOut(
-            security_id=sid,
-            ticker=ticker_for.get(sid),
-            signals=[
-                sig
-                for member in registered_display_members()
-                if (sig := member(pit, sid, asof)) is not None
-            ],
-        )
-        for sid in sids
-    ]
-    # §1.1 — the thesis-level theme-breadth thrust (DISPLAY-only, #4/#7): one aggregate over the same
-    # resolved members, re-derived from the same as-of bitemporal prices; ``None`` for an empty basket.
-    breadth = theme_breadth.breadth_for(pit, sids)
-    # §1.3 — the supersector RS rollup (DISPLAY-only, #4): "which theme is leading the market". The
-    # member -> BusinessSupersector map is IDENTITY, resolved HERE (off the display seam, which cannot
-    # read the master) and passed in as an opaque grouping label; ``None`` when no benchmark tape is
-    # ingested yet (RS is uncomputable) or the basket is empty.
-    identity = master.identity_for(conn, set(sids), tenant_id=DATA_TENANT_ID)
-    supersector_by_sid = {
-        sid: (str(info["business_supersector"]) if info.get("business_supersector") else None)
-        for sid, info in identity.items()
-    }
-    sector_rs = relative_strength.sector_rs_for(pit, sids, supersector_by_sid)
-    return DisplaySignalsResponse(
-        thesis_id=thesis.id, asof=asof, breadth=breadth, sector_rs=sector_rs, members=members
+        fn_token=id(registered_display_members),
+        compute=_compute,
     )
 
 

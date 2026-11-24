@@ -39,6 +39,7 @@ import json
 import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -1011,6 +1012,13 @@ _VERSIONS_SQL = """
 """
 
 
+# A caller-set hook ``read_flags`` hands its point-in-time view and ids to when it finishes (a ContextVar, so
+# ``read_flags``'s own signature is unchanged): ``dashboards.baskets`` shares the view's price + split rows.
+_ON_PIT: ContextVar[Callable[[Any, list[UUID]], None] | None] = ContextVar(
+    "data_flags_on_pit", default=None
+)
+
+
 def read_flags(
     conn: Any,
     *,
@@ -1110,6 +1118,9 @@ def read_flags(
             owed_holds=owed.get(sid, ()),
             issuer_cik=ciks.get(sid),
         )
+    on_pit = _ON_PIT.get()
+    if on_pit is not None:
+        on_pit(pit, ids)
     return out
 
 

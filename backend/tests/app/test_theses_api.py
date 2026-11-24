@@ -362,3 +362,46 @@ def test_read_call_passes_loaded_thesis_and_avoids_duplicate_reload(
     assert loaded_seen[0] is not None and loaded_seen[0].id == tid
     # exactly 1 load for the whole request (get_thesis_or_404); 0 reloads inside read_call
     assert get_many_calls == 1
+
+
+def test_read_call_and_display_signals_hit_cache_and_invalidate_on_state_change(
+    client, db, security_id, monkeypatch
+):
+    """Consecutive ``GET /theses/{id}/call`` and ``GET /theses/{id}/display-signals`` requests at the same
+    ``asof`` serve from ``app.call_cache.CACHE`` without re-running ``call_for_thesis``, and invalidate
+    automatically when a decision or fact is written."""
+    tid = _seed_hims_thesis(db, security_id)
+    call_invocations = 0
+    real_call = theses_router.call_for_thesis
+
+    def spy_call(conn, thesis_id, asof, **kw):
+        nonlocal call_invocations
+        call_invocations += 1
+        return real_call(conn, thesis_id, asof, **kw)
+
+    monkeypatch.setattr(theses_router, "call_for_thesis", spy_call)
+
+    r1 = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
+    r2 = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json() == r2.json()
+    assert call_invocations == 1
+
+    d1 = client.get(f"/theses/{tid}/display-signals", params={"asof": "2026-06-01"})
+    d2 = client.get(f"/theses/{tid}/display-signals", params={"asof": "2026-06-01"})
+    assert d1.status_code == 200 and d2.status_code == 200
+    assert d1.json() == d2.json()
+
+    # Logging a decision moves the thesis's decision token and invalidates the cached call
+    dec = client.post(
+        f"/theses/{tid}/decisions",
+        json={
+            "action": "pass",
+            "decision_date": "2026-06-01",
+            "reason": "waiting for cleaner tape",
+        },
+    )
+    assert dec.status_code == 200
+    r3 = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
+    assert r3.status_code == 200
+    assert call_invocations == 2
