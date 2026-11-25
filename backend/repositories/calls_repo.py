@@ -291,22 +291,27 @@ def call_stamps(
     conn: psycopg.Connection,
     *,
     thesis_id: UUID | None = None,
+    thesis_ids: Sequence[UUID] | None = None,
     upto: date | None = None,
     asofs: Sequence[date] | None = None,
 ) -> list[dict]:
     """Every ``calls`` row's ``{id, seq, thesis_id, thesis_name, asof, reconstructed, recorded_at}`` —
-    one thesis's (``thesis_id``) or ledger-wide (all tenants, every thesis: the ``reconstructed_asofs``
-    scope), optionally capped at ``asof <= upto`` and/or limited to the as-ofs in ``asofs`` (the Admin
-    readout's window — an empty ``asofs`` reads nothing), ordered ``asof, thesis, seq``. The late-row
-    judgment's input (L1, ``scoreboard/late.py``): every row, never the deduped read — a night can hold an
-    on-time row AND a later late one, and the judge must see both. Stamps only, never the card (cheap at any
-    record size). Value-free and read-only; the window is the caller's."""
-    if asofs is not None and not asofs:
+    one thesis's (``thesis_id``), a batch of theses' (``thesis_ids``), or ledger-wide (all tenants,
+    every thesis: the ``reconstructed_asofs`` scope), optionally capped at ``asof <= upto`` and/or
+    limited to the as-ofs in ``asofs`` (the Admin readout's window — an empty ``asofs`` or empty
+    ``thesis_ids`` reads nothing), ordered ``asof, thesis, seq``. The late-row judgment's input (L1,
+    ``scoreboard/late.py``): every row, never the deduped read — a night can hold an on-time row AND a
+    later late one, and the judge must see both. Stamps only, never the card (cheap at any record
+    size). Value-free and read-only; the window is the caller's."""
+    if (asofs is not None and not asofs) or (thesis_ids is not None and not thesis_ids):
         return []
     where, params = ["TRUE"], []
     if thesis_id is not None:
         where.append("c.thesis_id = %s")
         params.append(thesis_id)
+    if thesis_ids is not None:
+        where.append("c.thesis_id = ANY(%s)")
+        params.append(list(dict.fromkeys(thesis_ids)))
     if upto is not None:
         where.append("c.asof <= %s")
         params.append(upto)
@@ -466,6 +471,124 @@ def run_identity_for_thesis(
             r["asof"]: RunIdentity(r["config_hash"], r["code_sha"], r["run_kind"])
             for r in cur.fetchall()
         }
+
+
+class LatestCallRow(NamedTuple):
+    """One winning ``calls`` row per ``(thesis_id, asof)`` for batched Scoreboard reads: carries the
+    raw (optionally key-trimmed) card JSONB alongside the row's id, ingest-health stamp and run
+    identity from the EXACT same winning row. Callers parse ``raw_card`` via ``parse_card()`` inside a
+    per-thesis fault-isolation guard so one unreadable historical card never aborts sibling theses.
+    """
+
+    id: UUID
+    thesis_id: UUID
+    asof: date
+    raw_card: Any
+    ingest_fresh: bool | None
+    ingest_errors: int | None
+    identity: RunIdentity
+    risk_signals_invalid: bool = False
+
+    def parse_card(self) -> CallCard:
+        if self.risk_signals_invalid:
+            raise ValueError("malformed card: risk_signals must be a JSON array")
+        return row_to_call({"card": self.raw_card})
+
+
+def latest_records_for_theses(
+    conn: psycopg.Connection,
+    thesis_ids: Sequence[UUID],
+    *,
+    upto: date,
+    include_reconstructed: bool = True,
+    exclude_call_ids: Collection[UUID] = (),
+    drop_card_keys: Sequence[str] = (),
+) -> dict[UUID, list[LatestCallRow]]:
+    """Batch form of ``latest_for_thesis`` + ``ingest_health_for_thesis`` + ``run_identity_for_thesis``
+    in ONE query, ascending by ``asof`` and capped at ``asof <= upto``.
+
+    Uses the identical winning-row rule (``DISTINCT ON (thesis_id, asof) ... ORDER BY thesis_id, asof
+    ASC, seq DESC`` after ``_reconstructed_clause`` and ``_ids_clause``), guaranteeing by construction
+    that the card, ingest health stamp and run identity all come from the same ``seq``. Raw card JSONB
+    is left unvalidated on ``LatestCallRow`` so the caller validates each thesis inside its own
+    fault-isolation boundary. Read-only."""
+    ids = list(dict.fromkeys(thesis_ids))
+    if not ids:
+        return {}
+    ids_sql, ids_params = _ids_clause(exclude_call_ids)
+    if drop_card_keys:
+        card_sql = (
+            "CASE WHEN jsonb_typeof(card) = 'object' THEN card - %s::text[] ELSE card END AS card"
+        )
+        card_params: tuple[Any, ...] = (list(drop_card_keys),)
+    else:
+        card_sql = "card"
+        card_params = ()
+    risk_check_sql = (
+        "(jsonb_typeof(card) = 'object' AND card ? 'risk_signals' "
+        "AND jsonb_typeof(card -> 'risk_signals') <> 'array') AS risk_signals_invalid"
+        if "risk_signals" in drop_card_keys
+        else "FALSE AS risk_signals_invalid"
+    )
+    out: dict[UUID, list[LatestCallRow]] = {tid: [] for tid in ids}
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT DISTINCT ON (thesis_id, asof) "
+            f"id, thesis_id, asof, {card_sql}, ingest_fresh, ingest_errors, "
+            f"config_hash, code_sha, run_kind, {risk_check_sql} "
+            f"FROM calls WHERE thesis_id = ANY(%s) AND asof <= %s"
+            + _reconstructed_clause(include_reconstructed)
+            + ids_sql
+            + " ORDER BY thesis_id, asof ASC, seq DESC",
+            (*card_params, ids, upto, *ids_params),
+        )
+        for r in cur.fetchall():
+            out[r["thesis_id"]].append(
+                LatestCallRow(
+                    id=r["id"],
+                    thesis_id=r["thesis_id"],
+                    asof=r["asof"],
+                    raw_card=r["card"],
+                    ingest_fresh=r["ingest_fresh"],
+                    ingest_errors=r["ingest_errors"],
+                    identity=RunIdentity(r["config_hash"], r["code_sha"], r["run_kind"]),
+                    risk_signals_invalid=bool(r["risk_signals_invalid"]),
+                )
+            )
+    return out
+
+
+def risk_signals_for_calls(
+    conn: psycopg.Connection,
+    call_ids: Sequence[UUID],
+    security_ids: Collection[UUID],
+) -> dict[UUID, list[Any]]:
+    """Selective Pass-2 read of ``card -> 'risk_signals'`` elements for the winning ``calls`` rows
+    named by ``call_ids`` whose ``security_id`` is in ``security_ids``, preserving exact wire order
+    (``WITH ORDINALITY``). Returns raw JSONB elements keyed by ``calls.id`` so callers validate each
+    ``TriggerRef`` inside a per-thesis fault-isolation guard. Read-only."""
+    cids = list(dict.fromkeys(call_ids))
+    sids = sorted({str(sid).lower() for sid in security_ids})
+    if not cids or not sids:
+        return {}
+    out: dict[UUID, list[Any]] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT c.id, r.elem AS risk_signal "
+            "FROM calls c "
+            "CROSS JOIN LATERAL jsonb_array_elements("
+            "  CASE WHEN jsonb_typeof(c.card) = 'object' "
+            "        AND jsonb_typeof(c.card -> 'risk_signals') = 'array' "
+            "       THEN c.card -> 'risk_signals' ELSE '[]'::jsonb END"
+            ") WITH ORDINALITY AS r(elem, ord) "
+            "WHERE c.id = ANY(%s::uuid[]) "
+            "  AND lower(r.elem ->> 'security_id') = ANY(%s::text[]) "
+            "ORDER BY c.id, r.ord",
+            (cids, sids),
+        )
+        for row in cur.fetchall():
+            out.setdefault(row["id"], []).append(row["risk_signal"])
+    return out
 
 
 # --- the record in effect on a night (one query for a batch of theses) -------------------------------------

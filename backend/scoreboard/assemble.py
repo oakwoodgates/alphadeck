@@ -37,19 +37,29 @@ class _RoutedPrices:
         sid_tenant: dict[UUID, UUID],
         cap: date,
         known_at: datetime | None,
+        *,
+        reader: PgRealizedPrices | None = None,
+        market_edge: date | None = None,
     ) -> None:
         self._conn = conn
         self._sid_tenant = sid_tenant
         self._cap = cap
         self._known_at = known_at
+        self._market_edge = market_edge
         self._readers: dict[UUID, PgRealizedPrices] = {}
+        if reader is not None:
+            self._readers[reader.tenant_id] = reader
 
     def _for(self, security_id: UUID) -> PgRealizedPrices:
         # the price tape is DATA (domain.scopes): one data-tenant reader, whichever workspace holds the name
         tenant = DATA_TENANT_ID
         if tenant not in self._readers:
             self._readers[tenant] = PgRealizedPrices(
-                self._conn, tenant_id=tenant, cap=self._cap, known_at=self._known_at
+                self._conn,
+                tenant_id=tenant,
+                cap=self._cap,
+                known_at=self._known_at,
+                market_edge=self._market_edge,
             )
         return self._readers[tenant]
 
@@ -112,6 +122,9 @@ def assemble_scoreboard(
     from its frozen pages; a re-run has no reconstructed or late rows, so those lists come back
     empty and the policy reads ``n/a``, and the banner names the edition rather than the record.
     """
+    # ONE shared price reader across scoreboard_records + compute_metrics so prefetched price tapes
+    # and the cached market_tape_edge are reused with zero duplicate fact_price_eod scans.
+    prices = PgRealizedPrices(conn, tenant_id=DATA_TENANT_ID, cap=asof, known_at=known_at)
     result, timelines, single_name = scoreboard_records(
         conn,
         asof,
@@ -120,6 +133,7 @@ def assemble_scoreboard(
         exclude_late=exclude_late,
         edition=edition,
         workspace=workspace,
+        prices=prices,
     )
     eligible = [
         e.outcome
@@ -128,12 +142,19 @@ def assemble_scoreboard(
         if e.matured and not e.censored_start and not e.ingest_flagged
     ]
     trimmed = {tid: _censor_leading_warming(snaps) for tid, snaps in timelines.items()}
+    withheld_sids = {
+        single_name[tid]
+        for tid, snaps in trimmed.items()
+        if tid in single_name
+        and any(s.state is State.WARMING and s.conviction_grade is not None for s in snaps)
+    }
+    prices.prefetch(withheld_sids)
     # the price tape is DATA (domain.scopes): every single-name security reads its bars from the data tenant
     sid_tenant = {sid: DATA_TENANT_ID for sid in single_name.values()}
     metrics = compute_metrics(
         eligible,
         timeline=trimmed,
-        realized=_RoutedPrices(conn, sid_tenant, asof, known_at),
+        realized=_RoutedPrices(conn, sid_tenant, asof, known_at, reader=prices),
         single_name_security=single_name,
     )
     record_began = min(

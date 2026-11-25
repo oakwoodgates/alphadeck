@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any
 from uuid import UUID
 
 import psycopg
@@ -25,8 +26,8 @@ from repositories import (
 from repositories.editions_repo import Edition, InkedOutcome, JoinDate
 from scoreboard import provenance
 from scoreboard.decisions import attach_operator_track
-from scoreboard.late import late_call_ids, resolve_exclude_late
-from scoreboard.prices import PgRealizedPrices, market_tape_edge
+from scoreboard.late import late_call_ids, late_call_ids_by_thesis, resolve_exclude_late
+from scoreboard.prices import PgRealizedPrices
 from scoreboard.schema import (
     EditionJoin,
     ScoreboardResult,
@@ -127,6 +128,22 @@ def thesis_timeline(
 # ``drop_card_keys`` so they never leave Postgres; the Scoreboard's own record path must NOT (its arm-day
 # triggers, risk tape and de-arm detail read them off the cards). A test pins that the snapshot is identical.
 SNAPSHOT_UNREAD_CARD_KEYS = ("risk_signals", "triggers_fired", "counter_case")
+
+# Top-level card keys omitted on Pass 1 of the Scoreboard record load (``derive_thesis_record`` and
+# ``scoreboard_records``):
+# - ``counter_case``, ``catalyst_surface``, ``safe_sleeve``: never read by the Scoreboard.
+# - ``triggers_fired``: ``_triggers_at_arm`` only falls back to it if ``ep.security_id`` is absent
+#   from ``card.armed_members``, which is unreachable for episodes derived from ``armed_members``.
+# - ``risk_signals``: the largest JSONB key (~53% of card bytes on dev). Omitted in Pass 1 and
+#   selectively hydrated in Pass 2 ONLY for ``(thesis_id, asof)`` dates covered by an episode and
+#   ONLY for episode ``security_id``s, preserving exact wire order and per-thesis validation.
+SCOREBOARD_RECORD_DROP_CARD_KEYS = (
+    "risk_signals",
+    "triggers_fired",
+    "counter_case",
+    "catalyst_surface",
+    "safe_sleeve",
+)
 
 
 @dataclass(frozen=True)
@@ -414,49 +431,66 @@ def _warming_since(snaps: list[CallSnapshot]) -> date | None:
     return since
 
 
-def derive_thesis_record(
-    conn: psycopg.Connection,
-    thesis: Thesis,
+@dataclass
+class _PreparedThesis:
+    thesis: Thesis
+    basket_size: int
+    snaps: list[CallSnapshot]
+    cards_by_asof: dict[date, CallCard]
+    episodes: list[Episode]
+    triggers: list[list[TriggerRef]]
+    call_ids_by_asof: dict[date, UUID]
+    health: dict[date, tuple[bool | None, int | None]]
+    identity: dict[date, calls_repo.RunIdentity]
+
+
+def _needed_risk_dates(
+    cards_by_asof: Mapping[date, CallCard], episodes: Sequence[Episode]
+) -> set[date]:
+    """The card dates whose ``risk_signals`` are read by ``_risk_events`` / ``_dearm_detail``."""
+    out: set[date] = set()
+    for ep in episodes:
+        walk_end = ep.dearm_date or ep.last_armed_date
+        for d in cards_by_asof:
+            if ep.arm_date <= d <= walk_end:
+                out.add(d)
+    return out
+
+
+def _hydrate_risk_signals(
+    cards_by_asof: dict[date, CallCard], raw_by_asof: Mapping[date, Sequence[Any]]
+) -> None:
+    """Attach Pass-2 ``risk_signals`` onto the in-memory cards for one thesis, validating each
+    ``TriggerRef`` inside the caller's per-thesis fault-isolation boundary."""
+    for d, raw_elems in raw_by_asof.items():
+        if raw_elems and d in cards_by_asof:
+            cards_by_asof[d] = cards_by_asof[d].model_copy(
+                update={"risk_signals": [TriggerRef.model_validate(el) for el in raw_elems]}
+            )
+
+
+def _assemble_thesis_record(
+    prepared: _PreparedThesis,
     asof: date,
     *,
-    known_at: datetime | None = None,
-    market_edge: date | None = None,
-    basket_size: int | None = None,
-    exclude_late: bool | None = None,
-    source: TimelineSource | None = None,
-) -> tuple[ThesisRecord, list[CallSnapshot]]:
-    """One thesis's record scored as-of: episodes from the log, outcomes against asof-capped prices,
-    plus the record-honesty flags. Returns the snapshots too (SB2 feeds them to the metric set).
-
-    ``source`` (editions S4) is WHERE the timeline comes from: ``None`` = Edition 0, the calls log under the
-    read policy below (``RecordSource`` — exactly the pre-editions read); an ``EditionSource`` = a
-    stored edition's frozen pages. Every step below is the same for both, except the three source-specific
-    ones: the record provenance (Edition 0 only), ``censored_start`` (an edition censors an arm on the
-    company's own ESTIMATED join night, G12) and the run-identity caption (an edition's names the edition
-    and its engine fingerprint).
-    ``exclude_late`` is the L1 read policy (``resolve_exclude_late``), resolved ONCE here and applied to every
-    record read below, so the timeline, the ingest stamps and the run identity all describe the same winning
-    rows; under it the thesis's late rows are judged ONCE here (``late_call_ids``) and the same ids are
-    dropped from all three reads.
-
-    - ``status``: open iff the run reached the record edge un-dearmed (``dearm_date is None``).
-    - ``matured``: the episode's own ``exit_by`` elapsed (<= asof) — judged only at its deadline.
-    - ``censored_start``: armed already on the thesis's FIRST recorded card — the record began
-      mid-arm, the true arm date is unknowable; marked, never reconstructed (no backfill).
-    - ``basket_size``: the roster count AS OF ``known_at`` (F12) — the caller resolves it once per
-      thesis via ``thesis_repo.basket_size_asof`` (a count-only PIT read) and threads it here; None
-      falls back to the LIVE ``thesis`` count (the direct-call default, e.g. unit tests). The live
-      roster would misreport a past-as-of.
-    """
-    src: TimelineSource = source if source is not None else RecordSource(exclude_late=exclude_late)
-    timeline = src.read(conn, thesis.id, asof)
-    snaps, cards_by_asof, late = timeline.snaps, timeline.cards_by_asof, timeline.late_ids
+    src: TimelineSource,
+    prices: PgRealizedPrices,
+    lags: Mapping[str, int],
+    joins: Mapping[UUID, JoinDate],
+    inks: Mapping[tuple[UUID, date], InkedOutcome],
+    decision_rows: list[dict[str, Any]],
+) -> ThesisRecord:
+    """Score one prepared thesis's episodes and operator track using already-loaded metadata and
+    prices (pure Python + cached price lookups; writes nothing)."""
+    thesis = prepared.thesis
+    snaps = prepared.snaps
+    cards_by_asof = prepared.cards_by_asof
     record = ThesisRecord(
         thesis_id=thesis.id,
         tenant_id=thesis.tenant_id,
         name=thesis.name,
         ticker=thesis.ticker,
-        basket_size=basket_size if basket_size is not None else len(thesis.basket),
+        basket_size=prepared.basket_size,
         archived=thesis.archived_at is not None,
         first_call_asof=snaps[0].asof if snaps else None,
         last_call_asof=snaps[-1].asof if snaps else None,
@@ -464,70 +498,9 @@ def derive_thesis_record(
         current_verdict=snaps[-1].verdict.value if snaps else None,
         warming_since=_warming_since(snaps),
     )
-    # tenant threading: the thesis's own tenant scopes every price read (never the default here).
-    # ``market_edge`` is the REQUEST-level market tape edge, resolved once per tenant by the caller
-    # and threaded through: it is the same answer for every thesis in a tenant and it costs a scan,
-    # so a reader resolving its own would put that scan on all 12 theses. None = resolve lazily
-    # (the single-thesis / standalone path).
-    prices = PgRealizedPrices(
-        conn,
-        tenant_id=DATA_TENANT_ID,  # the price tape is DATA (domain.scopes)
-        cap=asof,
-        known_at=known_at,
-        market_edge=market_edge,
-    )
-    if snaps:
+    if snaps and prepared.episodes:
         first_recorded = snaps[0].asof
-        episodes = list(derive_episodes(snaps))
-        triggers = [
-            _triggers_at_arm(cards_by_asof.get(ep.arm_date), ep.security_id) for ep in episodes
-        ]
-        # The record's own provenance exists only for Edition 0 (``src.provenance``): an edition's pages
-        # have no ingest stamps, run rows or thaw lags — they were all computed by one re-run.
-        recorded = src.provenance and bool(episodes)
-        # Record-provenance (2d) — composed AFTER scoring, from reads the scoring path never sees:
-        # the winning arm-date rows' R2b stamps + ONE batched thaw-lag query over every cited form4
-        # accession. The flags segment/annotate only; ``score_episode``'s inputs are untouched.
-        # the SAME honest filter as thesis_timeline, so the stamp belongs to the row that was scored
-        health = (
-            calls_repo.ingest_health_for_thesis(
-                conn,
-                thesis.id,
-                include_reconstructed=False,
-                exclude_call_ids=late,
-            )
-            if recorded
-            else {}
-        )
-        # F1/0044 — the arm-date row's RUN IDENTITY, read with the SAME include_reconstructed value (and
-        # therefore the same winning row) as `health` and `thesis_timeline` above, so the caption on an
-        # episode always describes the run that produced the card being scored.
-        identity = (
-            calls_repo.run_identity_for_thesis(
-                conn,
-                thesis.id,
-                include_reconstructed=False,
-                exclude_call_ids=late,
-            )
-            if recorded
-            else {}
-        )
-        lags = (
-            provenance.thaw_lags(
-                conn,
-                provenance.form4_accessions([t for ts in triggers for t in ts]),
-                tenant_id=DATA_TENANT_ID,  # the Form 4 rows are DATA (domain.scopes)
-                known_at=known_at,
-            )
-            if recorded
-            else {}
-        )
-        # an edition's frozen join dates (G12's censoring + the drawer's note); Edition 0 has none
-        joins = src.joins(conn, thesis.id) if isinstance(src, EditionSource) and episodes else {}
-        # an edition's INKED scores (S5): a matured episode's final number, used in place of the on-read
-        # score when it applies at this as-of (``inked_outcome``); Edition 0 is always scored on read
-        inks = src.inks(conn, thesis.id) if isinstance(src, EditionSource) and episodes else {}
-        for ep, trigs in zip(episodes, triggers):
+        for ep, trigs in zip(prepared.episodes, prepared.triggers):
             if isinstance(src, EditionSource):
                 join = edition_join(joins.get(ep.security_id), ep.arm_date)
                 specific = dict(
@@ -546,9 +519,9 @@ def derive_thesis_record(
                 )
             else:
                 prov = provenance.derive_episode_provenance(
-                    ep.arm_date, trigs, health=health, lags=lags
+                    ep.arm_date, trigs, health=prepared.health, lags=dict(lags)
                 )
-                ident = identity.get(ep.arm_date)
+                ident = prepared.identity.get(ep.arm_date)
                 specific = dict(
                     censored_start=ep.arm_date == first_recorded,
                     arm_ingest_fresh=prov.arm_ingest_fresh,
@@ -585,15 +558,192 @@ def derive_thesis_record(
 
     # the operator track (SB3): the decision log joined to the episodes it answered — runs even
     # with no record yet (a decision can predate the first call-of-record; it rides off-record)
-    rows = decisions_repo.list_for_thesis(conn, thesis.id, tenant_id=thesis.tenant_id)
-    if rows:
+    if decision_rows:
         record.operator_spans, counts, record.decision_anomaly = attach_operator_track(
-            record.episodes, rows, prices, asof
+            record.episodes, decision_rows, prices, asof
         )
         record.n_takes = counts["takes"]
         record.n_passes = counts["passes"]
         record.n_overrides = counts["overrides"]
         record.n_voided = counts["voided"]
+    return record
+
+
+def derive_thesis_record(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    asof: date,
+    *,
+    known_at: datetime | None = None,
+    market_edge: date | None = None,
+    basket_size: int | None = None,
+    exclude_late: bool | None = None,
+    source: TimelineSource | None = None,
+    prices: PgRealizedPrices | None = None,
+) -> tuple[ThesisRecord, list[CallSnapshot]]:
+    """One thesis's record scored as-of: episodes from the log, outcomes against asof-capped prices,
+    plus the record-honesty flags. Returns the snapshots too (SB2 feeds them to the metric set).
+
+    ``source`` (editions S4) is WHERE the timeline comes from: ``None`` = Edition 0, the calls log under the
+    read policy below (``RecordSource`` — exactly the pre-editions read); an ``EditionSource`` = a
+    stored edition's frozen pages. Every step below is the same for both, except the three source-specific
+    ones: the record provenance (Edition 0 only), ``censored_start`` (an edition censors an arm on the
+    company's own ESTIMATED join night, G12) and the run-identity caption (an edition's names the edition
+    and its engine fingerprint).
+    ``exclude_late`` is the L1 read policy (``resolve_exclude_late``), resolved ONCE here and applied to every
+    record read below, so the timeline, the ingest stamps and the run identity all describe the same winning
+    rows; under it the thesis's late rows are judged ONCE here (``late_call_ids``) and the same ids are
+    dropped from all three reads.
+
+    - ``status``: open iff the run reached the record edge un-dearmed (``dearm_date is None``).
+    - ``matured``: the episode's own ``exit_by`` elapsed (<= asof) — judged only at its deadline.
+    - ``censored_start``: armed already on the thesis's FIRST recorded card — the record began
+      mid-arm, the true arm date is unknowable; marked, never reconstructed (no backfill).
+    - ``basket_size``: the roster count AS OF ``known_at`` (F12) — the caller resolves it once per
+      thesis via ``thesis_repo.basket_size_asof`` (a count-only PIT read) and threads it here; None
+      falls back to the LIVE ``thesis`` count (the direct-call default, e.g. unit tests). The live
+      roster would misreport a past-as-of.
+    """
+    src: TimelineSource = source if source is not None else RecordSource(exclude_late=exclude_late)
+    resolved_size = basket_size if basket_size is not None else len(thesis.basket)
+    reader = (
+        prices
+        if prices is not None
+        else PgRealizedPrices(
+            conn,
+            tenant_id=DATA_TENANT_ID,  # the price tape is DATA (domain.scopes)
+            cap=asof,
+            known_at=known_at,
+            market_edge=market_edge,
+        )
+    )
+
+    health: dict[date, tuple[bool | None, int | None]] = {}
+    identity: dict[date, calls_repo.RunIdentity] = {}
+    call_ids_by_asof: dict[date, UUID] = {}
+    lags: dict[str, int] = {}
+    joins: dict[UUID, JoinDate] = {}
+    inks: dict[tuple[UUID, date], InkedOutcome] = {}
+
+    if isinstance(src, RecordSource):
+        late = (
+            late_call_ids_by_thesis(conn, [thesis.id], upto=asof).get(thesis.id, frozenset())
+            if src.exclude_late
+            else frozenset()
+        )
+        raw_rows = calls_repo.latest_records_for_theses(
+            conn,
+            [thesis.id],
+            upto=asof,
+            include_reconstructed=False,
+            exclude_call_ids=late,
+            drop_card_keys=SCOREBOARD_RECORD_DROP_CARD_KEYS,
+        ).get(thesis.id, [])
+        cards = [r.parse_card() for r in raw_rows]
+        snaps = [CallSnapshot.from_card(c) for c in cards]
+        cards_by_asof = {c.asof: c for c in cards}
+        call_ids_by_asof = {r.asof: r.id for r in raw_rows}
+        health = {r.asof: (r.ingest_fresh, r.ingest_errors) for r in raw_rows}
+        identity = {r.asof: r.identity for r in raw_rows}
+        episodes = list(derive_episodes(snaps)) if snaps else []
+        triggers = [
+            _triggers_at_arm(cards_by_asof.get(ep.arm_date), ep.security_id) for ep in episodes
+        ]
+        if episodes:
+            needed_dates = _needed_risk_dates(cards_by_asof, episodes)
+            needed_cids = [call_ids_by_asof[d] for d in needed_dates]
+            raw_risks = calls_repo.risk_signals_for_calls(
+                conn, needed_cids, {ep.security_id for ep in episodes}
+            )
+            _hydrate_risk_signals(
+                cards_by_asof,
+                {d: raw_risks.get(call_ids_by_asof[d], []) for d in needed_dates},
+            )
+            lags = provenance.thaw_lags(
+                conn,
+                provenance.form4_accessions([t for ts in triggers for t in ts]),
+                tenant_id=DATA_TENANT_ID,  # the Form 4 rows are DATA (domain.scopes)
+                known_at=known_at,
+            )
+    elif isinstance(src, EditionSource):
+        raw_pages = editions_repo.pages_for_theses(
+            conn,
+            src.edition.id,
+            [thesis.id],
+            upto=asof,
+            drop_card_keys=SCOREBOARD_RECORD_DROP_CARD_KEYS,
+        ).get(thesis.id, [])
+        cards = [r.parse_card() for r in raw_pages]
+        snaps = [CallSnapshot.from_card(c) for c in cards]
+        cards_by_asof = {c.asof: c for c in cards}
+        episodes = list(derive_episodes(snaps)) if snaps else []
+        triggers = [
+            _triggers_at_arm(cards_by_asof.get(ep.arm_date), ep.security_id) for ep in episodes
+        ]
+        if episodes:
+            needed_dates = _needed_risk_dates(cards_by_asof, episodes)
+            raw_risks_pages = editions_repo.risk_signals_for_pages(
+                conn,
+                src.edition.id,
+                [(thesis.id, d) for d in needed_dates],
+                {ep.security_id for ep in episodes},
+            )
+            _hydrate_risk_signals(
+                cards_by_asof,
+                {d: raw_risks_pages.get((thesis.id, d), []) for d in needed_dates},
+            )
+            joins = src.joins(conn, thesis.id)
+            inks = src.inks(conn, thesis.id)
+    else:
+        timeline = src.read(conn, thesis.id, asof)
+        snaps, cards_by_asof, late = timeline.snaps, timeline.cards_by_asof, timeline.late_ids
+        episodes = list(derive_episodes(snaps)) if snaps else []
+        triggers = [
+            _triggers_at_arm(cards_by_asof.get(ep.arm_date), ep.security_id) for ep in episodes
+        ]
+        if src.provenance and episodes:
+            health = calls_repo.ingest_health_for_thesis(
+                conn, thesis.id, include_reconstructed=False, exclude_call_ids=late
+            )
+            identity = calls_repo.run_identity_for_thesis(
+                conn, thesis.id, include_reconstructed=False, exclude_call_ids=late
+            )
+            lags = provenance.thaw_lags(
+                conn,
+                provenance.form4_accessions([t for ts in triggers for t in ts]),
+                tenant_id=DATA_TENANT_ID,
+                known_at=known_at,
+            )
+
+    decision_rows = decisions_repo.list_for_thesis(conn, thesis.id, tenant_id=thesis.tenant_id)
+    price_sids: set[UUID] = {
+        ep.security_id
+        for ep in episodes
+        if inked_outcome(inks.get((ep.security_id, ep.arm_date)), ep, asof) is None
+    } | {r["security_id"] for r in decision_rows if r["security_id"] is not None}
+    reader.prefetch(price_sids)
+
+    prepared = _PreparedThesis(
+        thesis=thesis,
+        basket_size=resolved_size,
+        snaps=snaps,
+        cards_by_asof=cards_by_asof,
+        episodes=episodes,
+        triggers=triggers,
+        call_ids_by_asof=call_ids_by_asof,
+        health=health,
+        identity=identity,
+    )
+    record = _assemble_thesis_record(
+        prepared,
+        asof,
+        src=src,
+        prices=reader,
+        lags=lags,
+        joins=joins,
+        inks=inks,
+        decision_rows=decision_rows,
+    )
     return record, snaps
 
 
@@ -606,6 +756,7 @@ def scoreboard_records(
     exclude_late: bool | None = None,
     edition: Edition | None = None,
     workspace: WorkspaceScope,
+    prices: PgRealizedPrices | None = None,
 ) -> tuple[ScoreboardResult, dict[UUID, list[CallSnapshot]], dict[UUID, UUID]]:
     """Every thesis's record scored as-of (archived INCLUDED by default — the record is not erased
     by archiving; it just stops accruing). Per-thesis fault isolation: an unreadable historical card
@@ -637,43 +788,84 @@ def scoreboard_records(
     )
     timelines: dict[UUID, list[CallSnapshot]] = {}
     single_name: dict[UUID, UUID] = {}
-    # The market tape edge (``truncated``'s second leg) is per TENANT, not per thesis or per episode,
-    # and it costs a seq scan. Resolve it at most once per tenant for the whole request and hand it
-    # down; recomputing it per thesis would multiply that scan by the thesis count for an answer that
-    # cannot differ between them.
-    market_edges: dict[UUID, date | None] = {}
     # ``workspace``: the caller's (the API) or ``WORKSPACE_ANY`` (the scoreboard CLI) — REQUIRED
-    for thesis in thesis_repo.list_all(
-        conn, workspace=workspace, include_archived=include_archived
-    ):
+    theses = thesis_repo.list_all(conn, workspace=workspace, include_archived=include_archived)
+    if not theses:
+        return result, timelines, single_name
+
+    thesis_ids = [t.id for t in theses]
+    for thesis in theses:
         sids = [m.security_id for m in thesis.basket if m.security_id is not None]
         if len(sids) == 1:
             single_name[thesis.id] = sids[0]
-        if DATA_TENANT_ID not in market_edges:  # the price tape is DATA (domain.scopes): one edge
-            market_edges[DATA_TENANT_ID] = market_tape_edge(
-                conn, tenant_id=DATA_TENANT_ID, cap=asof, known_at=known_at
-            )
-        # F12 — the roster count AS OF known_at (basket_member is full-replace, so the live count would
-        # misreport a past-as-of Scoreboard). A COUNT-ONLY snapshot read — NOT get_asof, which would
-        # re-run the full per-thesis load (basket + children) just for a number, doubling the Scoreboard's
-        # DB cost. live_fallback = the live count already in hand, covering the no-snapshot / pre-F12 case.
-        pit_basket_size = thesis_repo.basket_size_asof(
-            conn, thesis.id, known_at, live_fallback=len(thesis.basket)
+
+    # Phase 1: batch-load thesis-level PIT basket sizes, operator decisions, and trimmed Pass-1 cards
+    pit_sizes = thesis_repo.basket_sizes_asof(conn, thesis_ids, known_at)
+    decisions_by_thesis = decisions_repo.list_for_theses(
+        conn, [(t.id, t.tenant_id) for t in theses]
+    )
+    raw_calls_by_thesis: dict[UUID, list[calls_repo.LatestCallRow]] = {}
+    raw_pages_by_thesis: dict[UUID, list[editions_repo.EditionPageRow]] = {}
+    if isinstance(source, RecordSource):
+        all_late: frozenset[UUID] = (
+            frozenset().union(*late_call_ids_by_thesis(conn, thesis_ids, upto=asof).values())
+            if source.exclude_late
+            else frozenset()
         )
+        raw_calls_by_thesis = calls_repo.latest_records_for_theses(
+            conn,
+            thesis_ids,
+            upto=asof,
+            include_reconstructed=False,
+            exclude_call_ids=all_late,
+            drop_card_keys=SCOREBOARD_RECORD_DROP_CARD_KEYS,
+        )
+    else:
+        raw_pages_by_thesis = editions_repo.pages_for_theses(
+            conn,
+            source.edition.id,
+            thesis_ids,
+            upto=asof,
+            drop_card_keys=SCOREBOARD_RECORD_DROP_CARD_KEYS,
+        )
+
+    # Phase 2: per-thesis card validation & episode derivation (strict per-thesis fault isolation)
+    prepared_by_id: dict[UUID, _PreparedThesis] = {}
+    errors_by_id: dict[UUID, ThesisRecord] = {}
+    for thesis in theses:
+        pit_basket_size = pit_sizes.get(thesis.id, len(thesis.basket))
         try:
-            record, snaps = derive_thesis_record(
-                conn,
-                thesis,
-                asof,
-                known_at=known_at,
-                market_edge=market_edges[DATA_TENANT_ID],
+            if isinstance(source, RecordSource):
+                raw_rows = raw_calls_by_thesis.get(thesis.id, [])
+                cards = [r.parse_card() for r in raw_rows]
+                call_ids_by_asof = {r.asof: r.id for r in raw_rows}
+                health = {r.asof: (r.ingest_fresh, r.ingest_errors) for r in raw_rows}
+                identity = {r.asof: r.identity for r in raw_rows}
+            else:
+                raw_pages = raw_pages_by_thesis.get(thesis.id, [])
+                cards = [r.parse_card() for r in raw_pages]
+                call_ids_by_asof = {}
+                health = {}
+                identity = {}
+            snaps = [CallSnapshot.from_card(c) for c in cards]
+            cards_by_asof = {c.asof: c for c in cards}
+            episodes = list(derive_episodes(snaps)) if snaps else []
+            triggers = [
+                _triggers_at_arm(cards_by_asof.get(ep.arm_date), ep.security_id) for ep in episodes
+            ]
+            prepared_by_id[thesis.id] = _PreparedThesis(
+                thesis=thesis,
                 basket_size=pit_basket_size,
-                exclude_late=exclude_late,
-                source=source,
+                snaps=snaps,
+                cards_by_asof=cards_by_asof,
+                episodes=episodes,
+                triggers=triggers,
+                call_ids_by_asof=call_ids_by_asof,
+                health=health,
+                identity=identity,
             )
-            timelines[thesis.id] = snaps
         except Exception as e:  # noqa: BLE001 — one thesis's bad card never blanks the Scoreboard
-            record = ThesisRecord(
+            errors_by_id[thesis.id] = ThesisRecord(
                 thesis_id=thesis.id,
                 tenant_id=thesis.tenant_id,
                 name=thesis.name,
@@ -682,7 +874,110 @@ def scoreboard_records(
                 archived=thesis.archived_at is not None,
                 error=f"{type(e).__name__}: {e}",
             )
+
+    # Phase 3: batch-load episode-only metadata (Pass-2 risk_signals, provenance lags or edition
+    # joins/inks) and batch-prefetch all required price tapes in ONE query.
+    ep_prepared = [p for p in prepared_by_id.values() if p.episodes]
+    needed_dates_by_thesis = {
+        p.thesis.id: _needed_risk_dates(p.cards_by_asof, p.episodes) for p in ep_prepared
+    }
+    raw_risks_by_call: dict[UUID, list[Any]] = {}
+    raw_risks_by_page: dict[tuple[UUID, date], list[Any]] = {}
+    lags: dict[str, int] = {}
+    joins_by_thesis: dict[UUID, dict[UUID, JoinDate]] = {}
+    inks_by_thesis: dict[UUID, dict[tuple[UUID, date], InkedOutcome]] = {}
+
+    if ep_prepared:
+        ep_sids = {ep.security_id for p in ep_prepared for ep in p.episodes}
+        if isinstance(source, RecordSource):
+            needed_call_ids = [
+                p.call_ids_by_asof[d]
+                for p in ep_prepared
+                for d in needed_dates_by_thesis[p.thesis.id]
+            ]
+            raw_risks_by_call = calls_repo.risk_signals_for_calls(conn, needed_call_ids, ep_sids)
+            all_accessions = provenance.form4_accessions(
+                [t for p in ep_prepared for ts in p.triggers for t in ts]
+            )
+            lags = provenance.thaw_lags(
+                conn, all_accessions, tenant_id=DATA_TENANT_ID, known_at=known_at
+            )
+        else:
+            needed_pairs = [
+                (p.thesis.id, d) for p in ep_prepared for d in needed_dates_by_thesis[p.thesis.id]
+            ]
+            raw_risks_by_page = editions_repo.risk_signals_for_pages(
+                conn, source.edition.id, needed_pairs, ep_sids
+            )
+            joins_by_thesis = editions_repo.entries_by_thesis(conn, source.edition.id)
+            inks_by_thesis = editions_repo.outcomes_by_thesis(
+                conn, source.edition.id, thesis_ids=[p.thesis.id for p in ep_prepared]
+            )
+
+    price_sids: set[UUID] = set()
+    for p in prepared_by_id.values():
+        t_inks = inks_by_thesis.get(p.thesis.id, {})
+        for ep in p.episodes:
+            if inked_outcome(t_inks.get((ep.security_id, ep.arm_date)), ep, asof) is None:
+                price_sids.add(ep.security_id)
+        for row in decisions_by_thesis.get(p.thesis.id, ()):
+            if row["security_id"] is not None:
+                price_sids.add(row["security_id"])
+
+    reader = (
+        prices
+        if prices is not None
+        else PgRealizedPrices(
+            conn,
+            tenant_id=DATA_TENANT_ID,  # the price tape is DATA (domain.scopes)
+            cap=asof,
+            known_at=known_at,
+        )
+    )
+    reader.prefetch(price_sids)
+
+    # Phase 4: score each thesis using cached prices & preloaded metadata (per-thesis fault isolation)
+    for thesis in theses:
+        if thesis.id in errors_by_id:
+            result.theses.append(errors_by_id[thesis.id])
+            continue
+        p = prepared_by_id[thesis.id]
+        try:
+            if p.episodes:
+                needed_dates = needed_dates_by_thesis[thesis.id]
+                if isinstance(source, RecordSource):
+                    _hydrate_risk_signals(
+                        p.cards_by_asof,
+                        {d: raw_risks_by_call.get(p.call_ids_by_asof[d], []) for d in needed_dates},
+                    )
+                else:
+                    _hydrate_risk_signals(
+                        p.cards_by_asof,
+                        {d: raw_risks_by_page.get((thesis.id, d), []) for d in needed_dates},
+                    )
+            record = _assemble_thesis_record(
+                p,
+                asof,
+                src=source,
+                prices=reader,
+                lags=lags,
+                joins=joins_by_thesis.get(thesis.id, {}),
+                inks=inks_by_thesis.get(thesis.id, {}),
+                decision_rows=decisions_by_thesis.get(thesis.id, []),
+            )
+            timelines[thesis.id] = p.snaps
+        except Exception as e:  # noqa: BLE001 — one thesis's bad card never blanks the Scoreboard
+            record = ThesisRecord(
+                thesis_id=thesis.id,
+                tenant_id=thesis.tenant_id,
+                name=thesis.name,
+                ticker=thesis.ticker,
+                basket_size=p.basket_size,
+                archived=thesis.archived_at is not None,
+                error=f"{type(e).__name__}: {e}",
+            )
         result.theses.append(record)
+
     result.n_theses = len(result.theses)
     result.n_with_record = sum(1 for t in result.theses if t.first_call_asof is not None)
     result.n_episodes = sum(len(t.episodes) for t in result.theses)
