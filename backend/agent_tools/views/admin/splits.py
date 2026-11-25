@@ -6,7 +6,8 @@ The default reply keeps the counts, the whole needs-review list (the panel's lou
 a section pages one bucket in the API's order; ``one`` with a ticker reads that ticker's every entry and jump in full.
 Every value is copied from the API's JSON: the view never sorts, derives a date or a ratio, or decides whether the two
 sources agree (the model reads the two side by side; ``confirm_options`` is the API's statement of what can be
-confirmed). ``name`` is the shared master's company name, which the Admin panel shows.
+confirmed). ``name`` is the shared master's company name, which the Admin panel shows. A split the steward confirmed
+with cited values (``value_source`` ``steward``) carries the API's ``cited_url`` and ``tape_override`` in every reply.
 """
 
 from __future__ import annotations
@@ -86,6 +87,10 @@ def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
     )
     out["confirm_options"] = [o.get("label") for o in e.get("confirm_options") or []]
     out["actions"] = e.get("actions") or []
+    # the steward's cited values (D3): the document and the tape override
+    if e.get("cited_url") is not None:
+        out["cited_url"] = e.get("cited_url")
+        out["tape_override"] = e.get("tape_override")
     if bucket == "set_aside":
         out["restore_to"] = e.get("restore_to")
         note = e.get("note")

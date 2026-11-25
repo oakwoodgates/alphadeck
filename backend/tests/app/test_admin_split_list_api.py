@@ -1,12 +1,15 @@
 """The Admin "Splits" panel API (split plan S1), end to end over a real DB filled by the REAL backfill
 (``pipeline.backfill_splits`` on the fixture Massive.com pages and filings, cache-only). Every action is
 exercised WITH its inverse, and each step COUNTS THE TABLE (one version per action — nothing updated,
-nothing deleted)."""
+nothing deleted). The steward's confirm with CITED values (D3, platform fixes W2-1) runs on POM's shape at the end.
+"""
 
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
+
+import pytest
 
 from app.routers import admin_splits
 from db.session import DEFAULT_TENANT_ID
@@ -340,3 +343,320 @@ def test_a_dismissal_never_reaches_the_split_night_hold():
     for mod in (split_hold, hold_rules):
         assert "split_jump_dismissal" not in inspect.getsource(mod)
         assert "split_jump_repo" not in inspect.getsource(mod)
+
+
+# --- D3: the steward confirms a needs-review split with CITED values (platform fixes W2-1, 2026-11-25) ----------
+
+POM_6K = "0001213900-26-110501"
+POM_SESSION = date(2026, 10, 21)
+POM_CITED = "https://example.test/pom/6-k/0001213900-26-110501"
+POM_NOTE = "ADR termination: each 10 ADSs became 3 ordinary shares"
+TODAY = date(2026, 11, 25)
+
+
+def _served(d: date) -> datetime:
+    """The evening a bar version was stored (UTC)."""
+    return datetime(d.year, d.month, d.day, 23, tzinfo=timezone.utc)
+
+
+def _seed_pom(db, *, bars: bool = True) -> uuid.UUID:
+    """POM's shape (synthetic closes). Its 6-K states a 1-for-10 consolidation of the ORDINARY shares, first session
+    10-21, and the extractor reads 10 -> 1; but the ADR program ends, each 10 ADSs becoming 3 ordinary shares, so the
+    ADS price factor is 10/3, which no source states. The stored tape, as FIRST served, steps x4.53 on 10-21 on
+    falling volume: ln(4.53 / 3.33) = 0.31, inside ``TAPE_TOLERANCE`` (0.5); ln(10 / 4.53) = 0.79, outside. A later
+    re-based version of the 10-20 bar (the vendor adjusting history) is stored too and never read. Commits.
+    """
+    sid = uuid.uuid4()
+    rows = (
+        [
+            (date(2026, 10, 16), 1.04, 950_000, _served(date(2026, 10, 16))),
+            (date(2026, 10, 20), 1.00, 1_000_000, _served(date(2026, 10, 20))),
+            (POM_SESSION, 4.53, 300_000, _served(POM_SESSION)),
+            (date(2026, 10, 20), 3.33, 300_000, _served(date(2026, 10, 23))),
+        ]
+        if bars
+        else []
+    )
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "POM", date(2025, 1, 1)),
+        )
+        for d, close, volume, at in rows:
+            cur.execute(
+                "INSERT INTO fact_price_eod (tenant_id, security_id, d, close, volume, valid_from, recorded_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (DEFAULT_TENANT_ID, sid, d, close, volume, d, at),
+            )
+    db.commit()
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=POM_SESSION,
+        values={
+            "effective_date": POM_SESSION,
+            "ratio_from": 10,
+            "ratio_to": 1,
+            "status": "needs_review",
+            "value_source": "sec",
+            "sec_accession": POM_6K,
+            "sec_form": "6-K",
+            "sec_filed": date(2026, 10, 14),
+            "sec_effective_date": POM_SESSION,
+            "sec_date_kind": "trading",
+            "sec_ratio_from": 10,
+            "sec_ratio_to": 1,
+            "note": "SEC only; the tape does not confirm it.",
+            "valid_from": date(2026, 10, 14),
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    return sid
+
+
+def _pom_card(client) -> dict:
+    return _find(client.get(BASE).json(), "POM", POM_SESSION.isoformat())[1]
+
+
+def _cited(**over) -> dict:
+    return {
+        "ratio_from": "10",
+        "ratio_to": "3",
+        "first_session": POM_SESSION.isoformat(),
+        "cited_url": POM_CITED,
+        "note": POM_NOTE,
+        **over,
+    }
+
+
+def _confirm_values(client, version_id: str, body: dict):
+    return client.post(f"{BASE}/{version_id}/confirm-values", json=body)
+
+
+def _stored(db, version_id: str) -> dict:
+    db.rollback()  # a fresh snapshot: the route committed on its own connection
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT value_source, confirmed_via, cited_url, tape_override, status, author, action "
+            "FROM security_split WHERE id = %s",
+            (version_id,),
+        )
+        return cur.fetchone()
+
+
+@pytest.fixture
+def pinned(monkeypatch):
+    monkeypatch.setattr(admin_splits, "market_today", lambda: TODAY)
+
+
+def test_the_steward_confirms_poms_cited_values_inside_the_tape_tolerance(client, db, pinned):
+    """POM: 10 ADSs -> 3 shares, first session 10-21, a cited URL. The tape's x4.53 is inside the tolerance of
+    10/3, so no override is needed: the split is confirmed with the steward's values (``value_source``
+    ``steward``, ``confirmed_via`` ``operator``), the URL stored on the version — one version, the table counted.
+    """
+    _seed_pom(db)
+    card = _pom_card(client)
+    assert card["status"] == "needs_review" and card.get("cited_url") is None
+    n = split_repo.count_rows(db)
+    r = _confirm_values(client, card["version_id"], _cited())
+    assert r.status_code == 200, r.text
+    c = r.json()
+    assert (c["status"], c["value_source"], c["confirmed_via"]) == (
+        "confirmed",
+        "steward",
+        "operator",
+    )
+    assert (c["ratio_from"], c["ratio_to"], c["effective_date"], c["label"]) == (
+        "10",
+        "3",
+        "2026-10-21",
+        "3-for-10 reverse split",
+    )
+    assert c["cited_url"] == POM_CITED and c["tape_override"] is False and c["note"] == POM_NOTE
+    assert c["decided_by"].startswith("you (cited values), ") and c["actions"] == ["revoke"]
+    assert c["sec"]["accession"] == POM_6K  # the evidence the split carried rides on
+    assert split_repo.count_rows(db) == n + 1
+    stored = _stored(db, c["version_id"])
+    assert (stored["value_source"], stored["cited_url"], stored["tape_override"]) == (
+        "steward",
+        POM_CITED,
+        False,
+    )
+    assert (stored["author"], stored["action"]) == ("operator", "confirm")
+    bucket, listed = _find(client.get(BASE).json(), "POM", "2026-10-21")
+    assert bucket == "confirmed" and listed["cited_url"] == POM_CITED
+    assert client.get("/admin/status").json()["splits_needs_review"] == 0
+
+
+def test_cited_values_outside_the_tape_tolerance_need_the_override(client, db, pinned):
+    """10 -> 1 (x10) against the tape's x4.53 (ln 2.21 = 0.79 > 0.5): refused (409, nothing written) — the server
+    recomputes the step, whatever the form showed — unless the steward overrides; the override is stored.
+    """
+    _seed_pom(db)
+    card = _pom_card(client)
+    n = split_repo.count_rows(db)
+    r = _confirm_values(client, card["version_id"], _cited(ratio_to="1"))
+    assert r.status_code == 409 and "x4.53" in r.json()["detail"], r.text
+    assert split_repo.count_rows(db) == n
+    ok = _confirm_values(client, card["version_id"], _cited(ratio_to="1", override_tape=True))
+    assert ok.status_code == 200, ok.text
+    c = ok.json()
+    assert (c["status"], c["value_source"], c["tape_override"], c["price_factor"]) == (
+        "confirmed",
+        "steward",
+        True,
+        "10",
+    )
+    assert _stored(db, c["version_id"])["tape_override"] is True
+    assert split_repo.count_rows(db) == n + 1
+
+
+def test_no_stored_bar_on_the_first_session_needs_the_override(client, db, pinned):
+    _seed_pom(db, bars=False)
+    card = _pom_card(client)
+    r = _confirm_values(client, card["version_id"], _cited())
+    assert r.status_code == 409 and "no stored bar on 2026-10-21" in r.json()["detail"], r.text
+    ok = _confirm_values(client, card["version_id"], _cited(override_tape=True))
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["tape_override"] is True
+
+
+def test_a_stale_card_or_a_settled_split_is_refused(client, db, pinned):
+    _seed_pom(db)
+    card = _pom_card(client)
+    c = _confirm_values(client, card["version_id"], _cited()).json()
+    n = split_repo.count_rows(db)
+    stale = _confirm_values(client, card["version_id"], _cited())
+    assert stale.status_code == 409 and "changed since you looked" in stale.json()["detail"]
+    settled = _confirm_values(client, c["version_id"], _cited())
+    assert (
+        settled.status_code == 409 and "only a split that needs review" in settled.json()["detail"]
+    )
+    assert _confirm_values(client, str(uuid.uuid4()), _cited()).status_code == 404
+    assert split_repo.count_rows(db) == n  # a refusal writes nothing
+
+
+def test_revoke_then_restore_keeps_the_cited_values(client, db, pinned):
+    _seed_pom(db)
+    card = _pom_card(client)
+    n = split_repo.count_rows(db)
+    c = _confirm_values(client, card["version_id"], _cited()).json()
+    rv = client.post(f"{BASE}/{c['version_id']}/revoke").json()
+    assert (rv["status"], rv["restore_to"], rv["value_source"], rv["cited_url"]) == (
+        "revoked",
+        "confirmed",
+        "steward",
+        POM_CITED,
+    )
+    back = client.post(f"{BASE}/{rv['version_id']}/restore").json()
+    assert (back["status"], back["value_source"], back["ratio_to"], back["cited_url"]) == (
+        "confirmed",
+        "steward",
+        "3",
+        POM_CITED,
+    )
+    assert back["decided_by"].startswith("restored by you, ")
+    assert split_repo.count_rows(db) == n + 3
+
+
+def test_the_request_is_bounded_and_the_citation_is_required(client, db, pinned):
+    _seed_pom(db)
+    card = _pom_card(client)
+    n = split_repo.count_rows(db)
+    no_url = {k: v for k, v in _cited().items() if k != "cited_url"}
+    for bad in (
+        no_url,
+        _cited(cited_url="http://example.test/pom"),  # https only
+        _cited(cited_url="https://user:pw@example.test/pom"),
+        _cited(cited_url="https://"),
+        _cited(cited_url="https://example.test/" + "x" * 2_000),
+        _cited(ratio_from="0"),
+        _cited(ratio_to="-3"),
+        _cited(ratio_from="100001"),
+        _cited(ratio_from="1e3"),
+        _cited(ratio_to="10"),  # 10 -> 10 is not a split
+        _cited(note="x" * 501),
+        _cited(first_session="1980-01-01"),
+    ):
+        assert _confirm_values(client, card["version_id"], bad).status_code == 422, bad
+    assert split_repo.count_rows(db) == n
+
+
+def test_the_tape_step_reads_the_first_served_bars_beside_the_entered_factor(client, db):
+    """What the form shows beside the entered factor: the stored step at that session (each bar as first served —
+    the re-based 3.33 is never read), the volume ratio and whether the factor is inside the tolerance. A read.
+    """
+    _seed_pom(db)
+    card = _pom_card(client)
+    url = f"{BASE}/{card['version_id']}/tape-step"
+    n = split_repo.count_rows(db)
+    q = {"first_session": "2026-10-21", "ratio_from": "10", "ratio_to": "3"}
+    r = client.get(url, params=q)
+    assert r.status_code == 200, r.text
+    t = r.json()
+    assert (t["first_session"], t["prior_date"], t["prior_close"], t["close"]) == (
+        "2026-10-21",
+        "2026-10-20",
+        1.0,
+        4.53,
+    )
+    assert t["step"] == pytest.approx(4.53) and t["volume_ratio"] == pytest.approx(0.3)
+    assert t["price_factor"] == pytest.approx(10 / 3) and t["tolerance"] == 0.5
+    assert t["step_low"] < 4.53 < t["step_high"]
+    assert t["within_tolerance"] is True and t["reason"] is None
+    far = client.get(url, params={**q, "ratio_to": "1"}).json()
+    assert far["within_tolerance"] is False and "x4.53" in far["reason"]
+    bare = client.get(url, params={"first_session": "2026-10-21"}).json()
+    assert bare["step"] == pytest.approx(4.53) and bare["within_tolerance"] is None
+    assert bare["price_factor"] is None
+    gap = client.get(url, params={**q, "first_session": "2026-10-22"}).json()
+    assert gap["step"] is None and gap["within_tolerance"] is False
+    assert "no stored bar on 2026-10-22" in gap["reason"]
+    missing = client.get(f"{BASE}/{uuid.uuid4()}/tape-step", params=q)
+    assert missing.status_code == 404
+    half = client.get(url, params={"first_session": "2026-10-21", "ratio_from": "10"})
+    assert half.status_code == 422  # both sides of the ratio, or neither
+    assert client.get(url, params={**q, "ratio_from": "0"}).status_code == 422
+    assert client.get(url, params={**q, "first_session": "1980-01-01"}).status_code == 422
+    assert split_repo.count_rows(db) == n
+
+
+# --- D2 (platform fixes W2-3): a distribution the nightly set aside, and the steward's restore ---------------
+
+
+def test_a_distribution_set_aside_automatically_is_quiet_and_restores_to_review(
+    client, db, tmp_path
+):
+    from tests.pipeline.test_detect_splits import _detect_scco
+    from tests.split_801_fixtures import seed_member
+
+    seed_member(db, "SCCO", None, [])
+    _detect_scco(db, tmp_path, asof=date(2026, 11, 5))
+    body = client.get(BASE).json()
+    assert (
+        body["needs_review"] == []
+        and client.get("/admin/status").json()["splits_needs_review"] == 0
+    )
+    bucket, scco = _find(body, "SCCO", "2026-11-03")
+    assert bucket == "set_aside"
+    assert (scco["status"], scco["decided_by"], scco["restore_to"], scco["actions"]) == (
+        "rejected",
+        "set aside automatically: a distribution",
+        "needs_review",
+        ["restore"],
+    )
+    assert scco["label"] == "1.0106-for-1 forward split" and scco["value_source"] == "polygon"
+    assert scco["note"].startswith(
+        "Set aside automatically: a 1.0106-for-1 forward 'split' listed by Massive.com only, under x1.5"
+    )
+    n = split_repo.count_rows(db)
+    back = client.post(f"{BASE}/{scco['version_id']}/restore")
+    assert back.status_code == 200, back.text
+    b = back.json()
+    assert (b["status"], b["actions"]) == ("needs_review", ["confirm:polygon", "reject"])
+    assert b["decided_by"].startswith("restored by you, ") and b["review_reason"] == "one_source"
+    assert split_repo.count_rows(db) == n + 1
+    assert client.get("/admin/status").json()["splits_needs_review"] == 1

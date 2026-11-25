@@ -150,9 +150,14 @@ The split list that `pipeline.backfill_splits` filled from Massive.com and each 
 (`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings"). Shown only when the list has entries.
 
 - **Needs review** (loud, the only loud list): a split one source cannot settle, with the SEC passage and
-  Massive.com's row side by side: confirm one source's values (or the only source's), or reject.
+  Massive.com's row side by side: confirm one source's values (or the only source's), or reject. When neither
+  source is right (POM's ADR termination: 10 ADSs -> 3 shares), confirm with cited values: a ratio, the first
+  session, a required https URL and an optional note. The server reads the stored tape's step at that session,
+  each bar as first served, and refuses a factor outside the tape tolerance, or a session with no bar, unless the
+  steward overrides; the version records the URL and the override.
 - **Auto-confirmed, announced and set aside** (quiet). Revoke any confirmed split; Restore undoes a reject or a
-  revoke. Rejected and revoked splits stay listed, grayed.
+  revoke. Rejected and revoked splits stay listed, grayed. An automatic set-aside (a distribution,
+  [FILINGS](FILINGS.md)) restores to review; no run touches it after.
 - **Split-shaped jumps with no split listed** (quiet): jumps the split-night hold released that no source lists.
   Dismissing one as a real move, and its undo, are display only; the hold never reads them.
 
@@ -223,7 +228,7 @@ list (`GET /admin/backups`) and the last snapshot's age are reads. Schedule, ret
 
 ## Contracts
 
-Wire shapes: `backend/openapi.json`. Every route below is steward-only; seven sit under `/admin/splits` and twelve
+Wire shapes: `backend/openapi.json`. Every route below is steward-only; nine sit under `/admin/splits` and twelve
 under `/admin/platform-values`.
 
 | Route | Panel | What it does |
@@ -245,6 +250,8 @@ under `/admin/platform-values`.
 | `POST /admin/insider-holds/{hold_id}/approve`, `/dismiss`; `POST /admin/insider-holds/decisions/{decision_id}/revoke` | Held insider rows | date, dismiss, undo |
 | `GET /admin/splits` | Splits | the list and the unlisted jumps |
 | `POST /admin/splits/{version_id}/confirm`, `/reject`, `/revoke`, `/restore` | Splits | decide a split; undo |
+| `GET /admin/splits/{version_id}/tape-step` | Splits | the stored step at a first session, beside an entered ratio |
+| `POST /admin/splits/{version_id}/confirm-values` | Splits | confirm with cited values; undo is revoke |
 | `POST /admin/splits/jumps/{security_id}/{step_date}/dismiss` | Splits | dismiss a jump |
 | `POST /admin/splits/jumps/dismissals/{dismissal_id}/undo` | Splits | undo a dismissal |
 | `GET /admin/onboarding`, `POST /admin/onboarding/{security_id}/retry` | Onboarding | the queue; retry a failed name |

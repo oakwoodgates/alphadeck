@@ -1,7 +1,8 @@
 // The Splits cards in PLAIN ENGLISH (operator ask, 2026-10-24): what the split is, what each source says, and what
 // each button does. Pure words over the GET /admin/splits payload — never a different decision, only how it is
 // explained (backend: app/routers/admin_splits.py; the verbs: repositories/split_repo.py).
-import type { AdminSplitListEntryOut } from "../api/hooks";
+import type { AdminSplitListEntryOut, AdminSplitTapeStepOut } from "../api/hooks";
+import { safeHttpUrl } from "../components/ExternalLink";
 
 type Split = AdminSplitListEntryOut;
 type Option = NonNullable<Split["confirm_options"]>[number];
@@ -60,4 +61,111 @@ export function confirmLine(s: Split, o: Option, many: boolean): string {
 /** What Reject does. */
 export function rejectLine(): string {
   return "Reject: no split; prices stay as stored. The split stays listed, grayed, and Restore brings it back.";
+}
+
+/** A split the SYSTEM set aside as a distribution (D2: a forward "split" under x1.5 that only Massive.com lists, with
+ *  no SEC filing about it) — rejected, but not by the steward. */
+export function autoSetAside(s: Split): boolean {
+  return s.status === "rejected" && s.author !== "operator";
+}
+
+/** The quiet set-aside row's words: "rejected · rejected by you, 10-20", or the API's own label alone for an
+ *  automatic set-aside ("set aside automatically: a distribution"). */
+export function setAsideLine(s: Split, statusWord: string): string {
+  return autoSetAside(s) ? s.decided_by : `${statusWord} · ${s.decided_by}`;
+}
+
+// --- D3: "Confirm with other values" — the steward's own ratio, first session and cited document ---
+
+type TapeStep = AdminSplitTapeStepOut;
+
+/** The API's note limit (backend CITED_NOTE_MAX; the 2,000-character `prose` limit is not this field's). */
+export const NOTE_MAX = 500;
+
+// "x4.53", "x80", "x0.22" — three significant digits, the way the server words a step in its own sentences
+const x = (v: number) => `x${Number(v.toPrecision(3))}`;
+const px = (v: number | null | undefined) => (v == null ? "—" : String(Number(v.toPrecision(4))));
+
+/** What "Confirm with other values" does (the line beside its button). */
+export function confirmValuesLine(): string {
+  return (
+    "Confirm with other values: you type the ratio and first session from a document you cite, and the stored " +
+    "tape is checked against them first. Then, as with Confirm, prices before that session are put on the new " +
+    "scale and the split-night hold on this company's price triggers lifts. Revoke undoes it."
+  );
+}
+
+// the server's rule for a ratio (backend RATIO_PATTERN, RATIO_MAX): plain decimal text, above 0, at most 100,000
+const RATIO = /^\d{1,6}(\.\d{1,10})?$/;
+const ratioNum = (t: string): number | null => (RATIO.test(t) && Number(t) > 0 && Number(t) <= 100000 ? Number(t) : null);
+
+/** A real calendar date typed as 2026-09-24 (what a date input holds once it is complete). */
+export function isDate(t: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
+  const d = new Date(`${t}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t;
+}
+
+/** Why the two share counts are not a ratio yet, in a sentence; null when they are one. */
+export function ratioProblem(ratioFrom: string, ratioTo: string): string | null {
+  if (!ratioFrom || !ratioTo) return "Enter the old and the new share counts.";
+  const a = ratioNum(ratioFrom);
+  const b = ratioNum(ratioTo);
+  if (a === null || b === null) {
+    return "A share count is a plain number above 0 and at most 100,000, such as 10 or 6.25.";
+  }
+  if (a === b) return "The old and the new counts are equal: that is not a split.";
+  return null;
+}
+
+/** Why Confirm these values is off, in a sentence (the first thing still missing); null when the form is complete. */
+export function valuesProblem(v: {
+  ratioFrom: string;
+  ratioTo: string;
+  firstSession: string;
+  citedUrl: string;
+}): string | null {
+  const ratio = ratioProblem(v.ratioFrom, v.ratioTo);
+  if (ratio) return ratio;
+  if (!isDate(v.firstSession)) return "Enter the first session at the new price (a date).";
+  if (!v.citedUrl) return "Cite the document that states these values (an https:// address).";
+  if (!v.citedUrl.toLowerCase().startsWith("https://") || safeHttpUrl(v.citedUrl) === null) {
+    return "The cited document must be an https:// address with a host.";
+  }
+  return null;
+}
+
+/** The stored tape at the first session: "The stored tape stepped x4.53 on 09-24: close 1.2 on 09-23 → 5.43, volume
+ *  x0.22." — or that it has no bar to read there. */
+export function tapeStepSentence(t: TapeStep): string {
+  if (t.step == null) {
+    return `The stored tape has no bar to read on ${t.first_session} (it needs that day's bar and an earlier one).`;
+  }
+  const from = t.prior_date ? ` on ${md(t.prior_date)}` : "";
+  const vol = t.volume_ratio == null ? "" : `, volume ${x(t.volume_ratio)}`;
+  return `The stored tape stepped ${x(t.step)} on ${md(t.first_session)}: close ${px(t.prior_close)}${from} → ${px(t.close)}${vol}.`;
+}
+
+/** The entered ratio's price factor beside the band the tape accepts, with the verdict; null before a ratio is
+ *  entered. "Your values: every 10 shares became 3, a price factor of x3.33; the tape accepts x2.02 to x5.5. The
+ *  tape supports your values." */
+export function tapeFactorSentence(t: TapeStep, ratioFrom: string, ratioTo: string): string | null {
+  if (t.price_factor == null) return null;
+  const mine = `Your values: ${sharesPhrase(ratioFrom, ratioTo)}, a price factor of ${x(t.price_factor)}`;
+  const band = t.step_low != null && t.step_high != null ? `; the tape accepts ${x(t.step_low)} to ${x(t.step_high)}` : "";
+  const verdict =
+    t.within_tolerance === true
+      ? " The tape supports your values."
+      : t.within_tolerance === false
+        ? t.step == null
+          ? " The tape cannot check your values."
+          : " The tape does not support your values."
+        : "";
+  return `${mine}${band}.${verdict}`;
+}
+
+/** The override box beside a tape that does not support the values (or has no bar to check them against). */
+export function overrideLabel(t: TapeStep): string {
+  const why = t.step == null ? "The tape has no bar to check these values against" : "The tape does not support these values";
+  return `${why} — confirm anyway. The split is then marked “confirmed past the tape”.`;
 }
