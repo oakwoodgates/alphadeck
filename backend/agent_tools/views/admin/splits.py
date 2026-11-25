@@ -11,6 +11,8 @@ Every value is copied from the API's JSON: the view never sorts, derives a date 
 sources agree (the model reads the two side by side; ``confirm_options`` is the API's statement of what can be
 confirmed). ``name`` is the shared master's company name, which the Admin panel shows. A split the steward confirmed
 with cited values (``value_source`` ``steward``) carries the API's ``cited_url`` and ``tape_override`` in every reply.
+An open entry (needs review, announced) carries the API's ``first_bar`` (the first stored bar: a split on or before it
+adjusts no tape) and ``shares_rescaled`` (the share count a confirm puts on the new scale) in every reply, when stated.
 """
 
 from __future__ import annotations
@@ -66,6 +68,12 @@ JUMP_BRIEF_KEYS = (
     "label",
     "sessions_since",
 )
+# W2-8: what a confirm would touch, as the API states it on an open entry (copied when stated, never derived)
+HINT_KEYS = ("first_bar", "shares_rescaled")
+
+
+def _hints(e: dict[str, Any]) -> dict[str, Any]:
+    return {k: e[k] for k in HINT_KEYS if e.get(k) is not None}
 
 
 def _passage(sec: dict[str, Any], limit: int) -> dict[str, Any]:
@@ -97,6 +105,7 @@ def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
     if e.get("cited_url") is not None:
         out["cited_url"] = e.get("cited_url")
         out["tape_override"] = e.get("tape_override")
+    out.update(_hints(e))
     if bucket == "set_aside":
         out["restore_to"] = e.get("restore_to")
         note = e.get("note")

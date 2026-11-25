@@ -157,3 +157,39 @@ export function overrideLabel(t: TapeStep): string {
   const why = t.step == null ? "The tape has no bar to check these values against" : "The tape does not support these values";
   return `${why} — confirm anyway. The split is then marked “confirmed past the tape”.`;
 }
+
+// --- W2-8: what a confirm would touch, from the API's first_bar and shares_rescaled (needs-review / announced) ---
+
+/** "by 4" for a 1-for-4 reverse split, "by 2" for a 2-for-1, "by 10/3" for a 3-for-10: the factor a share count is
+ *  divided (reverse) or multiplied (forward) by. */
+function countFactor(s: Split): string {
+  const reverse = Number(s.ratio_from) > Number(s.ratio_to);
+  const [a, b] = reverse ? [s.ratio_from, s.ratio_to] : [s.ratio_to, s.ratio_from];
+  return Number(b) === 1 ? n(a) : `${n(a)}/${n(b)}`;
+}
+
+/** One line on an open split, or null when there is nothing to say: a first session on or before the first stored bar
+ *  adjusts nothing on the tape, and a share count dated before the first session is rescaled by a confirm. "TREO's
+ *  first session is its first bar: nothing on the tape to adjust; confirming divides 13,524,682 shares dated
+ *  2026-07-31 by 4 — check that count's basis." */
+export function hintLine(s: Split): string | null {
+  const parts: string[] = [];
+  const whose = s.ticker ? `${s.ticker}'s` : "Its";
+  if (s.first_bar && s.effective_date <= s.first_bar) {
+    parts.push(
+      s.effective_date === s.first_bar
+        ? `${whose} first session is its first bar: nothing on the tape to adjust`
+        : `${whose} first session is before its first bar (${s.first_bar}): nothing on the tape to adjust`,
+    );
+  }
+  const sh = s.shares_rescaled;
+  if (sh) {
+    const verb = s.status === "announced" ? "once in force it" : "confirming";
+    const how = Number(s.ratio_from) > Number(s.ratio_to) ? "divides" : "multiplies";
+    const count = Math.round(sh.count).toLocaleString("en-US");
+    parts.push(`${verb} ${how} ${count} shares dated ${sh.date} by ${countFactor(s)} — check that count's basis`);
+  }
+  if (!parts.length) return null;
+  const line = parts.join("; ");
+  return `${line[0].toUpperCase()}${line.slice(1)}.`;
+}

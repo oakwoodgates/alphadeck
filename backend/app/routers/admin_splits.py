@@ -32,12 +32,18 @@ has released (three sessions on) that no source ever listed (``pipeline.split_ju
 real?". Never a page (#7). Since 2026-10-24 the operator can **Dismiss** one ("this was a real move" —
 ``repositories.split_jump_repo``, append-only): it leaves the list and is listed under ``dismissed_jumps`` (WB#2);
 inverse: **Undo**. A dismissal is display only — the split-night hold never reads it.
+
+**What a confirm would touch (W2-8)** — each needs-review or announced split on the list read carries the
+security's first stored bar (``first_bar``: a split whose first session is on or before it has no stored bar to
+adjust) and the platform share count a confirm would put on the new scale (``shares_rescaled``: the Workbench count
+the market cap reads, dated before the first session). Read for the whole list at once, in a fixed number of
+queries, never one per split; display only.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, TypeVar
@@ -60,14 +66,17 @@ from domain.splits import (
     STATUS_CONFIRMED,
     STATUS_NEEDS_REVIEW,
     TAPE_TOLERANCE,
+    ListedSplit,
     TapeEvidence,
     direction,
     price_factor,
     ratio_label,
+    scale_after,
 )
 from domain.text_types import Prose, RequestDate, UrlText
 from pipeline.detect_splits import TAPE_PRIOR_MAX_DAYS, tape_at, tape_window
 from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps, split_dismissed
+from platform_values.state import read_states
 from repositories import split_jump_repo, split_repo
 from repositories.split_jump_repo import JumpDismissalConflict
 from repositories.split_repo import SplitConflict, SplitVersion
@@ -122,6 +131,16 @@ class AdminSplitListOptionOut(BaseModel):
     label: str
 
 
+class AdminSplitSharesOut(BaseModel):
+    """The platform share count a confirm would RESCALE (W2-8): the count the market cap reads (the Workbench's,
+    ``dashboards.market_cap.cap_cell``), dated before the split's first session, so the split puts it on the new
+    scale (divided by the price factor). ``count`` = as stored; ``date`` = the day it was true (its
+    ``valid_from``)."""
+
+    count: float
+    date: date
+
+
 class AdminSplitListEntryOut(BaseModel):
     """One split on the list (its NEWEST version). ``version_id`` names that version — every action posts it,
     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
@@ -131,7 +150,10 @@ class AdminSplitListEntryOut(BaseModel):
     different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
     both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the
     document that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both
-    ``null`` on every other split).
+    ``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on
+    the list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before
+    it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
+    none dated before the first session).
     """
 
     version_id: UUID
@@ -162,6 +184,8 @@ class AdminSplitListEntryOut(BaseModel):
     review_reason: Literal["sources_differ", "extractor_abstained", "one_source"] | None = None
     cited_url: HttpUrlOut = None
     tape_override: bool | None = None
+    first_bar: date | None = None
+    shares_rescaled: AdminSplitSharesOut | None = None
 
 
 class AdminSplitJumpBarOut(BaseModel):
@@ -540,11 +564,71 @@ def _jumps(
     )
 
 
+# --- what a confirm would touch (W2-8): read for the whole list at once; no decision reads it -------------------
+
+
+def first_bars(
+    conn: psycopg.Connection, *, tenant_id: UUID, security_ids: Collection[UUID]
+) -> dict[UUID, date]:
+    """Each security's FIRST stored bar (its oldest ``fact_price_eod`` date, any version), in one read for the set;
+    a security with no bar is absent. A split whose first session is on or before it has no stored bar to adjust.
+    """
+    if not security_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT security_id, min(d) AS first_bar FROM fact_price_eod "
+            "WHERE tenant_id = %s AND security_id = ANY(%s) GROUP BY security_id",
+            (tenant_id, list(security_ids)),
+        )
+        return {r["security_id"]: r["first_bar"] for r in cur.fetchall()}
+
+
+def rescaled_count(
+    e: AdminSplitListEntryOut, shares: Mapping[str, Any] | None
+) -> AdminSplitSharesOut | None:
+    """The share count a confirm of ``e`` would put on the new scale, or ``None``: the market cap's own rule
+    (``dashboards.market_cap.cap_cell``, ``domain.splits.scale_after`` from the count's date) with the split in
+    force, so a count dated before its first session is rescaled and one dated on or after it is not.
+    """
+    day = shares.get("valid_from") if shares is not None else None
+    if shares is None or shares.get("shares") is None or not isinstance(day, date):
+        return None
+    in_force = ListedSplit(
+        key_date=e.key_date,
+        effective_date=e.effective_date,
+        ratio_from=Decimal(e.ratio_from),
+        ratio_to=Decimal(e.ratio_to),
+        status=STATUS_CONFIRMED,
+    )
+    if scale_after([in_force], day, through=e.effective_date) == 1:
+        return None
+    return AdminSplitSharesOut(count=float(shares["shares"]), date=day)
+
+
+def _hints(
+    conn: psycopg.Connection, out: AdminSplitListOut, *, tenant_id: UUID, asof: date
+) -> None:
+    """``first_bar`` and ``shares_rescaled`` on every open entry (needs review, announced), read for the whole list
+    at once: the first bars, and the platform share counts as the meters read and pick them
+    (``platform_values.state.read_states``, a fixed number of queries whatever the list's size)."""
+    entries = [*out.needs_review, *out.announced]
+    ids = list(dict.fromkeys(e.security_id for e in entries))
+    if not ids:
+        return
+    bars = first_bars(conn, tenant_id=tenant_id, security_ids=ids)
+    states = read_states(conn, ids, "shares_outstanding", asof=asof)
+    for e in entries:
+        e.first_bar = bars.get(e.security_id)
+        e.shares_rescaled = rescaled_count(e, states[e.security_id].meter_value)
+
+
 def splits_out(
     conn: psycopg.Connection, *, tenant_id: UUID, asof: date | None = None
 ) -> AdminSplitListOut:
     """The panel, read live from the list's newest versions — plus the released, unlisted split-shaped jumps
-    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``). SELECTs only."""
+    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``), and each open split's hints (W2-8).
+    SELECTs only."""
     versions = split_repo.latest_versions(conn, tenant_id=tenant_id)
     out = AdminSplitListOut(total=len(versions))
     try:
@@ -574,6 +658,7 @@ def splits_out(
     out.confirmed.sort(key=newest_first, reverse=True)
     out.set_aside.sort(key=newest_first, reverse=True)
     out.announced.sort(key=newest_first)
+    _hints(conn, out, tenant_id=tenant_id, asof=asof or market_today())
     return out
 
 

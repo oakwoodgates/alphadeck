@@ -179,6 +179,29 @@ def test_a_split_confirmed_with_cited_values_carries_its_citation_and_the_tape_o
     assert "cited_url" not in rows[1] and "tape_override" not in rows[1]
 
 
+def test_an_open_row_carries_the_first_bar_and_the_share_count_a_confirm_rescales():
+    """W2-8: a needs-review or announced row carries the API's ``first_bar`` (the first stored bar: a split on or
+    before it adjusts no tape) and ``shares_rescaled`` (the count a confirm puts on the new scale), copied, never
+    derived; a row without them (a settled split, a company with no bars or no count) carries neither key.
+    """
+    body = afx.splits()
+    body["needs_review"][1].update(first_bar=None, shares_rescaled=None)
+    api = FakeApi(splits=body)
+    first, second, _ = ok(api, "get_splits")["needs_review"]
+    assert first["first_bar"] == "2025-03-14"
+    assert first["shares_rescaled"] == {"count": 13_524_682.0, "date": "2026-07-31"}
+    assert "first_bar" not in second and "shares_rescaled" not in second
+    (announced,) = ok(api, "get_splits", section="announced")["announced"]
+    assert (
+        announced["first_bar"] == "2025-03-14"
+        and announced["shares_rescaled"]["date"] == "2026-07-31"
+    )
+    confirmed = ok(api, "get_splits", section="confirmed")["confirmed"]
+    assert all("first_bar" not in r and "shares_rescaled" not in r for r in confirmed)
+    entry = ok(api, "get_splits", section="one", t="TK01")["entries"][0]
+    assert entry["first_bar"] == "2025-03-14" and entry["shares_rescaled"]["count"] == 13_524_682.0
+
+
 def test_a_bucket_section_continues_at_its_cursor():
     reply = ok(FakeApi(), "get_splits", section="confirmed", cursor=1)
     assert [r["ticker"] for r in reply["confirmed"]] == ["TK01", "TK06"]
