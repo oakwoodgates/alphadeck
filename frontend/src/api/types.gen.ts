@@ -6234,7 +6234,10 @@ export interface components {
          *     different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
          *     both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the
          *     document that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both
-         *     ``null`` on every other split).
+         *     ``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on
+         *     the list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before
+         *     it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
+         *     none dated before the first session).
          */
         AdminSplitListEntryOut: {
             /**
@@ -6309,6 +6312,9 @@ export interface components {
             cited_url?: string | null;
             /** Tape Override */
             tape_override?: boolean | null;
+            /** First Bar */
+            first_bar?: string | null;
+            shares_rescaled?: components["schemas"]["AdminSplitSharesOut"] | null;
         };
         /**
          * AdminSplitListOptionOut
@@ -6489,6 +6495,22 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /**
+         * AdminSplitSharesOut
+         * @description The platform share count a confirm would RESCALE (W2-8): the count the market cap reads (the Workbench's,
+         *     ``dashboards.market_cap.cap_cell``), dated before the split's first session, so the split puts it on the new
+         *     scale (divided by the price factor). ``count`` = as stored; ``date`` = the day it was true (its
+         *     ``valid_from``).
+         */
+        AdminSplitSharesOut: {
+            /** Count */
+            count: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
         };
         /**
          * AdminSplitTapeBarOut

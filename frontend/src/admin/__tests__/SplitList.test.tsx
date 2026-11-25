@@ -193,6 +193,28 @@ const GAME_JUMP = {
   ],
 };
 
+// W2-8 — TREO's shape as GET /admin/splits states it (backend/tests/app/test_admin_split_list_api.py): its split's
+// first session is its first stored bar, and the market cap's share count is dated before that session
+const TREO = {
+  ...MI,
+  version_id: "7e0a0000-0000-4000-8000-0000000000f1",
+  security_id: "7e0a0000-0000-4000-8000-0000000000f2",
+  ticker: "TREO",
+  key_date: "2026-08-04",
+  effective_date: "2026-08-04",
+  ratio_from: "4",
+  price_factor: "4",
+  label: "1-for-4 reverse split",
+  note: null,
+  sec: null,
+  polygon: { ...MI.polygon, id: "E-treo", ticker: "TREO", execution_date: "2026-08-04", split_from: "4", ratio_label: "1-for-4 reverse split" },
+  confirm_options: [
+    { source: "polygon", ratio_from: "4", ratio_to: "1", effective_date: "2026-08-04", label: "1-for-4 reverse split, first session 2026-08-04" },
+  ],
+  first_bar: "2026-08-04",
+  shares_rescaled: { count: 13524682, date: "2026-07-31" },
+};
+
 const h = vi.hoisted(() => ({
   q: {} as Record<string, unknown>,
   confirm: {} as Record<string, unknown>,
@@ -704,6 +726,39 @@ describe("SplitList", () => {
       expect(rows[1]).toHaveTextContent("confirmed past the tape");
       expect(rows[0]).not.toHaveTextContent("past the tape");
     });
+  });
+
+  // W2-8 — two hints from the API, said once per open split: a first session on or before the first stored bar adjusts
+  // nothing on the tape, and the share count a confirm rescales (and by how much) is named so its basis can be checked
+  it("says when a split adjusts no stored bar, and names the share count a confirm rescales", () => {
+    const LATER = { ...MI, first_bar: "2026-01-02", shares_rescaled: null }; // bars before it, no count to rescale
+    const AHEAD = {
+      ...BTOC,
+      version_id: "0b6f0c55-0000-4000-8000-0000000000f3",
+      ticker: "NVA",
+      status: "announced",
+      ratio_from: "1",
+      ratio_to: "2",
+      price_factor: "0.5",
+      label: "2-for-1 forward split",
+      effective_date: "2026-12-01",
+      first_bar: "2024-05-01",
+      shares_rescaled: { count: 1000000, date: "2026-09-30" },
+    };
+    serve({ needs_review: [TREO, LATER], announced: [AHEAD], confirmed: [BTOC], set_aside: [], total: 4 });
+    render(<SplitList />);
+    const [treo, mi] = screen.getAllByTestId("adm-split-review-row");
+    expect(within(treo).getByTestId("adm-split-hint")).toHaveTextContent(
+      "TREO's first session is its first bar: nothing on the tape to adjust; confirming divides 13,524,682 shares dated 2026-07-31 by 4 — check that count's basis.",
+    );
+    expect(within(mi).queryByTestId("adm-split-hint")).toBeNull();
+    expect(within(screen.getByTestId("adm-splits-announced")).getByTestId("adm-split-hint")).toHaveTextContent(
+      "Once in force it multiplies 1,000,000 shares dated 2026-09-30 by 2 — check that count's basis.",
+    );
+    expect(within(screen.getByTestId("adm-splits-confirmed")).queryByTestId("adm-split-hint")).toBeNull();
+    // display only: the decisions on the card are the same
+    expect(within(treo).getByRole("button", { name: "Confirm" })).toBeEnabled();
+    expect(fn(h.confirm)).not.toHaveBeenCalled();
   });
 
   it("shows a failed jump check instead of hiding it", () => {

@@ -12885,6 +12885,28 @@
               }
             ],
             "title": "Tape Override"
+          },
+          "first_bar": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Bar"
+          },
+          "shares_rescaled": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminSplitSharesOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -12907,7 +12929,7 @@
           "valid_from"
         ],
         "title": "AdminSplitListEntryOut",
-        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the\ndocument that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both\n``null`` on every other split)."
+        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the\ndocument that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both\n``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on\nthe list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before\nit adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or\nnone dated before the first session)."
       },
       "AdminSplitListOptionOut": {
         "properties": {
@@ -13334,6 +13356,26 @@
         ],
         "title": "AdminSplitSettledOut",
         "description": "A SETTLED flap (``pipeline/split_basis.settle_flap``): the stored history changed basis and back, but\nevery night's view reads a single basis \u2014 the newest tape has no break, and no night's history view (the\npublic clock) reads a lookback on two bases. Named so it stays visible, never paged, never an alarm.\n``reason`` says how it was judged."
+      },
+      "AdminSplitSharesOut": {
+        "properties": {
+          "count": {
+            "type": "number",
+            "title": "Count"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "date"
+        ],
+        "title": "AdminSplitSharesOut",
+        "description": "The platform share count a confirm would RESCALE (W2-8): the count the market cap reads (the Workbench's,\n``dashboards.market_cap.cap_cell``), dated before the split's first session, so the split puts it on the new\nscale (divided by the price factor). ``count`` = as stored; ``date`` = the day it was true (its\n``valid_from``)."
       },
       "AdminSplitTapeBarOut": {
         "properties": {

@@ -13,6 +13,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from app.routers import admin_splits
+from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from ingest.edgar.client import EdgarClient
 from pipeline import backfill_splits as bf
@@ -761,3 +762,119 @@ def test_the_tape_window_clips_at_the_tapes_ends_and_is_bounded(client, db):
     ):
         assert client.get(url, params=bad).status_code == 422, bad
     assert client.get(f"{BASE}/{uuid.uuid4()}/tape").status_code == 404
+
+
+# --- the panel's hints (W2-8): the first stored bar and the share count a confirm rescales: TREO's shape ---------
+
+TREO_SESSION = date(2026, 8, 4)  # its split's first session, and its first stored bar
+TREO_SHARES = 13_524_682
+TREO_SHARES_DATE = date(2026, 7, 31)  # the cover's as-of: before the first session
+
+
+def _shares(db, sid: uuid.UUID, count: int, day: date) -> None:
+    """One platform share count (the Workbench's, the market cap's), stored by the machine a while back."""
+    append_fact(
+        db,
+        "fact_shares_outstanding",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": sid,
+            "shares": count,
+            "source": "cover",
+            "source_ref": f"https://www.sec.gov/Archives/edgar/data/1/{sid}-10q.htm",
+            "valid_from": day,
+            "ratified_by": "auto",
+            "recorded_at": _served(day),
+        },
+    )
+
+
+def _seed_treo(db) -> uuid.UUID:
+    """TREO's shape (synthetic closes): a 1-for-4 reverse split whose first session is the company's FIRST stored
+    bar (nothing before it on the tape to adjust), and a platform share count dated 07-31, before that session, so
+    confirming the split divides it by 4. Commits."""
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "TREO", date(2025, 1, 1)),
+        )
+        for d, close in ((TREO_SESSION, 12.4), (date(2026, 8, 5), 11.9), (date(2026, 8, 6), 12.1)):
+            cur.execute(
+                "INSERT INTO fact_price_eod (tenant_id, security_id, d, close, volume, valid_from, recorded_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (DEFAULT_TENANT_ID, sid, d, close, 500_000, d, _served(d)),
+            )
+    _shares(db, sid, TREO_SHARES, TREO_SHARES_DATE)
+    db.commit()
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=TREO_SESSION,
+        values={
+            "effective_date": TREO_SESSION,
+            "ratio_from": 4,
+            "ratio_to": 1,
+            "status": "needs_review",
+            "value_source": "polygon",
+            "polygon_split_from": 4,
+            "polygon_split_to": 1,
+            "polygon_execution_date": TREO_SESSION,
+            "valid_from": TREO_SESSION,
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    return sid
+
+
+def test_a_split_on_the_first_bar_says_so_and_names_the_share_count_a_confirm_rescales(
+    client, db, pinned
+):
+    """TREO: its split's first session is its first stored bar (a confirm adjusts nothing on the tape), and the
+    market cap's share count is dated before it (a confirm divides it by 4). POM, beside it: bars before its first
+    session and a share count dated after it (already on the new scale: nothing to rescale). Display only: the
+    confirm is unchanged, and a settled split carries neither hint.
+    """
+    _seed_treo(db)
+    pom = _seed_pom(db)
+    _shares(db, pom, 2_000_000, date(2026, 10, 30))
+    db.commit()
+    body = client.get(BASE).json()
+    _, treo = _find(body, "TREO", TREO_SESSION.isoformat())
+    assert treo["first_bar"] == "2026-08-04" == treo["effective_date"]
+    assert treo["shares_rescaled"] == {"count": TREO_SHARES, "date": "2026-07-31"}
+    _, pom_card = _find(body, "POM", POM_SESSION.isoformat())
+    assert pom_card["first_bar"] == "2026-10-16" and pom_card["shares_rescaled"] is None
+    n = split_repo.count_rows(db)
+    r = client.post(f"{BASE}/{treo['version_id']}/confirm", json={"source": "polygon"})
+    assert r.status_code == 200, r.text
+    assert (r.json()["status"], r.json()["price_factor"]) == ("confirmed", "4")
+    assert split_repo.count_rows(db) == n + 1  # one version, as before
+    bucket, settled = _find(client.get(BASE).json(), "TREO", TREO_SESSION.isoformat())
+    assert bucket == "confirmed"
+    assert settled["first_bar"] is None and settled["shares_rescaled"] is None
+
+
+def test_the_hints_are_read_once_for_the_whole_list(db, pinned, monkeypatch):
+    """One read of the first bars and one of the share counts per list read, over every open split at once,
+    never one per entry."""
+    treo, pom = _seed_treo(db), _seed_pom(db)
+    calls: dict[str, list[set]] = {"bars": [], "shares": []}
+    first_bars, read_states = admin_splits.first_bars, admin_splits.read_states
+
+    def bars_spy(conn, **kw):
+        calls["bars"].append(set(kw["security_ids"]))
+        return first_bars(conn, **kw)
+
+    def shares_spy(conn, ids, fact_type, **kw):
+        calls["shares"].append(set(ids))
+        return read_states(conn, ids, fact_type, **kw)
+
+    monkeypatch.setattr(admin_splits, "first_bars", bars_spy)
+    monkeypatch.setattr(admin_splits, "read_states", shares_spy)
+    out = admin_splits.splits_out(db, tenant_id=DEFAULT_TENANT_ID, asof=TODAY)
+    assert calls == {"bars": [{treo, pom}], "shares": [{treo, pom}]}
+    assert [e.first_bar for e in out.needs_review] == [date(2026, 10, 16), TREO_SESSION]

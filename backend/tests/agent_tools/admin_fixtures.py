@@ -98,13 +98,23 @@ def _option(source: str, label: str) -> dict[str, Any]:
     }
 
 
+# W2-8: an open row's hints as the API states them (TREO's count: dated before the first session, so a confirm
+# rescales it)
+HINTS: dict[str, Any] = {
+    "first_bar": "2025-03-14",
+    "shares_rescaled": {"count": 13_524_682.0, "date": "2026-07-31"},
+}
+
+
 def needs_review_row(n: int, **over: Any) -> dict[str, Any]:
-    """One more needs-review row (a different synthetic ticker), for the budget test."""
+    """One more needs-review row (a different synthetic ticker), for the budget test. Like every open row it carries
+    the API's two hints (W2-8): the first stored bar and the share count a confirm rescales."""
     fields: dict[str, Any] = {
         "decided_by": "needs review",
         "confirm_options": [_option("sec", "SEC: 1-for-10")],
         "actions": ["confirm_sec", "reject"],
         "review_reason": "one_source",
+        **HINTS,
         **over,
     }
     return _entry(n, "needs_review", **fields)
@@ -166,7 +176,7 @@ def splits(extra_needs_review: int = 0) -> dict[str, Any]:
     )
     body = {
         "needs_review": needs,
-        "announced": [_entry(4, "announced", decided_by="auto: SEC + Massive.com")],
+        "announced": [_entry(4, "announced", decided_by="auto: SEC + Massive.com", **HINTS)],
         "confirmed": [
             _entry(5, "confirmed", confirmed_via="auto"),
             _entry(1, "confirmed", key_date="2026-06-01", confirmed_via="auto"),
