@@ -3991,6 +3991,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/warm/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Warm Status
+         * @description Inspect dashboard and Board call cache warmth for the workspace at ``asof``.
+         */
+        get: operations["get_warm_status_dashboards_warm_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/warm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger Warm
+         * @description Start (or join) a single-flight background warm-up for the workspace at ``asof``.
+         */
+        post: operations["trigger_warm_dashboards_warm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/what-changed": {
         parameters: {
             query?: never;
@@ -21159,6 +21199,39 @@ export interface components {
          * @enum {string}
          */
         Verdict: "watching" | "not_yet" | "flip_only" | "starter_entry" | "core_entry" | "managing";
+        /**
+         * WarmStatusOut
+         * @description Current warmth coverage and background warm-up status for a workspace and as-of date.
+         */
+        WarmStatusOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Total */
+            total: number;
+            /** Warm */
+            warm: number;
+            /** Calls Total */
+            calls_total: number;
+            /** Calls Warm */
+            calls_warm: number;
+            /** Running */
+            running: boolean;
+            /** Current Page */
+            current_page?: string | null;
+            /** Last Started At */
+            last_started_at?: string | null;
+            /** Last Finished At */
+            last_finished_at?: string | null;
+            /** Last Wall S */
+            last_wall_s?: number | null;
+            /** Last Reason */
+            last_reason?: string | null;
+            /** Error */
+            error?: string | null;
+        };
         /** WhatChangedCardRefOut */
         WhatChangedCardRefOut: {
             /**
@@ -26378,6 +26451,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TriggerLogOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_warm_status_dashboards_warm_status_get: {
+        parameters: {
+            query?: {
+                /** @description as-of date to inspect (defaults to the server's current night) */
+                asof?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarmStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trigger_warm_dashboards_warm_post: {
+        parameters: {
+            query?: {
+                /** @description as-of date to warm (defaults to the server's current night) */
+                asof?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarmStatusOut"];
                 };
             };
             /** @description Validation Error */

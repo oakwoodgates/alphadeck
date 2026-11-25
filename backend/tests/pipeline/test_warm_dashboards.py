@@ -92,6 +92,7 @@ ASOF = date(2026, 10, 29)
 FRONTEND_DEFAULT_QUERY: dict[str, dict] = {
     "theme-leaderboard": {},
     "peer-table/scopes": {},
+    "market-map": {},
     "insider-tracker": {"days": 30, "silent": False},
     "daily-digest": {},
     "trigger-log": {"days": 90, "role": "entry"},
@@ -107,6 +108,7 @@ FRONTEND_DEFAULT_QUERY: dict[str, dict] = {
     "read-through": {},
     "rotation-quadrant": {"group_by": "link", "include_silent": False},
     "etfs": {"window": "1m"},
+    "overlap-map": {"include_silent": False},
     "filing-stream/cards": {},
     "chain-map/cards": {},
     "evidence-ledger/cards": {},
@@ -233,6 +235,7 @@ def test_pages_cover_the_heavy_dashboards_and_the_pickers_warm_only_their_picker
     assert slugs == {
         "theme-leaderboard",
         "peer-table",
+        "market-map",
         "insider-tracker",
         "daily-digest",
         "trigger-log",
@@ -248,6 +251,7 @@ def test_pages_cover_the_heavy_dashboards_and_the_pickers_warm_only_their_picker
         "read-through",
         "rotation-quadrant",
         "etfs",
+        "overlap-map",
         "filing-stream",
         "chain-map",
         "evidence-ledger",
@@ -284,6 +288,8 @@ def test_the_plan_is_one_request_per_page_per_asof_with_the_pages_exact_default_
         "price_200d": "false",
     }
     assert first["theme-leaderboard"] == {"asof": a}
+    assert first["market-map"] == {"asof": a}
+    assert first["overlap-map"] == {"asof": a, "include_silent": "false"}
     assert first["narrative-index"] == {"asof": a, "window": "1y", "include_silent": "false"}
     assert build_request(ASOF, "x", {"on": True, "n": 3}).query() == "asof=2026-10-29&on=true&n=3"
     assert (
@@ -1291,6 +1297,12 @@ def test_the_prune_hook_is_fail_open_and_always_returns_zero(tmp_path, rc, says)
     assert "hook-rc=0" in r.stdout
     if says:
         assert says in r.stdout
+
+
+def test_weekly_loops_warm_dashboards_after_a_successful_run():
+    for fn_name in ("master_refresh_loop", "term_mentions_loop"):
+        body = _function(fn_name)
+        assert 'warm_dashboards "$(last_expected_asof "$(date +%s)")"' in body
 
 
 def test_compose_carries_the_env_the_warm_up_reads_and_its_defaults_match():

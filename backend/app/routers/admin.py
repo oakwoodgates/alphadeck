@@ -27,6 +27,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from app import warm_hook
 from app.auth import CurrentUser, require_super_admin
 from app.deps import get_conn
 from app.errors import RETRY_AFTER_S, fail
@@ -1505,7 +1506,9 @@ def start_run_daily(request: Request) -> AdminRunJobRef:
         # process bounded by the run timeout (`pipeline/bounded_pass.py`). The payload is the ONE mapping
         # off the outcome (`build_run_payload(**payload_kwargs())`, built in the child), so this poll can
         # never disagree with the artifact the SAME pass wrote.
-        return _admin_run_out(run_admin_pass())
+        out = _admin_run_out(run_admin_pass())
+        warm_hook.request_warm(reason="admin_daily")
+        return out
 
     try:
         job_id = start_daily_job(_run)

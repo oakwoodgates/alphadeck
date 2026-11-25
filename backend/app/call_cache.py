@@ -165,6 +165,59 @@ class CallCache:
         with self._lock:
             return len(self._entries)
 
+    @staticmethod
+    def _key(
+        *,
+        kind: str,
+        thesis: Thesis,
+        asof: date,
+        known_at: datetime | None,
+        clock: str,
+        decisions_asof: date | None,
+        fn_token: int,
+        token: tuple[Any, ...],
+    ) -> tuple[Any, ...]:
+        return (
+            kind,
+            thesis.id,
+            thesis.tenant_id,
+            thesis.model_dump_json(),
+            asof,
+            known_at,
+            clock,
+            decisions_asof,
+            fn_token,
+            token,
+        )
+
+    def is_warm_call(
+        self,
+        conn: psycopg.Connection,
+        *,
+        thesis: Thesis,
+        asof: date,
+        known_at: datetime | None,
+        clock: str,
+        decisions_asof: date | None = None,
+        fn_token: int = 0,
+    ) -> bool:
+        """Return whether the cached ``call`` entry for ``thesis`` is present for the current DB token."""
+        token = _db_token(conn, thesis)
+        if token is None:
+            return False
+        key = self._key(
+            kind="call",
+            thesis=thesis,
+            asof=asof,
+            known_at=known_at,
+            clock=clock,
+            decisions_asof=decisions_asof,
+            fn_token=fn_token,
+            token=token,
+        )
+        with self._lock:
+            return key in self._entries
+
     def get_or_compute(
         self,
         conn: psycopg.Connection,
@@ -181,17 +234,15 @@ class CallCache:
         token = _db_token(conn, thesis)
         if token is None:
             return compute()
-        key = (
-            kind,
-            thesis.id,
-            thesis.tenant_id,
-            thesis.model_dump_json(),
-            asof,
-            known_at,
-            clock,
-            decisions_asof,
-            fn_token,
-            token,
+        key = self._key(
+            kind=kind,
+            thesis=thesis,
+            asof=asof,
+            known_at=known_at,
+            clock=clock,
+            decisions_asof=decisions_asof,
+            fn_token=fn_token,
+            token=token,
         )
         with self._lock:
             cached = self._entries.get(key)

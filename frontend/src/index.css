@@ -2329,6 +2329,18 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .dash-group-pill.on .dash-group-n { color: var(--txt-2); }
 .dash-index-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .dash-index-clear:hover { color: var(--txt); }
+.dash-warm { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.dash-warm-pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--txt-3); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 9px; }
+.dash-warm-pill.cold { color: var(--txt-2); }
+.dash-warm-pill.running { color: var(--txt-2); }
+.dash-warm-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warm); animation: dash-warm-pulse 1.2s ease-in-out infinite; }
+@keyframes dash-warm-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.dash-warm-btn { font: inherit; font-size: 11px; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.dash-warm-btn:hover:not(:disabled) { color: var(--txt); background: var(--panel-2); border-color: var(--txt-3); }
+.dash-warm-btn:disabled { opacity: 0.6; cursor: default; }
+.dash-warm-rewarm { font: inherit; font-size: 11px; color: var(--txt-4); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.dash-warm-rewarm:hover:not(:disabled) { color: var(--txt-2); }
+.dash-warm-rewarm:disabled { opacity: 0.6; cursor: default; }
 .dash-sections { display: flex; flex-direction: column; gap: 20px; }
 .dash-group-sec { display: flex; flex-direction: column; gap: 8px; }
 .dash-group-h { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: center; }

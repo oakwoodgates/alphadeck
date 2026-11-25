@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app import errors
+from app import errors, warm_hook
 from app.auth import require_super_admin, require_user
 from app.health import HealthResponse, compute_health, enforce_boot_visibility
 from app.routers import (
@@ -61,6 +61,8 @@ async def lifespan(app: FastAPI):
         assert_data_tenant(_conn)
     finally:
         _conn.close()
+    # Non-blocking delayed boot warm-up for current_night() (skipped under pytest / ALPHADECK_AUTO_WARM=0).
+    warm_hook.request_warm(reason="boot")
     # The hosted agent tools endpoint (docs/AGENT_TOOLS.md §Hosted endpoint): mounted below only when
     # ALPHADECK_PUBLIC_ORIGIN is set; its session manager's task group lives exactly as long as the API.
     hosted = getattr(app.state, "hosted", None)

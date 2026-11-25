@@ -17,7 +17,8 @@ from datetime import date
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from app.errors import SCHEDULE_SETTING_MALFORMED, fail
+from app import warm_hook
+from app.errors import SCHEDULE_SETTING_MALFORMED, caller_of, fail
 from domain.market_time import market_clock, market_tz
 
 router = APIRouter(tags=["meta"])
@@ -47,6 +48,9 @@ def get_clock(request: Request) -> ClockOut:
         ValueError
     ) as exc:  # a malformed ALPHADECK_CRON_AT: a deploy error, loud (the value: steward only)
         raise fail(500, SCHEDULE_SETTING_MALFORMED, exc, request=request) from exc
+    caller = caller_of(request)
+    if caller is not None and caller.workspace_id is not None:
+        warm_hook.request_warm(workspace=caller.workspace_id, reason="session")
     return ClockOut(
         current_night=c.night,
         action_day=c.action_day,
