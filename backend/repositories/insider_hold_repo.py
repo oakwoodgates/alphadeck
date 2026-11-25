@@ -6,14 +6,17 @@ THE READ (``items``). Every held row of the DATA tenant, each in ONE bucket (``d
 judged by ``domain.insider_holds.hold_state`` — the same ladder the insider read (``resolve_holds``) runs, over
 the same inputs (the 4/A amendments, links and decisions ``db.insider_resolution.load_inputs`` loads, and the
 steward's decisions), as of NOW on the record clock: what today's view reads. So the panel can never disagree
-with the read. Each item also carries the SUGGESTED date (``domain.insider_holds.suggested_date`` — arithmetic on
-the filing's own fields, never a model) and every decision about the row.
+with the read. Each item also carries the SUGGESTION (``domain.insider_holds.suggest`` — the dates the filing
+itself writes, its balance chain and the month/day arithmetic, never a model), read beside the filing's stored
+rows (the newest version of each of its other rows in ``fact_insider_txn``, same security) and the setting
+``insider_hold_one_row_por_agrees``; the COPIES of the row (the same issuer's filing row held under another of its
+securities, each decided on its own); and every decision about the row.
 
 THE VERBS, each with its visible inverse (WB#1) — every one ONE append-only INSERT, recorded now (never
 back-dated: on the public clock a steward decision counts from when it was made, ``db.public_clock``):
 
 - ``approve`` — count the row, dated at the RATIFIED date (the suggestion when none is sent, only when it agrees
-  with the filing's period of report). The date must pass
+  with the filing). The date must pass
   the year rule and sit on or before the filing's market date (``domain.insider_holds.ratify_problem``).
 - ``dismiss`` — do not count the row ("not a trade"); a reason is required.
 - ``revoke`` — the Undo of one approve / dismiss; the state before it comes back.
@@ -56,6 +59,7 @@ from db.change_stamp import mark_changed
 from db.insider_resolution import load_inputs
 from db.public_clock import hold_select_sql
 from domain.config import DEFAULT_CONFIG
+from domain.insider_amendments import norm_cik
 from domain.insider_holds import (
     ACTION_APPROVE,
     ACTION_DISMISS,
@@ -66,14 +70,16 @@ from domain.insider_holds import (
     BUCKETS,
     HOLD_FORM_4,
     HoldState,
+    Suggestion,
     date_as_filed,
     filing_market_date,
     hold_states,
     placement_problem,
     ratify_problem,
-    suggested_date,
+    suggest,
 )
 from domain.scopes import DATA_TENANT_ID
+from domain.settings import get_settings
 
 ACTOR_STEWARD = "steward"
 DEFAULT_APPROVE_REASON = "date ratified by the steward"
@@ -94,7 +100,8 @@ def basis_of(actor: str, action: str) -> str:
 @dataclass
 class HoldItem:
     """One held row as the steward's panel shows it: the hold as filed, its company, where it sits (``state``),
-    the suggested date, and every decision about it (oldest first)."""
+    the suggestion (``suggested`` / ``agrees`` are its date and agreement), its copies under the issuer's other
+    securities, and every decision about it (oldest first)."""
 
     hold: dict[str, Any]
     ticker: str | None
@@ -110,6 +117,10 @@ class HoldItem:
     owed_why: str | None = (
         None  # ``placement_problem``: why the rule did not place it (``owed`` rows only)
     )
+    # ``suggest``: the date, agrees, where the filing writes it, its words and the filing's window
+    suggestion: Suggestion | None = None
+    # the same filing row held under another security of the same issuer: ``(hold_id, ticker)``, ticker order
+    copies: list[tuple[UUID, str | None]] = field(default_factory=list)
 
     @property
     def id(self) -> UUID:
@@ -174,6 +185,59 @@ def _key(r: Mapping[str, Any]) -> tuple[str, str, int, str]:
     return (str(r["security_id"]), str(r["accession"]), int(r["txn_seq"]), str(r["form"]))
 
 
+# every held row of the listed holds' filings, under any security of the tenant (copies and row counts)
+_FILING_HOLDS_SQL = """
+    SELECT h.id, h.security_id, h.accession, h.txn_seq, h.form, sm.ticker, sm.cik AS issuer_cik
+      FROM insider_txn_hold h
+      LEFT JOIN security_master sm ON sm.id = h.security_id AND sm.tenant_id = h.tenant_id
+     WHERE h.tenant_id = %(t)s AND h.accession = ANY(%(accs)s)
+     ORDER BY sm.ticker NULLS LAST, h.id
+"""
+
+# the STORED rows of the listed holds' filings (their siblings): the newest version of each row number recorded by
+# the read's instant — what the suggestion reads beside a Form 4 hold (its dates and its balance chain)
+_SIBLINGS_SQL = """
+    SELECT DISTINCT ON (f.security_id, f.accession, f.txn_seq)
+           f.security_id, f.accession, f.txn_seq, f.valid_from, f.shares, f.shares_owned_after,
+           f.direct_indirect
+      FROM fact_insider_txn f
+     WHERE f.tenant_id = %(t)s AND f.security_id = ANY(%(sids)s) AND f.accession = ANY(%(accs)s)
+       AND f.recorded_at <= %(at)s
+     ORDER BY f.security_id, f.accession, f.txn_seq, f.recorded_at DESC, f.id DESC
+"""
+
+
+def _filing_holds(
+    conn: psycopg.Connection, *, tenant_id: UUID, holds: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    accs = sorted({str(h["accession"]) for h in holds})
+    with conn.cursor() as cur:
+        cur.execute(_FILING_HOLDS_SQL, {"t": tenant_id, "accs": accs})
+        return cur.fetchall()
+
+
+def _siblings(
+    conn: psycopg.Connection, *, tenant_id: UUID, holds: list[dict[str, Any]], at: datetime
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    """``(security_id, accession) -> the filing's stored rows`` for the listed Form 4 holds (a Form 4/A's rows
+    are not stored in ``fact_insider_txn``)."""
+    form4 = [h for h in holds if str(h["form"]) == HOLD_FORM_4]
+    if not form4:
+        return {}
+    p = {
+        "t": tenant_id,
+        "sids": list(dict.fromkeys(h["security_id"] for h in form4)),
+        "accs": sorted({str(h["accession"]) for h in form4}),
+        "at": at,
+    }
+    out: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    with conn.cursor() as cur:
+        cur.execute(_SIBLINGS_SQL, p)
+        for r in cur.fetchall():
+            out.setdefault((str(r["security_id"]), str(r["accession"])), []).append(r)
+    return out
+
+
 def items(
     conn: psycopg.Connection,
     *,
@@ -182,16 +246,31 @@ def items(
     security_ids: Collection[UUID] | None = None,
     now: datetime | None = None,
     on_time_days: int = DEFAULT_CONFIG.insider_hold_on_time_days,
+    one_row_por_agrees: bool | None = None,
 ) -> list[HoldItem]:
     """Every held row of ``tenant_id`` (the DATA tenant: a steward route acts on it, never on a workspace),
     optionally only ``hold_ids`` / ``security_ids``, each with its bucket as the read sees it at ``now`` (default:
     now, the record clock — today's view). Ordered by bucket (``BUCKETS``: owed first), then ticker, accession
-    and row number. Read-only."""
+    and row number. ``one_row_por_agrees`` = the suggestion's setting (``None``: the Settings value). Read-only.
+    """
     holds = _holds(conn, tenant_id=tenant_id, hold_ids=hold_ids, security_ids=security_ids)
     if not holds:
         return []
     sids = list(dict.fromkeys(h["security_id"] for h in holds))
     at = now or datetime.now(timezone.utc)
+    if one_row_por_agrees is None:
+        one_row_por_agrees = get_settings().insider_hold_one_row_por_agrees
+    # what the suggestion reads beside each hold: its filing's stored rows and its filing's other held rows
+    stored = _siblings(conn, tenant_id=tenant_id, holds=holds, at=at)
+    filing_holds = _filing_holds(conn, tenant_id=tenant_id, holds=holds)
+    held_rows: dict[tuple[str, str], set[int]] = {}
+    peers: dict[tuple[str, int, str], list[dict[str, Any]]] = {}
+    for p in filing_holds:
+        if str(p["form"]) == HOLD_FORM_4:
+            held_rows.setdefault((str(p["security_id"]), str(p["accession"])), set()).add(
+                int(p["txn_seq"])
+            )
+        peers.setdefault((str(p["accession"]), int(p["txn_seq"]), str(p["form"])), []).append(p)
     inputs = load_inputs(conn, sids, known_at=at, tenant_id=tenant_id, clock="record")
     decisions = _decisions(conn, tenant_id=tenant_id, security_ids=sids)
     # the steward decisions the READ sees (recorded by ``at``) decide the bucket; the panel lists every one
@@ -216,7 +295,21 @@ def items(
             on_time_days=on_time_days,
         )
         for h in hs:
-            suggestion, agrees = suggested_date(h)
+            filing = (str(h["security_id"]), str(h["accession"]))
+            if str(h["form"]) == HOLD_FORM_4:
+                held = held_rows.get(filing, set())
+                # a stored row with a held row's number is that row as an older ingest stored it: not a sibling
+                siblings = [s for s in stored.get(filing, ()) if int(s["txn_seq"]) not in held]
+                row_count: int | None = len({int(s["txn_seq"]) for s in siblings} | held)
+            else:
+                siblings, row_count = [], None
+            sug = suggest(h, siblings, row_count=row_count, one_row_por_agrees=one_row_por_agrees)
+            mine = norm_cik(h.get("issuer_cik"))
+            copies = [
+                (p["id"], p["ticker"])
+                for p in peers.get((str(h["accession"]), int(h["txn_seq"]), str(h["form"])), ())
+                if p["id"] != h["id"] and mine is not None and norm_cik(p["issuer_cik"]) == mine
+            ]
             state = states[(str(h["accession"]), int(h["txn_seq"]), str(h["form"]))]
             out.append(
                 HoldItem(
@@ -225,13 +318,15 @@ def items(
                     name=h.get("company_name"),
                     issuer_cik=h.get("issuer_cik"),
                     state=state,
-                    suggested=suggestion,
-                    agrees=agrees,
+                    suggested=sug.date,
+                    agrees=sug.agrees,
                     decisions=by_key_dec.get(_key(h), []),
                     market_date=filing_market_date(h),
                     owed_why=(
                         placement_problem(h, on_time_days) if state.bucket == BUCKET_OWED else None
                     ),
+                    suggestion=sug,
+                    copies=copies,
                 )
             )
     order = {b: i for i, b in enumerate(BUCKETS)}
@@ -322,6 +417,7 @@ def _evidence(it: HoldItem) -> dict[str, Any]:
         "filing_market_date": ceiling.isoformat() if ceiling else None,
         "suggested_date": it.suggested.isoformat() if it.suggested else None,
         "agrees": it.agrees,
+        "suggestion_basis": it.suggestion.basis if it.suggestion else None,
         "bucket_before": it.bucket,
         "reason_held": h.get("reason"),
     }
@@ -378,21 +474,24 @@ def approve(
     decided_by: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Count the held row dated at ``ratified_date`` — the suggested date when ``None``, and only a suggestion that
-    AGREES with the filing's period of report (``ValueError`` when there is none, or it does not agree: one click
-    never ratifies a date the filing contradicts). ``ValueError`` when the date fails the year rule or is after the filing's market date (or that is
-    unknown); ``HoldConflict`` per ``_decidable``; ``LookupError`` for an unknown hold."""
+    AGREES with the filing (``ValueError`` when there is none — a suggestion the filing contradicts is withheld —,
+    or it does not agree: one click never ratifies a date the filing contradicts). ``ValueError`` when the date
+    fails the year rule or is after the filing's market date (or that is unknown); ``HoldConflict`` per
+    ``_decidable``; ``LookupError`` for an unknown hold."""
     hold = _lock(conn, hold_id, tenant_id)
     it = one(conn, hold_id, tenant_id=tenant_id)
     _decidable(it)
+    words = it.suggestion.words if it.suggestion is not None else None
     if ratified_date is None and it.suggested is not None and not it.agrees:
         raise ValueError(
-            f"the suggested date {it.suggested.isoformat()} does not agree with the filing's period of report "
-            "— send the date to ratify"
+            f"the suggested date {it.suggested.isoformat()} does not agree with the filing on its own"
+            f"{f' ({words})' if words else ''} — send the date to ratify"
         )
     day = ratified_date if ratified_date is not None else it.suggested
     if day is None:
         raise ValueError(
-            "no date was sent and the filing gives no suggestion — send the date to ratify"
+            f"no date was sent and the filing gives no suggestion{f' ({words})' if words else ''} — send "
+            "the date to ratify"
         )
     problem = ratify_problem(hold, day)
     if problem is not None:

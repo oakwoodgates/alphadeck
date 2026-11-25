@@ -53,11 +53,12 @@ price screens keyed on the trade day skip a filing-night row (``is_filing_night`
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 from domain.insider_amendments import (
     AMENDS_ACCESSION,
@@ -194,8 +195,9 @@ def _placement(hold: Mapping[str, Any], on_time_days: int) -> tuple[date | None,
         )
     if lag > on_time_days:
         return None, (
-            f"the filing was made {lag} days after its period of report ({por.isoformat()}), more than "
-            f"the on-time window of {on_time_days} days"
+            f"the filing is late: SEC accepted it {lag} days after its period of report ({por.isoformat()}, "
+            f"the earliest trade it reports), past the {on_time_days}-day on-time window, so its filing night "
+            "is no stand-in for this row's date"
         )
     return edgar_night(at), None
 
@@ -415,9 +417,90 @@ def hold_states(
     }
 
 
-# --- the suggested date (spec 4.5) — arithmetic on the filing's own fields, never a model ----------------------
+# --- the suggested date (spec 4.5, rule W3-1) — the filing's own dates and arithmetic, never a model ----------
+#
+# A RECOMMENDATION for the steward's queue only: nothing the read calls reads it (``hold_state``,
+# ``resolve_holds`` and the placement rule never do), and it is applied only when a steward approves it. In order:
+#
+# 1. the dates the filing itself WRITES with the held row's own month and day: in a footnote the row cites, as the
+#    date of a stored row of the same filing (a SIBLING), or as the period of report, a ``00YY`` year read as
+#    ``20YY`` (``suggestion_period_of_report``; the placement rule keeps reading the raw text);
+# 2. the filing's BALANCE CHAIN: among the stored rows of the same ownership form (direct / indirect), the one
+#    whose ``shares_owned_after`` is this row's opening balance (``_balance_chain``) dates the earliest the row can
+#    be, the one whose balance opens from this row's the latest — table order is not evidence (the indirect rows
+#    of a filing can follow its direct ones);
+# 3. the month/day arithmetic (``_arithmetic_date``), unchanged.
+#
+# A candidate FITS when it is on or after the period of report (when readable) and inside the chain's window, which
+# ends at the filing's market date. One fitting written date is suggested, else the arithmetic when it fits;
+# ``agrees`` (one click may ratify it) also needs a readable period of report. A one-row filing whose row fits
+# nothing suggests its period of report, agreeing only by the steward's setting. Anything else is WITHHELD: no
+# date, the failed check and the filing's own window in words.
 
 _WRITTEN_DATE = re.compile(r"^\s*(\d{1,4})-(\d{1,2})-(\d{1,2})")
+
+# where a suggestion comes from: the filing writes it (a footnote the row cites, a stored row of the same filing,
+# its period of report with 00YY read as 20YY); the written month and day in the latest year on or before the
+# filing; the period of report of a one-row filing whose row fits nothing
+BASIS_FOOTNOTE = "footnote"
+BASIS_SIBLING_ROW = "sibling_row"
+BASIS_PERIOD_OF_REPORT = "period_of_report"
+BASIS_ARITHMETIC = "arithmetic"
+BASIS_ONE_ROW = "period_of_report_one_row"
+SUGGESTION_BASES = (
+    BASIS_FOOTNOTE,
+    BASIS_SIBLING_ROW,
+    BASIS_PERIOD_OF_REPORT,
+    BASIS_ARITHMETIC,
+    BASIS_ONE_ROW,
+)
+# a date the filing writes in several places takes the first of these as its basis
+_WRITTEN_BASES = (BASIS_FOOTNOTE, BASIS_SIBLING_ROW, BASIS_PERIOD_OF_REPORT)
+
+_MONTHS = {
+    name: i
+    for i, names in enumerate(
+        (
+            ("january", "jan"),
+            ("february", "feb"),
+            ("march", "mar"),
+            ("april", "apr"),
+            ("may",),
+            ("june", "jun"),
+            ("july", "jul"),
+            ("august", "aug"),
+            ("september", "sept", "sep"),
+            ("october", "oct"),
+            ("november", "nov"),
+            ("december", "dec"),
+        ),
+        start=1,
+    )
+    for name in names
+}
+_MONTH_NAMES = "|".join(sorted(_MONTHS, key=len, reverse=True))
+# the three ways a footnote writes a date: "March 23, 2023" (or "Mar. 23, 2023"), "11/21/2017", "2023-03-23"
+_FOOTNOTE_DATE = re.compile(
+    rf"\b(?P<mon>{_MONTH_NAMES})\.?\s+(?P<d>\d{{1,2}})(?:st|nd|rd|th)?,?\s+(?P<y>\d{{4}})\b"
+    r"|\b(?P<m2>\d{1,2})/(?P<d2>\d{1,2})/(?P<y2>\d{4})\b"
+    r"|\b(?P<y3>\d{4})-(?P<m3>\d{1,2})-(?P<d3>\d{1,2})\b",
+    re.IGNORECASE,
+)
+
+
+class Suggestion(NamedTuple):
+    """THE SUGGESTION for one held row (``suggest``). ``date`` = the suggested date (``None`` = withheld or none can
+    be made); ``agrees`` = one click may ratify it; ``basis`` = where it comes from (``SUGGESTION_BASES``; ``None``
+    with no date); ``words`` = the same in plain words, or why no date is offered; ``window_from`` /
+    ``window_to`` = the filing's own range for the row (the later of the period of report and the row its balance
+    follows; the earlier of the row that follows it and the market date), ``None`` when unknown."""
+
+    date: date | None
+    agrees: bool
+    basis: str | None = None
+    words: str | None = None
+    window_from: date | None = None
+    window_to: date | None = None
 
 
 def filing_market_date(hold: Mapping[str, Any]) -> date | None:
@@ -448,33 +531,281 @@ def date_as_filed(hold: Mapping[str, Any]) -> str | None:
     return None if v is None else str(v)
 
 
-def suggested_date(hold: Mapping[str, Any]) -> tuple[date | None, bool]:
-    """THE SUGGESTION (spec 4.5) — a recommendation only, never applied by itself: the written month and day in
-    the latest year that puts it on or before the filing's market date (``filing_market_date``), tried in that
-    date's year and the year before, so a suggestion is never more than a year before its filing.
+def suggestion_period_of_report(hold: Mapping[str, Any]) -> date | None:
+    """The period of report THE SUGGESTION reads: the filed text as a date, a year below 100 read as ``20YY`` only
+    when that is the accession's filing year or the year before (``0023-03-23`` on a 2024 accession -> 2023-03-23),
+    and the result possible under the year rule; else ``None``. The placement rule never reads this: a ``00YY``
+    period of report still fails its year check (``_placement``)."""
+    por = _readable_date(hold.get("period_of_report_as_filed"))
+    if por is None:
+        return None
+    acc = str(hold["accession"])
+    if por.year < 100:
+        filing_year = accession_filing_year(acc)
+        if filing_year is None:
+            return None
+        year = next((y for y in (filing_year, filing_year - 1) if y % 100 == por.year), None)
+        if year is None:
+            return None
+        try:
+            por = por.replace(year=year)
+        except ValueError:
+            return None
+    return por if year_is_possible(por, acc) else None
 
-    Returns ``(date, agrees)``. ``agrees`` is True only when the date is on or after a readable period of
-    report that is possible under the year rule. ``(None, False)`` when the written date cannot be read, its
-    month and day exist in neither year (Feb 29 outside a leap year), or no filing date is known."""
-    md_ = _written_month_day(date_as_filed(hold))
-    ceiling = filing_market_date(hold)
-    if md_ is None or ceiling is None:
-        return None, False
-    month, day = md_
-    found: date | None = None
+
+def _footnote_dates(texts: object) -> list[date]:
+    """Every date written in the footnotes a row cites (``row["txn_footnotes"]``), in reading order."""
+    if not isinstance(texts, (list, tuple)):
+        return []
+    out: list[date] = []
+    for text in texts:
+        for m in _FOOTNOTE_DATE.finditer(str(text)):
+            if m.group("mon"):
+                ymd = (int(m.group("y")), _MONTHS[m.group("mon").lower()], int(m.group("d")))
+            elif m.group("m2"):
+                ymd = (int(m.group("y2")), int(m.group("m2")), int(m.group("d2")))
+            else:
+                ymd = (int(m.group("y3")), int(m.group("m3")), int(m.group("d3")))
+            try:
+                out.append(date(*ymd))
+            except ValueError:
+                continue
+    return out
+
+
+def _number(v: object) -> float | None:
+    """A share count or balance as a finite float, else ``None`` (missing or unreadable proves nothing)."""
+    if v is None or v == "":
+        return None
+    try:
+        x = float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
+
+
+def _same_shares(a: float, b: float) -> bool:
+    return abs(a - b) <= _SHARES_TOL * max(1.0, abs(a), abs(b))
+
+
+class _Chain(NamedTuple):
+    """The stored rows the held row's balance proves: ``before`` = the row whose balance this row opens from,
+    ``after`` = the row whose balance opens from this row's (each ``None`` when not proven)."""
+
+    before: Mapping[str, Any] | None
+    after: Mapping[str, Any] | None
+
+
+def _balance_chain(hold: Mapping[str, Any], siblings: Sequence[Mapping[str, Any]]) -> _Chain:
+    """The filing's BALANCE CHAIN around the held row, among the siblings of its own ownership form (``D`` / ``I``)
+    that carry a date and a balance. BEFORE: the one sibling whose ``shares_owned_after`` is the row's opening
+    balance (its balance less its shares when the row acquired, plus them when it disposed; either when the row
+    does not say). AFTER: the one other sibling whose balance differs from the row's by exactly that sibling's
+    shares. A missing value, or more than one match, proves nothing (tolerance: the system's share tolerance,
+    relative)."""
+    r = _row_of(hold)
+    own_after, own_shares = _number(r.get("shares_owned_after")), _number(r.get("shares"))
+    form = r.get("direct_indirect")
+    if own_after is None or own_shares is None or form not in ("D", "I"):
+        return _Chain(None, None)
+    same = [
+        s
+        for s in siblings
+        if s.get("direct_indirect") == form
+        and _number(s.get("shares_owned_after")) is not None
+        and _as_date(s.get("valid_from")) is not None
+    ]
+    code = str(r.get("acquired_disposed") or "").strip().upper()
+    opening = {"A": (own_after - own_shares,), "D": (own_after + own_shares,)}.get(
+        code, (own_after - own_shares, own_after + own_shares)
+    )
+    before = [
+        s for s in same if any(_same_shares(_number(s["shares_owned_after"]), o) for o in opening)
+    ]
+    first = before[0] if len(before) == 1 else None
+    after = []
+    for s in same:
+        shares = _number(s.get("shares"))
+        if s is first or shares is None:
+            continue
+        if _same_shares(abs(_number(s["shares_owned_after"]) - own_after), shares):
+            after.append(s)
+    return _Chain(first, after[0] if len(after) == 1 else None)
+
+
+def _arithmetic_date(month_day: tuple[int, int], ceiling: date) -> date | None:
+    """The written month and day in the latest year that puts it on or before ``ceiling``, tried in that date's
+    year and the year before (never more than a year before the filing); ``None`` when neither year has it.
+    """
+    month, day = month_day
     for year in (ceiling.year, ceiling.year - 1):
         try:
             cand = date(year, month, day)
         except ValueError:
             continue
         if cand <= ceiling:
-            found = cand
-            break
-    if found is None:
-        return None, False
-    por = _readable_date(hold.get("period_of_report_as_filed"))
-    agrees = por is not None and year_is_possible(por, str(hold["accession"])) and found >= por
-    return found, agrees
+            return cand
+    return None
+
+
+def _and(parts: Sequence[str]) -> str:
+    return parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
+def _balance(v: object) -> str:
+    n = _number(v)
+    if n is None:
+        return "?"
+    return f"{n:,.0f}" if n == int(n) else f"{n:,.4f}".rstrip("0").rstrip(".")
+
+
+def suggest(
+    hold: Mapping[str, Any],
+    siblings: Iterable[Mapping[str, Any]] = (),
+    *,
+    row_count: int | None = None,
+    one_row_por_agrees: bool = False,
+) -> Suggestion:
+    """THE SUGGESTION (spec 4.5, rule W3-1; the section comment states the rule) — a recommendation only, never
+    applied by itself. ``siblings`` = the stored rows of the hold's filing and security (``txn_seq``,
+    ``valid_from``, ``shares``, ``shares_owned_after``, ``direct_indirect``; a row with the hold's own number is
+    ignored); ``row_count`` = how many rows that filing has for the security, stored and held (``None`` = unknown:
+    never read as a one-row filing); ``one_row_por_agrees`` = the steward's setting for a one-row filing's period
+    of report (``Settings.insider_hold_one_row_por_agrees``, read by the caller: the domain reads no settings).
+    """
+    text = date_as_filed(hold)
+    ceiling = filing_market_date(hold)
+    if ceiling is None:
+        return Suggestion(
+            None,
+            False,
+            words="no acceptance and no filing date are known, so no date can be checked",
+        )
+    month_day = _written_month_day(text)
+    if month_day is None:
+        return Suggestion(None, False, words=f"the row's written date ({text}) cannot be read")
+    acc, seq = str(hold["accession"]), hold.get("txn_seq")
+    sibs = [s for s in siblings if seq is None or int(s["txn_seq"]) != int(seq)]
+    por = suggestion_period_of_report(hold)
+    chain = _balance_chain(hold, sibs)
+    first = _as_date(chain.before["valid_from"]) if chain.before is not None else None
+    last = _as_date(chain.after["valid_from"]) if chain.after is not None else None
+    low = max((d for d in (por, first) if d is not None), default=None)
+    high = min(d for d in (last, ceiling) if d is not None)
+
+    def fits(d: date) -> bool:
+        return (low is None or d >= low) and d <= high
+
+    def window(date_: date | None, agrees: bool, basis: str | None, words: str) -> Suggestion:
+        return Suggestion(date_, agrees, basis, words, low, high)
+
+    # 1. the dates the filing writes with this row's month and day (on or before the filing, the year rule)
+    written: dict[date, dict[str, list[int]]] = {}
+
+    def add(d: date | None, basis: str, row: int | None = None) -> None:
+        if (
+            d is None
+            or (d.month, d.day) != month_day
+            or d > ceiling
+            or not year_is_possible(d, acc)
+        ):
+            return
+        rows = written.setdefault(d, {}).setdefault(basis, [])
+        if row is not None and row not in rows:
+            rows.append(row)
+
+    for d in _footnote_dates(_row_of(hold).get("txn_footnotes")):
+        add(d, BASIS_FOOTNOTE)
+    for s in sibs:
+        add(_as_date(s.get("valid_from")), BASIS_SIBLING_ROW, int(s["txn_seq"]))
+    add(por, BASIS_PERIOD_OF_REPORT)
+    no_por = (
+        ""
+        if por is not None
+        else "; the period of report cannot be read, so it does not agree on its own"
+    )
+
+    fitting = sorted(d for d in written if fits(d))
+    if len(fitting) == 1:
+        d = fitting[0]
+        sources = written[d]
+        basis = next(b for b in _WRITTEN_BASES if b in sources)
+        parts = []
+        if BASIS_FOOTNOTE in sources:
+            parts.append("written in a footnote this row cites")
+        if BASIS_SIBLING_ROW in sources:
+            rows = sorted(sources[BASIS_SIBLING_ROW])
+            label = "row" if len(rows) == 1 else "rows"
+            parts.append(f"the date of {label} {_and([str(n) for n in rows])} of the same filing")
+        if BASIS_PERIOD_OF_REPORT in sources:
+            as_filed = str(hold.get("period_of_report_as_filed") or "").strip()
+            filed_as = f" (written {as_filed})" if as_filed[:10] != d.isoformat() else ""
+            parts.append(f"the filing's period of report{filed_as}")
+        return window(d, por is not None, basis, f"{d.isoformat()}: {_and(parts)}{no_por}")
+    if len(fitting) > 1:
+        d = fitting[-1]
+        return window(
+            d,
+            False,
+            next(b for b in _WRITTEN_BASES if b in written[d]),
+            f"the filing writes {_and([x.isoformat() for x in fitting])} with this row's month and day; "
+            f"the latest is shown, and it does not agree on its own",
+        )
+
+    # 2. the month/day arithmetic, when it fits
+    arith = _arithmetic_date(month_day, ceiling)
+    if arith is not None and fits(arith):
+        return window(
+            arith,
+            por is not None,
+            BASIS_ARITHMETIC,
+            f"{arith.isoformat()}: the written month and day ({text}) in the latest year on or before the "
+            f"filing's market date ({ceiling.isoformat()}){no_por}",
+        )
+
+    # 3. a one-row filing: its period of report (the filing's earliest trade is its only one)
+    if row_count == 1 and not sibs and por is not None and por <= ceiling:
+        agrees = bool(one_row_por_agrees)
+        tail = "" if agrees else ", so it does not agree on its own"
+        return window(
+            por,
+            agrees,
+            BASIS_ONE_ROW,
+            f"{por.isoformat()}: the period of report of a one-row filing; the row's written date ({text}) "
+            f"fits neither it nor the filing{tail}",
+        )
+
+    # 4. WITHHELD: the failed check, and the filing's own window
+    if arith is None:
+        why = f"the written month and day ({text}) exist in neither {ceiling.year} nor {ceiling.year - 1}"
+    elif por is not None and arith < por:
+        why = f"{arith.isoformat()} is before the period of report ({por.isoformat()})"
+    elif first is not None and arith < first:
+        why = (
+            f"{arith.isoformat()} is before the {first.isoformat()} row this one follows in the filing's "
+            f"balances ({_balance(chain.before['shares_owned_after'])} -> "
+            f"{_balance(_row_of(hold).get('shares_owned_after'))} shares)"
+        )
+    else:
+        why = (
+            f"{arith.isoformat()} is after the {high.isoformat()} row that follows this one in the filing's "
+            f"balances ({_balance(_row_of(hold).get('shares_owned_after'))} -> "
+            f"{_balance(chain.after['shares_owned_after'] if chain.after else None)} shares)"
+        )
+    if low is None:
+        span = f"the filing puts it on or before {high.isoformat()}"
+    elif low > high:
+        span = f"the filing's own dates leave no window ({low.isoformat()} is after {high.isoformat()})"
+    else:
+        span = f"the filing puts it between {low.isoformat()} and {high.isoformat()}"
+    return window(None, False, None, f"{why}; {span}")
+
+
+def suggested_date(hold: Mapping[str, Any]) -> tuple[date | None, bool]:
+    """``(date, agrees)`` of ``suggest`` for a hold read alone (no stored sibling rows, its row count unknown)."""
+    s = suggest(hold)
+    return s.date, s.agrees
 
 
 def ratify_problem(hold: Mapping[str, Any], ratified: date) -> str | None:

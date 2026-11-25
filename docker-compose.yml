@@ -202,6 +202,10 @@ services:
       ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR: ${ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR:-300}
       ALPHADECK_PASSWORD_CHECK_CONCURRENCY: ${ALPHADECK_PASSWORD_CHECK_CONCURRENCY:-4}
       ALPHADECK_PASSWORD_CHECK_WAIT_S: ${ALPHADECK_PASSWORD_CHECK_WAIT_S:-10}
+      # W3-1 (decision W3-b): a held insider row of a one-row filing is suggested at the filing's period of report;
+      # true lets one click ratify that suggestion (Admin > Held insider rows). Fallback `false` = the Settings
+      # default (pinned by test; NOT empty: an empty value can't parse as a bool).
+      ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES: ${ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES:-false}
     depends_on:
       postgres:
         condition: service_healthy

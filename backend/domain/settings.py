@@ -278,6 +278,13 @@ class Settings(BaseSettings):
     # every code, this many calendar days back from the read's asof (a negative one reads as 0). Read via the
     # env_prefix (ALPHADECK_INSIDER_AMENDMENT_REVIEW_HORIZON_DAYS); NOT injected by docker-compose.
     insider_amendment_review_horizon_days: int | None = None
+    # W3-1 (decision W3-b): a HELD insider row of a ONE-ROW filing whose own date fits nothing the filing writes is
+    # suggested at the filing's period of report (``domain.insider_holds.suggest``). False (the default) = that
+    # suggestion does not AGREE: the steward reads it and sends the date; true = one click may ratify it. Display
+    # and the steward's Accept only (the read and the placement rule never read it); the steward's queue reads it
+    # (``repositories.insider_hold_repo``). ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES; docker-compose.yml passes it to
+    # the backend with the same default (tests/domain/test_settings.py).
+    insider_hold_one_row_por_agrees: bool = False
     # T1 — the CLOSED-TAPE PROXIMITY window: a stopped price tape reads "closed — stopped trading" (quiet,
     # never pages) only when a SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) was filed within this many
     # CALENDAR days BEFORE / AFTER its last bar (and EDGAR lists no different ticker for the company —
