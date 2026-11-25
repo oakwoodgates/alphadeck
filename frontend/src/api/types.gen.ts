@@ -2348,6 +2348,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/splits/{version_id}/tape": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Split Tape Window
+         * @description The stored closes and volumes around the split ``version_id`` names (W5-1): ``sessions`` stored sessions
+         *     each side of ``around`` (default the split's ``key_date``), each bar as first served beside its newest close,
+         *     and the step at ``around`` as first served. **404** unknown version, **422** ``sessions`` outside 1-10 or a
+         *     bad date. Read-only.
+         */
+        get: operations["split_tape_window_admin_splits__version_id__tape_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/splits/{version_id}/confirm-values": {
         parameters: {
             query?: never;
@@ -6448,6 +6471,64 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /**
+         * AdminSplitTapeBarOut
+         * @description One stored session in a split's tape window. ``close`` / ``volume`` = the bar as the vendor FIRST served it
+         *     (the version ``tape_at`` reads: the as-traded print); ``newest_close`` = its newest stored version (the store's
+         *     scale today); ``restated`` = the two closes differ (re-based later: by the vendor, or by the split list's own
+         *     rescale of the stored tape).
+         */
+        AdminSplitTapeBarOut: {
+            /**
+             * D
+             * Format: date
+             */
+            d: string;
+            /** Close */
+            close?: number | null;
+            /** Volume */
+            volume?: number | null;
+            /** Newest Close */
+            newest_close?: number | null;
+            /**
+             * Restated
+             * @default false
+             */
+            restated: boolean;
+        };
+        /**
+         * AdminSplitTapeOut
+         * @description The stored tape around a split's first session (W5-1): what was served each session either side of it.
+         *     ``bars`` = up to ``sessions`` stored sessions before ``around`` and up to ``sessions`` from ``around`` on (it
+         *     first, when stored), oldest first, fewer where the tape ends; ``around`` defaults to the split's ``key_date``.
+         *     ``prior_date`` / ``step`` / ``volume_ratio`` / ``prior_served_before`` = the step at ``around`` as first served,
+         *     the reading ``GET .../tape-step`` shows (the bar on ``around`` and the stored bar before it, at most 14 days
+         *     back; ``null`` when either is missing). A read.
+         */
+        AdminSplitTapeOut: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /**
+             * Around
+             * Format: date
+             */
+            around: string;
+            /** Sessions */
+            sessions: number;
+            /** Bars */
+            bars?: components["schemas"]["AdminSplitTapeBarOut"][];
+            /** Prior Date */
+            prior_date?: string | null;
+            /** Step */
+            step?: number | null;
+            /** Volume Ratio */
+            volume_ratio?: number | null;
+            /** Prior Served Before */
+            prior_served_before?: boolean | null;
         };
         /**
          * AdminSplitTapeStepOut
@@ -24354,6 +24435,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminSplitTapeStepOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    split_tape_window_admin_splits__version_id__tape_get: {
+        parameters: {
+            query?: {
+                /** @description the session to center on (default: the split's key_date) */
+                around?: string | null;
+                /** @description stored sessions each side (1-10) */
+                sessions?: number;
+            };
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitTapeOut"];
                 };
             };
             /** @description Validation Error */

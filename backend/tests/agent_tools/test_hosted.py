@@ -431,6 +431,9 @@ def test_the_steward_reads_the_split_list_and_the_status_the_api_serves(world, d
     assert listed.structured_content["needs_review"][0]["ticker"] == "TK01"
     assert one.structured_content["found"] == 1
     assert one.structured_content["entries"][0]["version_id"] == str(version_id)
+    # W5-1: the open entry carries the tape window the API serves around its first session (the real route)
+    tape = one.structured_content["entries"][0]["tape"]
+    assert (tape["version_id"], tape["around"]) == (str(version_id), "2026-05-18")
     assert status.structured_content["cron"]["status"] == api_status["cron"]["status"]
     assert (
         status.structured_content["splits_needs_review"] == api_status["splits_needs_review"] == 1

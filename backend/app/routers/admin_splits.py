@@ -15,7 +15,8 @@ What the operator can do, and its inverse:
   document that states them, an optional note. The server reads the stored tape's step at that session as first
   served (``pipeline.detect_splits.tape_at``) and refuses (409) a factor outside ``domain.splits.TAPE_TOLERANCE``
   of it, or a session with no bar, unless the steward overrides — the version records the override. Inverse:
-  **Revoke**. ``GET /admin/splits/{version_id}/tape-step`` is the same reading for the form.
+  **Revoke**. ``GET /admin/splits/{version_id}/tape-step`` is the same reading for the form, and ``GET
+  /admin/splits/{version_id}/tape`` the stored closes and volumes around a split's first session (W5-1).
 - **Reject** a needs-review or announced split. Inverse: **Restore** (back to the state before).
 - **Revoke** any confirmed split, auto-confirmed or not. Inverse: **Restore** (back to confirmed).
 
@@ -65,7 +66,7 @@ from domain.splits import (
     ratio_label,
 )
 from domain.text_types import Prose, RequestDate, UrlText
-from pipeline.detect_splits import TAPE_PRIOR_MAX_DAYS, tape_at
+from pipeline.detect_splits import TAPE_PRIOR_MAX_DAYS, tape_at, tape_window
 from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps, split_dismissed
 from repositories import split_jump_repo, split_repo
 from repositories.split_jump_repo import JumpDismissalConflict
@@ -304,6 +305,43 @@ class AdminSplitTapeStepOut(BaseModel):
     reason: str | None = None
 
 
+# the tape window (W5-1): stored sessions each side of a split's first session
+TAPE_SESSIONS_DEFAULT = 5
+TAPE_SESSIONS_MAX = 10
+
+
+class AdminSplitTapeBarOut(BaseModel):
+    """One stored session in a split's tape window. ``close`` / ``volume`` = the bar as the vendor FIRST served it
+    (the version ``tape_at`` reads: the as-traded print); ``newest_close`` = its newest stored version (the store's
+    scale today); ``restated`` = the two closes differ (re-based later: by the vendor, or by the split list's own
+    rescale of the stored tape)."""
+
+    d: date
+    close: float | None = None
+    volume: float | None = None
+    newest_close: float | None = None
+    restated: bool = False
+
+
+class AdminSplitTapeOut(BaseModel):
+    """The stored tape around a split's first session (W5-1): what was served each session either side of it.
+    ``bars`` = up to ``sessions`` stored sessions before ``around`` and up to ``sessions`` from ``around`` on (it
+    first, when stored), oldest first, fewer where the tape ends; ``around`` defaults to the split's ``key_date``.
+    ``prior_date`` / ``step`` / ``volume_ratio`` / ``prior_served_before`` = the step at ``around`` as first served,
+    the reading ``GET .../tape-step`` shows (the bar on ``around`` and the stored bar before it, at most 14 days
+    back; ``null`` when either is missing). A read.
+    """
+
+    version_id: UUID
+    around: date
+    sessions: int
+    bars: list[AdminSplitTapeBarOut] = Field(default_factory=list)
+    prior_date: date | None = None
+    step: float | None = None
+    volume_ratio: float | None = None
+    prior_served_before: bool | None = None
+
+
 def tape_why(
     tape: TapeEvidence | None, first_session: date, ratio_from: Decimal, ratio_to: Decimal
 ) -> str | None:
@@ -331,6 +369,14 @@ def _tape_now(
     conn: psycopg.Connection, security_id: UUID, first_session: date
 ) -> TapeEvidence | None:
     return tape_at(conn, tenant_id=DATA_TENANT_ID, security_id=security_id, session=first_session)
+
+
+def _data_version(conn: psycopg.Connection, version_id: UUID) -> SplitVersion:
+    """The split version a tape read names, on the data tenant; **404** otherwise."""
+    v = split_repo.get_version(conn, version_id)
+    if v is None or v.tenant_id != DATA_TENANT_ID:
+        raise HTTPException(status_code=404, detail=f"no split version {version_id}")
+    return v
 
 
 def _md(ts: datetime) -> str:
@@ -622,9 +668,7 @@ def split_tape_step(
     if (ratio_from is None) != (ratio_to is None):
         raise HTTPException(status_code=422, detail="give both ratio_from and ratio_to, or neither")
     try:
-        v = split_repo.get_version(conn, version_id)
-        if v is None or v.tenant_id != DATA_TENANT_ID:
-            raise HTTPException(status_code=404, detail=f"no split version {version_id}")
+        v = _data_version(conn, version_id)
         tape = _tape_now(conn, v.security_id, first_session)
     finally:
         conn.rollback()  # a read: hold no snapshot
@@ -647,6 +691,53 @@ def split_tape_step(
         )
         out.reason = tape_why(tape, first_session, rf, rt)
         out.within_tolerance = out.reason is None
+    return out
+
+
+@router.get("/{version_id}/tape", response_model=AdminSplitTapeOut)
+def split_tape_window(
+    version_id: UUID,
+    around: Annotated[
+        RequestDate | None,
+        Query(description="the session to center on (default: the split's key_date)"),
+    ] = None,
+    sessions: Annotated[
+        int, Query(ge=1, le=TAPE_SESSIONS_MAX, description="stored sessions each side (1-10)")
+    ] = TAPE_SESSIONS_DEFAULT,
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminSplitTapeOut:
+    """The stored closes and volumes around the split ``version_id`` names (W5-1): ``sessions`` stored sessions
+    each side of ``around`` (default the split's ``key_date``), each bar as first served beside its newest close,
+    and the step at ``around`` as first served. **404** unknown version, **422** ``sessions`` outside 1-10 or a
+    bad date. Read-only.
+    """
+    try:
+        v = _data_version(conn, version_id)
+        at = around or v.key_date
+        bars = tape_window(
+            conn, tenant_id=DATA_TENANT_ID, security_id=v.security_id, around=at, sessions=sessions
+        )
+        tape = _tape_now(conn, v.security_id, at)
+    finally:
+        conn.rollback()  # a read: hold no snapshot
+    out = AdminSplitTapeOut(
+        version_id=v.id,
+        around=at,
+        sessions=sessions,
+        bars=[
+            AdminSplitTapeBarOut(
+                d=b.d,
+                close=b.close,
+                volume=b.volume,
+                newest_close=b.newest_close,
+                restated=b.restated,
+            )
+            for b in bars
+        ],
+    )
+    if tape is not None and tape.session == at:
+        out.prior_date, out.step = tape.prior, tape.step
+        out.volume_ratio, out.prior_served_before = tape.volume_ratio, tape.prior_served_before
     return out
 
 
