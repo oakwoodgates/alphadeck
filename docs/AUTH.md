@@ -109,6 +109,7 @@ Every `/account` route acts on the caller's own rows (no user id in a path) and 
 OAuth consent page sits inside the signed-in shell; a signed-out visitor goes through `/login?next=...` and comes
 back (`frontend/src/auth/next.ts` honors that one path shape only). The webhook receives the pushes for the user's
 workspace and the nightly digest, never the ops pages ([FEED_LOOP](FEED_LOOP.md) step 3).
+The Agents tab's Access column names each token's scopes: `read`, `read steward`, or `full access` (CLI `--write`).
 
 ## Who can do what
 
