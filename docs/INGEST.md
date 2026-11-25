@@ -112,7 +112,9 @@ sits behind `ingest/prices/source.py`'s `PriceSource` ([DATA_SOURCES](DATA_SOURC
 3. **Split normalization** (`split_normalize.py`): each vendor bar dated before a split in force is put on the
    split list's scale before storing. A run of bars is rescaled only when the store's own boundary proves the
    step is the vendor's, never on a read alone, because a genuine vendor re-base of a raw store reads the same
-   as a doubled split. A company's first night after a split puts its history on the new scale. Counts ride
+   as a doubled split. A company's first night after a split puts its history on the new scale; that night the
+   vendor's own post-split bars stand in for stored ones after the step, so history the vendor serves raw again
+   beside a late first post-split bar is still put back on the new scale. Counts ride
    `BarsResult.split_normalized`; a divide-back is named whenever it changes. Stored bars off the list's scale
    are repaired with `pipeline.repair_split_basis` (the `data-repair` skill).
 4. **Restatements** (`restatement.py`): bars in the pull's newest three sessions use the exact compare, so late

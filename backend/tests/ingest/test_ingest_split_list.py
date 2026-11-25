@@ -262,6 +262,48 @@ def test_a_divide_back_is_counted_per_reason_and_the_price_leg_logs_nothing(db, 
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
+def test_a_vendor_flip_back_on_a_first_night_is_absorbed_not_held(db):
+    """W0-1, GNS's nights of 2026-11-19 and 11-23, DB-backed, COUNT THE TABLE. CONTRACT on VRME's real repaired
+    tape and its real 1-for-10 of 2026-09-29 (``test_split_normalize._first_night``'s edits): the store holds the
+    history RAW through 09-25. Night one (09-28, the split not yet in force) the vendor serves it already on the
+    new scale plus 09-28, a session early: a first-time restatement, it lands. Night two (09-30, in force) the
+    vendor serves the history raw again, 09-28 null, plus 09-29 and 09-30. The flip back is proven against those
+    post-split bars: no hold, no re-version, the tail appended (MEASURED on GNS before: 496 bars held, the
+    trailing-window bar written raw, the hold applied the next night). Night three, the same pull: nothing.
+    """
+    from tests.ingest.test_split_normalize import _repaired, _vendor_bar
+
+    tk, s = "VRME", date(2026, 9, 29)
+    sid = fx.seed_security(db, tk)
+    fx.seed_splits(db, sid, tk)
+    rep = _repaired(tk)
+    pre = [b for b in rep if b.d < s]
+    post = [b for b in rep if b.d >= s][:2]
+    ingest_prices(db, sid, [_vendor_bar(b, 0.1) for b in pre[:-1]], tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    n0 = _rows(db, sid)
+    early = _Vendor([_vendor_bar(b, 1.0) for b in pre])
+    first = _night(db, sid, tk, early, datetime(2026, 9, 29, 2, 30, tzinfo=timezone.utc))
+    assert (first.appended, first.reversioned, first.held, first.normalized) == (1, n0, 0, 0)
+    flip = _Vendor([_vendor_bar(b, 0.1) for b in pre[:-1]] + [_vendor_bar(b, 1.0) for b in post])
+    n1 = _rows(db, sid)
+    second = _night(db, sid, tk, flip, datetime(2026, 10, 1, 2, 30, tzinfo=timezone.utc))
+    assert (second.appended, second.reversioned, second.held) == (2, 0, 0)
+    assert second.split_normalized == {"vendor_raw": len(pre) - 1}
+    assert _rows(db, sid) == n1 + 2 and _holds(db, sid) == 0
+    third = _night(db, sid, tk, flip, datetime(2026, 10, 2, 2, 30, tzinfo=timezone.utc))
+    assert (third.appended, third.reversioned, third.held) == (0, 0, 0)
+    assert _rows(db, sid) == n1 + 2 and _holds(db, sid) == 0
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (d) d, close FROM fact_price_eod WHERE security_id = %s "
+            "ORDER BY d, recorded_at DESC",
+            (sid,),
+        )
+        tape = {r["d"]: float(r["close"]) for r in cur.fetchall()}
+    assert all(tape[b.d] == pytest.approx(b.close, rel=1e-6) for b in pre + post)  # one scale
+
+
 def _names():
     import uuid
 
