@@ -305,8 +305,8 @@ def test_b_sees_only_b(world):
         return init, tools, replies, foreign
 
     init, tools, replies, foreign = run_as(world["tokens"]["b"], body)
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.10.0")
-    assert {t.name for t in tools.tools} == TOOLS and len(tools.tools) == 14
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.11.0")
+    assert {t.name for t in tools.tools} == TOOLS and len(tools.tools) == 15
     listed, thesis, call, flags, ticker = replies
     for r in replies:
         assert not r.is_error, _text(r)
@@ -390,12 +390,12 @@ def _seed_needs_review_split(db, sid) -> uuid.UUID:
     return seeded.id
 
 
-def test_the_steward_lists_nineteen_tools_and_a_plain_user_fourteen(world):
+def test_the_steward_lists_twenty_tools_and_a_plain_user_fifteen(world):
     async def names(session, init):
         return sorted(t.name for t in (await session.list_tools()).tools)
 
     steward = run_as(world["tokens"]["s"], names)
-    assert len(steward) == 19
+    assert len(steward) == 20
     assert sorted(set(steward) - TOOLS) == [
         "get_admin_onboarding",
         "get_admin_status",
@@ -405,7 +405,7 @@ def test_the_steward_lists_nineteen_tools_and_a_plain_user_fourteen(world):
     ]
     for who in ("a", "b"):
         listed = run_as(world["tokens"][who], names)
-        assert len(listed) == 14 and set(listed) == TOOLS
+        assert len(listed) == 15 and set(listed) == TOOLS
 
 
 def test_the_steward_reads_the_split_list_and_the_status_the_api_serves(world, db):

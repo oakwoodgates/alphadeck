@@ -1,11 +1,12 @@
 # Agent tools
 
-A read-only MCP server that lets an agent (Claude Code or any MCP client) ask Alpha Deck's questions: what is
-armed and why, explain this call, what is this company on, what did discovery find, what is left to set on a
-card. Its tools return the platform's own objects, shaped from the API's JSON. It runs two ways: as a local stdio
-process over the loopback API (`alphadeck-prod`, `alphadeck-dev`), and, when `ALPHADECK_PUBLIC_ORIGIN` is set,
-mounted in the API at `/mcp` where each user signs in with their own token or OAuth. Read it before you add or
-change a tool, a prompt or the hosted endpoint, or wire up a client.
+A read-only MCP server that lets an agent (any MCP client) ask Alpha Deck's questions: what is armed and why,
+explain this call, what is this company on, what did discovery find, what is left to set on a card. Its tools
+return the platform's own objects, shaped from the API's JSON. It runs two ways. Hosted, it is mounted in the API
+at `/mcp` when `ALPHADECK_PUBLIC_ORIGIN` is set, and each user signs in with their own token or OAuth: this is how
+a client connects. As a local stdio process over the loopback API (`alphadeck-prod`, `alphadeck-dev`) it is a
+developer tool. A client that cannot run MCP prompts reads the same guided reads with the `get_recipe` tool. Read
+it before you add or change a tool, a prompt or the hosted endpoint, or wire up a client.
 
 ## Code
 
@@ -16,8 +17,9 @@ change a tool, a prompt or the hosted endpoint, or wire up a client.
 | Thesis and ticker resolution | `backend/agent_tools/resolve.py` |
 | Pure views over the API's JSON, with their budgets | `backend/agent_tools/views/` (`dashboards/`, `research/`, `admin/`) |
 | The size rule | `backend/agent_tools/budget.py` (`fit`) |
-| Tool contracts; prompt table | `backend/agent_tools/tool_args.py`; `backend/agent_tools/prompt_args.py` (`PROMPTS`) |
+| Tool contracts; prompt table | `backend/agent_tools/tool_args.py`; `backend/agent_tools/prompt_args.py` (`PROMPTS`, `bind_values`) |
 | Prompt texts | `backend/agent_tools/prompts/*.md` |
+| Recipes: the one render, the one scope rule, the tool | `backend/agent_tools/server.py` (`render_prompt`, `prompt_held`, `get_recipe`); `backend/agent_tools/views/recipe.py` |
 | Error codes | `backend/agent_tools/errors.py` |
 | The caller's scopes | `backend/agent_tools/principal.py` |
 | The hosted endpoint; the nightly window | `backend/agent_tools/hosted.py`; `backend/agent_tools/window.py` |
@@ -63,6 +65,7 @@ Each tool's description (served at `tools/list`) is its contract; this is the in
 | `get_discovery` | `thesis`, `run`, `section`, `status`, `segment`, `t`, `cursor` | `/workbench/theses/{id}/runs[/{run}]` | `read` |
 | `get_extract` | `t`, `thesis`, `section`, `fact`, `cursor` | `/workbench/securities/{id}/extract` | `read` |
 | `get_onboarding` | `thesis`, `section`, `cursor` | `/workbench/theses/{id}/onboarding` | `read` |
+| `get_recipe` | `name`, `arguments`, `cursor` | the package's prompt files (no API request) | `read` |
 | `get_splits` | `section`, `t`, `reason`, `cursor` | `/admin/splits` | `steward` |
 | `get_admin_status` | `section`, `cursor` | `/admin/status` | `steward` |
 | `get_shared_facts` | `section`, `t`, `fact`, `pen`, `cursor` | `/admin/platform-values/queue`, `/admin/platform-values/{id}` | `steward` |
@@ -108,16 +111,18 @@ A tool or a prompt carries a scope. Every tool but five needs `read`, which ever
 `splits-review` prompt need `steward`. Three layers hold the line:
 
 1. The registry: a tool or prompt whose scope the caller lacks is neither listed nor callable (`forbidden` before
-   any request; a prompt is refused as invalid params).
+   any request; a prompt is refused as invalid params). `get_recipe` applies the prompt rule through the same helper
+   (`prompt_held`): it lists only the recipes the caller holds and answers `forbidden` for a steward recipe named
+   without the scope.
 2. The gate: an OAuth token or a read-only personal token without `steward` is a plain user at the API even when
    its user is a super admin, and both are refused every write ([CONNECTORS](CONNECTORS.md)).
 3. The API: `/admin/*` is `require_super_admin`, and its 403 answers the tool as `forbidden` too.
 
-So a steward's session or a connector granted `read steward` lists 19 tools and 8 prompts; a plain user, or a
-steward's app granted `read` only, lists 14 and 7. The stdio server learns its scopes once, from `GET /auth/me`
+So a steward's session or a connector granted `read steward` lists 20 tools and 8 prompts; a plain user, or a
+steward's app granted `read` only, lists 15 and 7. The stdio server learns its scopes once, from `GET /auth/me`
 with its token. Nothing under `agent_tools/` names a tenant: the API scopes every read to the token's workspace.
 
-## Prompts and the Claude Code skill
+## Prompts, recipes and the Claude Code skill
 
 Eight guided reads, one prompt file each under `backend/agent_tools/prompts/`, registered from `PROMPTS`. Each
 file holds the call plan and its call and character budget; the agent's own reading goes under a separate heading
@@ -137,12 +142,22 @@ and it says what it did not read.
 `compare-rotation` refuses a broken argument rule (`prompt_args.check_compare`) before any read, as an
 invalid-params error. `test_server.py` caps each prompt file's size.
 
-A Claude Code session's model cannot run an MCP prompt, so the skill `.claude/skills/alphadeck-agent/SKILL.md`
-carries the same recipes: each block between `<!-- recipe:<name> -->` markers is the prompt file verbatim. Edit
-the prompt file, never the block, then run `python -m agent_tools.skill_sync --write` (from `backend/`);
-`--check` exits 1 with a diff when a block differs, a prompt has no block or a block names no prompt, and
-`tests/agent_tools/test_skill.py` runs the same check plus the skill's size and frontmatter bars. The server's
-`INSTRUCTIONS` name the prompts and the skill.
+**Recipes.** A recipe is a prompt read as a tool result, for a client that cannot run an MCP prompt (a Claude Code
+session's model cannot; a hosted client may not offer prompts). `get_recipe()` lists the recipes the caller holds,
+in `PROMPTS` order, with each one's arguments (`name`, `required`, `default`). `get_recipe(name, arguments)` returns
+the recipe's text with its arguments filled in: the same text `prompts/get` returns, because both call one function
+(`render_prompt`), and `test_recipe.py` renders every prompt both ways and compares. `arguments` is a map of at
+most 8 string values; a missing required argument, one the recipe does not take or a broken rule (`check_compare`)
+is `invalid_arguments` with the rule's sentence. A new prompt joins the index with no edit to the tool. A recipe is
+read from the package's files: the tool makes no API request and is undated (`asof` is a recipe argument).
+
+**The Claude Code skill.** The skill `.claude/skills/alphadeck-agent/SKILL.md` is the generated Claude Code copy of
+the READ recipes: each block between `<!-- recipe:<name> -->` markers is the prompt file verbatim. A steward's
+recipes are in no copy, because a file cannot hold a scope: they come from `get_recipe`, which the server gates.
+Edit the prompt file, never the block, then run `python -m agent_tools.skill_sync --write` (from `backend/`);
+`--check` exits 1 with a diff when a block differs, a read prompt has no block, a block names a steward prompt or
+a block names no prompt, and `tests/agent_tools/test_skill.py` runs the same check plus the skill's size and
+frontmatter bars. The server's `INSTRUCTIONS` name the prompts and `get_recipe`, never a harness.
 
 ## The size rule
 
@@ -173,21 +188,32 @@ ambiguous thesis adds `candidates`), never exception text, paths or payloads. Th
 ## Install and register
 
 The SDK (`mcp`) is a base dependency (the API image mounts the hosted server); the empty `mcp` extra stays so
-`-e ".[dev,replay,mcp]"` keeps working. The stdio server needs no database URL and no model key, only the API.
+`-e ".[dev,replay,mcp]"` keeps working.
 
-- **Claude Code.** `.mcp.json` declares `alphadeck-prod` (API on 8000) and `alphadeck-dev` (8001). Both launch
-  `${ALPHADECK_MCP_COMMAND}`: set it once, as a user environment variable, to the absolute path of the main
-  checkout's `alphadeck-mcp` console script (`backend/.venv/Scripts/alphadeck-mcp.exe` on Windows,
-  `backend/.venv/bin/alphadeck-mcp` on Linux), then restart Claude Code. The console script, not
-  `python -m agent_tools`, so a session's working directory can never shadow the package. Builder agents are
-  denied `alphadeck-prod` (`.claude/agents/builder.md`).
-- **The token.** Every API route needs a credential ([AUTH](AUTH.md)), so the server sends
+- **A client connects to the hosted endpoint.** Give it the connector URL `<origin>/mcp` and, as a header,
+  `Authorization: Bearer <token>`, or let it sign in with OAuth ([CONNECTORS](CONNECTORS.md)). Mint one token per
+  client in Settings > Agents (or with `python -m pipeline.users token create --email <you> --name <client>`); a
+  steward's token also lists the steward's tools and recipes, so a trader and a steward each keep their own entry
+  and token. A client's config holds only the URL and the token; the server enforces the rest. The endpoint accepts
+  only the origin's own host in `Host`, so a client on one machine uses the origin's host exactly (`localhost`, not
+  `127.0.0.1`, when the origin is `http://localhost:<port>`).
+- **Claude Code.** `claude mcp add --transport http <name> <url> --header "Authorization: Bearer <token>"` adds the
+  URL. `.claude/agents/builder.md` denies builder agents the name `alphadeck-prod`, so a hosted entry for prod takes
+  that name; an entry with another name is not covered by the deny. Other MCP clients take the same URL and header,
+  or the OAuth sign-in.
+- **The stdio server is a developer tool.** It reads a stack on this machine over the loopback API and needs no
+  database URL and no model key, only the API. `.mcp.json` declares `alphadeck-prod` (API on 8000) and
+  `alphadeck-dev` (8001). Both launch `${ALPHADECK_MCP_COMMAND}`: set it once, as a user environment variable, to
+  the absolute path of the main checkout's `alphadeck-mcp` console script (`backend/.venv/Scripts/alphadeck-mcp.exe`
+  on Windows, `backend/.venv/bin/alphadeck-mcp` on Linux), then restart Claude Code. The console script, not
+  `python -m agent_tools`, so a session's working directory can never shadow the package.
+- **The stdio token.** Every API route needs a credential ([AUTH](AUTH.md)), so the stdio server sends
   `Authorization: Bearer <token>` from `ALPHADECK_MCP_TOKEN` in the environment the client launches it from; it is
   never an argument (an argv is visible to every process) and never logged. Mint one per user on the stack it reads
   with `python -m pipeline.users token create --email <you> --name mcp` (or Settings > Agents): a read-only token
   holding the user's role scopes, which is all the tools need. Prod and dev keep separate users, and the two servers
   share the one variable, so set it to the token of the stack you read.
-- **Other MCP clients.** Run `alphadeck-mcp --backend-base http://127.0.0.1:<port>` over stdio. The base must be a
+- **Another stdio client.** Run `alphadeck-mcp --backend-base http://127.0.0.1:<port>` over stdio. The base must be a
   loopback origin with an explicit port; `--timeout` and `--trace` are in `--help`.
 
 ## Hosted endpoint
@@ -195,9 +221,10 @@ The SDK (`mcp`) is a base dependency (the API image mounts the hosted server); t
 The same server, mounted in the API at `/mcp` (Streamable HTTP, stateless; `agent_tools/hosted.py`), available
 when `ALPHADECK_PUBLIC_ORIGIN` is set. Each user reads only their own workspace.
 
-- **The switch.** `ALPHADECK_PUBLIC_ORIGIN` is the app's public origin: no path, `http` only on a loopback host.
-  Unset, nothing is mounted. Set, the connector URL is `<origin>/mcp` and the OAuth sign-in is mounted beside it.
-  Set it only behind TLS: a bearer token must never cross a network in clear ([SECURITY](SECURITY.md) "TLS").
+- **The switch.** `ALPHADECK_PUBLIC_ORIGIN` is the app's public origin: no path, `https`, or `http` on a loopback
+  host (`localhost` or a loopback address). Unset, nothing is mounted. Set, the connector URL is `<origin>/mcp` and
+  the OAuth sign-in is mounted beside it. A client on another machine needs an `https` origin: a bearer token must
+  never cross a network in clear ([SECURITY](SECURITY.md) "TLS"), and a loopback origin is out of its reach.
 - **Verification.** The endpoint asks the API's own `GET /auth/me` in-process with the request's bearer and nothing
   else, so a revoked token, a disabled user, a session cookie alone and the system token are all 401. There is no
   cache: a revocation bites on the next request. Every API read a tool makes carries the same bearer.
@@ -224,8 +251,8 @@ added or removed, or a description whose meaning changes, bumps the MINOR.
 
 | Action | Who | Enforced by |
 |---|---|---|
-| The 14 `read` tools and 7 prompts | anyone signed in (session, token or OAuth app), on their own workspace | the API gate; `server.SCOPES` |
-| The 5 steward tools and `splits-review` | the steward, or an app the steward granted `steward` | the registry, the OAuth role cap, `require_super_admin` |
+| The 15 `read` tools (`get_recipe` included) and 7 prompts | anyone signed in (session, token or OAuth app), on their own workspace | the API gate; `server.SCOPES` |
+| The 5 steward tools, `splits-review` and its recipe | the steward, or an app the steward granted `steward` | the registry (`SCOPES`, `prompt_held`), the OAuth role cap, `require_super_admin` |
 | Mint an MCP token (read-only) | the user (Settings > Agents) or the operator (CLI) | `/account/tokens`; `pipeline.users` |
 | Read prod from a builder agent | nobody | `.claude/agents/builder.md` |
 
@@ -242,7 +269,8 @@ added or removed, or a description whose meaning changes, bumps the MINOR.
 
 `backend/tests/agent_tools/`: `test_views.py` (shape and budget per view, every cursor walked), `test_server.py`
 (the SDK client in-process against a fake API, one real stdio subprocess, the counts per scope, the version pin),
-`test_dashboards.py`, `test_research.py`, `test_admin_views.py`, `test_contract.py` (every registered contract),
+`test_dashboards.py`, `test_research.py`, `test_admin_views.py`, `test_recipe.py` (every recipe equals its prompt,
+the index per scope, the largest reply), `test_contract.py` (every registered contract),
 `test_resolve.py`, `test_client.py`, one test per prompt's call plan through the real stdio client
 (`test_card_data_check.py` also guards that no prompt says to ratify a share count or cash), `test_skill.py`,
 `test_principal.py` (the scope gate, the stdio principal, the window, and grep guards: no tenant, no `db` or

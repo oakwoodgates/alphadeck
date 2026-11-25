@@ -1,12 +1,12 @@
 # Connectors
 
-How an AI client (claude.ai's custom connectors, Claude Code's `/mcp` sign-in) signs a user in with OAuth and reads
-that user's workspace through the hosted agent tools endpoint `<origin>/mcp`. The client sends the user to Alpha
-Deck's own consent page; the user signs in with their Alpha Deck email and password and clicks Allow; the client
-gets its own token, which can read and never write. A client can also use a personal access token pasted from
-Settings > Agents, which reads only too. All of it is available when `ALPHADECK_PUBLIC_ORIGIN` is set
-([AGENT_TOOLS](AGENT_TOOLS.md) "Hosted endpoint"). Read it before you change `app/oauth/`, the consent page or the
-`oauth` principal.
+How an AI client (any MCP client that signs in with OAuth: a chat app's custom connector, a coding agent's `/mcp`
+sign-in) signs a user in and reads that user's workspace through the hosted agent tools endpoint `<origin>/mcp`. The
+client sends the user to Alpha Deck's own consent page; the user signs in with their Alpha Deck email and password
+and clicks Allow; the client gets its own token, which can read and never write. A client can also use a personal
+access token pasted from Settings > Agents, which reads only too. All of it is available when
+`ALPHADECK_PUBLIC_ORIGIN` is set ([AGENT_TOOLS](AGENT_TOOLS.md) "Hosted endpoint"). Read it before you change
+`app/oauth/`, the consent page or the `oauth` principal.
 
 ## Code
 
