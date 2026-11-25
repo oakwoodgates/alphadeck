@@ -298,15 +298,16 @@ function Err({ m, h }: { m: Mutations; h: Hold }) {
   ) : null;
 }
 
-/** The suggestion line. The API says where the date is written (`suggestion_basis`, `suggestion_words`), so this
- *  shows both: an agreeing one in green (its "Use" button below), one that does not agree in the warm colour with the
- *  API's words saying why, never offered; none at all with the API's words for why and the filing's own date window
- *  (`window_from` / `window_to`). */
+/** The suggestion line. The API's `suggestion_words` say where the date is written (or why it does not agree, or why
+ *  there is none), so they are the one explanation: an agreeing date in green (its "Use" button below), one that does
+ *  not agree in the warm colour, never offered. The short basis label stands in only for a server that sends no
+ *  words. A withheld suggestion adds the filing's own date window (`window_from` / `window_to`) only when the words
+ *  do not already give it. */
 function Suggestion({ h, showAgreeing = true }: { h: Hold; showAgreeing?: boolean }) {
   const words = h.suggestion_words?.trim() || null;
   if (!h.suggested_date) {
     if (!showAgreeing) return null;
-    const span = windowLine(h.window_from, h.window_to);
+    const span = windowLine(h.window_from, h.window_to, words);
     return (
       <>
         <div className="adm-hold-sugg" data-testid="adm-hold-sugg">
@@ -321,26 +322,26 @@ function Suggestion({ h, showAgreeing = true }: { h: Hold; showAgreeing?: boolea
     );
   }
   if (h.agrees && !showAgreeing) return null;
-  const basis = basisLabel(h.suggestion_basis);
+  // the words say it once; the label (older server, no words) or the line the panel always had (no basis either)
   const where = words ? wordsAfterDate(words, h.suggested_date) : null;
-  // an older server sends no basis and no words: the line it always had
+  const basis = where ? null : basisLabel(h.suggestion_basis);
   const plain = h.agrees
     ? "on or after the filing's period of report"
     : "it does not agree with the filing, so it is not offered";
   return (
-    <div className="adm-hold-sugg" data-testid="adm-hold-sugg">
+    <div className="adm-hold-sugg" data-testid="adm-hold-sugg" data-basis={h.suggestion_basis ?? undefined}>
       Suggested date <b className={h.agrees ? "adm-hold-ok" : "adm-hold-weak"}>{h.suggested_date}</b>
+      {where ? <> · {where}</> : null}
       {basis ? (
         <>
           {" "}
           ·{" "}
-          <span className="adm-quiet" data-testid="adm-hold-sugg-basis" data-basis={h.suggestion_basis ?? undefined}>
+          <span className="adm-quiet" data-testid="adm-hold-sugg-basis">
             {basis}
           </span>
         </>
       ) : null}
-      {where ? <> · {where}</> : null}
-      {!basis && !where ? <> · {plain}</> : null}
+      {!where && !basis ? <> · {plain}</> : null}
     </div>
   );
 }

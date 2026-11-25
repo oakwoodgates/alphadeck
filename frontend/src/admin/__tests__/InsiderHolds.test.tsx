@@ -408,8 +408,10 @@ describe("InsiderHolds", () => {
     expect(ref).toHaveTextContent("signed as filed 2021-03-18");
     expect(within(kids).getByRole("link")).toHaveAttribute("href", KIDS.filing_url);
     expect(within(kids).getByTestId("adm-hold-sugg")).toHaveTextContent(
-      "Suggested date 2020-11-16 · from the period of report · the filing's period of report",
+      "Suggested date 2020-11-16 · the filing's period of report",
     );
+    // the API's words are the one explanation: no second label beside them
+    expect(within(kids).getByTestId("adm-hold-sugg")).not.toHaveTextContent("from the period of report");
     // an agreeing suggestion is offered as the primary button
     expect(within(kids).getByRole("button", { name: "Use 2020-11-16" })).toHaveClass("primary");
     // why the rule did not place it, in plain view (the API's words)
@@ -420,8 +422,9 @@ describe("InsiderHolds", () => {
     const bbai = rowOf("BBAI");
     expect(within(bbai).getByTestId("adm-hold-trade")).toHaveTextContent("award 87,827 @ 0");
     expect(within(bbai).getByTestId("adm-hold-sugg")).toHaveTextContent(
-      "Suggested date 2023-03-23 · from a footnote · written in a footnote this row cites and the filing's period of report (written 0023-03-23)",
+      "Suggested date 2023-03-23 · written in a footnote this row cites and the filing's period of report (written 0023-03-23)",
     );
+    expect(within(bbai).getByTestId("adm-hold-sugg")).not.toHaveTextContent("from a footnote");
     expect(within(bbai).getByRole("button", { name: "Use 2023-03-23" })).toBeInTheDocument();
     expect(within(bbai).getByTestId("adm-hold-owed-why")).toHaveTextContent("fails the year rule");
     // no suggestion: no Use button, and the API's words say why none is offered (no window is known here)
@@ -525,8 +528,9 @@ describe("InsiderHolds", () => {
     const tmus = rowOf("TMUS");
     expect(within(tmus).queryByRole("button", { name: /^Use / })).toBeNull();
     expect(within(tmus).getByTestId("adm-hold-sugg")).toHaveTextContent(
-      `Suggested date 2024-05-24 · from the written month and day · ${words.slice("2024-05-24: ".length)}`,
+      `Suggested date 2024-05-24 · ${words.slice("2024-05-24: ".length)}`,
     );
+    expect(within(tmus).getByTestId("adm-hold-sugg")).not.toHaveTextContent("from the written month and day");
     expect(tmus).not.toHaveTextContent("weak");
     expect(within(tmus).getByRole("button", { name: "Set the trade date" })).toBeInTheDocument();
   });
@@ -546,7 +550,7 @@ describe("InsiderHolds", () => {
       "the written month and day (2021-12-03) in the latest year on or before the filing's market date (2021-03-18)",
       "2020-12-03",
     ],
-  ])("an agreeing suggestion from the %s says where the filing writes it, and keeps its Use button", (basis, chip, words, day) => {
+  ])("an agreeing suggestion from the %s says where the filing writes it once, in the API's words, and keeps its Use button", (basis, chip, words, day) => {
     serve({
       owed: [{ ...KIDS, suggested_date: day, suggestion_basis: basis, suggestion_words: `${day}: ${words}` }],
       counts: { ...EMPTY.counts, owed: 1 },
@@ -555,8 +559,11 @@ describe("InsiderHolds", () => {
     render(<InsiderHolds />);
     const row = rowOf("KIDS");
     const sugg = within(row).getByTestId("adm-hold-sugg");
-    expect(sugg).toHaveTextContent(`Suggested date ${day} · ${chip} · ${words}`);
-    expect(within(sugg).getByTestId("adm-hold-sugg-basis")).toHaveAttribute("data-basis", basis);
+    expect(sugg).toHaveTextContent(`Suggested date ${day} · ${words}`);
+    // the short label is only for a server that sends no words: here it would say the same thing twice
+    expect(sugg).not.toHaveTextContent(chip);
+    expect(within(sugg).queryByTestId("adm-hold-sugg-basis")).toBeNull();
+    expect(sugg).toHaveAttribute("data-basis", basis);
     expect(within(sugg).getByText(day)).toHaveClass("adm-hold-ok");
     expect(within(row).getByRole("button", { name: `Use ${day}` })).toHaveClass("primary");
   });
@@ -566,8 +573,9 @@ describe("InsiderHolds", () => {
     render(<InsiderHolds />);
     const one = rowOf("ONER");
     expect(within(one).getByTestId("adm-hold-sugg")).toHaveTextContent(
-      "Suggested date 2022-06-30 · from a one-row filing's period of report · the period of report of a one-row filing; the row's written date (2022-07-30) fits neither it nor the filing, so it does not agree on its own",
+      "Suggested date 2022-06-30 · the period of report of a one-row filing; the row's written date (2022-07-30) fits neither it nor the filing, so it does not agree on its own",
     );
+    expect(within(one).getByTestId("adm-hold-sugg")).not.toHaveTextContent("from a one-row filing's period of report");
     const two = rowOf("TWOD");
     expect(within(two).getByTestId("adm-hold-sugg")).toHaveTextContent(
       "the filing writes 2020-03-05 and 2021-03-05 with this row's month and day; the latest is shown, and it does not agree on its own",
@@ -589,17 +597,14 @@ describe("InsiderHolds", () => {
     expect(within(p).getByTestId("adm-hold-sugg")).toHaveTextContent(
       "No date is suggested: 2014-09-14 is before the period of report (2015-08-27); the filing puts it between 2015-08-27 and 2015-09-11",
     );
-    expect(within(p).getByTestId("adm-hold-window")).toHaveTextContent(
-      "The filing's own dates put it between 2015-08-27 and 2015-09-11.",
-    );
     const b = rowOf("WTHB");
     expect(within(b).getByTestId("adm-hold-sugg")).toHaveTextContent(
-      "2008-07-17 is before the 2009-07-09 row this one follows in the filing's balances (110,000 -> 250,000 shares)",
-    );
-    expect(within(b).getByTestId("adm-hold-window")).toHaveTextContent(
-      "The filing's own dates put it between 2009-07-09 and 2009-07-13.",
+      "2008-07-17 is before the 2009-07-09 row this one follows in the filing's balances (110,000 -> 250,000 shares); the filing puts it between 2009-07-09 and 2009-07-13",
     );
     for (const row of [p, b]) {
+      // the API's words already give both ends of the window: the structured line would say it twice
+      expect(within(row).queryByTestId("adm-hold-window")).toBeNull();
+      expect(row).not.toHaveTextContent("The filing's own dates");
       expect(row).not.toHaveTextContent(/weak/i);
       expect(within(row).queryByRole("button", { name: /^Use / })).toBeNull();
       expect(within(row).getByRole("button", { name: "Set another date" })).toBeInTheDocument();
@@ -607,6 +612,7 @@ describe("InsiderHolds", () => {
   });
 
   it.each([
+    ["both ends", "2015-08-27", "2015-09-11", "The filing's own dates put it between 2015-08-27 and 2015-09-11."],
     ["one bound only: the latest", null, "2015-09-11", "The filing's own dates put it on or before 2015-09-11."],
     ["one bound only: the earliest", "2015-08-27", null, "The filing's own dates put it on or after 2015-08-27."],
     ["a one-day window", "2025-07-25", "2025-07-25", "The filing's own dates put it on 2025-07-25."],
@@ -616,14 +622,80 @@ describe("InsiderHolds", () => {
       "2015-09-11",
       "The filing's own dates leave no window (2015-09-20 is after 2015-09-11).",
     ],
-  ])("the window of a withheld suggestion: %s", (_label, from, to, line) => {
+  ])("the window line is the fallback for words that name no window date: %s", (_label, from, to, line) => {
+    // words that name neither end of the window (and an older server's missing words, below, the same)
+    const words = "the date the filing writes for this row cannot be checked against its other rows";
     serve({
-      owed: [{ ...WITHHELD, window_from: from, window_to: to }],
+      owed: [{ ...WITHHELD, suggestion_words: words, window_from: from, window_to: to }],
       counts: { ...EMPTY.counts, owed: 1 },
       total: 1,
     });
     render(<InsiderHolds />);
-    expect(within(rowOf("WTHP")).getByTestId("adm-hold-window")).toHaveTextContent(line);
+    const row = rowOf("WTHP");
+    expect(within(row).getByTestId("adm-hold-sugg")).toHaveTextContent(`No date is suggested: ${words}`);
+    expect(within(row).getByTestId("adm-hold-window")).toHaveTextContent(line);
+  });
+
+  it("the window line shows when the API's words give only one of its two ends", () => {
+    serve({
+      owed: [{ ...WITHHELD, suggestion_words: "2014-09-14 is before the period of report (2015-08-27)" }],
+      counts: { ...EMPTY.counts, owed: 1 },
+      total: 1,
+    });
+    render(<InsiderHolds />);
+    expect(within(rowOf("WTHP")).getByTestId("adm-hold-window")).toHaveTextContent(
+      "The filing's own dates put it between 2015-08-27 and 2015-09-11.",
+    );
+  });
+
+  it("the window line is not repeated when the words name the only end there is", () => {
+    // the backend's wording for a window with no earliest end: "... the filing puts it on or before <date>"
+    serve({
+      owed: [
+        {
+          ...WITHHELD,
+          suggestion_words: "2014-09-14 is before the period of report; the filing puts it on or before 2015-09-11",
+          window_from: null,
+        },
+      ],
+      counts: { ...EMPTY.counts, owed: 1 },
+      total: 1,
+    });
+    render(<InsiderHolds />);
+    expect(within(rowOf("WTHP")).queryByTestId("adm-hold-window")).toBeNull();
+  });
+
+  it("the window line shows with no words at all (an older server), after the plain line", () => {
+    serve({
+      owed: [{ ...WITHHELD, suggestion_words: null }],
+      counts: { ...EMPTY.counts, owed: 1 },
+      total: 1,
+    });
+    render(<InsiderHolds />);
+    const row = rowOf("WTHP");
+    expect(within(row).getByTestId("adm-hold-sugg")).toHaveTextContent("No date can be suggested from the filing.");
+    expect(within(row).getByTestId("adm-hold-window")).toHaveTextContent(
+      "The filing's own dates put it between 2015-08-27 and 2015-09-11.",
+    );
+  });
+
+  it("a shown suggestion with a basis but no words (an older server) uses the short label", () => {
+    serve({
+      owed: [
+        { ...KIDS, suggestion_words: null },
+        { ...ONE_ROW, suggestion_words: null },
+      ],
+      counts: { ...EMPTY.counts, owed: 2 },
+      total: 2,
+    });
+    render(<InsiderHolds />);
+    const kids = within(rowOf("KIDS")).getByTestId("adm-hold-sugg");
+    expect(kids).toHaveTextContent("Suggested date 2020-11-16 · from the period of report");
+    expect(within(kids).getByTestId("adm-hold-sugg-basis")).toHaveTextContent("from the period of report");
+    expect(within(kids).getByText("2020-11-16")).toHaveClass("adm-hold-ok");
+    const one = within(rowOf("ONER")).getByTestId("adm-hold-sugg");
+    expect(one).toHaveTextContent("Suggested date 2022-06-30 · from a one-row filing's period of report");
+    expect(within(one).getByText("2022-06-30")).not.toHaveClass("adm-hold-ok");
   });
 
   it("a shown suggestion from an older server (no basis, no words) keeps the line it always had", () => {

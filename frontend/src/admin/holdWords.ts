@@ -7,7 +7,8 @@ import type { AdminInsiderHoldOut } from "../api/hooks";
 
 type Copy = NonNullable<AdminInsiderHoldOut["copies"]>[number];
 
-/** The short label for where a suggestion comes from (`suggestion_basis`; the API's own words say the rest). */
+/** The short label for where a suggestion comes from (`suggestion_basis`). The API's `suggestion_words` say the same
+ *  and more, so the label is shown only when a server sends no words. */
 const BASIS: Record<string, string> = {
   footnote: "from a footnote",
   sibling_row: "from another row of the filing",
@@ -26,8 +27,15 @@ export function wordsAfterDate(words: string, day: string): string {
   return words.startsWith(lead) ? words.slice(lead.length) : words;
 }
 
-/** The filing's own date window for a row, as a sentence; `null` when the filing gives neither end. */
-export function windowLine(from: string | null | undefined, to: string | null | undefined): string | null {
+/** The filing's own date window for a row, as a sentence; `null` when the filing gives neither end, or when the
+ *  API's `words` already name every end it gives (the words say the window; this line is the fallback for words
+ *  that do not, or none). */
+export function windowLine(
+  from: string | null | undefined,
+  to: string | null | undefined,
+  words?: string | null,
+): string | null {
+  if ((from || to) && (!from || words?.includes(from)) && (!to || words?.includes(to))) return null;
   const put = "The filing's own dates put it";
   if (from && to) {
     if (from > to) return `The filing's own dates leave no window (${from} is after ${to}).`;
