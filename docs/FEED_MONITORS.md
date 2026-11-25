@@ -112,7 +112,7 @@ returns ok, failed or not applicable; not applicable is never read as a pass. A 
 | `every_thesis_finished` | Every thesis the pass started reached its outcome, appended or unchanged; a `--no-live` withhold counts as finished |
 | `split_defects_flagged` | The split-basis scan ran. It reports the defect count and fails only when the scan could not run |
 | `no_unsettled_bars` | No `fact_price_eod` row for day d was recorded before d's settle instant, judged over the rows recorded since the previous judging pass |
-| `splits_applied` | Every split in force on the list is applied to its stored tape. A recent unapplied split fails; an older one is the repair backlog, named and passed; a split the tape cannot judge is named "not verified" |
+| `splits_applied` | Every split in force on the list is applied to its stored tape. A recent unapplied split (never applied, or undone by a vendor revert) fails; an older one is the repair backlog, named and passed. Each name carries its own command, `python -m pipeline.repair_split_basis --ticker X` (dry run, then `--apply`). A split the tape cannot judge is named "not verified" |
 
 A new check is a pure `check_x(ctx: AuditContext) -> AuditResult` appended to `DEFAULT_CHECKS`.
 

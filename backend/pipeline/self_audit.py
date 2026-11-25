@@ -49,9 +49,11 @@ PHASE-7 CHECK (the settle guard, audited — 2026-10-21):
 S2 CHECK (the split list):
 
 - ``splits_applied`` — every split in force on the list is applied to its stored tape (no step the size of the
-  split at its first session). FAILS for a recent one (the price leg applies a split on its first night, so a
-  standing step days later is the prevention not working); an older one is the repair tool's backlog, named
-  in the detail and passed — the T4 check's reason not to page a standing, known defect every night. A split
+  split at its first session). FAILS for a recent one (the tape before its first session is not on the new
+  scale: never applied, or applied and then undone by a vendor revert); an older one is the repair tool's
+  backlog, named in the detail and passed — the T4 check's reason not to page a standing, known defect every
+  night. Each name carries its own repair command (``python -m pipeline.repair_split_basis --ticker X``: the
+  dry run, then ``--apply``), never the bare tool, which would dry-run every company. A split
   the tape cannot tell either way (``STORE_UNREADABLE``: under x1.8, a genuine move as big as the split, a
   split-sized step without the inverse volume move), and an ANNOUNCED split not yet confirmed (a flat tape
   there is equally "applied" and "never happened" — a postponed split), are named as NOT VERIFIED, never
@@ -416,9 +418,13 @@ def check_no_unsettled_bars(ctx: AuditContext) -> AuditResult:
 
 # S2 — how recent a split's first session must be for an unapplied one to FAIL the audit: the loader applies a
 # split in force on its first night (``ingest.prices.split_normalize``), so one still showing its step a few
-# sessions later is the prevention not working. Older unapplied splits are the repair tool's backlog — reported,
-# not paged nightly (the inverse-loudness reason ``check_split_defects_flagged`` gives).
+# sessions later was never applied or was undone (a vendor revert) — a defect on a tape the call reads. Older
+# unapplied splits are the repair tool's backlog — reported, not paged nightly (the inverse-loudness reason
+# ``check_split_defects_flagged`` gives).
 SPLIT_APPLIED_RECENT_SESSIONS = 5
+
+# The tool that puts a company's stored tape on the split's scale; the detail names it per ticker.
+_REPAIR_TOOL = "python -m pipeline.repair_split_basis"
 
 
 def check_splits_applied(ctx: AuditContext) -> AuditResult:
@@ -427,8 +433,9 @@ def check_splits_applied(ctx: AuditContext) -> AuditResult:
     session, read three ways (``split_normalize.boundary``):
 
     - ``STORE_RAW`` (a k-sized step with the inverse volume move) — NOT applied: FAILS for one whose first
-      session is within ``SPLIT_APPLIED_RECENT_SESSIONS`` sessions (the price leg should have applied it); an
-      older one passes with its ticker named (run ``python -m pipeline.repair_split_basis``);
+      session is within ``SPLIT_APPLIED_RECENT_SESSIONS`` sessions (never applied, or applied and undone by a
+      vendor revert); an older one passes. Either way each name carries its own repair command,
+      ``python -m pipeline.repair_split_basis --ticker X`` (the dry run, then ``--apply``);
     - ``STORE_CONTINUOUS`` — applied, for a CONFIRMED split. For an announced one a flat tape is equally a
       split that never happened (postponed), so it is named NOT VERIFIED (B7);
     - ``STORE_UNREADABLE`` — named NOT VERIFIED, never counted as applied (B1: it used to read "on scale").
@@ -474,17 +481,21 @@ def check_splits_applied(ctx: AuditContext) -> AuditResult:
             if first_night:
                 continue  # no bar on/after the first session stored yet: nothing to judge
             checked += 1
-            label = f"{tickers.get(sid) or str(sid)[:8]} {s.label} {s.effective_date.isoformat()}"
+            tk = tickers.get(sid)
+            label = f"{tk or str(sid)[:8]} {s.label} {s.effective_date.isoformat()}"
             if state == STORE_CONTINUOUS and s.status == STATUS_CONFIRMED:
                 continue  # applied
             if state != STORE_RAW:
                 why = "unreadable" if state != STORE_CONTINUOUS else "announced, not confirmed"
                 unverified.append(f"{label} ({why})")
                 continue
+            # the command names the company: bare, the tool would dry-run every one on the list
+            cmd = f"{_REPAIR_TOOL} --ticker {tk}" if tk else _REPAIR_TOOL
+            fix = f"{label} — run {cmd} (dry run), then --apply"
             if session_distance(s.effective_date, ctx.asof) <= SPLIT_APPLIED_RECENT_SESSIONS:
-                recent.append(label)
+                recent.append(fix)
             else:
-                backlog.append(label)
+                backlog.append(fix)
 
     def _names(xs: list[str]) -> str:
         return "; ".join(xs[:12]) + (f" (+{len(xs) - 12} more)" if len(xs) > 12 else "")
@@ -498,15 +509,15 @@ def check_splits_applied(ctx: AuditContext) -> AuditResult:
         return AuditResult(
             name,
             False,
-            f"{len(recent)} recent split(s) in force NOT applied to the stored tape (the price leg's first "
-            f"night did not take): {_names(recent)}{nv}",
+            f"{len(recent)} recent split(s) in force NOT on the stored tape before their first session "
+            f"(never applied, or undone by a vendor revert): {_names(recent)}{nv}",
         )
     if backlog:
         return AuditResult(
             name,
             True,
             f"{checked} split(s) in force checked; {len(backlog)} older one(s) not yet applied to the stored "
-            f"tape — run python -m pipeline.repair_split_basis: {_names(backlog)}{nv}",
+            f"tape: {_names(backlog)}{nv}",
         )
     applied = checked - len(unverified)
     if unverified:
