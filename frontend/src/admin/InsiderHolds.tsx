@@ -5,6 +5,7 @@ import type { AdminHoldDecisionOut, AdminInsiderHoldOut, AdminInsiderHoldsOut } 
 import { useApproveHold, useDismissHold, useInsiderHolds, useRevokeHoldDecision } from "../api/hooks";
 import { errText } from "../workbench/format";
 import { ExternalLink } from "../components/ExternalLink";
+import { basisLabel, copiesLine, windowLine, wordsAfterDate } from "./holdWords";
 
 /** One wire row with the server's list default filled in (the generated type marks `history` optional). */
 type Hold = Omit<AdminInsiderHoldOut, "history"> & { history: AdminHoldDecisionOut[] };
@@ -170,7 +171,7 @@ type Mode = null | "date" | "dismiss";
 /** The decide controls of an owed or rule-placed row: Use the suggestion, set a date, or dismiss. */
 function Decide({ h, m, busy, owed }: { h: Hold; m: Mutations; busy: boolean; owed: boolean }) {
   const [mode, setMode] = useState<Mode>(null);
-  // only a suggestion that agrees with the filing prefills the date; a weak one is shown as text, never offered
+  // only a suggestion that agrees with the filing prefills the date; one that does not is shown as text, never offered
   const [date, setDate] = useState(h.suggested_date && h.agrees ? h.suggested_date : "");
   const marketDate = h.market_date ?? undefined;
   const [why, setWhy] = useState("");
@@ -297,29 +298,61 @@ function Err({ m, h }: { m: Mutations; h: Hold }) {
   ) : null;
 }
 
-/** The suggestion line: an agreeing one in green (its "Use" button beside it), a weak one as text only. */
+/** The suggestion line. The API says where the date is written (`suggestion_basis`, `suggestion_words`), so this
+ *  shows both: an agreeing one in green (its "Use" button below), one that does not agree in the warm colour with the
+ *  API's words saying why, never offered; none at all with the API's words for why and the filing's own date window
+ *  (`window_from` / `window_to`). */
 function Suggestion({ h, showAgreeing = true }: { h: Hold; showAgreeing?: boolean }) {
+  const words = h.suggestion_words?.trim() || null;
   if (!h.suggested_date) {
-    return showAgreeing ? (
-      <div className="adm-hold-sugg" data-testid="adm-hold-sugg">
-        No date can be suggested from the filing.
-      </div>
-    ) : null;
+    if (!showAgreeing) return null;
+    const span = windowLine(h.window_from, h.window_to);
+    return (
+      <>
+        <div className="adm-hold-sugg" data-testid="adm-hold-sugg">
+          {words ? `No date is suggested: ${words}` : "No date can be suggested from the filing."}
+        </div>
+        {span ? (
+          <div className="adm-hold-sugg" data-testid="adm-hold-window">
+            {span}
+          </div>
+        ) : null}
+      </>
+    );
   }
   if (h.agrees && !showAgreeing) return null;
+  const basis = basisLabel(h.suggestion_basis);
+  const where = words ? wordsAfterDate(words, h.suggested_date) : null;
+  // an older server sends no basis and no words: the line it always had
+  const plain = h.agrees
+    ? "on or after the filing's period of report"
+    : "it does not agree with the filing, so it is not offered";
   return (
     <div className="adm-hold-sugg" data-testid="adm-hold-sugg">
-      Suggested date <b className={h.agrees ? "adm-hold-ok" : "adm-hold-weak"}>{h.suggested_date}</b> ·{" "}
-      {h.agrees ? (
-        "on or after the filing's period of report"
-      ) : (
+      Suggested date <b className={h.agrees ? "adm-hold-ok" : "adm-hold-weak"}>{h.suggested_date}</b>
+      {basis ? (
         <>
-          <span className="adm-hold-weak">weak</span>: not on or after a readable period of report, so it is not
-          offered
+          {" "}
+          ·{" "}
+          <span className="adm-quiet" data-testid="adm-hold-sugg-basis" data-basis={h.suggestion_basis ?? undefined}>
+            {basis}
+          </span>
         </>
-      )}
+      ) : null}
+      {where ? <> · {where}</> : null}
+      {!basis && !where ? <> · {plain}</> : null}
     </div>
   );
+}
+
+/** "Also held: a copy of the same filing row under GSCE. Each is decided on its own." — none without a copy. */
+function Copies({ h }: { h: Hold }) {
+  const line = copiesLine(h.copies);
+  return line ? (
+    <div className="adm-sub" data-testid="adm-hold-copies">
+      {line}
+    </div>
+  ) : null;
 }
 
 /** An owed row: what the filing wrote and why it cannot be true, the facts, the suggestion, the controls. */
@@ -337,6 +370,7 @@ function OwedRow({ h, m, busy }: { h: Hold; m: Mutations; busy: boolean }) {
         ) : null}
       </div>
       <Suggestion h={h} />
+      <Copies h={h} />
       <Decide h={h} m={m} busy={busy} owed />
       <Err m={m} h={h} />
       <FilingRef h={h} />
@@ -456,6 +490,7 @@ export function InsiderHolds() {
                 {filedAs(h)} · counted from <b>{h.filing_night ?? "—"}</b>, the night the filing was public
               </div>
               <Suggestion h={h} showAgreeing={false} />
+              <Copies h={h} />
               <Decide h={h} m={m} busy={busy} owed={false} />
               <Err m={m} h={h} />
               <FilingRef h={h} />

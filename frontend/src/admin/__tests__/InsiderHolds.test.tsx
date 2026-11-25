@@ -24,6 +24,12 @@ const base = {
   filing_night: null as string | null,
   suggested_date: null as string | null,
   agrees: false,
+  // W3-1's suggestion fields: where the date is written, the API's words, the filing's own window, the copies
+  suggestion_basis: null as string | null,
+  suggestion_words: null as string | null,
+  window_from: null as string | null,
+  window_to: null as string | null,
+  copies: [] as { hold_id: string; ticker?: string | null }[],
   market_date: null as string | null,
   owed_why: null as string | null,
   decision: null as unknown,
@@ -44,8 +50,13 @@ const KIDS = {
   signature_date_as_filed: "2021-03-18",
   filed: "2021-03-18",
   accepted: "2021-03-18T20:05:00+00:00",
+  // the words and window are what `suggest` returns for this filing (the backend's late_row_0 shape)
   suggested_date: "2020-11-16",
   agrees: true,
+  suggestion_basis: "period_of_report",
+  suggestion_words: "2020-11-16: the filing's period of report",
+  window_from: "2020-11-16",
+  window_to: "2021-03-18",
   market_date: "2021-03-18",
   owed_why: "the filing was made 122 days after its period of report (2020-11-16), more than the on-time window of 5 days",
   filing_url: "https://www.sec.gov/Archives/edgar/data/1425450/000089924321012557/",
@@ -63,10 +74,90 @@ const BBAI = {
   date_as_filed: "0023-03-23",
   period_of_report_as_filed: "0023-03-23",
   signature_date_as_filed: "2024-03-08",
+  // W3-1 reads the 00YY year as 2023 and the date is written in the footnote: it agrees now (the backend's
+  // leading_zero_year_footnote shape)
   suggested_date: "2023-03-23",
-  agrees: false,
+  agrees: true,
+  suggestion_basis: "footnote",
+  suggestion_words:
+    "2023-03-23: written in a footnote this row cites and the filing's period of report (written 0023-03-23)",
+  window_from: "2023-03-23",
+  window_to: "2023-11-13",
   market_date: "2024-03-08",
   owed_why: "the period of report as filed (0023-03-23) fails the year rule (before 1934, or after the filing's year)",
+};
+
+// The other shapes `suggest` returns (strings copied from backend/domain/insider_holds.py, under made-up tickers):
+// withheld with the filing's window, withheld by a balance chain, a period-of-report guess that does not agree, two
+// written dates, and a row whose copy is held under another ticker.
+const WITHHELD = {
+  ...base,
+  hold_id: "11111111-0000-4000-8000-000000000011",
+  ticker: "WTHP",
+  accession: "0000000000-15-000011",
+  bucket: "owed",
+  row: { insider_name: "Doe, Jane", insider_role: "director", txn_code: "S", shares: 100, price: 10, usd: 1000 },
+  date_as_filed: "2015-09-14",
+  suggested_date: null,
+  agrees: false,
+  suggestion_words:
+    "2014-09-14 is before the period of report (2015-08-27); the filing puts it between 2015-08-27 and 2015-09-11",
+  window_from: "2015-08-27",
+  window_to: "2015-09-11",
+  market_date: "2015-09-11",
+  owed_why: "the date is after SEC accepted the filing",
+};
+
+const WITHHELD_CHAIN = {
+  ...WITHHELD,
+  hold_id: "11111111-0000-4000-8000-000000000012",
+  ticker: "WTHB",
+  suggestion_words:
+    "2008-07-17 is before the 2009-07-09 row this one follows in the filing's balances (110,000 -> 250,000 shares); the filing puts it between 2009-07-09 and 2009-07-13",
+  window_from: "2009-07-09",
+  window_to: "2009-07-13",
+};
+
+const ONE_ROW = {
+  ...base,
+  hold_id: "11111111-0000-4000-8000-000000000013",
+  ticker: "ONER",
+  accession: "0000000000-22-000013",
+  bucket: "owed",
+  row: { insider_name: "Roe, Richard", insider_role: "officer", txn_code: "P", shares: 50, price: 20, usd: 1000 },
+  date_as_filed: "2022-07-30",
+  suggested_date: "2022-06-30",
+  agrees: false,
+  suggestion_basis: "period_of_report_one_row",
+  suggestion_words:
+    "2022-06-30: the period of report of a one-row filing; the row's written date (2022-07-30) fits neither it nor the filing, so it does not agree on its own",
+  window_from: "2022-06-30",
+  window_to: "2022-07-15",
+  market_date: "2022-07-15",
+};
+
+const TWO_DATES = {
+  ...ONE_ROW,
+  hold_id: "11111111-0000-4000-8000-000000000014",
+  ticker: "TWOD",
+  suggestion_basis: "footnote",
+  suggestion_words:
+    "the filing writes 2020-03-05 and 2021-03-05 with this row's month and day; the latest is shown, and it does not agree on its own",
+  suggested_date: "2021-03-05",
+};
+
+const COPY_A = {
+  ...KIDS,
+  hold_id: "11111111-0000-4000-8000-000000000015",
+  ticker: "GSCA",
+  accession: "0000000000-25-000015",
+  suggested_date: "2025-07-25",
+  suggestion_basis: "sibling_row",
+  suggestion_words:
+    "2025-07-25: the date of rows 0, 2 and 3 of the same filing and the filing's period of report (written 0025-07-25)",
+  window_from: "2025-07-25",
+  window_to: "2025-07-25",
+  copies: [{ hold_id: "11111111-0000-4000-8000-000000000016", ticker: "GSCB" }],
 };
 
 const ASNS = {
@@ -78,6 +169,7 @@ const ASNS = {
   row: { insider_name: "Barlev, Tuvia", insider_role: "officer", txn_code: "S", shares: 0, price: 0, usd: 0 },
   date_as_filed: "2024-04-01",
   suggested_date: null,
+  suggestion_words: "no acceptance and no filing date are known, so no date can be checked",
   owed_why: "no acceptance time is known for the filing",
 };
 
@@ -316,7 +408,7 @@ describe("InsiderHolds", () => {
     expect(ref).toHaveTextContent("signed as filed 2021-03-18");
     expect(within(kids).getByRole("link")).toHaveAttribute("href", KIDS.filing_url);
     expect(within(kids).getByTestId("adm-hold-sugg")).toHaveTextContent(
-      "Suggested date 2020-11-16 · on or after the filing's period of report",
+      "Suggested date 2020-11-16 · from the period of report · the filing's period of report",
     );
     // an agreeing suggestion is offered as the primary button
     expect(within(kids).getByRole("button", { name: "Use 2020-11-16" })).toHaveClass("primary");
@@ -324,16 +416,21 @@ describe("InsiderHolds", () => {
     expect(within(kids).getByTestId("adm-hold-owed-why")).toHaveTextContent(
       "Why the rule did not place it: the filing was made 122 days after its period of report (2020-11-16), more than the on-time window of 5 days.",
     );
-    // a weak suggestion is text only: never a one-click button
+    // an agreeing suggestion on a 00YY row (W3-1 reads it as 2023) is offered too, and says where it is written
     const bbai = rowOf("BBAI");
     expect(within(bbai).getByTestId("adm-hold-trade")).toHaveTextContent("award 87,827 @ 0");
-    expect(within(bbai).getByTestId("adm-hold-sugg")).toHaveTextContent("Suggested date 2023-03-23 · weak");
-    expect(within(bbai).queryByRole("button", { name: /^Use / })).toBeNull();
+    expect(within(bbai).getByTestId("adm-hold-sugg")).toHaveTextContent(
+      "Suggested date 2023-03-23 · from a footnote · written in a footnote this row cites and the filing's period of report (written 0023-03-23)",
+    );
+    expect(within(bbai).getByRole("button", { name: "Use 2023-03-23" })).toBeInTheDocument();
     expect(within(bbai).getByTestId("adm-hold-owed-why")).toHaveTextContent("fails the year rule");
-    // no suggestion: no Use button
+    // no suggestion: no Use button, and the API's words say why none is offered (no window is known here)
     const asns = rowOf("ASNS", screen.getByTestId("adm-holds-owed"));
     expect(within(asns).queryByRole("button", { name: /^Use / })).toBeNull();
-    expect(asns).toHaveTextContent("No date can be suggested from the filing.");
+    expect(within(asns).getByTestId("adm-hold-sugg")).toHaveTextContent(
+      "No date is suggested: no acceptance and no filing date are known, so no date can be checked",
+    );
+    expect(within(asns).queryByTestId("adm-hold-window")).toBeNull();
   });
 
   it("Use <date> approves the suggestion with no date sent", async () => {
@@ -381,13 +478,22 @@ describe("InsiderHolds", () => {
     );
   });
 
-  it("Set another date never prefills a weak suggestion", async () => {
+  it("Set another date never prefills a suggestion that does not agree", async () => {
+    serve({ owed: [ONE_ROW], counts: { ...EMPTY.counts, owed: 1 }, total: 1 });
+    render(<InsiderHolds />);
+    const row = rowOf("ONER");
+    await userEvent.click(within(row).getByRole("button", { name: "Set another date" }));
+    expect(within(row).getByLabelText("Trade date")).toHaveValue("");
+    expect(within(row).getByLabelText("Trade date")).toHaveAttribute("max", "2022-07-15");
+    expect(within(row).getByRole("button", { name: "Save date" })).toBeDisabled();
+  });
+
+  it("Set another date prefills an agreeing suggestion that comes from a 00YY period of report", async () => {
     render(<InsiderHolds />);
     const bbai = rowOf("BBAI");
     await userEvent.click(within(bbai).getByRole("button", { name: "Set another date" }));
-    expect(within(bbai).getByLabelText("Trade date")).toHaveValue("");
+    expect(within(bbai).getByLabelText("Trade date")).toHaveValue("2023-03-23");
     expect(within(bbai).getByLabelText("Trade date")).toHaveAttribute("max", "2024-03-08");
-    expect(within(bbai).getByRole("button", { name: "Save date" })).toBeDisabled();
   });
 
   it("with no market date there is no max and the hint names no date", async () => {
@@ -400,16 +506,185 @@ describe("InsiderHolds", () => {
     );
   });
 
-  it("a weak suggestion on a rule-placed row is text only, with no Use button", () => {
+  it("a suggestion that does not agree on a rule-placed row is the API's words only, with no Use button", () => {
+    const words =
+      "2024-05-24: the written month and day (2028-05-24) in the latest year on or before the filing's market date (2024-05-28); the period of report cannot be read, so it does not agree on its own";
     serve({
       ...FULL,
-      placed_by_rule: [{ ...TMUS, suggested_date: "2023-05-24", agrees: false }],
+      placed_by_rule: [
+        {
+          ...TMUS,
+          period_of_report_as_filed: null,
+          agrees: false,
+          suggestion_basis: "arithmetic",
+          suggestion_words: words,
+        },
+      ],
     });
     render(<InsiderHolds />);
     const tmus = rowOf("TMUS");
     expect(within(tmus).queryByRole("button", { name: /^Use / })).toBeNull();
-    expect(within(tmus).getByTestId("adm-hold-sugg")).toHaveTextContent("Suggested date 2023-05-24 · weak");
+    expect(within(tmus).getByTestId("adm-hold-sugg")).toHaveTextContent(
+      `Suggested date 2024-05-24 · from the written month and day · ${words.slice("2024-05-24: ".length)}`,
+    );
+    expect(tmus).not.toHaveTextContent("weak");
     expect(within(tmus).getByRole("button", { name: "Set the trade date" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["footnote", "from a footnote", "written in a footnote this row cites", "2017-11-21"],
+    [
+      "sibling_row",
+      "from another row of the filing",
+      "the date of rows 0, 2 and 3 of the same filing and the filing's period of report (written 0025-07-25)",
+      "2025-07-25",
+    ],
+    ["period_of_report", "from the period of report", "the filing's period of report", "2020-11-16"],
+    [
+      "arithmetic",
+      "from the written month and day",
+      "the written month and day (2021-12-03) in the latest year on or before the filing's market date (2021-03-18)",
+      "2020-12-03",
+    ],
+  ])("an agreeing suggestion from the %s says where the filing writes it, and keeps its Use button", (basis, chip, words, day) => {
+    serve({
+      owed: [{ ...KIDS, suggested_date: day, suggestion_basis: basis, suggestion_words: `${day}: ${words}` }],
+      counts: { ...EMPTY.counts, owed: 1 },
+      total: 1,
+    });
+    render(<InsiderHolds />);
+    const row = rowOf("KIDS");
+    const sugg = within(row).getByTestId("adm-hold-sugg");
+    expect(sugg).toHaveTextContent(`Suggested date ${day} · ${chip} · ${words}`);
+    expect(within(sugg).getByTestId("adm-hold-sugg-basis")).toHaveAttribute("data-basis", basis);
+    expect(within(sugg).getByText(day)).toHaveClass("adm-hold-ok");
+    expect(within(row).getByRole("button", { name: `Use ${day}` })).toHaveClass("primary");
+  });
+
+  it("a suggestion that does not agree shows the API's words in place of the old 'weak' wording, never a Use button", () => {
+    serve({ owed: [ONE_ROW, TWO_DATES], counts: { ...EMPTY.counts, owed: 2 }, total: 2 });
+    render(<InsiderHolds />);
+    const one = rowOf("ONER");
+    expect(within(one).getByTestId("adm-hold-sugg")).toHaveTextContent(
+      "Suggested date 2022-06-30 · from a one-row filing's period of report · the period of report of a one-row filing; the row's written date (2022-07-30) fits neither it nor the filing, so it does not agree on its own",
+    );
+    const two = rowOf("TWOD");
+    expect(within(two).getByTestId("adm-hold-sugg")).toHaveTextContent(
+      "the filing writes 2020-03-05 and 2021-03-05 with this row's month and day; the latest is shown, and it does not agree on its own",
+    );
+    for (const row of [one, two]) {
+      const sugg = within(row).getByTestId("adm-hold-sugg");
+      expect(row).not.toHaveTextContent(/weak/i);
+      expect(within(sugg).getByText(/^20\d\d-\d\d-\d\d$/, { selector: "b" })).not.toHaveClass("adm-hold-ok");
+      expect(within(row).queryByRole("button", { name: /^Use / })).toBeNull();
+      // the window is for a withheld suggestion; a shown date has its words
+      expect(within(row).queryByTestId("adm-hold-window")).toBeNull();
+    }
+  });
+
+  it("a withheld suggestion says why and shows the filing's own date window", () => {
+    serve({ owed: [WITHHELD, WITHHELD_CHAIN], counts: { ...EMPTY.counts, owed: 2 }, total: 2 });
+    render(<InsiderHolds />);
+    const p = rowOf("WTHP");
+    expect(within(p).getByTestId("adm-hold-sugg")).toHaveTextContent(
+      "No date is suggested: 2014-09-14 is before the period of report (2015-08-27); the filing puts it between 2015-08-27 and 2015-09-11",
+    );
+    expect(within(p).getByTestId("adm-hold-window")).toHaveTextContent(
+      "The filing's own dates put it between 2015-08-27 and 2015-09-11.",
+    );
+    const b = rowOf("WTHB");
+    expect(within(b).getByTestId("adm-hold-sugg")).toHaveTextContent(
+      "2008-07-17 is before the 2009-07-09 row this one follows in the filing's balances (110,000 -> 250,000 shares)",
+    );
+    expect(within(b).getByTestId("adm-hold-window")).toHaveTextContent(
+      "The filing's own dates put it between 2009-07-09 and 2009-07-13.",
+    );
+    for (const row of [p, b]) {
+      expect(row).not.toHaveTextContent(/weak/i);
+      expect(within(row).queryByRole("button", { name: /^Use / })).toBeNull();
+      expect(within(row).getByRole("button", { name: "Set another date" })).toBeInTheDocument();
+    }
+  });
+
+  it.each([
+    ["one bound only: the latest", null, "2015-09-11", "The filing's own dates put it on or before 2015-09-11."],
+    ["one bound only: the earliest", "2015-08-27", null, "The filing's own dates put it on or after 2015-08-27."],
+    ["a one-day window", "2025-07-25", "2025-07-25", "The filing's own dates put it on 2025-07-25."],
+    [
+      "bounds that cross",
+      "2015-09-20",
+      "2015-09-11",
+      "The filing's own dates leave no window (2015-09-20 is after 2015-09-11).",
+    ],
+  ])("the window of a withheld suggestion: %s", (_label, from, to, line) => {
+    serve({
+      owed: [{ ...WITHHELD, window_from: from, window_to: to }],
+      counts: { ...EMPTY.counts, owed: 1 },
+      total: 1,
+    });
+    render(<InsiderHolds />);
+    expect(within(rowOf("WTHP")).getByTestId("adm-hold-window")).toHaveTextContent(line);
+  });
+
+  it("a shown suggestion from an older server (no basis, no words) keeps the line it always had", () => {
+    const old = { suggestion_basis: null, suggestion_words: null, window_from: null, window_to: null };
+    serve({
+      owed: [{ ...KIDS, ...old }, { ...ONE_ROW, ...old }],
+      counts: { ...EMPTY.counts, owed: 2 },
+      total: 2,
+    });
+    render(<InsiderHolds />);
+    expect(within(rowOf("KIDS")).getByTestId("adm-hold-sugg")).toHaveTextContent(
+      "Suggested date 2020-11-16 · on or after the filing's period of report",
+    );
+    expect(within(rowOf("ONER")).getByTestId("adm-hold-sugg")).toHaveTextContent(
+      "Suggested date 2022-06-30 · it does not agree with the filing, so it is not offered",
+    );
+    expect(within(rowOf("KIDS")).queryByTestId("adm-hold-sugg-basis")).toBeNull();
+  });
+
+  it("a withheld suggestion from an older server (no words, no window) keeps the plain line", () => {
+    serve({
+      owed: [{ ...WITHHELD, suggestion_words: null, window_from: null, window_to: null }],
+      counts: { ...EMPTY.counts, owed: 1 },
+      total: 1,
+    });
+    render(<InsiderHolds />);
+    const row = rowOf("WTHP");
+    expect(within(row).getByTestId("adm-hold-sugg")).toHaveTextContent("No date can be suggested from the filing.");
+    expect(within(row).queryByTestId("adm-hold-window")).toBeNull();
+  });
+
+  it("says a copy of the same filing row is held under another ticker, to be decided on its own", () => {
+    serve({ owed: [COPY_A, KIDS], counts: { ...EMPTY.counts, owed: 2 }, total: 2 });
+    render(<InsiderHolds />);
+    const a = rowOf("GSCA");
+    expect(within(a).getByTestId("adm-hold-copies")).toHaveTextContent(
+      "Also held: a copy of the same filing row under GSCB. Each is decided on its own.",
+    );
+    // a row with no copy says nothing about one
+    expect(within(rowOf("KIDS")).queryByTestId("adm-hold-copies")).toBeNull();
+  });
+
+  it("names every copy, and a copy with no ticker by what it is", () => {
+    const copies = [
+      { hold_id: "11111111-0000-4000-8000-000000000021", ticker: "GSCB" },
+      { hold_id: "11111111-0000-4000-8000-000000000022", ticker: null },
+    ];
+    serve({
+      owed: [{ ...COPY_A, copies }],
+      placed_by_rule: [{ ...TMUS, copies: [copies[0]] }],
+      counts: { ...EMPTY.counts, owed: 1, placed_by_rule: 1 },
+      total: 2,
+    });
+    render(<InsiderHolds />);
+    expect(within(rowOf("GSCA")).getByTestId("adm-hold-copies")).toHaveTextContent(
+      "Also held: a copy of the same filing row under GSCB and a copy of the same filing row under another security. Each is decided on its own.",
+    );
+    // a rule-placed row can be decided too, so it says the same
+    expect(within(rowOf("TMUS")).getByTestId("adm-hold-copies")).toHaveTextContent(
+      "Also held: a copy of the same filing row under GSCB. Each is decided on its own.",
+    );
   });
 
   it("Dismiss is blocked without a reason and sends the reason", async () => {
