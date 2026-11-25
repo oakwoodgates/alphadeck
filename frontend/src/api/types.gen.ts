@@ -15694,8 +15694,10 @@ export interface components {
         /**
          * OnboardingNameOut
          * @description X1 — one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;
-         *     ``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it — re-adding the
-         *     name resumes it). ``last_error`` is the latest leg failure (on a ``done`` row: a tail leg's note).
+         *     ``parked`` = waiting (queued or in progress) and ``in_live_basket`` false: no live basket holds it any more,
+         *     so the job leaves it — re-adding the name resumes it (the readout's ``counts.parked`` counts these rows; a
+         *     failed or done name is never parked). ``last_error`` is the latest leg failure (on a ``done`` row: a tail
+         *     leg's note).
          */
         OnboardingNameOut: {
             /**
@@ -15722,6 +15724,8 @@ export interface components {
             source: string;
             /** In Live Basket */
             in_live_basket: boolean;
+            /** Parked */
+            parked: boolean;
             /**
              * Enqueued At
              * Format: date-time

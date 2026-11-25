@@ -833,6 +833,23 @@ def test_the_pending_section_walks_116_names_to_the_end_in_the_apis_order():
     assert recent["recent_done_total"] == 20 and len(recent["recent_done"]) == 20
 
 
+def test_a_parked_admin_onboarding_name_says_parked_in_the_brief_and_the_full_row():
+    payload = afx.admin_onboarding(pending=6, failed=1)
+    ame = payload["pending"][1]  # the in-progress name: loading, then its card was removed
+    assert ame["status"] == "in_progress"
+    ame.update(in_live_basket=False, parked=True)
+    payload["counts"]["parked"] = 1
+    api = FakeApi(admin_onboarding=payload)
+
+    brief = {n["ticker"]: n for n in ok(api, "get_admin_onboarding")["pending"]}
+    assert brief[ame["ticker"]]["parked"] is True
+    assert [t for t, n in brief.items() if n["parked"]] == [ame["ticker"]]
+
+    full = {n["ticker"]: n for n in ok(api, "get_admin_onboarding", section="pending")["pending"]}
+    assert full[ame["ticker"]]["parked"] is True
+    assert [t for t, n in full.items() if n["parked"]] == [ame["ticker"]]
+
+
 def test_an_admin_onboarding_queue_that_is_empty_reads_as_zero_counts():
     quiet = afx.admin_onboarding(pending=0, failed=0, recent=0)
     quiet["counts"] = {"queued": 0, "in_progress": 0, "failed": 0, "done": 0, "parked": 0}

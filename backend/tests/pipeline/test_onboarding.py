@@ -18,8 +18,9 @@ read):
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -464,6 +465,33 @@ def test_a_PARKED_row_no_live_basket_holds_is_never_loaded(db, offline):
     assert r.counts["parked"] == 1 and r.counts["queued"] == 1
     _thesis(db, [("GONE", a)], "re-added")
     assert [n.outcome for n in _batch().names] == ["done"]
+
+
+def test_is_parked_is_a_waiting_name_in_no_live_basket_and_nothing_else():
+    """The ONE rule behind the readout's count, its waiting list and each row's ``parked`` field."""
+    base = onboarding.OnboardingRow(
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=uuid.uuid4(),
+        status="queued",
+        legs_done=(),
+        attempts=0,
+        last_error=None,
+        source="promote",
+        thesis_id=None,
+        enqueued_at=datetime(2026, 11, 1, tzinfo=timezone.utc),
+        last_attempt_at=None,
+        finished_at=None,
+    )
+    for status, live, parked in [
+        ("queued", False, True),
+        ("in_progress", False, True),
+        ("queued", True, False),
+        ("in_progress", True, False),
+        ("failed", False, False),  # failed is loud on its own; the count never called it parked
+        ("done", False, False),
+    ]:
+        row = dataclasses.replace(base, status=status, in_live_basket=live)
+        assert onboarding.is_parked(row) is parked, (status, live)
 
 
 # --- 3. the window -------------------------------------------------------------------------------------------
