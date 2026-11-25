@@ -44,7 +44,7 @@ Every monitor here follows one discipline, and a new one must too:
 | Stale feeds | `pipeline/tape_health.py`, `domain/feed_kinds.py` | A price tape `tape_stale_days` behind the as-of; an ETF sleeve's fund-shares sample `fund_shares_stale_days` behind | Newly stale pages once |
 | Stopped-tape classes | `tape_health.classify_stop`, `ingest/edgar/form25.py` | A stale price tape is closed, renamed, unpriceable or a plain feed gap | Closed is quiet; the others are loud until repaired |
 | Expected price misses | `pipeline/price_feed.py` | A vendor 404 on a name classified closed or acknowledged unpriceable | Quiet; removed from the name's errors |
-| Rename probe and auto-adopt | `pipeline/rename_probe.py` (`run_rename_probe`, `run_auto_adopt`) | A splice-verified successor symbol for each renamed tape; adopts it only for a name the company-list refresh pinned | Recommendation on Admin; one quiet line |
+| Rename probe and auto-adopt | `pipeline/rename_probe.py` (`run_rename_probe`, `run_auto_adopt`) | A splice-verified successor symbol for each renamed tape, and a same-class fresh one for an unpriceable name; adopts only for a name the company-list refresh pinned | Recommendation on Admin; one quiet line |
 | Successor CIK | `pipeline/successor_cik.py`, `ingest/edgar/succession.py` | A member whose company now files under a new CIK | New ones page once |
 | Split-basis defects | `pipeline/split_basis.py` | A stored tape that mixes two split bases (island, cliff, flap); a flap no reader sees is settled and named, never a defect | New ones page once |
 | Split-shaped jumps | `pipeline/split_jumps.py` | A jump the split-night hold released with no split listed | Admin Splits panel and one quiet line; never a page |
@@ -72,7 +72,9 @@ cached (`classify_stop`, nothing persisted):
   probe fetches each candidate once into a throwaway cache and splices it against the stored tape; it is
   verified only on enough shared closes at a ratio near 1, which rejects another class such as warrants. The
   probe writes nothing.
-- **Unpriceable** (loud): no stored bar ever, neither closed nor renamed.
+- **Unpriceable** (loud): no stored bar ever, neither closed nor renamed. When EDGAR lists another symbol for
+  it, the same probe fetches each once and marks its class by convention (an EDGAR name ending /ADR; the OTC
+  fifth letter, Y an ADR, F a foreign ordinary). Only a same-class candidate with a fresh tape is recommended.
 - Otherwise a **stale** repair row.
 
 The repair is the steward's, because an automatic rename-follower could file another company's tape under a

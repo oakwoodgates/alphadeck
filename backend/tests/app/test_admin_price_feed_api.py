@@ -16,12 +16,19 @@ from pathlib import Path
 from app.routers import admin_price_feed
 from db.session import DEFAULT_TENANT_ID
 from domain.feed_kinds import StaleFeedLabel
+from domain.settings import Settings
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.daily import ThesisRunResult
 from pipeline.ingest_thesis import NameResult
 from pipeline.price_feed import ExpectedPriceMiss
-from pipeline.rename_probe import RenameProbe, RenameRecommendation, judge
+from pipeline.rename_probe import (
+    RenameProbe,
+    RenameRecommendation,
+    UnpricedCandidate,
+    UnpricedRecommendation,
+    judge,
+)
 from pipeline.tape_health import StaleTape
 from tests import price_feed_fixtures as fx
 
@@ -139,6 +146,7 @@ def test_the_panel_shows_the_measured_night_renamed_unpriceable_and_closed(clien
         "bars": len(fx.probe_bars("HLLK", "SDCO")),
         "last_bar": "2026-10-15",
         "error": None,
+        "listing_class": None,  # W4-1: the class mark rides a never-priced name's candidates only
     }
     assert r["edgar_name"] == "SDR Drone, Inc."
     assert r["former_names"][0]["name"] == "HALLMARK VENTURE GROUP, INC."
@@ -149,6 +157,13 @@ def test_the_panel_shows_the_measured_night_renamed_unpriceable_and_closed(clien
     assert u["ticker"] == "WONDF" and u["edgar_tickers"] == []
     assert u["vendor_error"].startswith("Client error '404 Not Found'")
     assert u["theses"] == [{"id": str(ids["ee"]), "name": "The Everything Exchange"}]
+    # W4-1: EDGAR lists no other symbol for WONDF, so the probe never looked at it
+    assert (u["probed"], u["candidates"], u["recommended"], u["member_class"]) == (
+        False,
+        [],
+        None,
+        None,
+    )
     (c,) = p["closed"]
     assert c["ticker"] == "GTLS" and c["closed_at"] == "2026-07-16"
     assert p["acknowledged"] == [] and p["applied"] == [] and p["expected_misses"] == 1
@@ -553,3 +568,191 @@ def test_a_marked_name_whose_tape_STOPPED_stays_a_LOUD_stale_row(client, db, mon
     assert "SCE-PG" in status["tape"]["newly_stale"]
     (lim,) = status["price_repairs"]["limitations"]
     assert lim["tape_stopped"] is True and lim["tape_edge"] == "2026-08-31"
+
+
+# --- W4-1: ADOPT on a NEVER-PRICED name, behind the explicit cross-class confirm ------------------------
+# The shape (prod 2026-11-24, neutral labels per the fixture convention): an ADR member EDGAR files as
+# "<name>/ADR", 404 at the vendor every night, while EDGAR's list for its CIK also carries the company's
+# foreign ORDINARY line. Adopting the ordinary line prices the ADR card on another class (once a share count
+# with a known ADS ratio exists, the cap is off by that ratio), so the API refuses it unless the request
+# carries ``confirm_class`` and the setting ``price_feed_cross_class_adopt`` is "confirm". The probe result
+# below is written by the REAL artifact writer; its bars are SYNTHETIC (no vendor is called).
+
+_ADR_NAME = "SYNTHETIC METALS PLC/ADR"
+_LISTED = ("TKAAY", "TKAAF", "TKAAN", "TKAAX")
+
+
+def _never_priced_night(db) -> dict:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "TKAAY", "0009999901", _ADR_NAME, "2026-01-01"),
+        )
+    db.commit()
+    thesis = uuid.uuid4()
+    rec = UnpricedRecommendation(
+        security_id=sid,
+        ticker="TKAAY",
+        edgar_tickers=_LISTED,
+        edgar_name=_ADR_NAME,
+        member_class="adr",
+        candidates=(
+            UnpricedCandidate(
+                "TKAAF", bars=480, last_bar=date(2026, 10, 15), listing_class="ordinary"
+            ),
+            UnpricedCandidate("TKAAN", bars=30, last_bar=date(2026, 10, 15)),
+            UnpricedCandidate("TKAAX", error="HTTPStatusError: Client error '404 Not Found'"),
+        ),
+    )
+    at = datetime(2026, 10, 17, 2, 30, tzinfo=timezone.utc)
+    write_cron_run_log(
+        [
+            ThesisRunResult(
+                thesis_id=thesis,
+                name="Synthetic Minerals",
+                recorded=True,
+                tape_stale=(StaleTape("TKAAY", sid, None, edgar_tickers=_LISTED),),
+            )
+        ],
+        asof=_OCT16,
+        allow_live=True,
+        started_at=at,
+        finished_at=at + timedelta(minutes=40),
+        tape_evaluated=True,
+        tape_stale_days=5,
+        rename_probe=RenameProbe(evaluated=True, unpriced=(rec,), fetches=3),
+    )
+    return {"sid": sid, "thesis": thesis}
+
+
+def _detail(db, change_id) -> dict:
+    with db.cursor() as cur:
+        cur.execute("SELECT detail FROM price_symbol_change WHERE id = %s", (change_id,))
+        return cur.fetchone()["detail"]
+
+
+def test_the_panel_shows_a_never_priced_names_probed_candidates_with_their_class_marks(client, db):
+    ids = _never_priced_night(db)
+
+    (u,) = _panel(client)["unpriceable"]
+
+    assert u["security_id"] == str(ids["sid"]) and u["ticker"] == "TKAAY"
+    assert u["probed"] is True and u["member_class"] == "adr"
+    assert u["recommended"] is None  # the ordinary line is never recommended for an ADR member
+    assert u["edgar_tickers"] == list(_LISTED)
+    assert u["candidates"][0] == {
+        "symbol": "TKAAF",
+        "verified": False,
+        "overlap": 0,
+        "ratio": None,
+        "bars": 480,
+        "last_bar": "2026-10-15",
+        "error": None,
+        "listing_class": "ordinary",
+    }
+    assert [c["symbol"] for c in u["candidates"]] == ["TKAAF", "TKAAN", "TKAAX"]
+
+
+def test_a_CROSS_CLASS_adopt_is_refused_without_confirm_class_and_applied_with_it_then_UNDONE_exactly(
+    client, db
+):
+    """The ordinary line for an ADR member: 409 without ``confirm_class`` (nothing written); with it, the
+    existing Adopt writer sets the price symbol (basis operator:adopt) WITHOUT renaming the member (it was
+    never renamed), the change records the probe, both class marks and the confirm; Undo restores the
+    master exactly."""
+    ids = _never_priced_night(db)
+    sid = ids["sid"]
+    before = _master(db, sid)
+
+    r = client.post(f"/admin/price-feed/{sid}/adopt", json={"symbol": "tkaaf"})
+    assert r.status_code == 409, r.text
+    why = r.json()["detail"]
+    assert "ordinary" in why and "ADR" in why and "confirm_class" in why
+    assert _count(db, "price_symbol_change") == 0 and _master(db, sid) == before
+    r = client.post(
+        f"/admin/price-feed/{sid}/adopt", json={"symbol": "TKAAF", "confirm_class": False}
+    )
+    assert r.status_code == 409 and _count(db, "price_symbol_change") == 0
+
+    ok = client.post(
+        f"/admin/price-feed/{sid}/adopt", json={"symbol": "TKAAF", "confirm_class": True}
+    )
+    assert ok.status_code == 200, ok.text
+    change = ok.json()
+    assert change["action"] == "adopt" and change["basis"] == "operator:adopt"
+    assert (change["prior_symbol"], change["new_symbol"]) == (None, "TKAAF")
+    assert change["name_changed"] is False
+    assert _master(db, sid) == {
+        "name": _ADR_NAME,
+        "price_symbol": "TKAAF",
+        "price_symbol_basis": "operator:adopt",
+    }
+    detail = _detail(db, change["id"])
+    assert detail["member_class"] == "adr" and detail["listing_class"] == "ordinary"
+    assert detail["confirm_class"] is True and detail["cross_class"] is True
+    assert detail["probe"]["symbol"] == "TKAAF" and detail["probe"]["bars"] == 480
+    assert detail["edgar_tickers"] == list(_LISTED) and detail["pass_asof"] == "2026-10-16"
+    row = _panel(client)["unpriceable"][0]
+    assert row["change"]["id"] == change["id"] and row["change"]["undoable"] is True
+
+    u = client.post(f"/admin/price-feed/changes/{change['id']}/undo")
+    assert u.status_code == 200, u.text
+    assert _master(db, sid) == before  # EXACT
+    assert _count(db, "price_symbol_change") == 2
+
+
+def test_the_REFUSE_setting_turns_the_cross_class_adopt_off_even_with_the_confirm(
+    client, db, monkeypatch
+):
+    ids = _never_priced_night(db)
+    monkeypatch.setattr(
+        admin_price_feed,
+        "get_settings",
+        lambda: Settings(price_feed_cross_class_adopt="refuse"),
+    )
+    r = client.post(
+        f"/admin/price-feed/{ids['sid']}/adopt", json={"symbol": "TKAAF", "confirm_class": True}
+    )
+    assert r.status_code == 409 and "price_feed_cross_class_adopt" in r.json()["detail"]
+    assert _count(db, "price_symbol_change") == 0
+    # a candidate whose class is not known to differ is still adoptable under "refuse"
+    ok = client.post(f"/admin/price-feed/{ids['sid']}/adopt", json={"symbol": "TKAAN"})
+    assert ok.status_code == 200, ok.text
+
+
+def test_a_never_priced_adopt_needs_an_EDGAR_listed_symbol_the_probe_served_bars_for(client, db):
+    """Adopt is the probe's ratification, never a typed symbol: a symbol EDGAR does not list, our own
+    404ing ticker (listed, never probed) and a candidate whose fetch failed are each 409 pointing at Set
+    price symbol. A candidate whose class is not known to differ needs no confirm."""
+    ids = _never_priced_night(db)
+    sid = ids["sid"]
+    for symbol, needle in (
+        ("AAPL", "not a symbol EDGAR lists"),
+        ("TKAAY", "Set price symbol"),
+        ("TKAAX", "Set price symbol"),
+    ):
+        r = client.post(
+            f"/admin/price-feed/{sid}/adopt", json={"symbol": symbol, "confirm_class": True}
+        )
+        assert r.status_code == 409 and needle in r.json()["detail"], (symbol, r.text)
+    assert _count(db, "price_symbol_change") == 0
+
+    ok = client.post(f"/admin/price-feed/{sid}/adopt", json={"symbol": "TKAAN"})
+    assert ok.status_code == 200, ok.text
+    detail = _detail(db, ok.json()["id"])
+    assert detail["cross_class"] is False and detail["confirm_class"] is False
+    assert detail["listing_class"] is None and detail["member_class"] == "adr"
+
+
+def test_the_RENAMED_adopt_is_unchanged_by_the_class_confirm(client, db):
+    """The renamed path reads no class mark: SDCO adopts with or without ``confirm_class`` exactly as before
+    (the display name refreshed from EDGAR's current entity name)."""
+    ids = _night(db)
+    r = client.post(
+        f"/admin/price-feed/{ids['hllk']}/adopt", json={"symbol": "SDCO", "confirm_class": True}
+    )
+    assert r.status_code == 200, r.text
+    assert _master(db, ids["hllk"])["name"] == "SDR Drone, Inc."
+    assert "member_class" not in _detail(db, r.json()["id"])

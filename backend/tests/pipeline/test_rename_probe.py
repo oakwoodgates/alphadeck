@@ -7,19 +7,24 @@ the operator's Adopt applies it)."""
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from db.session import connect
+from domain.price_feed_basis import BASIS_RENAME_PIN
 from pipeline.daily import ThesisRunResult
 from pipeline.ingest_thesis import NameResult
 from pipeline.rename_probe import (
     VERIFY_MIN_OVERLAP,
     RenameProbe,
     describe,
+    describe_unpriced,
     judge,
+    listing_class,
+    run_auto_adopt,
     run_rename_probe,
     splice,
+    unpriced_rows,
 )
 from pipeline.tape_health import StaleTape
 from tests import price_feed_fixtures as fx
@@ -259,3 +264,300 @@ def test_a_stored_tape_read_fault_fails_OPEN_with_the_error():
     )
     assert probe.evaluated is False
     assert probe.error == "RuntimeError: server closed the connection"
+
+
+# --- W4-1: NEVER-PRICED names — the probe over EDGAR's OTHER symbols, with the listing-class mark -------
+# The shape (MEASURED on prod 2026-11-24, named here by neutral labels per the fixture convention): an ADR
+# member EDGAR files as "<name>/ADR" whose symbol 404s at the vendor every night, while EDGAR's list for the
+# same CIK also carries the company's foreign ORDINARY line (a five-letter OTC symbol ending F). The member is
+# not renamed (our ticker is in EDGAR's list) and has no stored bar, so it is unpriceable — and before W4-1
+# nothing ever looked at the other symbol. The vendor bars below are SYNTHETIC (a fake ``PriceSource`` serves
+# them; no vendor and no SEC request is made): what is under test is which symbols are fetched, how each is
+# marked and what is recommended, never a price.
+
+_ADR_NAME = "SYNTHETIC METALS PLC/ADR"
+
+
+def _bars(last: date, n: int = 30) -> list[dict]:
+    """``n`` synthetic daily bars ending ``last`` (the ``PriceSource`` shape)."""
+    return [
+        {
+            "d": last - timedelta(days=i),
+            "open": None,
+            "high": None,
+            "low": None,
+            "close": 10.0,
+            "volume": 1000,
+        }
+        for i in reversed(range(n))
+    ]
+
+
+def _never_priced(sid, ticker, edgar, *, acknowledged=False):
+    return StaleTape(
+        ticker=ticker, security_id=sid, edge=None, edgar_tickers=edgar, acknowledged=acknowledged
+    )
+
+
+def _ingested(sid, ticker, *, edgar_name=None, price_symbol=None, basis=None):
+    return NameResult(
+        ticker=ticker,
+        security_id=sid,
+        form4_appended=0,
+        price_bars_appended=0,
+        edgar_name=edgar_name,
+        price_symbol=price_symbol,
+        price_symbol_basis=basis,
+    )
+
+
+def test_listing_class_reads_the_ADR_name_first_then_the_OTC_fifth_letter():
+    """The class mark is a CONVENTION, never proof: an EDGAR entity name ending "/ADR" marks the filer's
+    ADR; otherwise a five-letter alphabetic OTC symbol ending Y reads ADR and one ending F a foreign
+    ordinary. Anything else is unknown (``None``) — never guessed."""
+    assert listing_class("TKAAY") == "adr"
+    assert listing_class("TKAAF") == "ordinary"
+    assert listing_class("tkaaf ") == "ordinary"  # the stored symbols are upper-case; be lenient
+    assert listing_class("TKAAY", _ADR_NAME) == "adr"
+    assert listing_class("TKAA", _ADR_NAME) == "adr"  # the name marks the member's own class
+    assert listing_class("TKAA", "SYNTHETIC METALS PLC /ADR/") == "adr"  # EDGAR's other spelling
+    for unknown in ("TKAA", "SDCO", "TKAAN", "TKA1Y", "BRK-B", "WNDR.TO", "", None):
+        assert listing_class(unknown) is None, unknown
+    assert (
+        listing_class("TKAA", "ADRIAN SYNTHETIC INC") is None
+    )  # "ADR" inside a word is not the mark
+
+
+def test_unpriced_rows_are_the_never_priced_unacknowledged_names_EDGAR_lists_another_symbol_for():
+    """Which rows the probe takes beside the renamed ones: a stopped PRICE row that is unpriceable, not
+    acknowledged, and whose EDGAR list holds a symbol other than our ticker / price symbol — deduped by
+    security, each paired with its ingest result (the EDGAR name rides it)."""
+    aa, bb, cc, dd, ee, ff, gg = (uuid.uuid4() for _ in range(7))
+    results = [
+        ThesisRunResult(
+            thesis_id=uuid.uuid4(),
+            name="T1",
+            ingested=[
+                _ingested(aa, "TKAAY", edgar_name=_ADR_NAME),
+                _ingested(gg, "TKGG", price_symbol="TKGGX"),
+            ],
+            tape_stale=(
+                _never_priced(aa, "TKAAY", ("TKAAY", "TKAAF")),  # taken
+                _never_priced(bb, "TKBB", ()),  # EDGAR lists nothing: nothing to probe
+                _never_priced(cc, "TKCC", ("TKCC",)),  # only our own ticker
+                _never_priced(dd, "TKDDY", ("TKDDY", "TKDDF"), acknowledged=True),  # kept unpriced
+                StaleTape("TKEE", ee, None, renamed=True, edgar_tickers=("TKEEN",)),  # renamed's
+                StaleTape("TKFF", ff, date(2026, 11, 2), edgar_tickers=("TKFF", "TKFFF")),  # priced
+                _never_priced(gg, "TKGG", ("TKGG", "TKGGX")),  # only our ticker + price symbol
+            ),
+        ),
+        ThesisRunResult(
+            thesis_id=uuid.uuid4(),
+            name="T2",
+            tape_stale=(_never_priced(aa, "TKAAY", ("TKAAY", "TKAAF")),),  # the same name again
+        ),
+    ]
+
+    rows = unpriced_rows(results)
+
+    assert [(s.security_id, s.ticker) for s, _ in rows] == [(aa, "TKAAY")]
+    assert rows[0][1].edgar_name == _ADR_NAME
+
+
+def _boom():
+    raise AssertionError("connect must not be called: an unpriced row has no stored tape to read")
+
+
+def test_a_never_priced_ADR_member_is_probed_ONCE_per_symbol_and_the_ordinary_line_is_never_recommended():
+    """End to end over fakes: two ADR members (one marked by its EDGAR "/ADR" name, one by its fifth letter
+    alone) held by two theses, and an acknowledged one. Exactly one request per distinct OTHER symbol, live
+    and force-refreshed into the throwaway dir; the acknowledged name and our own 404ing tickers are never
+    fetched; no stored tape is read (no connection). Each candidate carries its bars and its class mark,
+    and a foreign ORDINARY line is never recommended for an ADR member, however good its tape."""
+    aa, bb, dd = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    asof = date(2026, 11, 24)
+    results = [
+        ThesisRunResult(
+            thesis_id=uuid.uuid4(),
+            name="Synthetic Minerals",
+            ingested=[
+                _ingested(aa, "TKAAY", edgar_name=_ADR_NAME),
+                _ingested(dd, "TKDDY", edgar_name="SYNTHETIC KEPT PLC/ADR"),
+            ],
+            tape_stale=(
+                _never_priced(aa, "TKAAY", ("TKAAY", "TKAAF")),
+                _never_priced(dd, "TKDDY", ("TKDDY", "TKDDF"), acknowledged=True),
+            ),
+        ),
+        ThesisRunResult(
+            thesis_id=uuid.uuid4(),
+            name="Synthetic Metals",
+            ingested=[_ingested(bb, "TKBBY"), _ingested(aa, "TKAAY", edgar_name=_ADR_NAME)],
+            tape_stale=(
+                _never_priced(bb, "TKBBY", ("TKBBY", "TKBBF")),
+                _never_priced(aa, "TKAAY", ("TKAAY", "TKAAF")),
+            ),
+        ),
+    ]
+    served = {"TKAAF": _bars(asof - timedelta(days=1)), "TKBBF": _bars(asof)}
+    calls: list = []
+    dirs: list = []
+
+    probe = run_rename_probe(
+        results=results,
+        asof=asof,
+        allow_live=True,
+        connect=_boom,
+        clock=lambda: 0.0,
+        source_factory=lambda d: _FakeSource(d, served, calls, dirs),
+        stale_days=5,
+    )
+
+    assert probe.evaluated and probe.error is None and probe.rows == ()
+    assert sorted(c[0] for c in calls) == ["TKAAF", "TKBBF"] and probe.fetches == 2
+    assert all(live and force for _, live, force in calls)
+    assert len(dirs) == 1 and not dirs[0].exists()
+    recs = probe.unpriced_by_security()
+    assert set(recs) == {aa, bb}  # TKAAY once though two theses hold it; TKDDY never (acknowledged)
+    a = recs[aa]
+    assert (a.ticker, a.member_class, a.edgar_name) == ("TKAAY", "adr", _ADR_NAME)
+    assert a.edgar_tickers == ("TKAAY", "TKAAF")
+    (c,) = a.candidates  # our own 404ing ticker is not a candidate
+    assert (c.symbol, c.bars, c.last_bar, c.error) == ("TKAAF", 30, asof - timedelta(days=1), None)
+    assert c.listing_class == "ordinary"
+    assert a.recommended is None  # cross-class: never recommended
+    assert recs[bb].member_class == "adr"  # no EDGAR name: the fifth letter marks it
+    assert recs[bb].recommended is None
+    assert "cross-class" in describe_unpriced(a) and "TKAAF" in describe_unpriced(a)
+    # the artifact shape: a block BESIDE `rows`, each candidate in the probe-candidate shape + its mark
+    block = probe.payload()["rename_probe"]
+    assert block["rows"] == [] and block["fetches"] == 2
+    row = next(r for r in block["unpriced"] if r["ticker"] == "TKAAY")
+    assert row == {
+        "security_id": str(aa),
+        "ticker": "TKAAY",
+        "edgar_tickers": ["TKAAY", "TKAAF"],
+        "edgar_name": _ADR_NAME,
+        "member_class": "adr",
+        "recommended": None,
+        "candidates": [
+            {
+                "symbol": "TKAAF",
+                "verified": False,
+                "overlap": 0,
+                "ratio": None,
+                "bars": 30,
+                "last_bar": (asof - timedelta(days=1)).isoformat(),
+                "error": None,
+                "listing_class": "ordinary",
+            }
+        ],
+    }
+
+
+def test_a_SAME_class_candidate_with_a_fresh_tape_is_recommended_and_a_stale_or_failed_one_is_not():
+    """``recommended`` = the first candidate in EDGAR's order with bars, no fetch error, a last bar within
+    ``stale_days`` of the as-of, and the member's own class mark (both unknown counts as the same).
+    """
+    hh, kk, mm = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    asof = date(2026, 11, 24)
+    results = [
+        ThesisRunResult(
+            thesis_id=uuid.uuid4(),
+            name="T",
+            ingested=[_ingested(hh, "TKHHY", edgar_name="SYNTHETIC HOLDINGS LTD/ADR")],
+            tape_stale=(
+                # an ADR member: the ordinary line is skipped, the second ADR line recommended
+                _never_priced(hh, "TKHHY", ("TKHHY", "TKHHF", "TKHIY")),
+                # both unknown: the stale and the failed candidates are skipped, nothing recommended
+                _never_priced(kk, "TKKK", ("TKKK", "TKKKN", "TKKKM")),
+                # both unknown, a fresh tape: recommended
+                _never_priced(mm, "TKMM", ("TKMM", "TKMMN")),
+            ),
+        )
+    ]
+    served = {
+        "TKHHF": _bars(asof),
+        "TKHIY": _bars(asof - timedelta(days=2)),
+        "TKKKN": _bars(asof - timedelta(days=5)),  # 5 days behind: stale under stale_days=5
+        "TKKKM": fx.not_found("TKKKM"),
+        "TKMMN": _bars(asof - timedelta(days=4)),  # 4 days behind: fresh
+    }
+
+    probe = run_rename_probe(
+        results=results,
+        asof=asof,
+        allow_live=True,
+        connect=_boom,
+        clock=lambda: 0.0,
+        source_factory=lambda d: _FakeSource(d, served, [], []),
+        stale_days=5,
+    )
+
+    recs = probe.unpriced_by_security()
+    assert recs[hh].recommended == "TKHIY"
+    assert [c.listing_class for c in recs[hh].candidates] == ["ordinary", "adr"]
+    assert recs[kk].recommended is None
+    failed = next(c for c in recs[kk].candidates if c.symbol == "TKKKM")
+    assert failed.error.startswith("HTTPStatusError: Client error '404 Not Found'")
+    assert failed.bars == 0 and failed.last_bar is None
+    assert recs[mm].recommended == "TKMMN" and recs[mm].member_class is None
+    assert "TKMMN" in describe_unpriced(recs[mm]) and "Adopt" in describe_unpriced(recs[mm])
+    assert "fetch failed" in describe_unpriced(recs[kk])
+
+
+def test_the_renamed_rows_and_the_auto_adopt_are_UNCHANGED_by_the_unpriced_probe(db):
+    """W4-1 adds a list; it changes nothing the rename probe already did. The renamed rows' artifact JSON
+    is byte-identical with and without a never-priced row beside them (no class key rides a renamed
+    candidate), and the auto-adopt still reads only the renamed rows: a pinned never-priced name opens no
+    connection and adopts nothing."""
+    hllk = fx.insert_security(db, "HLLK")
+    aa = uuid.uuid4()
+    renamed_only = [
+        ThesisRunResult(
+            thesis_id=uuid.uuid4(),
+            name="Modern Defense",
+            ingested=[_name(hllk, "HLLK")],
+            tape_stale=(_stale_renamed(hllk, "HLLK"),),
+        )
+    ]
+    with_unpriced = [
+        *renamed_only,
+        ThesisRunResult(
+            thesis_id=uuid.uuid4(),
+            name="Synthetic Minerals",
+            ingested=[_ingested(aa, "TKAAY", edgar_name=_ADR_NAME, basis=BASIS_RENAME_PIN)],
+            tape_stale=(_never_priced(aa, "TKAAY", ("TKAAY", "TKAAF")),),
+        ),
+    ]
+    served = {"SDCO": fx.probe_bars("HLLK", "SDCO"), "TKAAF": _bars(_ASOF)}
+
+    def _run(results):
+        return run_rename_probe(
+            results=results,
+            asof=_ASOF,
+            allow_live=True,
+            connect=connect,
+            clock=lambda: 0.0,
+            source_factory=lambda d: _FakeSource(d, served, [], []),
+        )
+
+    before = _run(renamed_only).payload()["rename_probe"]
+    after = _run(with_unpriced)
+    assert after.payload()["rename_probe"]["rows"] == before["rows"]
+    assert "listing_class" not in before["rows"][0]["candidates"][0]
+    assert before["unpriced"] == [] and len(after.unpriced) == 1
+
+    only_unpriced = run_rename_probe(
+        results=with_unpriced[1:],
+        asof=_ASOF,
+        allow_live=True,
+        connect=_boom,
+        clock=lambda: 0.0,
+        source_factory=lambda d: _FakeSource(d, served, [], []),
+    )
+    assert len(only_unpriced.unpriced) == 1
+    assert (
+        run_auto_adopt(only_unpriced, results=with_unpriced[1:], allow_live=True, connect=_boom)
+        is only_unpriced
+    )
