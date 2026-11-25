@@ -33,8 +33,9 @@ from the tool only.
 
    A steward adds
    `,mcp__alphadeck-prod__get_splits,mcp__alphadeck-prod__get_admin_status,mcp__alphadeck-prod__get_shared_facts,mcp__alphadeck-prod__get_insider_holds,mcp__alphadeck-prod__get_admin_onboarding`
-   to that line (a plain user's session does not list them), and reads the steward recipes (the Admin reviews)
-   with `get_recipe(name)`. Read the descriptions first. The recipes name tools without the `mcp__alphadeck-prod__` prefix.
+   to that line (a plain user's session does not list them), and reads the steward recipes (`splits-review`,
+   `admin-triage`, `facts-review`, `insider-review`, `price-feed-review`) with `get_recipe(name)`. Read the
+   descriptions first. The recipes name tools without the `mcp__alphadeck-prod__` prefix.
 3. **The clock.** `get_clock` first. An omitted `asof` is the API's `current_night`; a read at `asof=T` is judged by
    the API on the public clock (the server derives no date). `source: record` is the nightly call of record; `source:
    live` is a recompute.

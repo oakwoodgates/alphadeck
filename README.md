@@ -60,7 +60,7 @@ ingest --> Postgres: append-only, bitemporal facts --> call assembler (pure) -->
 | Replay and backtests | DuckDB over Parquet mirrors (the `replay` extra) |
 | Backend | Python 3.11+, FastAPI, Pydantic, httpx; one API worker |
 | LLM | Anthropic API through `backend/llm` (five modules); never sources a number |
-| Agent tools | MCP server `backend/agent_tools`: local stdio, and `/mcp` in the API when `ALPHADECK_PUBLIC_ORIGIN` is set; 7 prompts for any user plus the steward's `splits-review`; `read_dashboard` covers 8 dashboards |
+| Agent tools | MCP server `backend/agent_tools`: local stdio, and `/mcp` in the API when `ALPHADECK_PUBLIC_ORIGIN` is set; 7 prompts for any user plus the steward's 5 Admin reviews; `read_dashboard` covers 8 dashboards |
 | Frontend | TypeScript, React 18, Vite, Tailwind, TanStack Query, `lightweight-charts`; API types generated from `backend/openapi.json` |
 | Ops | Docker Compose: nginx serves the app and proxies the API, a cron sidecar runs the nightly |
 

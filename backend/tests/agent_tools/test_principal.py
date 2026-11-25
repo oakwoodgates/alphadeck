@@ -314,11 +314,14 @@ def _prompts(principal, *, get: str | None = None, arguments: dict | None = None
     return asyncio.run(go())
 
 
-def test_the_steward_lists_twenty_tools_and_eight_prompts_a_plain_principal_fifteen_and_seven():
+def test_the_steward_lists_twenty_tools_and_twelve_prompts_a_plain_principal_fifteen_and_seven():
     names, tools, _ = _prompts(STEWARD_PRINCIPAL)
-    assert len(names) == 8 and "splits-review" in names and len(tools) == 20
+    assert len(names) == 12 and len(tools) == 20
+    steward_prompts = ("splits-review", "admin-triage", "facts-review", "insider-review")
+    assert set(steward_prompts + ("price-feed-review",)) <= set(names)
     names, tools, _ = _prompts(PLAIN_PRINCIPAL)
-    assert len(names) == 7 and "splits-review" not in names and len(tools) == 15
+    assert len(names) == 7 and len(tools) == 15
+    assert not set(steward_prompts + ("price-feed-review",)) & set(names)
     names, tools, _ = _prompts(None)  # no principal at all is plain
     assert len(names) == 7 and len(tools) == 15
 

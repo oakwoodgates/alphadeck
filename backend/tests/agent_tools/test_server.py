@@ -338,6 +338,10 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
         "card-data-check": 2_000,
         "discovery-review": 2_000,
         "splits-review": 2_000,
+        "admin-triage": 2_000,
+        "facts-review": 2_000,
+        "insider-review": 2_000,
+        "price-feed-review": 2_000,
     }  # the existing three stay under 1,500
     for name in PROMPT_NAMES:
         raw = (Path(server_mod.__file__).parent / "prompts" / f"{name}.md").read_text("utf-8")
@@ -347,7 +351,7 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
 
 # the cap moved 1,500 -> 1,800 when the steward's three panel reads (shared facts, held insider rows, onboarding) joined
 # the one sentence that names the steward's tools
-def test_the_instructions_name_the_tools_and_the_eight_prompts_and_get_recipe_within_1800_characters():
+def test_the_instructions_name_the_tools_and_the_twelve_prompts_and_get_recipe_within_1800_characters():
     text = server_mod.INSTRUCTIONS
     assert len(text) <= 1_800
     for name in PROMPT_NAMES:
@@ -358,8 +362,8 @@ def test_the_instructions_name_the_tools_and_the_eight_prompts_and_get_recipe_wi
     for tool in ("get_triage", "get_discovery", "get_extract", "get_onboarding"):
         assert tool in text, tool
     assert "EDGAR" in text and "LLM call" in text
-    assert server_mod.VERSION == "2.11.0"
-    assert len(PROMPT_NAMES) == 8
+    assert server_mod.VERSION == "2.12.0"
+    assert len(PROMPT_NAMES) == 12
     for tool in (
         "get_splits",
         "get_admin_status",
@@ -414,7 +418,7 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
 
     with LoopbackServer(api) as fake:
         init, tools, prompts, clock, theses, bad = asyncio.run(go(fake.base))
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.11.0")
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.12.0")
     assert len(tools.tools) == 15
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
     assert len(prompts.prompts) == 7
