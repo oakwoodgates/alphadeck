@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render as rtlRender, screen } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -438,7 +438,7 @@ const DISPLAY = {
   ],
 } as unknown as MemberDisplaySignalsOut;
 
-function seedLedger(qc: QueryClient) {
+function seedLedger(qc: QueryClient, over: Record<string, unknown> = {}) {
   qc.setQueryData(["episode-price-window", "t1", "s1", MATURED.arm_date, ASOF], {
     // `start` is the EFFECTIVE relevance floor the SERVER computed, not the requested start; `asof` is
     // the cap the bars were read under (#1) — both are what the tape caption reports.
@@ -448,11 +448,19 @@ function seedLedger(qc: QueryClient) {
     bars: LBARS,
     insider_buys: [LBUY],
   });
-  qc.setQueryData(["workbench-scored", "t1", ASOF], { members: [SCORED] });
-  qc.setQueryData(["display-signals", "t1", ASOF], { members: [DISPLAY] });
+  qc.setQueryData(["dashboard-member-panel", "t1", "s1", ASOF], {
+    thesis_id: "t1",
+    member: { security_id: "s1", ticker: "DEVCO" },
+    cik: "0001234567",
+    edgar_url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001234567",
+    scored: SCORED,
+    display: DISPLAY,
+    data_flags: null,
+    ...over,
+  });
 }
 
-describe("EpisodeScorecard — Slice B: the ledger shares the chart's numbered events", () => {
+describe("EpisodeScorecard — Slice B + Tier 3: shared events, filterable ledger, range presets, single-member panel", () => {
   it("renders one ledger row per event, numbered exactly as buildOverlayEvents (row #N ↔ chip #N)", async () => {
     renderCard(<EpisodeScorecard ep={MATURED} asof={ASOF} />, seedLedger);
     const expected = buildOverlayEvents(MATURED, [LBUY], LBARS);
@@ -465,15 +473,39 @@ describe("EpisodeScorecard — Slice B: the ledger shares the chart's numbered e
     );
   });
 
-  it("surfaces the Cockpit identity line + the present signal headline, joined by security_id", async () => {
+  it("surfaces the current tape snapshot + company identity with EDGAR CIK via single-member panel", async () => {
     renderCard(<EpisodeScorecard ep={MATURED} asof={ASOF} />, seedLedger);
-    const section = (await screen.findByText("Event ledger")).closest("section") as HTMLElement;
-    expect(section).toHaveTextContent("software/IT"); // the business-type leaf via its label
-    expect(section).toHaveTextContent("Technology"); // sector
-    expect(section).toHaveTextContent("$8.0B"); // market cap
-    expect(section).toHaveTextContent("above the 50d"); // the display headline
-    // MATURED is closed → the current-tape caption warns the 90d figure is name-current, not the episode's
-    expect(section).toHaveTextContent("current tape · as-of Jul 15");
+    await screen.findByText("Event ledger");
+    const tapeSection = screen.getByLabelText("Current tape snapshot");
+    expect(tapeSection).toHaveTextContent("above the 50d");
+    // MATURED is closed → the current-tape caption warns the tape strip is name-current, not the episode's
+    expect(tapeSection).toHaveTextContent("current tape · as-of Jul 15");
+
+    const idSection = screen.getByLabelText("Company identity and data health");
+    expect(idSection).toHaveTextContent("software/IT"); // the business-type leaf via its label
+    expect(idSection).toHaveTextContent("Technology"); // sector
+    expect(idSection).toHaveTextContent("$8.0B"); // market cap
+    expect(idSection).toHaveTextContent("0001234567"); // clickable EDGAR CIK
+  });
+
+  it("renders Episode / 3M / 6M / 1Y / ALL chart range presets and filterable event ledger chips", async () => {
+    renderCard(<EpisodeScorecard ep={MATURED} asof={ASOF} />, seedLedger);
+    await screen.findByText("Event ledger");
+    const rangeGroup = screen.getByRole("group", { name: "Chart range" });
+    const episodeBtn = screen.getByRole("button", { name: "Episode" });
+    const sixMBtn = screen.getByRole("button", { name: "6M" });
+    expect(rangeGroup).toContainElement(episodeBtn);
+    expect(episodeBtn).toHaveAttribute("aria-pressed", "true");
+    expect(sixMBtn).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(sixMBtn);
+    expect(sixMBtn).toHaveAttribute("aria-pressed", "true");
+    expect(episodeBtn).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(episodeBtn);
+    expect(episodeBtn).toHaveAttribute("aria-pressed", "true");
+
+    // 2+ families present (insider buy + lifecycle) -> reversible family filter chips render
+    const filterGroup = screen.getByRole("group", { name: "Filter event ledger by type" });
+    expect(filterGroup).toBeInTheDocument();
   });
 
   // A1: the tape's own provenance under the chart — which fact table, the server's effective floor,
@@ -495,35 +527,32 @@ describe("EpisodeScorecard — Slice B: the ledger shares the chart's numbered e
   // signals to the chip-eligible kinds and threads them (with the page asof) into the ONE event array.
   it("threads the member's display-signal events into the ledger as 'tape signal' rows (A3)", async () => {
     renderCard(<EpisodeScorecard ep={MATURED} asof={ASOF} />, (qc) => {
-      seedLedger(qc);
-      qc.setQueryData(["display-signals", "t1", ASOF], {
-        members: [
-          {
-            ...DISPLAY,
-            signals: [
-              {
-                ...DISPLAY.signals[0],
-                events: [
-                  {
-                    key: "golden_cross",
-                    label: "golden cross: 50d crossed above 200d",
-                    date: "2026-07-01",
-                    direction: "up",
-                  },
-                ],
-              },
-              // the excluded kind, seeded on purpose: its events must NOT double-chip the insider family
-              {
-                kind: "insider_flow_90d",
-                label: "insider flow",
-                headline: null,
-                metrics: [],
-                events: [{ key: "last_buy", label: "last insider buy", date: "2026-08-01" }],
-                basis: { source: "fact_insider_txn", params: {} },
-              },
-            ],
-          },
-        ],
+      seedLedger(qc, {
+        display: {
+          ...DISPLAY,
+          signals: [
+            {
+              ...DISPLAY.signals[0],
+              events: [
+                {
+                  key: "golden_cross",
+                  label: "golden cross: 50d crossed above 200d",
+                  date: "2026-07-01",
+                  direction: "up",
+                },
+              ],
+            },
+            // the excluded kind, seeded on purpose: its events must NOT double-chip the insider family
+            {
+              kind: "insider_flow_90d",
+              label: "insider flow",
+              headline: null,
+              metrics: [],
+              events: [{ key: "last_buy", label: "last insider buy", date: "2026-08-01" }],
+              basis: { source: "fact_insider_txn", params: {} },
+            },
+          ],
+        },
       });
     });
     const section = (await screen.findByText("Event ledger")).closest("section") as HTMLElement;
@@ -534,7 +563,7 @@ describe("EpisodeScorecard — Slice B: the ledger shares the chart's numbered e
     expect(section).not.toHaveTextContent("last insider buy"); // insider_flow_90d never chips (A3 filter)
   });
 
-  it("a no-forward-bar episode WITH pre-arm price data renders the ledger + chart (not gated on the forward bar)", async () => {
+  it("gracefully omits current-basket strips when a historical episode's company was removed (member-panel null)", async () => {
     const noBarEp = ep({ insufficient_prices: true });
     renderCard(<EpisodeScorecard ep={noBarEp} asof={ASOF} />, (qc) => {
       // the price window is the name's full pre-arm history (not arm-relative) → it loads for a fresh arm too
@@ -542,10 +571,11 @@ describe("EpisodeScorecard — Slice B: the ledger shares the chart's numbered e
         bars: LBARS,
         insider_buys: [LBUY],
       });
-      qc.setQueryData(["workbench-scored", "t1", ASOF], { members: [] });
-      qc.setQueryData(["display-signals", "t1", ASOF], { members: [] });
+      qc.setQueryData(["dashboard-member-panel", "t1", "s1", ASOF], null);
     });
     const section = (await screen.findByText("Event ledger")).closest("section") as HTMLElement;
     expect(section.querySelectorAll("tbody tr").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Current tape snapshot")).toBeNull();
+    expect(screen.queryByLabelText("Company identity and data health")).toBeNull();
   });
 });

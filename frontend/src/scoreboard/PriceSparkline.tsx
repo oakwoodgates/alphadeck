@@ -131,6 +131,7 @@ export function PriceSparkline({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null); // for priceToCoordinate on hover (guide-line)
   const plotWRef = useRef(320); // the plot width, for clamping chips + the tooltip inside the chart
+  const prevSpanRef = useRef<ChartSpan | undefined>(span);
   const [chips, setChips] = useState<Chip[]>([]);
   const [overflow, setOverflow] = useState<OverflowBadge[]>([]);
   const [bandRects, setBandRects] = useState<BandRect[]>([]);
@@ -239,6 +240,7 @@ export function PriceSparkline({
 
     // R2: DEFAULT the visible range to the recent episode / span (not fitContent-to-all) — earlier dots stay
     // loaded, left of view, reached by panning.
+    prevSpanRef.current = span;
     const vis = span
       ? visibleRangeForSpan(data, span)
       : defaultVisibleRange(data, ep ? ep.arm_date : data[data.length - 1].d);
@@ -347,14 +349,18 @@ export function PriceSparkline({
     // absent — `activeN` drives only the chip-class render, and `span` updates the timeScale in place below.
   }, [bars, events, bands, ep]);
 
-  // Apply range-preset clicks (`3M` / `6M` / `1Y` / `ALL`) smoothly without rebuilding the canvas.
+  // Apply range-preset clicks (`Episode` / `3M` / `6M` / `1Y` / `ALL`) smoothly without rebuilding the canvas.
   useEffect(() => {
     const chart = chartRef.current;
-    if (!chart || !span || bars.length < 2) return;
-    const vis = visibleRangeForSpan(bars, span);
+    if (!chart || bars.length < 2) return;
+    if (span === prevSpanRef.current) return;
+    prevSpanRef.current = span;
+    const vis = span
+      ? visibleRangeForSpan(bars, span)
+      : defaultVisibleRange(bars, ep ? ep.arm_date : bars[bars.length - 1].d);
     if (vis) chart.timeScale().setVisibleRange({ from: vis.from as Time, to: vis.to as Time });
     else chart.timeScale().fitContent();
-  }, [span, bars]);
+  }, [span, bars, ep]);
 
   if (error) return <div className="sc-spark sc-spark-empty">price path unavailable</div>;
   if (!hasPath)

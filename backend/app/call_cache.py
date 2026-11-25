@@ -86,7 +86,7 @@ SELECT
     (SELECT count(*)::text || ':' || coalesce(
         string_agg(
             id::text || ':' || coalesce(archived_at::text, '') || ':' ||
-            meta_index::text || ':' || name,
+            coalesce(created_at::text, '') || ':' || meta_index::text || ':' || name,
             '|' ORDER BY id
         ),
         ''

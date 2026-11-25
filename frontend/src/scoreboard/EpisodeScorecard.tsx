@@ -1,17 +1,25 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 
-import type { PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
+import type { DisplaySignal, PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
+import { useEpisodePriceWindow, useMemberPanel } from "../api/hooks";
+import { DataFlagsSection, FlagWrap } from "../cockpit/DataFlagMark";
+import { cellFlag, stoppedFeedReason } from "../cockpit/dataFlags";
 import {
-  useDisplaySignals,
-  useEpisodePriceWindow,
-  useThesisDataFlags,
-  useWorkbenchScored,
-} from "../api/hooks";
+  AdvCell,
+  DisplayHeadlineRow,
+  fmtMetricValue,
+  LastCell,
+  Off52wCell,
+  RETURN_WINDOW_KEYS,
+  RvolCell,
+} from "../cockpit/DisplaySignalsSection";
+import { ExternalLink, isSecLink } from "../components/ExternalLink";
+import "../dashboards/company-drawer.css";
 import { fmtDate, gradeClass, SETUP_STRENGTH_TOOLTIP } from "../util/format";
 import { isRerun } from "./editions";
 import { EventLedger } from "./EventLedger";
-import { identityCells, signalHeadlines, transitionLines } from "./ledger";
-import { buildOverlayEvents, flagBands, tapeSignals } from "./overlay";
+import { identityCells, transitionLines } from "./ledger";
+import { buildOverlayEvents, type ChartSpan, flagBands, tapeSignals } from "./overlay";
 import {
   closeReasonLine,
   episodeBadges,
@@ -33,6 +41,14 @@ import {
 // A shared empty-bars const so a still-loading window keeps a STABLE reference (never a fresh `[]` each
 // render), which keeps the chart effect from re-running on an unrelated re-render.
 const NO_BARS: PriceBar[] = [];
+const CHART_SPANS: readonly ChartSpan[] = ["3M", "6M", "1Y", "ALL"];
+const RETURN_LABELS: Record<(typeof RETURN_WINDOW_KEYS)[number], string> = {
+  ret_1d: "1D",
+  ret_7d: "7D",
+  ret_30d: "30D",
+  ret_90d: "90D",
+  ret_1y: "1Y",
+};
 
 // lightweight-charts (~150kB) is drawer-only + on-demand — code-split it into its own async chunk so it
 // never bloats the initial bundle (loaded the first time a drawer's scorecard renders with an asof).
@@ -83,6 +99,10 @@ export function EpisodeScorecard({
   const opLine = operatorLensLine(ep);
   const hasSetup = showArmUntil || showGrades || opLine != null;
 
+  // Chart range preset: undefined = default episode zoom (arm -> exit); 3M / 6M / 1Y / ALL zoom the
+  // loaded universe in place without rebuilding the canvas.
+  const [span, setSpan] = useState<ChartSpan | undefined>(undefined);
+
   // --- Slice B: lift the price window + the unified numbered events HERE so the chart and the ledger share
   // the ONE array (row #N ↔ chip #N, built once). Fetched whenever the drawer is open (asof present): the
   // window is the name's full relevance-floor history, NOT arm-relative — so a just-armed episode with no
@@ -103,26 +123,31 @@ export function EpisodeScorecard({
   );
   const bars = windowQ.data?.bars ?? NO_BARS;
 
-  // The Cockpit strip's two reads (identity + signal headlines) — same asof, drawer-open gated (the hooks
-  // disable themselves without an asof), joined to THIS episode by security_id. A missing field → "—".
-  // Read BEFORE the event universe: A3 threads the display signals' dated events into it as the quiet
-  // "tape signal" chip family, so this join feeds the chart + ledger as well as the strip.
-  const scoredMember =
-    useWorkbenchScored(ep.thesis_id, asof ?? "").data?.members.find(
-      (m) => m.security_id === ep.security_id,
-    ) ?? null;
-  const memberSignals =
-    useDisplaySignals(ep.thesis_id, asof ?? "").data?.members.find(
-      (m) => m.security_id === ep.security_id,
-    ) ?? null;
-  // S3: the name's data flags + split rows at the drawer's as-of (the same compute-on-read read the Cockpit
-  // uses): the splits become the chart's "split" chip family, the flags' affected bars its shaded bands.
-  const memberFlags =
-    useThesisDataFlags(ep.thesis_id, asof ?? "").data?.members?.find(
-      (m) => m.security_id === ep.security_id,
-    ) ?? null;
+  // Single-member panel fetch (replaces 3 whole-basket queries: scored + display-signals + data-flags)
+  // and shares the exact TanStack Query cache with CompanyDrawer. Gracefully returns null if a historical
+  // episode's company was later removed from the basket.
+  const memberQ = useMemberPanel(
+    asof ? ep.thesis_id : null,
+    asof ? ep.security_id : null,
+    asof ?? "",
+  );
+  const memberData =
+    memberQ.data &&
+    !memberQ.isPlaceholderData &&
+    (memberQ.data.thesis_id == null || memberQ.data.thesis_id === ep.thesis_id) &&
+    (memberQ.data.member?.security_id == null ||
+      memberQ.data.member.security_id === ep.security_id)
+      ? memberQ.data
+      : null;
+
+  const scoredMember = memberData?.scored ?? null;
+  const memberSignals = memberData?.display ?? null;
+  const memberFlags = memberData?.data_flags ?? null;
+  const cik = memberData?.cik ?? null;
+  const edgarUrl = memberData?.edgar_url ?? null;
+
   const bands = useMemo(
-    () => flagBands(memberFlags?.flags ?? [], windowQ.data?.bars ?? []),
+    () => flagBands(memberFlags?.flags ?? [], windowQ.data?.bars ?? NO_BARS),
     [memberFlags, windowQ.data],
   );
   // A3: the display-signal events join the numbered universe as the grayest family. Only the allow-listed
@@ -135,7 +160,7 @@ export function EpisodeScorecard({
       buildOverlayEvents(
         ep,
         windowQ.data?.insider_buys ?? [],
-        windowQ.data?.bars ?? [],
+        windowQ.data?.bars ?? NO_BARS,
         asof ? { signals: tapeSignals(memberSignals), asof } : undefined,
         // Slice B: the widened recorded families off the SAME price-window response — sells, 8-Ks,
         // 13D/G stakes — through the same numbering (screened/passive rows gray via eventSetAside).
@@ -154,7 +179,30 @@ export function EpisodeScorecard({
   const [activeN, setActiveN] = useState<number | null>(null);
 
   const identity = identityCells(scoredMember);
-  const signals = signalHeadlines(memberSignals);
+  const allSignals = memberSignals?.signals ?? [];
+  const sigByKind = useMemo(() => {
+    const map = new Map<string, DisplaySignal>();
+    for (const s of allSignals) map.set(s.kind, s);
+    return map;
+  }, [allSignals]);
+  const smaSig = sigByKind.get("sma_position") ?? null;
+  const trailSig = sigByKind.get("trailing_returns") ?? null;
+  const rangeSig = sigByKind.get("range_52w") ?? null;
+  const rvolSig = sigByKind.get("rvol") ?? null;
+  const volSig = sigByKind.get("volume_regime") ?? null;
+  const headlines = allSignals.filter((s) => s.headline);
+  const trailByKey = useMemo(
+    () => new Map((trailSig?.metrics ?? []).map((m) => [m.key, m])),
+    [trailSig],
+  );
+  const stopped = stoppedFeedReason(memberFlags);
+  const hasTapeStrip = Boolean(
+    asof && (smaSig || trailSig || rangeSig || rvolSig || volSig || headlines.length > 0),
+  );
+  const hasIdentityPanel = Boolean(
+    asof && (scoredMember != null || cik != null || (memberFlags?.flags?.length ?? 0) > 0),
+  );
+
   // C3: the un-numbered record trail — intra-run verdict/grade changes off the wire. Not gated on
   // asof: it reads the episode alone (no price window), so the pure-render path shows it too.
   const trail = transitionLines(ep.transitions);
@@ -164,226 +212,393 @@ export function EpisodeScorecard({
 
   return (
     <div className="sc">
-      <div className="sc-head">
-        <span className="sc-tk">{ep.ticker ?? "—"}</span>
-        {ep.company_name && <span className="sc-co">{ep.company_name}</span>}
-        {thesisName && <span>· {thesisName}</span>}
-        <span className="sc-span">
-          {fmtDate(ep.arm_date)} → {ep.dearm_date ? fmtDate(ep.dearm_date) : "still armed"}
-        </span>
-      </div>
-      {badges.length > 0 && (
-        <div className="sc-badges">
-          {badges.map((b) => (
-            <span key={b.label} className={`sb-badge ${b.cls}`} title={b.title}>
-              {b.label}
+      <div className="sc-top">
+        <div className="sc-head-block">
+          <div className="sc-head">
+            <span className="sc-tk">{ep.ticker ?? "—"}</span>
+            {ep.company_name && <span className="sc-co">{ep.company_name}</span>}
+            {thesisName && <span>· {thesisName}</span>}
+            <span className="sc-span">
+              {fmtDate(ep.arm_date)} → {ep.dearm_date ? fmtDate(ep.dearm_date) : "still armed"}
             </span>
-          ))}
-        </div>
-      )}
-      {ep.status === "closed" && ep.close_reason && (
-        // the reason in English; `title` keeps the raw wire token one hover away (translated, not
-        // hidden). Slice C: a composed dearm_detail turns the "(see de-arm day)" deferral into the
-        // actual answer — backend-authored copy, this line only renders it.
-        <div className="sc-reason" title={ep.close_reason}>
-          closed · {closeReasonLine(ep.close_reason, ep.dearm_detail)}
-        </div>
-      )}
-      {/* The ingest-provenance line — rendered ONLY when the arm's ingest is actually flagged, so a
-          healthy episode carries nothing at all (#7: loudness marks the exception). The INGEST badge
-          above says THAT it's flagged; this says WHY (the server's composed note + the measured lag). */}
-      {ingestLine && <div className="sc-ingest">{ingestLine}</div>}
-
-      {/* The run-identity line (F1) — which policy and which code wrote this arm's recorded row. Unlike
-          the ingest line above it is NOT gated on a flag: it is provenance on a drill-down, where a
-          constant line is the point. It renders nothing at all on a legacy row (recorded before the stamp
-          existed) or a replayed episode (a recompute has no recorded run) — the server sends null, and an
-          absent line is the honest reading of "we do not know", never a row of em-dashes. The copy is
-          composed server-side (the `ingest_note` precedent), so nothing here slices a hash. */}
-      {ep.run_identity_note && (
-        <div className="sc-runid" title={runIdentityTitle(ep)}>
-          {ep.run_identity_note}
-        </div>
-      )}
-
-      {/* The join-date note (editions S4) — QUIET, server-composed, and present only on a re-run edition's
-          episode whose company's join date is an ESTIMATE (the record has no join dates; an exact join is
-          not an exception). When the arm fell on that estimated night it also says why the episode is
-          censored. Rendered verbatim, the run-identity precedent. */}
-      {ep.edition_join?.note && (
-        <div className="sc-annot sc-join" title={`join rule: ${ep.edition_join.method}`}>
-          {ep.edition_join.note}
-        </div>
-      )}
-
-      {/* Lens 1 — The move (provenance: closes the "show the prices" gap). */}
-      <section className="sc-lens">
-        <div className="sc-h">The move</div>
-        {noBar
-          ? // no forward bar yet: the ENTRY only — an exit "@ arm_date" would be the same bar (a
-            // false round-trip). No arrow, no exit.
-            ep.entry_close != null && (
-              <div className="sc-flow">
-                <span>
-                  {fmtPrice(ep.entry_close)} @ {fmtDate(ep.arm_date)}
+          </div>
+          {badges.length > 0 && (
+            <div className="sc-badges">
+              {badges.map((b) => (
+                <span key={b.label} className={`sb-badge ${b.cls}`} title={b.title}>
+                  {b.label}
                 </span>
+              ))}
+            </div>
+          )}
+          {ep.status === "closed" && ep.close_reason && (
+            // the reason in English; `title` keeps the raw wire token one hover away (translated, not
+            // hidden). Slice C: a composed dearm_detail turns the "(see de-arm day)" deferral into the
+            // actual answer — backend-authored copy, this line only renders it.
+            <div className="sc-reason" title={ep.close_reason}>
+              closed · {closeReasonLine(ep.close_reason, ep.dearm_detail)}
+            </div>
+          )}
+          {/* The ingest-provenance line — rendered ONLY when the arm's ingest is actually flagged, so a
+              healthy episode carries nothing at all (#7: loudness marks the exception). The INGEST badge
+              above says THAT it's flagged; this says WHY (the server's composed note + the measured lag). */}
+          {ingestLine && <div className="sc-ingest">{ingestLine}</div>}
+
+          {/* The run-identity line (F1) — which policy and which code wrote this arm's recorded row. Unlike
+              the ingest line above it is NOT gated on a flag: it is provenance on a drill-down, where a
+              constant line is the point. It renders nothing at all on a legacy row (recorded before the stamp
+              existed) or a replayed episode (a recompute has no recorded run) — the server sends null, and an
+              absent line is the honest reading of "we do not know", never a row of em-dashes. The copy is
+              composed server-side (the `ingest_note` precedent), so nothing here slices a hash. */}
+          {ep.run_identity_note && (
+            <div className="sc-runid" title={runIdentityTitle(ep)}>
+              {ep.run_identity_note}
+            </div>
+          )}
+
+          {/* The join-date note (editions S4) — QUIET, server-composed, and present only on a re-run edition's
+              episode whose company's join date is an ESTIMATE (the record has no join dates; an exact join is
+              not an exception). When the arm fell on that estimated night it also says why the episode is
+              censored. Rendered verbatim, the run-identity precedent. */}
+          {ep.edition_join?.note && (
+            <div className="sc-annot sc-join" title={`join rule: ${ep.edition_join.method}`}>
+              {ep.edition_join.note}
+            </div>
+          )}
+        </div>
+
+        {/* Full-width chart band (in expanded 100vw mode spans top; in default 600px sits below Lens 1). */}
+        {asof && (
+          <section className="cd-chart-panel sc-slot-chart" aria-label="Price and events">
+            <div className="cd-chart-head">
+              <div className="cd-sec-h">
+                Price &amp; events
+                {events.length > 0 && <span className="cd-sec-count">{events.length}</span>}
               </div>
-            )
-          : (ep.entry_close != null || ep.exit_close != null) && (
-              <div className="sc-flow">
-                <span>
-                  {fmtPrice(ep.entry_close)} @ {fmtDate(ep.arm_date)}
-                </span>
-                <span className="sc-arrow">→</span>
-                <span>
-                  {fmtPrice(ep.exit_close)} @ {fmtDate(ep.exit_date)}
-                </span>
+              {bars.length >= 2 && (
+                <div className="cd-spans" role="group" aria-label="Chart range">
+                  <button
+                    type="button"
+                    className={`cd-span-btn${span === undefined ? " active" : ""}`}
+                    aria-pressed={span === undefined}
+                    onClick={() => setSpan(undefined)}
+                  >
+                    Episode
+                  </button>
+                  {CHART_SPANS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className={`cd-span-btn${span === s ? " active" : ""}`}
+                      aria-pressed={span === s}
+                      onClick={() => setSpan(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Suspense fallback={<div className="sc-spark sc-spark-empty">reading the price path…</div>}>
+              <PriceSparkline
+                ep={ep}
+                span={span}
+                bars={bars}
+                events={events}
+                bands={bands}
+                activeN={activeN}
+                onActivate={setActiveN}
+                loading={windowQ.isLoading}
+                error={windowQ.isError}
+                hideIngest={rerun}
+              />
+            </Suspense>
+            {/* The tape's own provenance (#6): WHICH fact table drew this path, the EFFECTIVE floor the
+                server computed (not the start we asked for), and the as-of it was capped at (#1). Renders
+                only once the window has landed — a caption over a loading chart would describe nothing. */}
+            {windowQ.data && (
+              <div className="sc-tape">
+                tape: {windowQ.data.source} · loaded from {fmtDate(windowQ.data.start)} · as-of{" "}
+                {fmtDate(windowQ.data.asof)}
               </div>
             )}
-        <div className="sc-ret">
-          {/* never a false-flat 0.0% before a forward bar — "—", exactly as the ledger row does */}
-          <span className={`ret ${fwd.cls}`}>{noBar ? "—" : fwd.text}</span>
-          <span className="sc-retlabel">{returnLabel(ep)}</span>
-        </div>
-        {note && <div className="sc-muted">{note}</div>}
-        {/* Slice-3: the intra-window [arm → last real bar] price path. On-demand (drawer-open only),
-            capped at asof server-side; the drawer's expanded mode gives it room. Rendered only when
-            the page-level asof is threaded in (the pure-render scorecard tests pass none → no chart). */}
-        {asof && (
-          <Suspense fallback={<div className="sc-spark sc-spark-empty">reading the price path…</div>}>
-            <PriceSparkline
-              ep={ep}
-              bars={bars}
-              events={events}
-              bands={bands}
-              activeN={activeN}
-              onActivate={setActiveN}
-              loading={windowQ.isLoading}
-              error={windowQ.isError}
-              hideIngest={rerun}
-            />
-          </Suspense>
+          </section>
         )}
-        {/* The tape's own provenance (#6): WHICH fact table drew this path, the EFFECTIVE floor the
-            server computed (not the start we asked for), and the as-of it was capped at (#1). Renders
-            only once the window has landed — a caption over a loading chart would describe nothing. */}
-        {windowQ.data && (
-          <div className="sc-tape">
-            tape: {windowQ.data.source} · loaded from {fmtDate(windowQ.data.start)} · as-of{" "}
-            {fmtDate(windowQ.data.asof)}
-          </div>
-        )}
-      </section>
 
-      {/* Lens 2 — Horizon calibration: is exit_by well-timed? Hidden entirely without a peak. */}
-      {horizon && (
-        <section className="sc-lens">
-          <div className="sc-h">Horizon calibration</div>
-          <div className="sc-ret">
-            <span className={`ret ${horizon.peak.cls}`}>{horizon.peak.text}</span>
-            <span className="sc-retlabel">peak @ {fmtDate(ep.peak_date)}</span>
-          </div>
-          {horizon.timing && <div className="sc-line">{horizon.timing}</div>}
-          {horizon.giveback && <div className="sc-muted">{horizon.giveback}</div>}
-        </section>
-      )}
-
-      {/* Lens 3 — Edge preservation: did we arm in time, or miss the early move? */}
-      <section className="sc-lens">
-        <div className="sc-h">Edge preservation</div>
-        {edge.kind === "no_warm" ? (
-          <div className="sc-muted">{edge.line}</div>
-        ) : noBar ? (
-          // a warm-vs-arm comparison here would be 0.0% vs 0.0% — say so, don't fake it
-          <div className="sc-muted">not scorable until a forward bar lands</div>
-        ) : (
-          <>
-            <div className="sc-line">{edge.lead}</div>
-            <div className="sc-cmp">
-              <span>
-                warm-up <span className={`ret ${edge.warm.cls}`}>{edge.warm.text}</span> (from{" "}
-                {fmtDate(ep.warm_date)})
-              </span>
-              <span>
-                armed <span className={`ret ${edge.forward.cls}`}>{edge.forward.text}</span> (from{" "}
-                {fmtDate(ep.arm_date)})
-              </span>
+        {/* Current Tape Snapshot Strip (reused from CompanyDrawer, with honest closed-episode disclaimer). */}
+        {hasTapeStrip && (
+          <section className="cd-tape sc-slot-tape" aria-label="Current tape snapshot">
+            {tapeAsof && (
+              <div className="sc-tape-cap">current tape · as-of {fmtDate(tapeAsof)}</div>
+            )}
+            <div className="cd-tape-cells">
+              {smaSig && (
+                <div className="cd-tcell">
+                  <span className="k">Last</span>
+                  <span className="v">
+                    <FlagWrap flag={cellFlag(memberFlags, "last")}>
+                      <LastCell sig={smaSig} stopped={stopped} />
+                    </FlagWrap>
+                  </span>
+                </div>
+              )}
+              {RETURN_WINDOW_KEYS.map((key) => {
+                const m = trailByKey.get(key);
+                return (
+                  <div className="cd-tcell" key={key}>
+                    <span className="k">{RETURN_LABELS[key]}</span>
+                    <span className="v">
+                      <FlagWrap flag={cellFlag(memberFlags, key)}>
+                        {!m || m.value == null ? (
+                          <span className="muted" title={m?.note ?? undefined}>
+                            —
+                          </span>
+                        ) : (
+                          <span className={`ret ${m.tone ?? ""}`}>{fmtMetricValue(m)}</span>
+                        )}
+                      </FlagWrap>
+                    </span>
+                  </div>
+                );
+              })}
+              {rangeSig && (
+                <div className="cd-tcell">
+                  <span className="k">Off 52w</span>
+                  <span className="v">
+                    <FlagWrap flag={cellFlag(memberFlags, "range_52w")}>
+                      <Off52wCell sig={rangeSig} />
+                    </FlagWrap>
+                  </span>
+                </div>
+              )}
+              {rvolSig && (
+                <div className="cd-tcell">
+                  <span className="k">RVOL 8d</span>
+                  <span className="v">
+                    <FlagWrap flag={cellFlag(memberFlags, "rvol")}>
+                      <RvolCell sig={rvolSig} />
+                    </FlagWrap>
+                  </span>
+                </div>
+              )}
+              {volSig && (
+                <div className="cd-tcell">
+                  <span className="k">ADV 20d</span>
+                  <span className="v">
+                    <FlagWrap flag={cellFlag(memberFlags, "adv_20d")}>
+                      <AdvCell sig={volSig} />
+                    </FlagWrap>
+                  </span>
+                </div>
+              )}
             </div>
-          </>
+            {headlines.length > 0 && (
+              <div className="cd-tape-headlines">
+                {headlines.map((s) => (
+                  <DisplayHeadlineRow key={s.kind} headline={s.headline!} />
+                ))}
+              </div>
+            )}
+          </section>
         )}
-      </section>
+      </div>
 
-      {/* Lens 4 — Entry window + setup. */}
-      {hasSetup && (
-        <section className="sc-lens">
-          <div className="sc-h">Entry window + setup</div>
-          {showArmUntil && (
+      <div className="sc-cols">
+        <div className="sc-main">
+          {/* Lens 1 — The move (provenance: closes the "show the prices" gap). */}
+          <section className="sc-lens sc-slot-move">
+            <div className="sc-h">The move</div>
+            {noBar
+              ? // no forward bar yet: the ENTRY only — an exit "@ arm_date" would be the same bar (a
+                // false round-trip). No arrow, no exit.
+                ep.entry_close != null && (
+                  <div className="sc-flow">
+                    <span>
+                      {fmtPrice(ep.entry_close)} @ {fmtDate(ep.arm_date)}
+                    </span>
+                  </div>
+                )
+              : (ep.entry_close != null || ep.exit_close != null) && (
+                  <div className="sc-flow">
+                    <span>
+                      {fmtPrice(ep.entry_close)} @ {fmtDate(ep.arm_date)}
+                    </span>
+                    <span className="sc-arrow">→</span>
+                    <span>
+                      {fmtPrice(ep.exit_close)} @ {fmtDate(ep.exit_date)}
+                    </span>
+                  </div>
+                )}
             <div className="sc-ret">
-              <span className={`ret ${armUntil.cls}`}>{armUntil.text}</span>
-              <span className="sc-retlabel">
-                to entry-window close{ep.arm_until ? ` ${fmtDate(ep.arm_until)}` : ""}
-              </span>
+              {/* never a false-flat 0.0% before a forward bar — "—", exactly as the ledger row does */}
+              <span className={`ret ${fwd.cls}`}>{noBar ? "—" : fwd.text}</span>
+              <span className="sc-retlabel">{returnLabel(ep)}</span>
+            </div>
+            {note && <div className="sc-muted">{note}</div>}
+          </section>
+
+          {/* Lens 2 — Horizon calibration: is exit_by well-timed? Hidden entirely without a peak. */}
+          {horizon && (
+            <section className="sc-lens sc-slot-horizon">
+              <div className="sc-h">Horizon calibration</div>
+              <div className="sc-ret">
+                <span className={`ret ${horizon.peak.cls}`}>{horizon.peak.text}</span>
+                <span className="sc-retlabel">peak @ {fmtDate(ep.peak_date)}</span>
+              </div>
+              {horizon.timing && <div className="sc-line">{horizon.timing}</div>}
+              {horizon.giveback && <div className="sc-muted">{horizon.giveback}</div>}
+            </section>
+          )}
+
+          {/* Lens 3 — Edge preservation: did we arm in time, or miss the early move? */}
+          <section className="sc-lens sc-slot-edge">
+            <div className="sc-h">Edge preservation</div>
+            {edge.kind === "no_warm" ? (
+              <div className="sc-muted">{edge.line}</div>
+            ) : noBar ? (
+              // a warm-vs-arm comparison here would be 0.0% vs 0.0% — say so, don't fake it
+              <div className="sc-muted">not scorable until a forward bar lands</div>
+            ) : (
+              <>
+                <div className="sc-line">{edge.lead}</div>
+                <div className="sc-cmp">
+                  <span>
+                    warm-up <span className={`ret ${edge.warm.cls}`}>{edge.warm.text}</span> (from{" "}
+                    {fmtDate(ep.warm_date)})
+                  </span>
+                  <span>
+                    armed <span className={`ret ${edge.forward.cls}`}>{edge.forward.text}</span>{" "}
+                    (from {fmtDate(ep.arm_date)})
+                  </span>
+                </div>
+              </>
+            )}
+          </section>
+
+          {/* Lens 4 — Entry window + setup. */}
+          {hasSetup && (
+            <section className="sc-lens sc-slot-setup">
+              <div className="sc-h">Entry window + setup</div>
+              {showArmUntil && (
+                <div className="sc-ret">
+                  <span className={`ret ${armUntil.cls}`}>{armUntil.text}</span>
+                  <span className="sc-retlabel">
+                    to entry-window close{ep.arm_until ? ` ${fmtDate(ep.arm_until)}` : ""}
+                  </span>
+                </div>
+              )}
+              {showGrades && (
+                <div className="sc-setup">
+                  {ep.entry_grade && (
+                    <span>
+                      entry{" "}
+                      <span className={`grade ${gradeClass(ep.entry_grade)}`}>
+                        {ep.entry_grade.toUpperCase()}
+                      </span>
+                    </span>
+                  )}
+                  {ep.conviction_grade && (
+                    <span>
+                      conviction{" "}
+                      <span className={`grade ${gradeClass(ep.conviction_grade)}`}>
+                        {ep.conviction_grade.toUpperCase()}
+                      </span>
+                    </span>
+                  )}
+                  {strength != null && (
+                    <span title={SETUP_STRENGTH_TOOLTIP}>setup strength {strength}%</span>
+                  )}
+                </div>
+              )}
+              {/* A2: the operator's decision, one quiet line — the chip/ledger row carry the full detail */}
+              {opLine && <div className="sc-muted">{opLine}</div>}
+            </section>
+          )}
+
+          {/* Slice B + Tier 3: filterable event ledger sharing the chart's numbered events (row #N ↔ chip #N). */}
+          {asof && events.length > 0 && (
+            <div className="sc-slot-ledger">
+              <EventLedger
+                events={events}
+                activeN={activeN}
+                onActivate={setActiveN}
+                showCockpitStrip={false}
+                heading="Event ledger"
+                hideIngest={rerun}
+                filterable
+              />
             </div>
           )}
-          {showGrades && (
-            <div className="sc-setup">
-              {ep.entry_grade && (
-                <span>
-                  entry <span className={`grade ${gradeClass(ep.entry_grade)}`}>
-                    {ep.entry_grade.toUpperCase()}
-                  </span>
-                </span>
-              )}
-              {ep.conviction_grade && (
-                <span>
-                  conviction{" "}
-                  <span className={`grade ${gradeClass(ep.conviction_grade)}`}>
-                    {ep.conviction_grade.toUpperCase()}
-                  </span>
-                </span>
-              )}
-              {strength != null && (
-                <span title={SETUP_STRENGTH_TOOLTIP}>
-                  setup strength {strength}%
-                </span>
-              )}
-            </div>
-          )}
-          {/* A2: the operator's decision, one quiet line — the chip/ledger row carry the full detail */}
-          {opLine && <div className="sc-muted">{opLine}</div>}
-        </section>
-      )}
+        </div>
 
-      {/* Slice B — the event ledger + Cockpit strip: the SAME numbered events the chart drew (row #N ↔ chip
-          #N, one shared array), cross-highlighting with it. Rendered whenever the chart is (asof present) —
-          a just-armed episode gets both, its pre-arm insider/arm chips numbered alike. Empty events (still
-          loading, or a name with none) → EventLedger self-hides. */}
-      {asof && (
-        <EventLedger
-          events={events}
-          activeN={activeN}
-          onActivate={setActiveN}
-          identity={identity}
-          signals={signals}
-          tapeAsof={tapeAsof}
-          hideIngest={rerun}
-        />
-      )}
+        {(hasIdentityPanel || trail.length > 0) && (
+          <div className="sc-side">
+            {/* Company identity & data health (reusing CompanyDrawer's grid + DataFlagsSection). */}
+            {hasIdentityPanel && (
+              <section
+                className="sc-lens sc-slot-identity"
+                aria-label="Company identity and data health"
+              >
+                <div className="sc-h">
+                  Company identity
+                  {tapeAsof && <span className="sc-h-sub">as-of {fmtDate(tapeAsof)}</span>}
+                </div>
+                <div className="np-idgrid">
+                  {identity.map((cell) => (
+                    <div className="cell" key={cell.label}>
+                      <div className="k">{cell.label}</div>
+                      <div className="v">
+                        {cell.label === "Mkt cap" ? (
+                          <FlagWrap flag={cellFlag(memberFlags, "mktcap")}>{cell.value}</FlagWrap>
+                        ) : (
+                          cell.value
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {cik && (
+                    <div className="cell">
+                      <div className="k">CIK</div>
+                      <div className="v">
+                        {edgarUrl ? (
+                          <ExternalLink
+                            href={edgarUrl}
+                            title={
+                              isSecLink(edgarUrl)
+                                ? "Open the company on EDGAR"
+                                : "Open the stored source"
+                            }
+                          >
+                            {cik} ↗
+                          </ExternalLink>
+                        ) : (
+                          cik
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <DataFlagsSection member={memberFlags} />
+              </section>
+            )}
 
-      {/* Slice C3 — the record trail: the finer intra-run calls-log transitions (verdict/grade)
-          below the event ledger. A quiet UN-NUMBERED list — deliberately NOT chips and NOT in the
-          1..N array (the numbered ledger stays chip-events-only, docs/SCOREBOARD.md). Every line
-          traces to a recorded card diff (#6); no changes → nothing renders at all (#7). */}
-      {trail.length > 0 && (
-        <section className="sc-lens sc-trail">
-          <div className="sc-h">Record trail</div>
-          {trail.map((l, i) => (
-            <div key={i} className="sc-muted">
-              {fmtDate(l.date)} · {l.text}
-            </div>
-          ))}
-        </section>
-      )}
+            {/* Slice C3 — the record trail: the finer intra-run calls-log transitions (verdict/grade)
+                below the event ledger. A quiet UN-NUMBERED list — deliberately NOT chips and NOT in the
+                1..N array (the numbered ledger stays chip-events-only, docs/SCOREBOARD.md). Every line
+                traces to a recorded card diff (#6); no changes → nothing renders at all (#7). */}
+            {trail.length > 0 && (
+              <section className="sc-lens sc-trail sc-slot-trail">
+                <div className="sc-h">Record trail</div>
+                {trail.map((l, i) => (
+                  <div key={i} className="sc-muted">
+                    {fmtDate(l.date)} · {l.text}
+                  </div>
+                ))}
+              </section>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -45,6 +45,19 @@ def test_annotate_sma_does_not_mutate_the_input():
     assert all("sma2" not in b for b in bars)  # new dicts returned; input untouched
 
 
+def test_annotate_sma_prefix_sum_matches_naive_on_long_series():
+    closes = [10.0 + ((i * 7) % 19) * 0.25 for i in range(260)]
+    out = annotate_sma(_bars(closes))
+    for i in range(260):
+        for w in (50, 200):
+            got = out[i][f"sma{w}"]
+            if i + 1 < w:
+                assert got is None
+            else:
+                expected = sum(closes[i + 1 - w : i + 1]) / w
+                assert abs(got - expected) < 1e-11
+
+
 def test_sell_character_wire_map_covers_every_screen_bucket():
     """The Slice B drift pin: every ``insider_sell._screen`` bucket, pushed through the wire map,
     lands EXACTLY on ``InsiderSellOut.character``'s Literal — so a future new screen bucket (or a

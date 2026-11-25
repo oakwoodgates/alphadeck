@@ -131,6 +131,9 @@ def universe_floor(created_at: date, first_bar: date | None) -> date:
     return created_floor if first_bar is None else max(created_floor, first_bar)
 
 
+_UNSET: Any = object()
+
+
 def annotate_sma(bars: list[dict[str, Any]], windows: tuple[int, ...] = SMA_WINDOWS) -> list[dict]:
     """Annotate each bar with trailing simple moving averages of ``close`` — PURE, no clock, no DB.
 
@@ -140,12 +143,17 @@ def annotate_sma(bars: list[dict[str, Any]], windows: tuple[int, ...] = SMA_WIND
     never back-padded, never invented). Returns NEW dicts; the input list is untouched. The router calls
     it with the default ``(50, 200)`` (→ ``sma50``/``sma200``); tests pass small windows for readability.
     """
-    closes = [b["close"] for b in bars]
+    n = len(bars)
+    prefix: list[float] = [0.0] * (n + 1)
+    for i, b in enumerate(bars):
+        prefix[i + 1] = prefix[i] + b["close"]
+    window_keys = tuple((w, f"sma{w}") for w in windows)
     out: list[dict] = []
     for i, b in enumerate(bars):
         row = dict(b)
-        for w in windows:
-            row[f"sma{w}"] = sum(closes[i + 1 - w : i + 1]) / w if i + 1 >= w else None
+        end_idx = i + 1
+        for w, key in window_keys:
+            row[key] = (prefix[end_idx] - prefix[end_idx - w]) / w if end_idx >= w else None
         out.append(row)
     return out
 
@@ -162,6 +170,8 @@ def episode_insider_buys(
     day_lows: dict[date, float],
     clock: Clock = "record",
     price_scale: Callable[[date], float] | None = None,
+    issuer_name: Any = _UNSET,
+    rows: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """The window's code-P insider buys, as-of-capped on both axes, each carrying its ``character``.
 
@@ -188,25 +198,31 @@ def episode_insider_buys(
     ~2d disclosure). Plus who / role / shares / $ / the 10b5-1 plan flag / ``character``. Sorted by
     transaction date (then ``ingested`` — always present) — the frontend numbers chronologically.
     """
-    issuer_name = security_issuer_name(conn, tenant_id, security_id)
-    rows = as_of(
-        conn,
-        "fact_insider_txn",
-        security_id=security_id,
-        asof=asof,
-        known_at=known_at,
-        tenant_id=tenant_id,
-        clock=clock,
+    resolved_issuer = (
+        security_issuer_name(conn, tenant_id, security_id) if issuer_name is _UNSET else issuer_name
+    )
+    txn_rows = (
+        as_of(
+            conn,
+            "fact_insider_txn",
+            security_id=security_id,
+            asof=asof,
+            known_at=known_at,
+            tenant_id=tenant_id,
+            clock=clock,
+        )
+        if rows is None
+        else rows
     )
     buys: list[dict[str, Any]] = []
-    for r in rows:
+    for r in txn_rows:
         if r.get("txn_code") != BUY:  # code 'P' — open-market OR private purchase
             continue
         vf: date = r["valid_from"]
         if vf < start or vf > end:  # position window (end bounds a matured, past-exit episode)
             continue
         # the filer's own words: a located private-purchase passage (display only — the buy still counts)
-        note = private_purchase_note(r, rows)
+        note = private_purchase_note(r, txn_rows)
         buys.append(
             {
                 "d": vf,
@@ -222,7 +238,7 @@ def episode_insider_buys(
                 "ingested": _ingested(r),
                 # the buy's server-classified character (deterministic field predicates, #3);
                 # set-asides ride grayed-and-labeled instead of hidden (option (a) — WB #2)
-                "character": _screen(r, day_lows, issuer_name, price_scale),
+                "character": _screen(r, day_lows, resolved_issuer, price_scale),
                 # an internal transfer's counterparties (the read's tag) — None on every other buy
                 "transfer_with": list(transfer_with(r)) or None,
                 "private_passage": note.passage if note else None,
@@ -260,6 +276,8 @@ def episode_insider_sells(
     day_lows: dict[date, float],
     clock: Clock = "record",
     price_scale: Callable[[date], float] | None = None,
+    issuer_name: Any = _UNSET,
+    rows: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """The window's code-S insider sales, as-of-capped on both axes, each carrying its ``character``
     (Slice B — the sell mirror of ``episode_insider_buys``).
@@ -279,18 +297,24 @@ def episode_insider_sells(
     (the same mirror-the-dials stance as ``signals/display/insider_flow``'s module constants). Labels
     only: this read never touches the ``insider_sell`` detector's cluster/score math.
     """
-    issuer_name = security_issuer_name(conn, tenant_id, security_id)
-    rows = as_of(
-        conn,
-        "fact_insider_txn",
-        security_id=security_id,
-        asof=asof,
-        known_at=known_at,
-        tenant_id=tenant_id,
-        clock=clock,
+    resolved_issuer = (
+        security_issuer_name(conn, tenant_id, security_id) if issuer_name is _UNSET else issuer_name
+    )
+    txn_rows = (
+        as_of(
+            conn,
+            "fact_insider_txn",
+            security_id=security_id,
+            asof=asof,
+            known_at=known_at,
+            tenant_id=tenant_id,
+            clock=clock,
+        )
+        if rows is None
+        else rows
     )
     sells: list[dict[str, Any]] = []
-    for r in rows:
+    for r in txn_rows:
         if r.get("txn_code") != SELL:  # code 'S' only — the buy overlay owns code P
             continue
         vf: date = r["valid_from"]
@@ -310,7 +334,7 @@ def episode_insider_sells(
                 # the CALL-side screen bucket (deterministic field predicates, #3), wire-mapped;
                 # screened rows ride grayed-and-labeled instead of hidden (WB #2)
                 "character": sell_character_wire(
-                    _sell_screen(r, day_lows, issuer_name, DEFAULT_CONFIG, price_scale)
+                    _sell_screen(r, day_lows, resolved_issuer, DEFAULT_CONFIG, price_scale)
                 ),
                 # an internal transfer's counterparties (the read's tag) — None on every other sale
                 "transfer_with": list(transfer_with(r)) or None,
@@ -318,6 +342,61 @@ def episode_insider_sells(
         )
     sells.sort(key=lambda s: (s["d"], s["ingested"]))
     return sells
+
+
+def episode_insider_overlays(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    security_id: UUID,
+    start: date,
+    end: date,
+    asof: date,
+    known_at: datetime,
+    day_lows: dict[date, float],
+    clock: Clock = "record",
+    price_scale: Callable[[date], float] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Load ``fact_insider_txn`` and ``security_master.name`` ONCE and return ``(buys, sells)``."""
+    issuer_name = security_issuer_name(conn, tenant_id, security_id)
+    rows = as_of(
+        conn,
+        "fact_insider_txn",
+        security_id=security_id,
+        asof=asof,
+        known_at=known_at,
+        tenant_id=tenant_id,
+        clock=clock,
+    )
+    buys = episode_insider_buys(
+        conn,
+        tenant_id=tenant_id,
+        security_id=security_id,
+        start=start,
+        end=end,
+        asof=asof,
+        known_at=known_at,
+        day_lows=day_lows,
+        clock=clock,
+        price_scale=price_scale,
+        issuer_name=issuer_name,
+        rows=rows,
+    )
+    sells = episode_insider_sells(
+        conn,
+        tenant_id=tenant_id,
+        security_id=security_id,
+        start=start,
+        end=end,
+        asof=asof,
+        known_at=known_at,
+        day_lows=day_lows,
+        clock=clock,
+        price_scale=price_scale,
+        issuer_name=issuer_name,
+        rows=rows,
+    )
+    return buys, sells
 
 
 def episode_corporate_events(
