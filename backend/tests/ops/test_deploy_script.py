@@ -312,7 +312,10 @@ def test_the_script_is_LF_with_an_env_bash_shebang():
             ["--label", "x", "--backend-only", "backend", "cron"],
             "--backend-only keeps the cron out of the deploy, so it cannot also deploy cron",
         ),
-        (["--env-only", "--backend-only", "cron"], "--backend-only cannot be combined with --env-only"),
+        (
+            ["--env-only", "--backend-only", "cron"],
+            "--backend-only cannot be combined with --env-only",
+        ),
         (
             ["--label", "x", "--backend-only", "--hold-cron", "backend"],
             "--backend-only cannot be combined with --hold-cron",
@@ -950,7 +953,9 @@ def test_hold_cron_dry_run_prints_the_plan(deploy):
 _CRON_WITH_BACKEND = (
     "cron rebuilt with the backend: one sha for both images; /admin/status alarms on a mismatch"
 )
-_EDITIONS_HOLDER = "held: pid 4343 (alphadeck-pass:editions cut, connected 2026-10-16T14:00:00+00:00)"
+_EDITIONS_HOLDER = (
+    "held: pid 4343 (alphadeck-pass:editions cut, connected 2026-10-16T14:00:00+00:00)"
+)
 
 
 def _editions_reads(r: Result) -> list[str]:
@@ -1011,14 +1016,18 @@ def test_backend_only_rebuilds_the_backend_alone_and_warns_up_front(deploy):
     assert r.code == 0, r.out
     assert "warning: --backend-only rebuilds the backend alone" in r.out
     assert "one image is stale" in r.out  # the alarm the operator is choosing to risk
-    assert r.out.index("--backend-only rebuilds the backend alone") < r.out.index("--> local checks")
+    assert r.out.index("--backend-only rebuilds the backend alone") < r.out.index(
+        "--> local checks"
+    )
     assert _CRON_WITH_BACKEND not in r.out
     assert f"OK: deployed {HEAD[:12]} to prod: backend (rebuild)" in r.out
     assert f"ok: alphadeck-backend-1 ALPHADECK_IMAGE_SHA={HEAD} (the sha just built)" in r.out
     assert f"info: alphadeck-cron-1 ALPHADECK_IMAGE_SHA={OLD} (not rebuilt by this deploy)" in r.out
     assert "ok: alphadeck-cron-1 is running (not recreated by this deploy)" in r.out
     assert f"note: backend and cron run different code ({HEAD[:12]} vs {OLD[:12]})" in r.out
-    assert not _editions_reads(r)  # the cron is untouched, so an editions job is no reason to refuse
+    assert not _editions_reads(
+        r
+    )  # the cron is untouched, so an editions job is no reason to refuse
 
 
 def test_the_dry_run_of_backend_only_prints_the_warning_and_no_cron(deploy):
@@ -1027,7 +1036,10 @@ def test_the_dry_run_of_backend_only_prints_the_warning_and_no_cron(deploy):
     assert "warning: --backend-only rebuilds the backend alone" in r.out
     assert "deploy PLAN for backend (rebuild)" in r.out
     assert [ln for ln in r.out.splitlines() if ln.endswith(" up -d --build --no-deps backend")]
-    assert "would show:   docker exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA (not rebuilt" in r.out
+    assert (
+        "would show:   docker exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA (not rebuilt"
+        in r.out
+    )
     assert "editions lock" not in r.out
     assert r.calls("docker") == [] and r.calls("curl") == []
 
@@ -1074,7 +1086,8 @@ def test_refuses_while_an_editions_job_holds_its_lock_and_the_cron_would_be_recr
     r = deploy("--label", "pre-deploy", *args, FAKE_EDITIONS_LOCK=_EDITIONS_HOLDER)
     assert r.code == 3, r.out
     assert (
-        "REFUSE: the editions lock is held: pid 4343 (alphadeck-pass:editions cut, connected" in r.out
+        "REFUSE: the editions lock is held: pid 4343 (alphadeck-pass:editions cut, connected"
+        in r.out
     )
     assert "recreating the cron would kill it" in r.out
     assert "FAIL: refused — 1 check(s) failed" in r.out
