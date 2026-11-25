@@ -23,6 +23,7 @@ import {
   ratioProblem,
   rejectLine,
   secSays,
+  setAsideLine,
   splitSentence,
   tapeFactorSentence,
   tapeStepSentence,
@@ -592,9 +593,7 @@ export function SplitList() {
             {setAside.map((s) => (
               <li key={s.version_id} className="adm-grayed" data-testid="adm-split-set-aside-row">
                 <Header s={s} />{" "}
-                <span className="adm-sub">
-                  {STATUS_WORD[s.status] ?? s.status} · {s.decided_by}
-                </span>{" "}
+                <span className="adm-sub">{setAsideLine(s, STATUS_WORD[s.status] ?? s.status)}</span>{" "}
                 <button
                   type="button"
                   className="adm-minibtn"

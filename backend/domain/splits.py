@@ -26,6 +26,14 @@ split's first session, and a future one would rescale the whole tape early).
 that disagrees on the ratio or the date, or a filing the extractor abstained on. The row carries Massive.com's
 values until the operator confirms one source's values or rejects it. Nothing here picks between two
 disagreeing values.
+
+**Set aside as a distribution (D2, operator decision 2026-11-25)** — the one needs-review case the rule settles
+itself, when the caller passes ``distribution_max_factor`` (the settings ``split_distribution_auto_set_aside`` /
+``split_distribution_max_factor``; this module reads none): a FORWARD split of new / old under that factor (x1.5)
+that Massive.com alone lists, with no SEC filing in its window stating it or mentioning a split
+(``distribution_reason``). Every one the steward reviewed was a stock dividend or another distribution (SCCO, PHG,
+GREH, GPUS, ENVX; the 2026-10-23/24 rejections). It is ``rejected`` with Massive.com's values and the reason on its
+note, never applied; a restore returns it to review.
 """
 
 from __future__ import annotations
@@ -399,8 +407,11 @@ def decide(
     *,
     asof: date,
     unread: int = 0,
+    distribution_max_factor: Decimal | None = None,
 ) -> SplitDecision:
-    """The verdict for one Massive.com row given every SEC filing read in its window (the module docstring)."""
+    """The verdict for one Massive.com row given every SEC filing read in its window (the module docstring).
+    ``distribution_max_factor`` (D2; ``None`` = off): a Massive.com-only row that ``distribution_reason`` names a
+    distribution is SET ASIDE (``rejected``) instead of waiting for review."""
     tail = f" {unread} SEC filing(s) in the window could not be read." if unread else ""
     readable = [s for s in sec if s.has_ratio]
     confirming = []
@@ -451,12 +462,9 @@ def decide(
     # older splits: in this split's window (filed at most ``WINDOW_AFTER_DAYS`` after it) it can never be about
     # this one, so it is never shown as this split's evidence (LGHL's 6-K/A of 2025-03-07 restating its 2023 ADS
     # change beside the 2025 split)
-    abstained = [
-        s
-        for s in sec
-        if not s.has_ratio and s.about_a_split and s.abstain_reason != PAST_RATIO_ONLY
-    ]
+    abstained = _abstained(sec)
     chosen: SecEvidence | None = None
+    status = STATUS_NEEDS_REVIEW
     if related:
         chosen = min(related, key=gap)
         parts = []
@@ -483,18 +491,57 @@ def decide(
             near = min(readable, key=gap)
             note += f" Nearest split filing: {_sec_said(near)} — a different split?"
         valid_from = polygon.execution_date
+        if distribution_max_factor is not None:
+            why = distribution_reason(polygon, sec, max_factor=distribution_max_factor)
+            if why is not None:
+                status = STATUS_REJECTED
+                note = f"{why} {note}"
     return SplitDecision(
         key_date=polygon.execution_date,
         effective_date=polygon.execution_date,
         ratio_from=polygon.split_from,
         ratio_to=polygon.split_to,
-        status=STATUS_NEEDS_REVIEW,
+        status=status,
         confirmed_via=None,
         value_source=SOURCE_POLYGON,
         valid_from=valid_from,
         polygon=polygon,
         sec=chosen,
         note=note + tail,
+    )
+
+
+def _abstained(sec: Sequence[SecEvidence]) -> list[SecEvidence]:
+    """The filings that mention a split but whose ratio the extractor could not read — never one that abstained
+    because every ratio it states is a PAST split's (``PAST_RATIO_ONLY``; ``decide``'s comment says why).
+    """
+    return [
+        s
+        for s in sec
+        if not s.has_ratio and s.about_a_split and s.abstain_reason != PAST_RATIO_ONLY
+    ]
+
+
+def distribution_reason(
+    polygon: PolygonEvidence, sec: Sequence[SecEvidence], *, max_factor: Decimal | float | int
+) -> str | None:
+    """D2's rule (the module docstring): why this Massive.com row is a distribution set aside automatically — or
+    ``None``. All of: a FORWARD split (new shares > old), new / old strictly under ``max_factor`` (x1.5: a
+    3-for-2 is not under it), and ``decide`` would reach its "Massive.com only" branch — no SEC filing in
+    the window states it (the same ratio, or a date that agrees: ``related``) and none mentions a split the
+    extractor abstained on. A filing that states a DIFFERENT split (MOVE's 1-for-10 months earlier) does not
+    count; one that confirms it confirms it, one that disagrees sends it to the steward. Exact arithmetic.
+    """
+    old, new = Decimal(polygon.split_from), Decimal(polygon.split_to)
+    bound = Decimal(str(max_factor))
+    if not (0 < old < new) or Fraction(new) / Fraction(old) >= Fraction(bound):
+        return None
+    if any(related(s, polygon) for s in sec) or _abstained(sec):
+        return None
+    return (
+        f"Set aside automatically: a {_fmt(new)}-for-{_fmt(old)} forward 'split' listed by Massive.com only, "
+        f"under x{_fmt(bound)} — a stock dividend or distribution, not a split (the 2026-10-23/24 rule). "
+        "Restore returns it to review."
     )
 
 

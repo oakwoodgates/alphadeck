@@ -22,6 +22,7 @@ from domain.splits import (
     STATUS_REVOKED,
     VIA_AUTO,
     VIA_OPERATOR,
+    PolygonEvidence,
     decide,
 )
 from repositories import split_repo
@@ -408,3 +409,76 @@ def test_a_source_confirm_carries_no_citation(db):
     c = split_repo.confirm(db, v1.id, source="polygon", tenant_id=DEFAULT_TENANT_ID, today=ASOF)
     db.commit()
     assert (c.value_source, c.cited_url, c.tape_override) == ("polygon", None, None)
+
+
+# --- D2 (platform fixes W2-3): a split the system set aside as a distribution restores to review ------------
+
+
+def _scco(*, cap: Decimal | None = Decimal("1.5")):
+    """SCCO's 2026-08-11 stock dividend as Massive.com lists it (1 -> 1.012), no SEC filing: set aside under D2."""
+    poly = PolygonEvidence("E-scco", "SCCO", date(2026, 8, 11), Decimal(1), Decimal("1.012"))
+    return decide(poly, [], asof=ASOF, distribution_max_factor=cap)
+
+
+def test_a_split_born_set_aside_restores_to_review_with_its_evidence(db):
+    sid = _security(db, "SCCO")
+    v = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=date(2026, 8, 11),
+        values=split_repo.decision_values(_scco()),
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    assert v.status == STATUS_REJECTED and split_repo.is_auto_set_aside(v)
+    # its ONLY version: before D2 a restore had nothing to return to (409); now it goes back to review
+    assert split_repo.allowed_actions(v) == ["restore"]
+    assert split_repo.prior_status(db, v) == STATUS_NEEDS_REVIEW
+    back = split_repo.restore(db, v.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert (back.status, back.confirmed_via, back.value_source, back.author, back.action) == (
+        STATUS_NEEDS_REVIEW,
+        None,
+        "polygon",
+        "operator",
+        "restore",
+    )
+    keep = (
+        "ratio_from",
+        "ratio_to",
+        "effective_date",
+        "polygon_id",
+        "polygon_split_to",
+        "note",
+        "valid_from",
+    )
+    assert all(getattr(back, c) == getattr(v, c) for c in keep)
+    assert not split_repo.is_auto_set_aside(back)
+    assert split_repo.allowed_actions(back) == ["confirm:polygon", "reject"]
+    assert _n(db) == 2
+    # the steward's own reject of it later is an ordinary one: restore returns the version before it
+    rj = split_repo.reject(db, back.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert (
+        not split_repo.is_auto_set_aside(rj)
+        and split_repo.prior_status(db, rj) == STATUS_NEEDS_REVIEW
+    )
+
+
+def test_a_set_aside_re_decided_from_review_restores_to_review_with_its_newest_evidence(db):
+    sid = _security(db, "SCCO")
+    _append(db, sid, _scco(cap=None))  # the backfill's needs-review version, before D2
+    v = _append(db, sid, _scco())  # the backfill's re-run sets it aside
+    assert split_repo.prior_status(db, v) == STATUS_NEEDS_REVIEW
+    back = split_repo.restore(db, v.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert back.status == STATUS_NEEDS_REVIEW and back.note == v.note and _n(db) == 3
+
+
+def test_only_a_system_rejection_is_an_automatic_set_aside(db):
+    sid = _security(db, "WNRS")
+    rj = split_repo.reject(db, _append(db, sid, _wnrs()).id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert rj.status == STATUS_REJECTED and not split_repo.is_auto_set_aside(rj)

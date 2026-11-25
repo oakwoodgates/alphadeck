@@ -622,3 +622,41 @@ def test_the_tape_step_reads_the_first_served_bars_beside_the_entered_factor(cli
     assert client.get(url, params={**q, "ratio_from": "0"}).status_code == 422
     assert client.get(url, params={**q, "first_session": "1980-01-01"}).status_code == 422
     assert split_repo.count_rows(db) == n
+
+
+# --- D2 (platform fixes W2-3): a distribution the nightly set aside, and the steward's restore ---------------
+
+
+def test_a_distribution_set_aside_automatically_is_quiet_and_restores_to_review(
+    client, db, tmp_path
+):
+    from tests.pipeline.test_detect_splits import _detect_scco
+    from tests.split_801_fixtures import seed_member
+
+    seed_member(db, "SCCO", None, [])
+    _detect_scco(db, tmp_path, asof=date(2026, 11, 5))
+    body = client.get(BASE).json()
+    assert (
+        body["needs_review"] == []
+        and client.get("/admin/status").json()["splits_needs_review"] == 0
+    )
+    bucket, scco = _find(body, "SCCO", "2026-11-03")
+    assert bucket == "set_aside"
+    assert (scco["status"], scco["decided_by"], scco["restore_to"], scco["actions"]) == (
+        "rejected",
+        "set aside automatically: a distribution",
+        "needs_review",
+        ["restore"],
+    )
+    assert scco["label"] == "1.0106-for-1 forward split" and scco["value_source"] == "polygon"
+    assert scco["note"].startswith(
+        "Set aside automatically: a 1.0106-for-1 forward 'split' listed by Massive.com only, under x1.5"
+    )
+    n = split_repo.count_rows(db)
+    back = client.post(f"{BASE}/{scco['version_id']}/restore")
+    assert back.status_code == 200, back.text
+    b = back.json()
+    assert (b["status"], b["actions"]) == ("needs_review", ["confirm:polygon", "reject"])
+    assert b["decided_by"].startswith("restored by you, ") and b["review_reason"] == "one_source"
+    assert split_repo.count_rows(db) == n + 1
+    assert client.get("/admin/status").json()["splits_needs_review"] == 1

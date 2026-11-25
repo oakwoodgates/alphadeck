@@ -63,6 +63,18 @@ export function rejectLine(): string {
   return "Reject: no split; prices stay as stored. The split stays listed, grayed, and Restore brings it back.";
 }
 
+/** A split the SYSTEM set aside as a distribution (D2: a forward "split" under x1.5 that only Massive.com lists, with
+ *  no SEC filing about it) — rejected, but not by the steward. */
+export function autoSetAside(s: Split): boolean {
+  return s.status === "rejected" && s.author !== "operator";
+}
+
+/** The quiet set-aside row's words: "rejected · rejected by you, 10-20", or the API's own label alone for an
+ *  automatic set-aside ("set aside automatically: a distribution"). */
+export function setAsideLine(s: Split, statusWord: string): string {
+  return autoSetAside(s) ? s.decided_by : `${statusWord} · ${s.decided_by}`;
+}
+
 // --- D3: "Confirm with other values" — the steward's own ratio, first session and cited document ---
 
 type TapeStep = AdminSplitTapeStepOut;

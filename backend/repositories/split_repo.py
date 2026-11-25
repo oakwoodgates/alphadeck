@@ -24,7 +24,10 @@ the caller names the CURRENT version — a stale click is refused, never applied
 - ``reject`` a needs-review (or announced) split. Inverse: ``restore``.
 - ``revoke`` a confirmed split, whoever confirmed it. Inverse: ``restore``.
 - ``restore`` a rejected or revoked split to EXACTLY the state the reject/revoke replaced — the version
-  before it, re-appended (a rejected split goes back to review; a revoked one back to confirmed).
+  before it, re-appended (a rejected split goes back to review; a revoked one back to confirmed). A split the
+  SYSTEM set aside as a distribution (D2, ``is_auto_set_aside``) goes back to review with the evidence it carries,
+  whether it was born set aside (no version before it) or re-decided from review; the restored version names the
+  operator, so neither the backfill nor the nightly detector ever touches it again.
 
 Value-free like every repository: what a split IS comes from the matcher (``domain/splits.py``) and the
 operator; this module stores and returns versions. The caller owns the transaction.
@@ -456,6 +459,12 @@ def confirm_options(v: SplitVersion) -> list[str]:
     return out
 
 
+def is_auto_set_aside(v: SplitVersion) -> bool:
+    """A split the SYSTEM set aside as a distribution (D2, ``domain.splits.distribution_reason``): ``rejected`` by
+    the backfill or the nightly detector — no system path writes ``rejected`` otherwise."""
+    return v.status == STATUS_REJECTED and v.author != AUTHOR_OPERATOR
+
+
 def allowed_actions(v: SplitVersion) -> list[str]:
     """The verbs the split's current status allows (the panel renders exactly these)."""
     if v.status == STATUS_NEEDS_REVIEW:
@@ -637,22 +646,27 @@ def restore(
     conn: psycopg.Connection, version_id: UUID, *, tenant_id: UUID, author: str = AUTHOR_OPERATOR
 ) -> SplitVersion:
     """RESTORE a rejected or revoked split to exactly the state before the reject/revoke (that version's
-    content re-appended)."""
+    content re-appended) — a split the system set aside as a distribution back to review, with its own content
+    (``is_auto_set_aside``)."""
     v = _current(conn, version_id, tenant_id=tenant_id)
     if v.status not in SET_ASIDE:
         raise SplitConflict(
             f"only a rejected or revoked split can be restored (this one is {v.status})"
         )
-    hist = history(conn, tenant_id=tenant_id, security_id=v.security_id, key_date=v.key_date)
-    if len(hist) < 2:
-        raise SplitConflict("nothing to restore to — this split was never in another state")
-    prior = hist[-2]
+    if is_auto_set_aside(v):
+        # D2: the system's set-aside goes back to review with its own evidence (it may have no version before it)
+        values = _carry(v, status=STATUS_NEEDS_REVIEW, confirmed_via=None)
+    else:
+        hist = history(conn, tenant_id=tenant_id, security_id=v.security_id, key_date=v.key_date)
+        if len(hist) < 2:
+            raise SplitConflict("nothing to restore to — this split was never in another state")
+        values = _carry(hist[-2])
     return append_version(
         conn,
         tenant_id=tenant_id,
         security_id=v.security_id,
         key_date=v.key_date,
-        values=_carry(prior),
+        values=values,
         action=ACTION_RESTORE,
         author=author,
     )
@@ -662,5 +676,7 @@ def prior_status(conn: psycopg.Connection, v: SplitVersion) -> str | None:
     """The status a ``restore`` would return ``v`` to (``None`` unless ``v`` is set aside)."""
     if v.status not in SET_ASIDE:
         return None
+    if is_auto_set_aside(v):
+        return STATUS_NEEDS_REVIEW
     hist = history(conn, tenant_id=v.tenant_id, security_id=v.security_id, key_date=v.key_date)
     return hist[-2].status if len(hist) >= 2 else None

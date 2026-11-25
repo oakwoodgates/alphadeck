@@ -18,6 +18,9 @@ What the operator can do, and its inverse:
   **Revoke**. ``GET /admin/splits/{version_id}/tape-step`` is the same reading for the form.
 - **Reject** a needs-review or announced split. Inverse: **Restore** (back to the state before).
 - **Revoke** any confirmed split, auto-confirmed or not. Inverse: **Restore** (back to confirmed).
+- A forward split under x1.5 that only Massive.com lists, with no SEC filing about it, arrives SET ASIDE as a
+  distribution (D2, ``domain.splits.distribution_reason``; ``decided_by`` "set aside automatically: a
+  distribution"). **Restore** returns it to review, and neither the backfill nor the nightly touches it again.
 
 Rejected and revoked splits stay listed, grayed (WB#2). Every action appends one version naming the operator
 (``repositories/split_repo.py``) and names the version it acts on, so a stale card is refused (409), never
@@ -337,14 +340,21 @@ def _md(ts: datetime) -> str:
     return ts.astimezone(market_tz()).strftime("%m-%d")
 
 
+# D2: the label of a split the system set aside as a distribution (``split_repo.is_auto_set_aside``)
+DECIDED_DISTRIBUTION = "set aside automatically: a distribution"
+
+
 def _decided_by(v: SplitVersion) -> str:
     """The source label: "auto: SEC + Massive.com" (or "auto: SEC + tape" / "auto: Massive.com + tape") for the
-    two-source rule, "you, 10-20" for the operator, else who listed it (the backfill / the nightly).
+    two-source rule, "you, 10-20" for the operator, ``DECIDED_DISTRIBUTION`` for a distribution the system set
+    aside (D2), else who listed it (the backfill / the nightly).
     """
     auto = AUTO_VIA_LABELS.get(v.confirmed_via or "")
     if v.author != split_repo.AUTHOR_OPERATOR:
         if auto:
             return auto
+        if split_repo.is_auto_set_aside(v):
+            return DECIDED_DISTRIBUTION
         return "the nightly" if v.author == split_repo.AUTHOR_DETECT else "the backfill"
     verb = {
         "confirm": "you",
@@ -812,7 +822,7 @@ def restore_split(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> AdminSplitListEntryOut:
     """RESTORE a rejected or revoked split to exactly the state before (a rejected split back to review, a
-    revoked one back to confirmed). **404** unknown version, **409** not the newest version / not set
-    aside."""
+    revoked one back to confirmed; one the system set aside as a distribution back to review). **404** unknown
+    version, **409** not the newest version / not set aside."""
     v = _commit(conn, lambda: split_repo.restore(conn, version_id, tenant_id=DATA_TENANT_ID))
     return _out(conn, v)

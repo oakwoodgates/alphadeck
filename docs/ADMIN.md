@@ -156,7 +156,8 @@ The split list that `pipeline.backfill_splits` filled from Massive.com and each 
   each bar as first served, and refuses a factor outside the tape tolerance, or a session with no bar, unless the
   steward overrides; the version records the URL and the override.
 - **Auto-confirmed, announced and set aside** (quiet). Revoke any confirmed split; Restore undoes a reject or a
-  revoke. Rejected and revoked splits stay listed, grayed.
+  revoke. Rejected and revoked splits stay listed, grayed. An automatic set-aside (a distribution,
+  [FILINGS](FILINGS.md)) restores to review; no run touches it after.
 - **Split-shaped jumps with no split listed** (quiet): jumps the split-night hold released that no source lists.
   Dismissing one as a real move, and its undo, are display only; the hold never reads them.
 
