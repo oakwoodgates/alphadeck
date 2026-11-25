@@ -3,18 +3,36 @@ import { type ReactNode, useState } from "react";
 import type { AdminSplitJumpOut, AdminSplitListEntryOut, AdminSplitListOut } from "../api/hooks";
 import {
   useConfirmSplit,
+  useConfirmSplitValues,
   useDismissJump,
   useRejectSplit,
   useRestoreSplit,
   useRevokeSplit,
   useSplitList,
+  useSplitTapeStep,
   useUndoJumpDismissal,
 } from "../api/hooks";
 import { errText } from "../workbench/format";
-import { confirmLine, polygonSays, rejectLine, secSays, splitSentence } from "./splitWords";
+import {
+  NOTE_MAX,
+  confirmLine,
+  confirmValuesLine,
+  isDate,
+  overrideLabel,
+  polygonSays,
+  ratioProblem,
+  rejectLine,
+  secSays,
+  splitSentence,
+  tapeFactorSentence,
+  tapeStepSentence,
+  valuesProblem,
+} from "./splitWords";
 import { ExternalLink } from "../components/ExternalLink";
+import { LIMITS } from "../api/limits";
 
 type Split = AdminSplitListEntryOut;
+type ConfirmValuesMutation = ReturnType<typeof useConfirmSplitValues>;
 
 const bucket = (d: AdminSplitListOut, k: "needs_review" | "announced" | "confirmed" | "set_aside"): Split[] =>
   d[k] ?? [];
@@ -133,6 +151,199 @@ function Jump({ j, action }: { j: AdminSplitJumpOut; action?: ReactNode }) {
   );
 }
 
+/** A steward's cited document on a confirmed or announced split (D3): the link, and whether the steward confirmed
+ *  past the tape's step. Nothing for a split the sources or the tape settled (both fields are null there). */
+function Cited({ s }: { s: Split }) {
+  if (!s.cited_url) return null;
+  return (
+    <>
+      {" "}
+      <ExternalLink className="adm-link" href={s.cited_url}>
+        cited document
+      </ExternalLink>
+      {s.tape_override ? <span className="adm-sub"> · confirmed past the tape</span> : null}
+    </>
+  );
+}
+
+/** D3 — "Confirm with other values": for a needs-review split neither source states right (an ADS ratio, a date the
+ *  extractor missed), the steward types the ratio (old -> new shares), the first session and the https document
+ *  that states them. Once a first session is entered the form reads the stored tape's step there and shows it beside
+ *  the entered factor; the override box appears only when the tape does not support the values. The server checks
+ *  the same thing again and answers 409 with its own sentence (shown here); Revoke undoes the confirmation. */
+function ConfirmValues({ s, busy, send }: { s: Split; busy: boolean; send: ConfirmValuesMutation }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="adm-act">
+        <button type="button" className="adm-minibtn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          Confirm with other values
+        </button>
+        <span className="adm-act-line" data-testid="adm-split-values-effect">
+          {confirmValuesLine()}
+        </span>
+      </div>
+      {open && <ValuesForm s={s} busy={busy} send={send} onCancel={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function ValuesForm({
+  s,
+  busy,
+  send,
+  onCancel,
+}: {
+  s: Split;
+  busy: boolean;
+  send: ConfirmValuesMutation;
+  onCancel: () => void;
+}) {
+  const [ratioFrom, setRatioFrom] = useState("");
+  const [ratioTo, setRatioTo] = useState("");
+  const [firstSession, setFirstSession] = useState("");
+  const [citedUrl, setCitedUrl] = useState("");
+  const [note, setNote] = useState("");
+  const [override, setOverride] = useState(false);
+  const rf = ratioFrom.trim();
+  const rt = ratioTo.trim();
+  const url = citedUrl.trim();
+
+  // the tape is read once a first session is entered; the ratio joins the read once it is a ratio
+  const ratioReady = ratioProblem(rf, rt) === null;
+  const args = isDate(firstSession) ? { firstSession, ...(ratioReady ? { ratioFrom: rf, ratioTo: rt } : {}) } : null;
+  const tape = useSplitTapeStep(s.version_id, args);
+  const t = args ? tape.data : undefined;
+  const reading = args !== null && !t && Boolean(tape.isFetching);
+  const outside = t?.within_tolerance === false; // no bar to read counts: the server refuses it too
+
+  const problem = valuesProblem({ ratioFrom: rf, ratioTo: rt, firstSession, citedUrl: url });
+  const hint = problem ?? (outside && !override ? "Tick the box above to confirm past the tape." : null);
+  const failure = send.isError && send.variables?.versionId === s.version_id ? errText(send.error) : null;
+
+  const submit = () =>
+    send.mutate({
+      versionId: s.version_id,
+      body: {
+        ratio_from: rf,
+        ratio_to: rt,
+        first_session: firstSession,
+        cited_url: url,
+        ...(note.trim() ? { note: note.trim() } : {}),
+        // a ticked box counts only while the tape still does not support the values
+        override_tape: outside && override,
+      },
+    });
+
+  return (
+    <div className="adm-hold-edit" data-testid="adm-split-values-form">
+      <div className="adm-hold-full">
+        Now listed: {s.label}, first session {s.effective_date}. Enter the values the document you cite states.
+      </div>
+      <label>
+        Every{" "}
+        <input
+          className="adm-input"
+          style={{ width: "9ch", minWidth: 0 }}
+          type="text"
+          inputMode="decimal"
+          value={ratioFrom}
+          maxLength={17}
+          onChange={(e) => setRatioFrom(e.target.value)}
+          aria-label="Old shares"
+        />{" "}
+        shares became{" "}
+        <input
+          className="adm-input"
+          style={{ width: "9ch", minWidth: 0 }}
+          type="text"
+          inputMode="decimal"
+          value={ratioTo}
+          maxLength={17}
+          onChange={(e) => setRatioTo(e.target.value)}
+          aria-label="New shares"
+        />
+      </label>
+      <label>
+        First session at the new price{" "}
+        <input
+          className="adm-input adm-input-sm"
+          type="date"
+          value={firstSession}
+          onChange={(e) => setFirstSession(e.target.value)}
+          aria-label="First session"
+        />
+      </label>
+      <label className="adm-hold-why adm-hold-full">
+        Cited document{" "}
+        <input
+          className="adm-input adm-input-sm"
+          type="url"
+          placeholder="https://"
+          value={citedUrl}
+          maxLength={LIMITS.url}
+          onChange={(e) => setCitedUrl(e.target.value)}
+          aria-label="Cited document"
+        />
+      </label>
+      <label className="adm-hold-why adm-hold-full">
+        Note (optional){" "}
+        <input
+          className="adm-input adm-input-sm"
+          type="text"
+          value={note}
+          maxLength={NOTE_MAX}
+          onChange={(e) => setNote(e.target.value)}
+          aria-label="Note"
+        />
+      </label>
+
+      {args && (
+        <div className="adm-plain adm-hold-full" data-testid="adm-split-tape-step">
+          {t ? (
+            <>
+              <div>{tapeStepSentence(t)}</div>
+              {tapeFactorSentence(t, rf, rt) ? <div>{tapeFactorSentence(t, rf, rt)}</div> : null}
+            </>
+          ) : tape.isError ? (
+            <div className="adm-err">The stored tape could not be read: {errText(tape.error)}</div>
+          ) : (
+            <div className="adm-sub">Reading the stored tape…</div>
+          )}
+        </div>
+      )}
+      {outside && t && (
+        <label className="adm-hold-full">
+          <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />{" "}
+          {overrideLabel(t)}
+        </label>
+      )}
+
+      <button
+        type="button"
+        className="adm-minibtn primary"
+        disabled={busy || reading || hint !== null}
+        onClick={submit}
+      >
+        Confirm these values
+      </button>
+      <button type="button" className="adm-minibtn" onClick={onCancel}>
+        Cancel
+      </button>
+      {hint && (
+        <div className="adm-sub adm-hold-full" data-testid="adm-split-values-hint">
+          {hint}
+        </div>
+      )}
+      {failure && (
+        <div className="adm-err adm-hold-full" data-testid="adm-split-values-error">
+          {failure}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The "Splits" panel (split plan S1): the split list the backfill filled from Massive.com's split reference and
  *  each company's own SEC filing. LOUD only where one source cannot settle a split (Massive.com alone, a
  *  disagreement, or an extractor abstain): there the SEC passage and Massive.com's row sit side by side with
@@ -143,10 +354,13 @@ function Jump({ j, action }: { j: AdminSplitJumpOut; action?: ReactNode }) {
  *  hold released with no split listed ("is this real?") — loud while it stands; its Dismiss ("this was a real
  *  move", 2026-10-24) takes it off the list into the "dismissed" filter, its Undo puts it back, and neither
  *  changes a call. Each review card says in plain words what the split is, what each source says, and what each
- *  button does. Renders nothing when the list and that question are both empty. */
+ *  button does. D3 adds a third way to confirm a review card, "Confirm with other values" (the steward's own
+ *  ratio, first session and cited https document, checked against the stored tape; Revoke undoes it). Renders
+ *  nothing when the list and that question are both empty. */
 export function SplitList() {
   const q = useSplitList();
   const confirm = useConfirmSplit();
+  const confirmValues = useConfirmSplitValues();
   const reject = useRejectSplit();
   const revoke = useRevokeSplit();
   const restore = useRestoreSplit();
@@ -155,11 +369,13 @@ export function SplitList() {
   const [showDismissed, setShowDismissed] = useState(false);
   const busy =
     confirm.isPending ||
+    confirmValues.isPending ||
     reject.isPending ||
     revoke.isPending ||
     restore.isPending ||
     dismiss.isPending ||
     undoDismiss.isPending;
+  // a refused Confirm with other values is shown in its own form (the server's sentence), not here
   const failed = [confirm, reject, revoke, restore, dismiss, undoDismiss].find((m) => m.isError);
 
   if (q.isError) {
@@ -307,6 +523,7 @@ export function SplitList() {
                         {rejectLine()}
                       </span>
                     </div>
+                    <ConfirmValues s={s} busy={busy} send={confirmValues} />
                   </div>
                   <Sides s={s} />
                 </li>
@@ -317,7 +534,9 @@ export function SplitList() {
             A split is confirmed on its own only when two independent sources agree on it (the SEC filing and
             Massive.com exactly, or either one with the price tape). Confirmed splits are read by the price loader, the
             insider price screen and the market cap, and a confirmed split lifts the split-night hold on that
-            company's price triggers. A confirmed split can be revoked and a rejected one restored.
+            company's price triggers. A confirmed split can be revoked and a rejected one restored. When neither
+            source states the split right, confirm it with the values from a document you cite; the stored tape is
+            checked against them first.
           </div>
         </div>
       )}
@@ -330,7 +549,8 @@ export function SplitList() {
           <ul className="adm-problems adm-quietrows">
             {announced.map((s) => (
               <li key={s.version_id}>
-                <Header s={s} /> <span className="adm-sub">{s.decided_by}</span>{" "}
+                <Header s={s} /> <span className="adm-sub">{s.decided_by}</span>
+                <Cited s={s} />{" "}
                 <button type="button" className="adm-minibtn" disabled={busy} onClick={() => reject.mutate(id(s))}>
                   Reject
                 </button>
@@ -354,7 +574,8 @@ export function SplitList() {
                       {s.sec.form ?? "SEC"} {s.sec.accession}
                     </ExternalLink>
                   </>
-                ) : null}{" "}
+                ) : null}
+                <Cited s={s} />{" "}
                 <button type="button" className="adm-minibtn" disabled={busy} onClick={() => revoke.mutate(id(s))}>
                   Revoke
                 </button>
