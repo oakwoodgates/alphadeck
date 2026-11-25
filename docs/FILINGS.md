@@ -221,7 +221,9 @@ the located passage verbatim.
 
 - **Screens.** A date more than `HISTORICAL_GAP_DAYS` before the filing is a past split's, never this
   filing's. A 6-K or charter 8-K goes through the restatement screen (`extract_split_screened`), which only
-  removes readings, so a report restating an old split never lists it as new.
+  removes readings, so a report restating an old split never lists it as new. Each filing is read knowing the
+  company's splits already confirmed on the list (`backfill_splits.known_for`): a ratio equal to one, stated as
+  done, is that past split's whatever its age.
 - **The wide-form reader.** A Massive.com split with no agreeing filing in its window gets one more look at the
   company's periodic reports, ADR registrations, prospectuses and information statements around its first
   session (`WIDE_FORMS`; a periodic report from its primary document only). It is a confirmation search, never

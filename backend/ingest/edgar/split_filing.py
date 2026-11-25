@@ -77,6 +77,13 @@ direction word left once "consolidated financial statements" stopped reading as 
   ("has determined to increase the amount of the reverse stock split … at a ratio of 1-for-125") and every
   other ratio only in sentences citing an earlier disclosure ("… at a ratio of 1-for-50 as disclosed on the
   Current Report on Form 8-K filed … on July 13, 2026") — DFNS's 8-K of 2026-07-16 — the revised one stands.
+- a KNOWN split (2026-11-25): the caller passes the security's splits already CONFIRMED on the list and in
+  effect by the filing's date (``known``, ``KnownSplit``). A ratio equal to one of them, in a sentence that
+  states it as DONE ("implemented", "effected", "completed", "restated to reflect", "as previously disclosed";
+  never "to be effected"), is that past split's WHATEVER ITS AGE: GCTK's 8-K of 2026-10-22 restates "On August
+  28, 2026, the Company implemented a 1-for-15 reverse stock split" (55 days back) beside its new 1-for-2. Not
+  when that sentence dates it away from the known split (another split of the same ratio), nor when the filing's
+  own date is the known split's (the filing is that split's evidence).
 
 After those, **exactly one** distinct ratio must remain, or the extractor ABSTAINS and says why: none found,
 only a range, only a past split, two different ratios, a word and its digit restatement disagreeing, or no
@@ -129,6 +136,7 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -474,6 +482,39 @@ _FUTURE = re.compile(
     r"\b(?:will|shall)\b|\bexpect(?:s|ed)?\s+to\b|\banticipat\w*\s+to\b|\bintends?\s+to\b", re.I
 )
 
+# A KNOWN split (2026-11-25) — one the caller holds as CONFIRMED on the split list for this security, in effect by
+# the filing's date (``KnownSplit``). A filing restating it is no news, however recent: GCTK's 8-K of 2026-10-22
+# says "On August 28, 2026, the Company implemented a 1-for-15 reverse stock split" (55 days back, inside
+# ``HISTORICAL_GAP_DAYS``) beside its new 1-for-2 and abstained on the two; GPUS's 8-K of 2024-11-26 restates
+# "… the one-for-thirty-five reserve stock split that was effectuated on November 25, 2024" (the day before), and
+# its abstain kept a distribution from being set aside; PBM's interim 6-K of 2026-11-19 ("Comparative loss per
+# share has been restated to reflect the 6.25:1 share consolidation completed on February 2, 2026", a run-on
+# table sentence whose other dates are current) and Trio-Tech's 10-Q ("On January 5, 2026, the Company effected a
+# two-for-one forward stock split", in its tables) read as splits with no date. So a mention of a known ratio
+# (exactly, either way round), in a sentence — a run-on one: the window around the ratio — that states it as DONE,
+# is that past split's. Never when the sentence dates it more than ``KNOWN_DATE_TOLERANCE_DAYS`` from the known
+# split's first session (another split of the same ratio), nor when the filing's own date is within that of it
+# (the filing IS that split's evidence: re-reading it changes nothing). GCTK's "August 28" is its legal date; the
+# first session was August 31.
+KNOWN_DATE_TOLERANCE_DAYS = 10
+_DONE = re.compile(
+    r"\b(?:implemented|effected|effectuated|completed|consummated|became\s+effective|took\s+effect|"
+    r"restated\s+to\s+reflect|(?:retroactively|retrospectively)\s+(?:adjusted|restated|applied)|"
+    r"adjusted\s+to\s+reflect|as\s+adjusted\s+for|"
+    r"giving\s+(?:retroactive\s+|retrospective\s+)?effect\s+to|"
+    r"giv(?:e|es|en)\s+(?:retroactive|retrospective)\s+effect\s+to|"
+    r"(?:as\s+)?(?:previously|earlier)\s+(?:disclosed|reported|announced))\b",
+    re.I,
+)
+# … never what is still to come: "to be effected through the filing of an amendment" (Trio-Tech's 8-K of
+# 2025-12-19, announcing the split), "will be implemented", "being effected", "will be proportionately adjusted" —
+# nor any clause that says what WILL happen (``_FUTURE``: "after giving effect to the reverse split, the Company
+# will have …" announces one)
+_NOT_YET_BEFORE = re.compile(
+    r"\b(?:(?:to|will|shall|would|may|might|can|could|must)\s+(?:not\s+)?be|being)\s+(?:\w+ly\s+)?$",
+    re.I,
+)
+
 # An ADS TERMINATION (2026-11-25): the depositary cancels the ADSs and hands each holder ordinary shares — "each
 # holder of ten (10) ADSs will receive three (3) post-Share Consolidation Class A ordinary shares" (POM's 6-K of
 # 2026-10-19, beside its ordinary shares' own 10-for-1 consolidation). The listed price then moves by the
@@ -583,6 +624,17 @@ class SplitExtraction:
     def about_a_split(self) -> bool:
         """Did the filing talk about a split at all (any ratio mention, operative or not)?"""
         return bool(self.mentions) or self.has_ratio
+
+
+@dataclass(frozen=True)
+class KnownSplit:
+    """A split the caller holds as CONFIRMED on the split list for the filing's security, its first session on or
+    before the filing's date (``extract_split(known=...)``; the module docstring's KNOWN split). ``ratio_from`` ->
+    ``ratio_to`` is old -> new shares, as the list stores it."""
+
+    ratio_from: Decimal
+    ratio_to: Decimal
+    first_session: date
 
 
 # --- documents ----------------------------------------------------------------------------------------------
@@ -1133,13 +1185,76 @@ def _ads_termination(docs: list[_Doc]) -> _Part | None:
     return first
 
 
+def _states_done(clause: str) -> bool:
+    """Does the clause state a split as DONE (``_DONE``; never "to be effected", ``_NOT_YET_BEFORE``, and never in
+    a clause about what WILL happen, ``_FUTURE``)?"""
+    if _FUTURE.search(clause):
+        return False
+    return any(
+        not _NOT_YET_BEFORE.search(clause[max(0, m.start() - 40) : m.start()])
+        for m in _DONE.finditer(clause)
+    )
+
+
+def _set_known_aside(
+    docs: list[_Doc],
+    mentions: list[_Mention],
+    known: tuple[KnownSplit, ...],
+    effective: date | None,
+) -> None:
+    """Mark ``historical`` the mentions of a KNOWN split's ratio (the module docstring) its filing states as DONE
+    (``_states_done``; in a run-on sentence, the window around the ratio) — and, in a filing that dates nothing
+    current of its own (``effective`` is None: it only restates), every other mention of that ratio not about what
+    WILL happen too: CMND's interim 6-K restates its 1-for-40 as "effected" in one sentence and as "holders …
+    received 0.025 of a common share for every one" in another. A filing announcing a NEW split of the same ratio
+    keeps every mention it does not state as done. Never a mention whose sentence dates it away from the known
+    split (another split of the same ratio), nor any when the filing's own date is the known split's
+    (``KNOWN_DATE_TOLERANCE_DAYS`` either way: the filing is its evidence).
+    """
+
+    def near(a: date, b: date) -> bool:
+        return abs((a - b).days) <= KNOWN_DATE_TOLERANCE_DAYS
+
+    def clause(mt: _Mention) -> str:
+        s, e = mt.sentence
+        if e - s > _LONG_SENTENCE:
+            s, e = max(s, mt.pos - _WINDOW_BEFORE), min(e, mt.pos + _WINDOW_AFTER)
+        return docs[mt.doc].match[s:e]
+
+    for k in known:
+        if Decimal(k.ratio_from) <= 0 or Decimal(k.ratio_to) <= 0 or k.ratio_from == k.ratio_to:
+            continue
+        if effective is not None and near(effective, k.first_session):
+            continue  # the filing dates THIS split as its own event: it is its evidence, not a restatement
+        factor = Fraction(k.ratio_from) / Fraction(k.ratio_to)
+        same: list[tuple[_Mention, str]] = []
+        for mt in mentions:
+            if mt.kind not in ("operative", "undirected") or mt.key() not in (factor, 1 / factor):
+                continue
+            c = clause(mt)
+            ds = [x for _, x in _dates(c)]
+            if ds and not any(near(x, k.first_session) for x in ds):
+                continue  # dated, but away from the known split: another split of the same ratio
+            same.append((mt, c))
+        if not any(_states_done(c) for _, c in same):
+            continue  # the filing never says the known split is done: it is not restating it
+        for mt, c in same:
+            if _states_done(c) or (effective is None and not _FUTURE.search(c)):
+                mt.kind = "historical"
+
+
 def _read(
-    documents: list[FilingDocument], *, filed: date | None, wide: bool, strict: bool
+    documents: list[FilingDocument],
+    *,
+    filed: date | None,
+    wide: bool,
+    strict: bool,
+    known: tuple[KnownSplit, ...] = (),
 ) -> _Read:
     """The extraction (``extract_split`` / ``extract_split_screened``). ``filed`` screens dates against the
     filing date; ``strict`` (the restatement screen's second reading) also dates a ratio stated in an undated
     sentence by the date sentence beside it, and never reads a sentence about what WILL happen as a past
-    split's."""
+    split's. ``known``: the KNOWN splits (``_set_known_aside``)."""
     docs = _documents(documents, wide=wide)
     if not docs:
         return _Read(SplitExtraction(abstain_reason="no readable document"), [], [], None, 0)
@@ -1207,6 +1322,7 @@ def _read(
                     ds.extend(near)
         if ds and any(all((a - x).days > HISTORICAL_GAP_DAYS for x in ds) for a in anchors):
             mt.kind = "historical"
+    _set_known_aside(docs, mentions, known, effective)
     if strict and past and not trading and not legal:
         # the filing dates NOTHING currently — every split date it states is a past one — so a ratio it also
         # dates in the past somewhere is that past split's, wherever else it is restated undated: KXIN's interim
@@ -1313,7 +1429,11 @@ def _read(
 
 
 def extract_split(
-    documents: list[FilingDocument], *, filed: date | None = None, wide: bool = False
+    documents: list[FilingDocument],
+    *,
+    filed: date | None = None,
+    wide: bool = False,
+    known: Iterable[KnownSplit] = (),
 ) -> SplitExtraction:
     """Read one filing's split ratio, effective date and located passage (see the module docstring for every
     rule). Pure: the documents in, a ``SplitExtraction`` out — an abstain is a result, never a raise.
@@ -1321,13 +1441,19 @@ def extract_split(
     ``filed`` — the filing date, given for a CATCH-ALL filing (an 8-K read only for its Item 8.01 / 7.01): a
     date more than ``HISTORICAL_GAP_DAYS`` before it is a PAST split's (the filing restates it), never this
     filing's first session, and a ratio stated only beside such dates is a past split's too. ``wide`` keeps the
-    wide forms' own documents (``relevant_documents``).
+    wide forms' own documents (``relevant_documents``). ``known`` — the security's splits already CONFIRMED on
+    the list and in effect by the filing's date (``KnownSplit``): a ratio equal to one, stated as done, is that
+    past split's whatever its age (the module docstring). Empty, the reading is exactly what it was without it.
     """
-    return _read(documents, filed=filed, wide=wide, strict=False).x
+    return _read(documents, filed=filed, wide=wide, strict=False, known=tuple(known)).x
 
 
 def extract_split_screened(
-    documents: list[FilingDocument], *, filed: date, wide: bool = False
+    documents: list[FilingDocument],
+    *,
+    filed: date,
+    wide: bool = False,
+    known: Iterable[KnownSplit] = (),
 ) -> SplitExtraction:
     """THE RESTATEMENT SCREEN (2026-10-24) — for a filing that may restate OLD splits: a 6-K (interim results
     restate the company's past consolidations), a charter 8-K, and every wide form (a 10-Q / 10-K / 20-F does it
@@ -1350,12 +1476,15 @@ def extract_split_screened(
       reading (KXIN's 6-K of 2026-09-16 restates 60 -> 1 undated beside the 15 -> 1 of 2026-03-13 — with the 15
       set aside the 60 would read as its split); the reason becomes ``PAST_RATIO_ONLY`` only when EVERY ratio
       was set aside.
+
+    ``known`` (the KNOWN splits, as ``extract_split``) is applied to both of its readings.
     """
-    bare = _read(documents, filed=None, wide=wide, strict=False)
+    known = tuple(known)
+    bare = _read(documents, filed=None, wide=wide, strict=False, known=known)
     b = bare.x
     if b.effective_date is not None and not _past(b.effective_date, filed):
         return b
-    scr = _read(documents, filed=filed, wide=wide, strict=True)
+    scr = _read(documents, filed=filed, wide=wide, strict=True, known=known)
     s = scr.x
     docs = scr.docs
     # the date: dropped, never replaced

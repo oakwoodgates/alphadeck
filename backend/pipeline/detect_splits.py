@@ -31,9 +31,10 @@ agreeing filing gets one look at the company's periodic reports / ADR registrati
 information statements, each read once ever); an SEC filing read in the window that no Massive.com row explains is
 an SEC-only candidate (``domain.splits.decide_sec_only``); then the tape. Each filing is read as S1 reads it
 (``backfill_splits.screen_of``: a 6-K or a charter 8-K through the restatement screen, which only removes — a
-6-K restating an old split never becomes a new candidate at its old date). A filing that mentions a split the
-list cannot place (no ratio, no date, an extractor abstain) is listed on the run artifact (``unplaced``), never
-dropped silently (#9).
+6-K restating an old split never becomes a new candidate at its old date), knowing the company's splits already
+CONFIRMED on the list (``backfill_splits.known_for``: a ratio equal to one, stated as done, is that past split's
+whatever its age). A filing that mentions a split the list cannot place (no ratio, no date, an extractor abstain)
+is listed on the run artifact (``unplaced``), never dropped silently (#9).
 
 THE PLAN against the stored list (``plan_against``): a split is found by S1's ``match_stored``. A new one is
 appended. A stored one is appended to ONLY when the system wrote its newest version, it is still OPEN
@@ -97,10 +98,13 @@ from ingest import CacheMiss
 from ingest.edgar.client import EdgarClient
 from ingest.polygon_splits import PolygonSplitsError, PolygonSplitSource, default_split_source
 from pipeline.backfill_splits import (
+    ConfirmedSplit,
     Member,
     SecReader,
     _conflicting,
     _group,
+    confirmed_of,
+    confirmed_splits,
     decide_polygon_group,
     distribution_cap,
     match_polygon,
@@ -229,14 +233,25 @@ def detect_security(
     asof: date,
     sec_since: date,
     distribution_max_factor: Decimal | None,
+    confirmed: tuple[ConfirmedSplit, ...] | None = None,
 ) -> SecurityDetection:
     """Every split tonight's evidence states for ONE company (the module docstring). Reads only.
-    ``distribution_max_factor``: D2's bound (``backfill_splits.distribution_cap``)."""
+    ``distribution_max_factor``: D2's bound (``backfill_splits.distribution_cap``). ``confirmed``: the company's
+    splits confirmed on the list (``backfill_splits.confirmed_of``; read here when not given) — every filing is
+    read knowing them."""
     out = SecurityDetection(member=m)
+    if confirmed is None:
+        confirmed = confirmed_splits(conn, m)
     absorbed: set[str] = set()
     for group in _group(list(polygon_rows)):
         g = decide_polygon_group(
-            conn, reader, m, group, asof=asof, distribution_max_factor=distribution_max_factor
+            conn,
+            reader,
+            m,
+            group,
+            asof=asof,
+            distribution_max_factor=distribution_max_factor,
+            confirmed=confirmed,
         )
         d = g.decision
         absorbed.update(s.accession for s in g.read if related(s, group[0]))
@@ -259,7 +274,7 @@ def detect_security(
         out.decisions.append(d)
     # the SEC side on its own: the split filings filed in the lookback that no Massive.com row explains
     refs = reader.refs(conn, m, sec_since, asof)
-    read, unread = reader.read(m, refs)
+    read, unread = reader.read(m, refs, confirmed=confirmed)
     # each filing counted once, whichever window read it
     seen = reader.read_here
     out.filings_read = sum(1 for a in seen if reader.evidence[a] is not None)
@@ -667,6 +682,8 @@ class SplitDetector:
         reader = SecReader(client, memo_dir=_memo_dir(client))
         reader.evidence = self._evidence  # each filing read once a pass, whichever company reads it
         try:
+            # the stored list first: its confirmed splits are the ones each filing is read knowing (a read only)
+            stored = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[sec.id])
             det = detect_security(
                 conn,
                 reader,
@@ -675,13 +692,13 @@ class SplitDetector:
                 asof=self.asof,
                 sec_since=self.sec_since,
                 distribution_max_factor=self.distribution_max_factor,
+                confirmed=confirmed_of(stored),
             )
             self.detections.append(det)
             self.result.checked += 1
             self.result.filings_read += det.filings_read
             self.result.filings_unread += det.filings_unread
             self.result.unplaced.extend(det.unplaced)
-            stored = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[sec.id])
             plan = plan_against(
                 det, stored, asof=self.asof, distribution_max_factor=self.distribution_max_factor
             )

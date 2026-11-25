@@ -539,3 +539,114 @@ def test_with_the_setting_off_a_distribution_waits_for_review_as_before(db, tmp_
     ]
     (v,) = _latest(db, sid)
     assert v.status == STATUS_NEEDS_REVIEW and v.note.startswith("Massive.com only")
+
+
+# --- W2-7 (2026-11-25): a split already confirmed on the list, restated beside a new one -----------------------------
+#
+# GCTK's 8-K of 2026-10-22 (the REAL filing, ``tests/fixtures/splits``; its items from its SGML header) announces a
+# 1-for-2 (first session 10-26) and restates the 1-for-15 of 08-28 / 08-31 that prod's list holds confirmed. The rows
+# are prod's (the steward review's read of 2026-11-25): Massive.com's own ids, the confirmed version's evidence.
+
+GCTK_CIK = "0001506983"
+GCTK_8K = (
+    "0001493152-26-048139",
+    "8-K",
+    date(2026, 10, 22),
+    ["1.01", "2.03", "3.02", "7.01", "9.01"],
+)
+GCTK_DAY = date(2026, 10, 26)
+GCTK_ROW = {
+    "execution_date": GCTK_DAY.isoformat(),
+    "id": "E15650bee4c5e40e44fa5b11023f901cd0fc2d4d63e6dd9da813a1655c136a7d6",
+    "split_from": 2,
+    "split_to": 1,
+    "ticker": "GCTK",
+}
+
+
+def _detect_gctk(db, tmp_path, *, asof: date) -> ds.SplitDetector:
+    body = json.dumps({"results": [GCTK_ROW], "status": "OK"})
+    source = PolygonSplitSource(
+        api_key="test-key-not-real",
+        cache_dir=tmp_path / f"polygon_gctk_{asof.isoformat()}",
+        fetch=lambda url: body,
+        today=lambda: asof,
+    )
+    det = ds.SplitDetector.start(asof=asof, allow_live=True, source=source)
+    ds.run_over_union(
+        db, det, EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False), tickers=["GCTK"]
+    )
+    return det
+
+
+def _gctk_1_for_15_confirmed(db, sid) -> None:
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=date(2026, 8, 31),
+        values={
+            "effective_date": date(2026, 8, 31),
+            "ratio_from": Decimal(15),
+            "ratio_to": Decimal(1),
+            "status": STATUS_CONFIRMED,
+            "confirmed_via": VIA_AUTO,
+            "value_source": "both",
+            "sec_accession": "0001493152-26-040332",
+            "sec_form": "8-K",
+            "sec_filed": date(2026, 8, 27),
+            "sec_url": "https://www.sec.gov/Archives/edgar/data/1506983/000149315226040332/"
+            "0001493152-26-040332-index.htm",
+            "sec_effective_date": date(2026, 8, 31),
+            "sec_date_kind": "trading",
+            "sec_ratio_from": Decimal(15),
+            "sec_ratio_to": Decimal(1),
+            "polygon_id": "E664a48537aa0c93fda53354e4d4cd57e72dfafcf71fd28dae95af170704e4e0f",
+            "polygon_ticker": "GCTK",
+            "polygon_execution_date": date(2026, 8, 31),
+            "polygon_split_from": Decimal(15),
+            "polygon_split_to": Decimal(1),
+            "note": "SEC 8-K 0001493152-26-040332 (filed 2026-08-27): 1-for-15 reverse split, first session "
+            "2026-08-31 and Massive.com agree. 2 SEC filings state it; the earliest is kept.",
+            "valid_from": date(2026, 8, 27),
+        },
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+
+
+def test_gctk_the_nightly_confirms_its_new_split_once_the_old_one_is_on_the_list(db, tmp_path):
+    """Without the 1-for-15 on the list the 8-K abstains on two ratios: the 1-for-2 waits for review and the 8-K is
+    named unplaced (prod's 2026-10-29 reading). With it confirmed there, the 8-K is read knowing it: the 1-for-2 and
+    its first session agree with Massive.com — confirmed, ONE new version (the extraction memo is keyed by what the
+    filing was read knowing, so the next night re-reads it); the 1-for-15 is untouched; a re-run appends nothing.
+    """
+    sid = seed_member(db, "GCTK", GCTK_CIK, [GCTK_8K])
+    asof = date(2026, 10, 29)
+    first = _detect_gctk(db, tmp_path, asof=asof)
+    (v,) = _latest(db, sid)
+    assert (v.key_date, v.status, v.value_source) == (GCTK_DAY, STATUS_NEEDS_REVIEW, "polygon")
+    assert "the extractor abstained — more than one ratio stated: 2->1, 15->1" in v.note
+    (u,) = first.result.unplaced
+    assert (u.accession, u.reason) == (GCTK_8K[0], "more than one ratio stated: 2->1, 15->1")
+    _gctk_1_for_15_confirmed(db, sid)
+    assert split_repo.count_rows(db) == 2
+    second = _detect_gctk(db, tmp_path, asof=asof)
+    assert [a.line for a in second.result.appended] == [
+        "GCTK 1-for-2 reverse split confirmed (8-K + Massive.com; updated)"
+    ]
+    assert second.result.unplaced == []
+    now = {x.key_date: x for x in _latest(db, sid)}
+    v = now[GCTK_DAY]
+    assert (v.status, v.confirmed_via, v.sec_accession) == (STATUS_CONFIRMED, VIA_AUTO, GCTK_8K[0])
+    assert (v.sec_ratio_from, v.sec_ratio_to, v.sec_effective_date, v.sec_date_kind) == (
+        Decimal(2),
+        Decimal(1),
+        GCTK_DAY,
+        "trading",
+    )
+    assert now[date(2026, 8, 31)].status == STATUS_CONFIRMED  # the listed split, untouched
+    assert split_repo.count_rows(db) == 3
+    third = _detect_gctk(db, tmp_path, asof=asof)
+    assert third.result.appended == [] and split_repo.count_rows(db) == 3

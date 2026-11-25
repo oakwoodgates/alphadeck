@@ -156,3 +156,18 @@ extractor each reproduced the reading prod's split list stored (`docs/temp/platf
 | 0001279569-26-001064 | DFSC | 6-K | "a consolidation of its common shares on a 9-to-1 basis", effective 12:01 a.m. / trading 2026-11-16 (read: no ratio) |
 | 0001279569-26-001077 | DFSC | 6-K | the completion of the same 9-to-1 consolidation, trading 2026-11-16 (read: no ratio) |
 | 0001213900-26-110501 | POM | 6-K | terminates its ADR program: ordinary shares consolidate 10 -> 1 while "each holder of ten (10) ADSs will receive three (3)" shares (read: 10 -> 1; now abstains, ADS termination) |
+
+The known past splits (2026-11-25, W2-7) added three full submissions, fetched and trimmed the same way (the SGML
+header plus the documents the extractor reads, each kept whole and byte-exact; for the 10-Q, its own document,
+which the wide reading keeps; every reading of each trimmed file, on the pre-change and the changed extractor, with
+and without the company's confirmed splits, CHECKED identical to its full submission's, and the 10-Q's to its
+standalone primary document's). Each restates a split prod's list already held CONFIRMED (the steward review's read
+of 2026-11-25); on the pre-change extractor each reproduced the reading prod's list stored
+(`docs/temp/platform-fixes-w0-w2-plan-2026-11-25.md` §2). PBM's interim 6-K `0001213900-26-122017` (above, W2-5) is
+the fourth.
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001493152-26-048139 | GCTK | 8-K (1.01, 2.03, 3.02, 7.01, 9.01) | a 1-for-2, trading 2026-10-26, beside "On August 28, 2026, the Company implemented a 1-for-15 reverse stock split" — the listed 1-for-15 of 2026-08-31 (read: two ratios, abstain) |
+| 0001214659-24-019590 | GPUS | 8-K (7.01, 9.01) | a special dividend of preferred stock (record date 2024-12-13); "… the one-for-thirty-five reserve stock split that was effectuated on November 25, 2024" — the listed 1-for-35, the day before (read: no direction, abstain) |
+| 0001437749-26-036465 | TRT | 10-Q | "On January 5, 2026, the Company effected a two-for-one forward stock split", in footnotes beside current dates — the listed 2-for-1 (read: 1 -> 2, no date) |
