@@ -572,9 +572,10 @@ def test_a_6k_restating_an_old_split_never_attaches_its_ratio(name, old):
 # MEASURED over all 1,139 cached basket 6-Ks (2026-10-24): applying the catch-all 8-K screen to 6-Ks unchanged
 # gave these five a wrong or stale date / ratio. The restatement screen never makes a reading more confident.
 REGRESSED_BY_THE_CATCH_ALL_SCREEN = [
-    # CMND (filed 2026-03-12): restates its 1-for-40 of 2025-12-15 and an investee's 1-for-6; the one legal date
-    # is an accounting-standards boilerplate's 2026-01-31 — the catch-all screen read 40 -> 1 on 01-31
-    ("0001213900-26-026965.txt", ("40", "1", "2026-01-31"), (None, "2026-01-31")),
+    # CMND (filed 2026-03-12): restates its 1-for-40 of 2025-12-15 and an investee's 1-for-6 — the catch-all
+    # screen read 40 -> 1. Its one legal date was an accounting-standards boilerplate's "not yet effective for the
+    # three months ended January 31, 2026", which dates nothing since 2026-11-25 (W2-5)
+    ("0001213900-26-026965.txt", ("40", "1", None), (None, None)),
     # CPOP (2026-06-10): a 2023 consolidation and a proxy dated 2026-04-24 — the catch-all screen read 10 -> 1 on
     # the proxy date (the split's first session is 07-13)
     ("0001213900-26-067098.txt", ("10", "1", "2026-04-24"), ("10->1", None)),
@@ -583,8 +584,10 @@ REGRESSED_BY_THE_CATCH_ALL_SCREEN = [
     # KXIN (2026-09-16): restates 60 -> 1 (2024-10-25, also undated) and 15 -> 1 (2026-03-13) — it read 60 -> 1
     ("0001104659-26-108260.txt", ("60", "1", None), (None, None)),
     # RDY (2024-11-05): a 1:5 sub-division "effective October 28, 2024" (the record date) beside two fiscal
-    # dates — it read 10-28 (Massive.com's first session is 11-05)
-    ("0001575872-24-001124.txt", ("1", "5", "2024-10-28"), ("1->5", None)),
+    # dates — the catch-all screen read 10-28 (Massive.com's first session is 11-05). Since 2026-11-25 (W2-5) a
+    # fiscal period end and a standard not yet effective date nothing, so every reading states the filing's own
+    # LEGAL 10-28 — six sessions from Massive.com's, outside the matcher's tolerance: still the operator's
+    ("0001575872-24-001124.txt", ("1", "5", "2024-10-28"), ("1->5", "2024-10-28")),
 ]
 
 
@@ -705,3 +708,188 @@ def test_a_meeting_date_never_makes_its_ratio_a_past_one():
         Decimal(1),
         date(2026, 6, 1),
     )
+
+
+# --- 2026-11-25: the date sentences the split list misread (W2-5) ----------------------------------------------
+#
+# Each filing below is a REAL full submission (``tests/fixtures/splits/README.md``), read the way the nightly reads
+# it (``pipeline/backfill_splits.extract_for``): a catch-all 8-K (Item 8.01 only) with its filing date, a 6-K or a
+# charter 8-K through the restatement screen. Until 2026-11-25 each read as its comment says (prod's stored
+# reading).
+
+
+def _as_the_nightly_reads(name: str, catch_all: bool):
+    docs = documents(name)
+    if catch_all:
+        return extract_split(docs, filed=filed_of(name))
+    return extract_split_screened(docs, filed=filed_of(name))
+
+
+DATE_SENTENCES = [
+    # COPR (8.01 8-K): "effective on the OTC Markets at the open of business on December 15, 2025" names the
+    # session without the word "trade" (read as a LEGAL date) beside the release's dateline (12-16): "2 different
+    # legal dates stated: 2025-12-15, 2025-12-16"
+    (
+        "0001493152-25-028222.txt",
+        True,
+        ("20", "1"),
+        "2025-12-15",
+        "trading",
+        "effective on the OTC Markets at the open of business on December 15, 2025",
+    ),
+    # NVA (6-K): "The first day of trading under the new ratio is expected to be October 29, 2025" carried no
+    # cue: "no first-session or effective date stated"
+    (
+        "0001493152-25-018165.txt",
+        False,
+        ("1", "5"),
+        "2025-10-29",
+        "trading",
+        "The first day of trading under the new ratio is expected to be October 29, 2025",
+    ),
+    # QGEN (6-K): "… January 28, 2025 (the “Effective Date” and the last trading day of the prior ISIN …)" read as
+    # a first session beside the real one: "2 different trading dates stated: 2025-01-28, 2025-01-29"
+    (
+        "0001015820-25-000012.txt",
+        False,
+        ("36", "35"),
+        "2025-01-29",
+        "trading",
+        "Beginning on Wednesday, January 29, 2025",
+    ),
+    # IMCC (6-K): the risk factors' "annual report for the year ended December 31, 2025" read as a first session:
+    # "2 different trading dates stated: 2025-12-31, 2026-08-27"
+    (
+        "0001178913-26-004186.txt",
+        False,
+        ("30", "1"),
+        "2026-08-27",
+        "trading",
+        "on a post-Consolidation basis at the opening of trading on August 27, 2026",
+    ),
+    # SCAG (6-K): the dateline "Nanjing, China, October 22, 2026 /PRNewswire/" in the headline sentence naming the
+    # "Effective Date": "2 different legal dates stated: 2026-10-22, 2026-10-27"
+    (
+        "0001213900-26-113338.txt",
+        False,
+        ("15", "1"),
+        "2026-10-27",
+        "legal",
+        "The ADS Ratio Change will be effective on October 27, 2026",
+    ),
+    # EZRA (charter 8-K): its press release's forward-looking statements name "the June 10, 2026 compliance
+    # deadline" beside "post-split trading price": "2 different trading dates stated: 2026-05-18, 2026-06-10"
+    (
+        "0001493152-26-022840.txt",
+        False,
+        ("40", "1"),
+        "2026-05-18",
+        "trading",
+        "begin trading on Nasdaq on a Reverse Stock Split-adjusted basis on May 18, 2026 at market open",
+    ),
+    # VEEA (charter 8-K): its press release writes "at the market open on August 31 , 2026" (a space before the
+    # comma: the date went unread) after "effective at 4:30 p.m. … on August 28, 2026", so the sentence's one date
+    # read was the legal one: "2 different trading dates stated: 2026-08-28, 2026-08-31"
+    (
+        "0001213900-26-093996.txt",
+        False,
+        ("20", "1"),
+        "2026-08-31",
+        "trading",
+        "will begin trading on a split-adjusted basis when the market opens on August 31, 2026",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "catch_all", "ratio", "when", "kind", "phrase"),
+    DATE_SENTENCES,
+    ids=["COPR", "NVA", "QGEN", "IMCC", "SCAG", "EZRA", "VEEA"],
+)
+def test_the_filing_states_its_first_session(name, catch_all, ratio, when, kind, phrase):
+    x = _as_the_nightly_reads(name, catch_all)
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
+    assert (x.effective_date, x.date_kind, x.date_note) == (date.fromisoformat(when), kind, None)
+    assert phrase in x.passage
+
+
+def test_pbm_period_end_boilerplate_never_dates_its_split():
+    """PBM's interim-results 6-K (filed 2026-11-19) restates its 1-for-6.25 of 2026-02-02; the one date a cue
+    reached was the accounting note's "Accounting Standards Issued But Not Yet Effective … not yet effective for
+    the period ended September 30, 2026", read as the split's LEGAL date 2026-09-30. A period end and a standard
+    not yet effective date nothing (the restated ratio itself is W2-7's: a split already on the list).
+    """
+    x = _as_the_nightly_reads("0001213900-26-122017.txt", False)
+    assert (x.ratio_from, x.ratio_to) == (Decimal("6.25"), Decimal(1))
+    assert x.effective_date is None and x.date_kind is None
+    assert x.date_note == "no first-session or effective date stated"
+    assert "not yet effective" not in x.passage
+
+
+def test_alps_session_cue_outside_a_sentence_about_the_split_dates_nothing():
+    """ALPS's 6-K: "The Authorized Share Capital Changes will be effective at market open on November 9, 2026"
+    ties the date to the split only through a defined term (the share consolidation AND a capital increase). A
+    session cue counts without the word "trade" only in a sentence about the split, so it still dates nothing.
+    """
+    x = _as_the_nightly_reads("0001493152-26-049433.txt", False)
+    assert (x.ratio_from, x.ratio_to) == (Decimal(5), Decimal(1))
+    assert x.effective_date is None
+    assert x.date_note == "no first-session or effective date stated"
+
+
+# --- the date-sentence rules, on direct inputs ------------------------------------------------------------------
+
+
+def test_a_session_cue_in_a_sentence_about_the_split_is_a_trading_date():
+    x = _x(
+        "The 1-for-20 reverse stock split became effective at the open of business on December 15, 2025. The "
+        "certificate effecting the reverse split is effective as of December 12, 2025."
+    )
+    assert (x.effective_date, x.date_kind) == (date(2025, 12, 15), "trading")
+
+
+def test_a_last_day_of_trading_is_never_the_first_session():
+    x = _x(
+        "The 1-for-10 reverse stock split is effective as of 5:00 p.m. on March 1, 2026. The last day of trading "
+        "on a pre-split basis will be March 2, 2026, and the shares will trade on a post-split basis after it."
+    )
+    assert (x.effective_date, x.date_kind) == (date(2026, 3, 1), "legal")
+
+
+@pytest.mark.parametrize(
+    "noise",
+    [
+        # a release's dateline, in a headline that names the effective date
+        "Acme Announces Effective Date of Reverse Stock Split NEW YORK, March 1, 2026 (GLOBE NEWSWIRE) -- Acme "
+        "Corp. today announced the effective date of its reverse stock split.",
+        # the release's own date, cited by the 8-K
+        "On March 1, 2026, the Company issued a press release announcing the effective date of the reverse "
+        "stock split.",
+        # a period end
+        "Share counts for the year ended December 31, 2025 give retroactive effect to the reverse stock split "
+        "as if it were effective then.",
+        # an accounting standard not yet effective
+        "Accounting standards on share consolidations issued but not yet effective will become effective for "
+        "periods beginning on January 1, 2027.",
+        # a deadline
+        "The Company expects post-split trading to cure the deficiency before the June 10, 2026 compliance "
+        "deadline.",
+    ],
+    ids=["dateline", "press-release", "period-end", "not-yet-effective", "deadline"],
+)
+def test_a_date_that_names_something_else_never_dates_a_split(noise):
+    x = _x(f"The 1-for-10 reverse stock split will be effective on March 4, 2026. {noise}")
+    assert (x.effective_date, x.date_kind, x.date_note) == (date(2026, 3, 4), "legal", None)
+
+
+def test_a_date_written_with_a_space_before_its_comma_is_read():
+    x = _x(
+        "The 1-for-20 reverse stock split is expected to become effective at 4:30 p.m. on August 28, 2026 and the "
+        "common stock is expected to begin trading on a post-split basis at the market open on August 31 , 2026."
+    )
+    assert (x.effective_date, x.date_kind) == (date(2026, 8, 31), "trading")
+    y = _x(
+        "The 1-for-20 reverse split became effective as of the market open on December 15 th , 2025."
+    )
+    assert (y.effective_date, y.date_kind) == (date(2025, 12, 15), "trading")

@@ -90,6 +90,16 @@ from 27 July 2026" is a legal cue (ZNB's 6-K of 2026-08-25), and a date a MEETIN
 general meeting of shareholders … held on 10 September 2026", ZNB's charter exhibit) never dates a split — read
 anywhere, as a trading, legal or past date.
 
+The date sentences the split list misread until 2026-11-25 (W2-5), each MEASURED on its real filing: a SESSION
+cue names the first session without the word "trade" in a sentence about the split ("effective on the OTC
+Markets at the open of business on December 15, 2025", COPR); "the first day of trading … is expected to be
+October 29, 2025" is a trading cue (NVA); a sentence naming the LAST session at the old price ("the last trading
+day of the prior ISIN", QGEN) states no first session. A date that NAMES SOMETHING ELSE never dates a split: a
+period end ("the year ended December 31, 2025", IMCC), an accounting standard "not yet effective" (PBM), the
+release's own date (its dateline "Nanjing, China, October 22, 2026 /PRNewswire/", SCAG; "On <date>, the Company
+issued a press release"), a deadline ("the June 10, 2026 compliance deadline", EZRA). A date may carry a space
+before its comma or suffix ("August 31 , 2026", VEEA; "December 15 th , 2025", COPR).
+
 **The restatement screen** (``extract_split_screened`` — 6-Ks, charter 8-Ks, the wide forms) only ever
 REMOVES: a reading whose date is current stands exactly as read; a date more than ``HISTORICAL_GAP_DAYS``
 before the filing is dropped and nothing replaces it (a restated old split, or MEDS's mistyped "May 26, 2025"
@@ -258,19 +268,47 @@ _MONTH = (
     r"(?:January|February|March|April|May|June|July|August|September|October|November|December|"
     r"Jan\.?|Feb\.?|Mar\.?|Apr\.?|Jun\.?|Jul\.?|Aug\.?|Sept?\.?|Oct\.?|Nov\.?|Dec\.?)"
 )
+# "August 31 , 2026" (VEEA's press release) and "December 15 th , 2025" (COPR's) are dates too: a space may
+# sit before the comma or the ordinal suffix
 _DATE = re.compile(
-    rf"\b(?P<m1>{_MONTH})\s+(?P<d1>\d{{1,2}})(?:st|nd|rd|th)?,?\s+(?P<y1>(?:19|20)\d\d)\b|"
+    rf"\b(?P<m1>{_MONTH})\s+(?P<d1>\d{{1,2}})(?:\s?(?:st|nd|rd|th))?\s?,?\s+(?P<y1>(?:19|20)\d\d)\b|"
     rf"\b(?P<d2>\d{{1,2}})(?:st|nd|rd|th)?\s+(?P<m2>{_MONTH}),?\s+(?P<y2>(?:19|20)\d\d)\b|"
     r"\b(?P<y3>(?:19|20)\d\d)-(?P<m3>\d\d)-(?P<d3>\d\d)\b",
     re.I,
 )
 
 _TRADING_WORD = re.compile(r"\btrad(?:e|es|ed|ing)\b", re.I)
+# A SESSION cue names the first session's own moment, so in a sentence about the split it is a trading date
+# without the word "trade": "the Reverse Stock Split, which was effective on the OTC Markets at the open of
+# business on December 15, 2025" (COPR's 8.01 8-K of 2025-12-18, read as a LEGAL date until 2026-11-25)
+_SESSION = (
+    r"market\s+opens?\b|markets\s+open|market\s+opening|opening\s+of\s+(?:the\s+)?(?:market|trading|business)|"
+    r"open\s+of\s+(?:the\s+)?(?:market|business|trading)|commencement\s+of\s+trading"
+)
+_SESSION_CUE = re.compile(_SESSION, re.I)
+# … but never a plan the sentence says was changed: "… a reverse stock split at a ratio of 1-for-6.25, which was
+# intended to become effective at the opening of the market on January 20, 2026, however, … the Company … elected
+# to delay the effectiveness …" (PBM's 6-K of 2026-01-29; its first session is the 02-02 its next sentence states)
+_PLAN_CHANGED = re.compile(
+    r"\b(?:delay(?:s|ed|ing)?|postpon\w*|intended\s+to|originally\s+(?:scheduled|expected|planned|intended))\b",
+    re.I,
+)
+# "The first day of trading under the new ratio is expected to be October 29, 2025" (NVA's 6-K of 2025-10-15)
+_FIRST_SESSION = (
+    r"\bfirst\s+(?:trading\s+)?(?:day|date|session)\s+of\s+trading\b(?=[^.;]{0,160}?\b(?:(?:is|are)\s+"
+    r"(?:expected|anticipated|scheduled|planned)\s+to\s+be|will\s+be)\b)"
+)
 _TRADING_CUE = re.compile(
     r"split[\s-]*adjusted|adjusted\s+basis|post[\s-]+(?:reverse[\s-]+)?(?:stock[\s-]+)?split|"
-    r"post[\s-]+consolidat\w*|consolidated\s+basis|split\s+basis|market\s+opens?\b|markets\s+open|"
-    r"market\s+opening|opening\s+of\s+(?:the\s+)?(?:market|trading|business)|"
-    r"open\s+of\s+(?:the\s+)?(?:market|business|trading)|commencement\s+of\s+trading",
+    rf"post[\s-]+consolidat\w*|consolidated\s+basis|split\s+basis|{_SESSION}|{_FIRST_SESSION}",
+    re.I,
+)
+# The LAST session at the old price is never the first at the new one: "The last day of trading of the pre-split
+# shares … is planned to be Tuesday, January 28, 2025", "… January 28, 2025 (the “Effective Date” and the last
+# trading day of the prior ISIN / CUSIP / WKN)" (QGEN's 6-K of 2025-01-16) — a sentence naming it gives no trading
+# date
+_LAST_SESSION = re.compile(
+    r"\b(?:last|final)\s+(?:trading\s+(?:day|date|session)|(?:day|date|session)\s+(?:of|for)\s+trading)\b",
     re.I,
 )
 # "the first date when the Company's ordinary shares will begin trading … after implementation of the reverse
@@ -297,6 +335,50 @@ _MEETING_BEFORE = re.compile(
     re.I,
 )
 _MEETING_LOOKBACK = 120
+
+# A date that NAMES SOMETHING ELSE never dates a split (``_dates(dating=True)``) — each was read as one until
+# 2026-11-25:
+# - a period end: "… annual report for the year ended December 31, 2025" (IMCC's risk factors, beside its first
+#   session), "not yet effective for the period ended September 30, 2026" (PBM's interim notes), each date of
+#   "the three months ended September 30, 2026 and September 30, 2025";
+_DATE_WORDS = (
+    rf"(?:{_MONTH}\s+\d{{1,2}}(?:\s?(?:st|nd|rd|th))?\s?,?\s+(?:19|20)\d\d|"
+    rf"\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH},?\s+(?:19|20)\d\d)"
+)
+_PERIOD_END_BEFORE = re.compile(
+    r"\b(?:years?|quarters?|periods?|months|weeks|half[\s-]years?)\s+(?:then\s+)?(?:ended|ending)\s+(?:on\s+)?"
+    rf"(?:{_DATE_WORDS}\s*,?\s*(?:and\s+)?)*$",
+    re.I,
+)
+# - the release's own date: its dateline — a place, the date, then a wire service and/or a dash before the
+#   issuer's name: "Nanjing, China, October 22, 2026 /PRNewswire/ -- Scage Future" (SCAG's 6-K, in a headline
+#   naming the "Effective Date"), "Boise, Idaho, December 16, 2025 (GLOBE NEWSWIRE) — Idaho Copper" (COPR),
+#   "LAKEWOOD, N.J., May 14, 2026 — Reliance" — and "On August 26, 2026, the Company issued a press release",
+#   "Press Release dated December 16, 2025";
+_DATELINE_BEFORE = re.compile(r"(?:,|\s[-–—]{1,2})\s*$")
+_WEEKDAY_BEFORE = re.compile(r"\b(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day,?\s*$", re.I)
+_WIRE = r"[(/]\s*(?:[A-Z][A-Za-z]*\s+)*?(?:[A-Za-z]*(?:WIRE|[Ww]ire)|Newsfile|CNW|EQS[\w-]*)(?:[-\s][A-Za-z]+)?\s*[)/]"
+_DATELINE_AFTER = re.compile(
+    rf"\s*(?:{_WIRE}|[-–—]{{1,2}}\s*(?:{_WIRE}\s*[-–—]{{0,2}}\s*)?(?=[A-Z]))"
+)
+_PRESS_RELEASE_DATED = re.compile(r"\bpress\s+release\b[^;]{0,80}?\bdated\s+(?:as\s+of\s+)?$", re.I)
+_ON_BEFORE = re.compile(r"\b[Oo]n\s+$")
+_ISSUED_A_RELEASE = re.compile(
+    r",?\s+[^;]{0,120}?\b(?:issued|released|published|disseminated|distributed)\s+(?:a|its|the)\s+press\s+release\b",
+    re.I,
+)
+# - a deadline: "… the ability to regain compliance … prior to the June 10, 2026 compliance deadline" (EZRA's press
+#   release, in a forward-looking statement beside "post-split trading price");
+_DEADLINE_AFTER = re.compile(r"\s*(?:[\w-]+\s+){0,2}?deadline\b", re.I)
+_DEADLINE_BEFORE = re.compile(r"\bdeadline\s+(?:of|on|is|was|date\s+(?:of|is))\s+$", re.I)
+# - an accounting standard NOT YET EFFECTIVE — the whole sentence dates nothing: "Accounting Standards Issued But
+#   Not Yet Effective A number of new standards … are not yet effective for the period ended September 30, 2026"
+#   (PBM's 6-K of 2026-11-19: read as its split's legal date).
+_NOT_YET_EFFECTIVE = re.compile(r"\bnot\s+yet\s+effective\b", re.I)
+_STANDARD = re.compile(
+    r"\b(?:accounting|standards?|pronouncements?|ASUs?|IFRSs?|IAS|GAAP|ASC|interpretations?)\b",
+    re.I,
+)
 
 # The SUPERSEDED ratio (DFNS's 8-K of 2026-07-16): a filing that REVISES a ratio it disclosed before restates
 # the old one beside the new — "approved a reverse stock split … at a ratio of 1-for-50 as disclosed on the
@@ -523,18 +605,38 @@ def _parse_date(m: re.Match) -> date | None:
         return None
 
 
-def _dates(text: str) -> list[tuple[int, date]]:
+def _dates(text: str, *, dating: bool = False) -> list[tuple[int, date]]:
     """``(where, date)`` for every date in ``text`` — except a date a MEETING was held on (``_MEETING_BEFORE``),
-    which never dates a split."""
+    which never dates a split. ``dating`` (the dates a cued sentence may give the split) also drops a date that
+    names something else (``_names_something_else``)."""
     out = []
     for m in _DATE.finditer(text):
         d = _parse_date(m)
         if d is None:
             continue
-        if _MEETING_BEFORE.search(text[max(0, m.start() - _MEETING_LOOKBACK) : m.start()]):
+        before = text[max(0, m.start() - _MEETING_LOOKBACK) : m.start()]
+        if _MEETING_BEFORE.search(before):
+            continue
+        if dating and _names_something_else(before, text[m.end() : m.end() + 160]):
             continue
         out.append((m.start(), d))
     return out
+
+
+def _names_something_else(before: str, after: str) -> bool:
+    """Is the date between ``before`` and ``after`` a period end, the release's own date or a deadline — never
+    a split's date?"""
+    if _PERIOD_END_BEFORE.search(before) or _PRESS_RELEASE_DATED.search(before):
+        return True
+    if _DEADLINE_BEFORE.search(before) or _DEADLINE_AFTER.match(after):
+        return True
+    if _ON_BEFORE.search(before) and _ISSUED_A_RELEASE.match(after):
+        return True
+    return bool(
+        _DATELINE_BEFORE.search(before)
+        and not _WEEKDAY_BEFORE.search(before)
+        and _DATELINE_AFTER.match(after)
+    )
 
 
 # --- sentences ----------------------------------------------------------------------------------------------
@@ -738,21 +840,32 @@ def _cued_dates(
     docs: list[_Doc], cue: re.Pattern, *, need_trading: bool
 ) -> list[tuple[date, int, tuple[int, int], int]]:
     """``(date, doc, sentence, where)`` for every sentence carrying ``cue`` (and, for a trading sentence, a word
-    about trading): its only date, or the first date after the cue when it has several."""
+    about trading — or, in a sentence about the split, a SESSION cue): its only date, or the first date after the
+    cue when it has several. A date that names something else is none (``_dates(dating=True)``); a sentence
+    about an accounting standard not yet effective gives no date, one naming the LAST session no trading date.
+    """
     out = []
     for di, d in enumerate(docs):
         for s, e in d.spans:
             sent = d.match[s:e]
+            about = _SPLIT_CUE.search(sent) is not None
             cm = cue.search(sent)
-            if cm is None and need_trading and _SPLIT_CUE.search(sent):
+            if cm is None and need_trading and about:
                 cm = _TRADING_START.search(sent)  # "begin trading … after … the reverse split"
             if cm is None:
                 continue
-            if need_trading and not _TRADING_WORD.search(sent):
+            if need_trading and not (
+                _TRADING_WORD.search(sent)
+                or (about and _SESSION_CUE.search(sent) and not _PLAN_CHANGED.search(sent))
+            ):
                 continue
-            if not need_trading and not _SPLIT_CUE.search(sent):
+            if need_trading and _LAST_SESSION.search(sent):
+                continue  # the last session at the old price (QGEN)
+            if not need_trading and not about:
                 continue
-            ds = _dates(sent)
+            if _NOT_YET_EFFECTIVE.search(sent) and _STANDARD.search(sent):
+                continue  # an accounting standard's effective date (PBM)
+            ds = _dates(sent, dating=True)
             if not ds:
                 continue
             if len({x for _, x in ds}) == 1:
