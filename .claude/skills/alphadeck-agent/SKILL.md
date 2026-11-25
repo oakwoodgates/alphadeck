@@ -29,8 +29,9 @@ same tools over HTTP at `<origin>/mcp`, signed in with the user's own token or a
    select:mcp__alphadeck-prod__get_clock,mcp__alphadeck-prod__list_theses,mcp__alphadeck-prod__get_thesis,mcp__alphadeck-prod__get_call,mcp__alphadeck-prod__get_data_flags,mcp__alphadeck-prod__get_display_signals,mcp__alphadeck-prod__get_decisions,mcp__alphadeck-prod__lookup_ticker,mcp__alphadeck-prod__list_dashboards,mcp__alphadeck-prod__read_dashboard,mcp__alphadeck-prod__get_triage,mcp__alphadeck-prod__get_discovery,mcp__alphadeck-prod__get_extract,mcp__alphadeck-prod__get_onboarding
    ```
 
-   A steward adds `,mcp__alphadeck-prod__get_splits,mcp__alphadeck-prod__get_admin_status` to that line (a plain
-   user's session does not list them). Read their descriptions first. The recipes name tools without the `mcp__alphadeck-prod__` prefix.
+   A steward adds
+   `,mcp__alphadeck-prod__get_splits,mcp__alphadeck-prod__get_admin_status,mcp__alphadeck-prod__get_shared_facts,mcp__alphadeck-prod__get_insider_holds,mcp__alphadeck-prod__get_admin_onboarding`
+   to that line (a plain user's session does not list them). Read their descriptions first. The recipes name tools without the `mcp__alphadeck-prod__` prefix.
 3. **The clock.** `get_clock` first. An omitted `asof` is the API's `current_night`; a read at `asof=T` is judged by
    the API on the public clock (the server derives no date). `source: record` is the nightly call of record; `source:
    live` is a recompute.

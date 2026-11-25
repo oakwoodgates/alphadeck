@@ -78,7 +78,7 @@ The lifetimes are constants in `store.py` (`CONSENT_TTL`, `CODE_TTL`, `ACCESS_TT
 ### Scopes and the role cap
 
 Two scopes (`store.SCOPES`): `read` (cards, calls, decisions, ratified facts) and `steward` (the Admin readouts the
-two steward tools read). Every user can grant `read`, which is always on the consent page and added when an app
+five steward tools read). Every user can grant `read`, which is always on the consent page and added when an app
 asked for nothing. Only a super admin can grant `steward` (`store.grantable`); a plain user sees it struck through
 and Allow leaves it out. At the API, a token without `write` (none carries it) answers 403 on every non-GET
 request, and the role is `super_admin` only when the user is one and the token carries `steward`, so a steward's

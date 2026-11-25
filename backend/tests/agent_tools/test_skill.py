@@ -150,7 +150,7 @@ def test_the_setup_select_line_names_all_fourteen_tools_and_can_be_pasted():
     assert names == [f"mcp__alphadeck-prod__{t}" for t in TOOLS]  # a plain user's paste still loads
 
 
-def test_the_steward_line_adds_exactly_the_two_admin_reads_to_the_select_line():
+def test_the_steward_line_adds_exactly_the_five_admin_reads_to_the_select_line():
     text = " ".join(_text().split())  # the sentence wraps across lines
     match = re.search(r"A steward adds `([^`]+)` to that line", text)
     assert match, "the setup names what a steward adds"
@@ -159,5 +159,8 @@ def test_the_steward_line_adds_exactly_the_two_admin_reads_to_the_select_line():
     assert added.removeprefix(",").split(",") == [
         "mcp__alphadeck-prod__get_splits",
         "mcp__alphadeck-prod__get_admin_status",
+        "mcp__alphadeck-prod__get_shared_facts",
+        "mcp__alphadeck-prod__get_insider_holds",
+        "mcp__alphadeck-prod__get_admin_onboarding",
     ]
     assert "does not list them" in text  # a plain user's session never lists them

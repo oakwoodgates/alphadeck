@@ -305,7 +305,7 @@ def test_b_sees_only_b(world):
         return init, tools, replies, foreign
 
     init, tools, replies, foreign = run_as(world["tokens"]["b"], body)
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.9.0")
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.10.0")
     assert {t.name for t in tools.tools} == TOOLS and len(tools.tools) == 14
     listed, thesis, call, flags, ticker = replies
     for r in replies:
@@ -357,7 +357,7 @@ def test_fifty_interleaved_calls_each_answer_their_own_caller(world):
         assert cards[other]["id"] not in _text(r)
 
 
-# --- 8.5 the steward lists the two Admin reads; a plain user never sees them -------------------------------------
+# --- 8.5 the steward lists the Admin reads; a plain user never sees them -------------------------------------
 
 
 def _seed_needs_review_split(db, sid) -> uuid.UUID:
@@ -390,13 +390,19 @@ def _seed_needs_review_split(db, sid) -> uuid.UUID:
     return seeded.id
 
 
-def test_the_steward_lists_sixteen_tools_and_a_plain_user_fourteen(world):
+def test_the_steward_lists_nineteen_tools_and_a_plain_user_fourteen(world):
     async def names(session, init):
         return sorted(t.name for t in (await session.list_tools()).tools)
 
     steward = run_as(world["tokens"]["s"], names)
-    assert len(steward) == 16
-    assert sorted(set(steward) - TOOLS) == ["get_admin_status", "get_splits"]
+    assert len(steward) == 19
+    assert sorted(set(steward) - TOOLS) == [
+        "get_admin_onboarding",
+        "get_admin_status",
+        "get_insider_holds",
+        "get_shared_facts",
+        "get_splits",
+    ]
     for who in ("a", "b"):
         listed = run_as(world["tokens"][who], names)
         assert len(listed) == 14 and set(listed) == TOOLS
@@ -431,6 +437,57 @@ def test_the_steward_reads_the_split_list_and_the_status_the_api_serves(world, d
     )
 
 
+def _seed_flagged_share_count(db, sid) -> None:
+    """One flagged share-count candidate, with no value shown, on the world's synthetic security (the DATA tenant):
+    the queue then holds one company."""
+    from repositories import platform_value_repo
+
+    platform_value_repo.append_candidate(
+        db,
+        security_id=sid,
+        fact_type="shares_outstanding",
+        outcome="flag",
+        flags=["dual-class"],
+        source="cover",
+        source_ref="https://www.sec.gov/Archives/edgar/data/1/000000000126000001/doc.htm",
+        event_date=date(2026, 5, 15),
+        shares=12_345_678,
+    )
+    db.commit()
+
+
+def test_the_steward_reads_the_three_panels_the_api_serves(world, db):
+    _seed_flagged_share_count(db, world["sid"])
+    rest = TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
+    bearer = {"authorization": f"Bearer {world['tokens']['s']}"}
+    api_queue = rest.get("/admin/platform-values/queue?limit=25&offset=0&pen=after", headers=bearer)
+    api_holds = rest.get("/admin/insider-holds", headers=bearer).json()
+    api_onboarding = rest.get("/admin/onboarding", headers=bearer).json()
+    assert api_queue.status_code == 200 and api_queue.json()["total"] == 1
+
+    async def body(session, init):
+        return (
+            await session.call_tool("get_shared_facts", {}),
+            await session.call_tool("get_shared_facts", {"section": "company", "t": "tk01"}),
+            await session.call_tool("get_insider_holds", {}),
+            await session.call_tool("get_admin_onboarding", {}),
+        )
+
+    queue, company, holds, onboarding = run_as(world["tokens"]["s"], body)
+    for r in (queue, company, holds, onboarding):
+        assert not r.is_error, _text(r)
+    assert queue.structured_content["total"] == api_queue.json()["total"] == 1
+    assert queue.structured_content["pen_only_total"] == api_queue.json()["pen_only_total"]
+    row = queue.structured_content["items"][0]
+    assert row["ticker"] == "TK01" and row["shares"]["candidate"]["shares"] == 12_345_678
+    assert company.structured_content["security_id"] == str(world["sid"])
+    assert company.structured_content["shares"]["awaiting"]["shares"] == 12_345_678
+    assert holds.structured_content["counts"] == api_holds["counts"]
+    assert holds.structured_content["total"] == api_holds["total"]
+    assert onboarding.structured_content["counts"] == api_onboarding["counts"]
+    assert onboarding.structured_content["pending_total"] == len(api_onboarding["pending"])
+
+
 def test_a_plain_user_is_refused_the_steward_reads_at_the_registry_and_at_the_api(world, db):
     _seed_needs_review_split(db, world["sid"])
     seen: list[str] = []
@@ -444,6 +501,10 @@ def test_a_plain_user_is_refused_the_steward_reads_at_the_registry_and_at_the_ap
         return (
             await session.call_tool("get_splits", {}),
             await session.call_tool("get_admin_status", {}),
+            await session.call_tool("get_shared_facts", {}),
+            await session.call_tool("get_shared_facts", {"section": "company", "t": "TK01"}),
+            await session.call_tool("get_insider_holds", {}),
+            await session.call_tool("get_admin_onboarding", {}),
         )
 
     for who in ("a", "b"):
@@ -461,7 +522,13 @@ def test_a_plain_user_is_refused_the_steward_reads_at_the_registry_and_at_the_ap
         assert [p for p in seen if p.startswith("/admin")] == []  # layer 1: never dispatched
     # layer 3, on its own: the API refuses a plain user's PAT at the route
     rest = TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
-    for path in ("/admin/splits", "/admin/status"):
+    for path in (
+        "/admin/splits",
+        "/admin/status",
+        "/admin/platform-values/queue",
+        "/admin/insider-holds",
+        "/admin/onboarding",
+    ):
         r = rest.get(path, headers={"authorization": f"Bearer {world['tokens']['b']}"})
         assert r.status_code == 403 and r.json() == {"detail": "stewards only"}
 

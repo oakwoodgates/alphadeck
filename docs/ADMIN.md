@@ -265,7 +265,7 @@ under `/admin/platform-values`.
 | The Admin page, the company page and every `/admin/*` route | steward | `require_super_admin` on each admin router (`app/main.py`); `tests/app/test_auth_gate.py` |
 | The explanation on the company page (`POST /workbench/facts/explain`) | steward | `require_super_admin` on the route; `STEWARD_PATHS` in `tests/app/test_auth_gate.py` |
 | The Data flags panel's read (`GET /data-flags`) | anyone signed in, their own workspace | `require_user`, `get_workspace` |
-| The same status and splits reads through agent tools (`get_admin_status`, `get_splits`) | a steward's token | the tool scope ([AGENT_TOOLS](AGENT_TOOLS.md)) |
+| The same panels' reads through agent tools (`get_admin_status`, `get_splits`, `get_shared_facts`, `get_insider_holds`, `get_admin_onboarding`) | a steward's token | the tool scope ([AGENT_TOOLS](AGENT_TOOLS.md)) |
 | The artifacts the page reads | machine (the nightly and its jobs) | the cron sidecar |
 | Restore | operator, by hand | no route exists |
 

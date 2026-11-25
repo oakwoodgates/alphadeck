@@ -43,7 +43,14 @@ _AGENT_TOOLS = Path(server_mod.__file__).resolve().parent
 STEWARD_PRINCIPAL = Principal(frozenset({"read", "steward"}), "s", "pat")
 PLAIN_PRINCIPAL = Principal(frozenset({"read"}), "u", "pat")
 THROWAWAY = "zz_steward_probe"
-STEWARD_TOOLS = {"get_splits", "get_admin_status"}  # the two registered with scope="steward"
+# the tools registered with scope="steward": the split list, the status and the three panel reads
+STEWARD_TOOLS = {
+    "get_splits",
+    "get_admin_status",
+    "get_shared_facts",
+    "get_insider_holds",
+    "get_admin_onboarding",
+}
 
 
 def _client() -> ApiClient:
@@ -159,7 +166,7 @@ def test_no_principal_behaves_as_plain(gated):
     assert json.loads(called.content[0].text)["code"] == "forbidden"
 
 
-# --- the two steward reads: the three layers, each tested with the others bypassed -------------------------------
+# --- the steward reads: the three layers, each tested with the others bypassed -------------------------------
 
 
 def _steward_call(
@@ -184,11 +191,13 @@ def _steward_call(
     return asyncio.run(go())
 
 
-def test_the_steward_lists_sixteen_tools_and_a_plain_principal_fourteen():
+def test_the_steward_lists_nineteen_tools_and_a_plain_principal_fourteen():
     names, _ = _steward_call(FakeApi(), STEWARD_PRINCIPAL)
-    assert names == TOOLS | STEWARD_TOOLS and len(names) == 16
+    assert names == TOOLS | STEWARD_TOOLS and len(names) == 19
+    assert {"get_shared_facts", "get_insider_holds", "get_admin_onboarding"} <= names
     names, _ = _steward_call(FakeApi(), PLAIN_PRINCIPAL)
     assert names == TOOLS and len(names) == 14
+    assert not names & STEWARD_TOOLS  # a plain principal lists none of the steward tools
 
 
 def _listing(principal) -> dict:
@@ -208,7 +217,7 @@ def _listing(principal) -> dict:
 def test_every_tools_output_schema_documents_the_nightly_window_note():
     """E41: the hosted endpoint adds ``nightly_window: true`` inside the window; no handler sets it."""
     tools = _listing(STEWARD_PRINCIPAL)
-    assert len(tools) == 16
+    assert len(tools) == 19
     for name, tool in tools.items():
         props = (tool.output_schema or {}).get("properties", {})
         assert "nightly_window" in props, name
@@ -256,7 +265,14 @@ def test_layer_one_the_registry_refuses_a_plain_principal_before_any_request(too
 
 
 @pytest.mark.parametrize(
-    "tool,path", [("get_splits", "/admin/splits"), ("get_admin_status", "/admin/status")]
+    "tool,path",
+    [
+        ("get_splits", "/admin/splits"),
+        ("get_admin_status", "/admin/status"),
+        ("get_shared_facts", "/admin/platform-values/queue"),
+        ("get_insider_holds", "/admin/insider-holds"),
+        ("get_admin_onboarding", "/admin/onboarding"),
+    ],
 )
 def test_layer_three_the_apis_403_answers_forbidden_with_the_registry_bypassed(tool, path):
     saved = dict(server_mod.SCOPES)
@@ -298,9 +314,9 @@ def _prompts(principal, *, get: str | None = None, arguments: dict | None = None
     return asyncio.run(go())
 
 
-def test_the_steward_lists_sixteen_tools_and_eight_prompts_a_plain_principal_fourteen_and_seven():
+def test_the_steward_lists_nineteen_tools_and_eight_prompts_a_plain_principal_fourteen_and_seven():
     names, tools, _ = _prompts(STEWARD_PRINCIPAL)
-    assert len(names) == 8 and "splits-review" in names and len(tools) == 16
+    assert len(names) == 8 and "splits-review" in names and len(tools) == 19
     names, tools, _ = _prompts(PLAIN_PRINCIPAL)
     assert len(names) == 7 and "splits-review" not in names and len(tools) == 14
     names, tools, _ = _prompts(None)  # no principal at all is plain
