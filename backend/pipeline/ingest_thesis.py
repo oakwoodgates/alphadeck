@@ -65,9 +65,11 @@ from ingest.edgar.form8k import ingest_form8k
 from ingest.edgar.schedule13 import ingest_schedule13
 from ingest.edgar.submissions import (
     DelistingFiling,
+    Deregistration,
     FormerName,
     NameChangeFiling,
     delisting_filings,
+    deregistration,
     edgar_tickers,
     entity_name,
     fetch_submissions,
@@ -231,6 +233,11 @@ class NameResult:
     edgar_name: str | None = None
     former_names: tuple[FormerName, ...] = ()
     name_change_filings: tuple[NameChangeFiling, ...] = ()
+    # W4-2 — the DEREGISTRATION EVIDENCE, off the same cached submissions (zero extra fetches): the newest
+    # Form 15 and the 8-K events filed in the 45 days up to it, with their item codes
+    # (``submissions.deregistration``). A fact, never a judgment: the tape monitor puts it on a never-priced
+    # row EDGAR lists no symbol for (``pipeline/tape_health.py``); None = no Form 15, or not read.
+    deregistration: Deregistration | None = None
     # Q18 — every FILING a leg skipped this pass (``ingest.skips``): a Form 4 it could not fetch or parse,
     # a 13D-family filing that is the owner's own outbound stake, a 13D/G whose filer identity did not
     # resolve. The counts above are unchanged; this names the filings so the cron can count the ones that
@@ -830,6 +837,7 @@ def _held_result(
         edgar_name=stop.current_name,
         former_names=stop.formers,
         name_change_filings=stop.renames,
+        deregistration=stop.deregistration,
         lock_waited_s=round(busy.waited_s, 1),
         lock_busy=note,
     )
@@ -845,6 +853,7 @@ class _StopFacts:
     formers: tuple[FormerName, ...] = ()
     renames: tuple[NameChangeFiling, ...] = ()
     mapped: tuple[str, ...] | None = None
+    deregistration: Deregistration | None = None
 
 
 def _tape_edge(conn: psycopg.Connection, sec: Security, *, tenant_id: UUID) -> date | None:
@@ -873,7 +882,8 @@ def _stop_facts(client: EdgarClient, sec: Security) -> _StopFacts:
     tape from these. T2 — the RENAME EVIDENCE rides the same read (the company's current name, its former
     names, and its item-5.03 8-Ks): three more walks of the cached doc, display evidence only. The CIK's
     tickers in SEC's CACHED ticker map ride along (``mapped`` — the rename guard's second source; a disk read
-    memoized per file version, never a fetch; its own try, so a damaged map costs only that input).
+    memoized per file version, never a fetch; its own try, so a damaged map costs only that input). W4-2 — the
+    DEREGISTRATION evidence (the newest Form 15 and the 8-K events before it) is one more walk of the same doc.
     """
     if not sec.cik:
         return _StopFacts()
@@ -890,6 +900,7 @@ def _stop_facts(client: EdgarClient, sec: Security) -> _StopFacts:
             formers=former_names(subs),
             renames=name_change_filings(subs),
             mapped=mapped,
+            deregistration=deregistration(subs),
         )
     except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
         print(f"  warn: {sec.ticker or sec.id} delisting read failed: {e}")
@@ -1106,6 +1117,7 @@ def _ingest_one(
         edgar_name=stop.current_name,
         former_names=stop.formers,
         name_change_filings=stop.renames,
+        deregistration=stop.deregistration,
         ingest_skips=tuple(skips),
         # the EDGAR legs above ran against this CIK (each is gated on it) — the freeze floor's denominator
         edgar_cik=sec.cik or None,

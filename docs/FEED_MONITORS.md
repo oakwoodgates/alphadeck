@@ -75,6 +75,9 @@ cached (`classify_stop`, nothing persisted):
 - **Unpriceable** (loud): no stored bar ever, neither closed nor renamed. When EDGAR lists another symbol for
   it, the same probe fetches each once and marks its class by convention (an EDGAR name ending /ADR; the OTC
   fifth letter, Y an ADR, F a foreign ordinary). Only a same-class candidate with a fresh tape is recommended.
+  When EDGAR lists no symbol and the company filed a Form 15, the row carries that filing and the 8-K events
+  of the 45 days before it (items 1.03, 2.01, 3.03 or 5.01, or an 8-K15D5), worded only with SEC's item titles.
+  The row stays loud; removing the name in the basket editor is the recommended action.
 - Otherwise a **stale** repair row.
 
 The repair is the steward's, because an automatic rename-follower could file another company's tape under a

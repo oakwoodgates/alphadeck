@@ -491,6 +491,7 @@ def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_p
         "edgar_tickers": None,  # T1 — EDGAR's list not read for this row (null, not [])
         "unpriceable": False,  # Q8 — it HAS bars (an edge), so it is not the never-priced class
         "acknowledged": False,  # Q8 — ...and nothing the operator acknowledged
+        "deregistered": None,  # W4-2 — only a never-priced row EDGAR lists nothing for carries a Form 15
     }
     assert rows[1]["ticker"] is None and rows[1]["edge"] is None  # a ticker-less, never-priced name
     assert rows[1]["unpriceable"] is True  # Q8 — no bar ever, neither closed nor renamed
@@ -502,6 +503,64 @@ def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_p
     # T1 — the renamed repair row: marker + EDGAR's symbols, not closed
     assert rows[4]["ticker"] == "VRME" and rows[4]["renamed"] is True
     assert rows[4]["edgar_tickers"] == ["OPNW"] and rows[4]["closed_at"] is None
+
+
+def test_payload_writes_a_never_priced_rows_DEREGISTRATION_with_its_events(tmp_path):
+    """W4-2 — the Form 15 and the 8-K events before it ride the row as the codes EDGAR resolved (the titles
+    are derived from the codes on read, never written as free text); a reader rebuilds the same value.
+    """
+    from ingest.edgar.submissions import Deregistration, DeregistrationEvent
+
+    d = Deregistration(
+        form="15-12G",
+        filed=date(2026, 6, 10),
+        accession="0009999821-26-000002",
+        primary_doc="f15.htm",
+        cik="0009999821",
+        events=(
+            DeregistrationEvent(
+                form="8-K",
+                filed=date(2026, 6, 4),
+                accession="0009999821-26-000001",
+                items=("2.01", "3.03", "5.01"),
+            ),
+        ),
+    )
+    sid = uuid4()
+    res = _thesis_result(
+        recorded=True,
+        tape_stale=(
+            StaleTape(ticker="TKAQ", security_id=sid, edge=None, edgar_tickers=(), deregistered=d),
+        ),
+    )
+    path = write_cron_run_log(
+        [res],
+        asof=date(2026, 9, 8),
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+        tape_stale_days=5,
+    )
+    (row,) = _read(path)["theses"][0]["tape_stale"]
+    assert row["unpriceable"] is True
+    assert row["deregistered"] == {
+        "form": "15-12G",
+        "filed": "2026-06-10",
+        "accession": "0009999821-26-000002",
+        "primary_doc": "f15.htm",
+        "cik": "0009999821",
+        "events": [
+            {
+                "form": "8-K",
+                "filed": "2026-06-04",
+                "accession": "0009999821-26-000001",
+                "items": ["2.01", "3.03", "5.01"],
+            }
+        ],
+    }
+    assert Deregistration.from_json(row["deregistered"]) == d
 
 
 def test_payload_records_a_DISABLED_monitors_threshold_as_zero(tmp_path):

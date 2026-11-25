@@ -17,6 +17,7 @@ from app.routers import admin_price_feed
 from db.session import DEFAULT_TENANT_ID
 from domain.feed_kinds import StaleFeedLabel
 from domain.settings import Settings
+from ingest.edgar.submissions import Deregistration, DeregistrationEvent
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.daily import ThesisRunResult
@@ -164,6 +165,7 @@ def test_the_panel_shows_the_measured_night_renamed_unpriceable_and_closed(clien
         None,
         None,
     )
+    assert u["deregistered"] is None  # W4-2: no Form 15 rode WONDF's row
     (c,) = p["closed"]
     assert c["ticker"] == "GTLS" and c["closed_at"] == "2026-07-16"
     assert p["acknowledged"] == [] and p["applied"] == [] and p["expected_misses"] == 1
@@ -756,3 +758,107 @@ def test_the_RENAMED_adopt_is_unchanged_by_the_class_confirm(client, db):
     assert r.status_code == 200, r.text
     assert _master(db, ids["hllk"])["name"] == "SDR Drone, Inc."
     assert "member_class" not in _detail(db, r.json()["id"])
+
+
+# --- W4-2: a deregistered never-priced name carries the Form 15 and the 8-K events before it ---------------
+
+_DEREG = Deregistration(
+    form="15-12G",
+    filed=date(2026, 5, 20),
+    accession="0009999831-26-000004",
+    primary_doc="f15.htm",
+    cik="0009999831",
+    events=(
+        DeregistrationEvent(
+            form="8-K15D5",
+            filed=date(2026, 5, 20),
+            accession="0009999831-26-000003",
+            items=("1.03", "3.03", "5.01"),
+        ),
+        DeregistrationEvent(
+            form="8-K", filed=date(2026, 5, 7), accession="0009999831-26-000002", items=("1.03",)
+        ),
+    ),
+)
+
+
+def _deregistered_night(db) -> tuple[uuid.UUID, Path]:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "TKBK", "0009999831", "SYNTHETIC CARE INC", "2026-01-01"),
+        )
+    db.commit()
+    at = datetime(2026, 10, 17, 2, 30, tzinfo=timezone.utc)
+    path = write_cron_run_log(
+        [
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="Synthetic Care",
+                recorded=True,
+                tape_stale=(StaleTape("TKBK", sid, None, edgar_tickers=(), deregistered=_DEREG),),
+            )
+        ],
+        asof=_OCT16,
+        allow_live=True,
+        started_at=at,
+        finished_at=at + timedelta(minutes=40),
+        tape_evaluated=True,
+        tape_stale_days=5,
+        rename_probe=RenameProbe(evaluated=True),
+    )
+    return sid, path
+
+
+def test_a_deregistered_never_priced_row_carries_the_form_15_and_the_events_with_SEC_item_titles(
+    client, db
+):
+    """The row stays in the loud unpriceable list (remove is the recommended action, the steward's), and
+    carries the Form 15 (form, date, accession, its EDGAR index link) and each 8-K event with SEC's titles
+    for its items and its own link."""
+    sid, _ = _deregistered_night(db)
+
+    (u,) = _panel(client)["unpriceable"]
+
+    assert u["security_id"] == str(sid) and u["edgar_tickers"] == []
+    d = u["deregistered"]
+    assert (d["form"], d["filed"], d["accession"]) == (
+        "15-12G",
+        "2026-05-20",
+        "0009999831-26-000004",
+    )
+    assert d["filing_url"] == "https://www.sec.gov/Archives/edgar/data/9999831/000999983126000004/"
+    first, second = d["events"]
+    assert first == {
+        "form": "8-K15D5",
+        "filed": "2026-05-20",
+        "accession": "0009999831-26-000003",
+        "items": ["1.03", "3.03", "5.01"],
+        "item_titles": [
+            "Bankruptcy or Receivership",
+            "Material Modification to Rights of Security Holders",
+            "Changes in Control of Registrant",
+        ],
+        "filing_url": "https://www.sec.gov/Archives/edgar/data/9999831/000999983126000003/",
+    }
+    assert second["items"] == ["1.03"] and second["item_titles"] == ["Bankruptcy or Receivership"]
+
+
+def test_the_item_words_come_from_SECs_titles_only_never_from_the_artifact(client, db):
+    """An artifact edited to carry free text (a title, an unknown code, a bad accession) shows only the
+    known codes with SEC's titles, and no link for an accession that is not one."""
+    sid, path = _deregistered_night(db)
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    (row,) = doc["theses"][0]["tape_stale"]
+    row["deregistered"]["events"][0]["items"] = ["1.03", "equity cancelled", "9.99"]
+    row["deregistered"]["events"][0]["item_titles"] = ["all shares cancelled"]
+    row["deregistered"]["events"][1]["accession"] = "javascript:alert(1)"
+    Path(path).write_text(json.dumps(doc), encoding="utf-8")
+
+    (u,) = _panel(client)["unpriceable"]
+
+    first, second = u["deregistered"]["events"]
+    assert first["items"] == ["1.03"] and first["item_titles"] == ["Bankruptcy or Receivership"]
+    assert second["filing_url"] is None

@@ -945,9 +945,35 @@ def _renamed(n: int, *, verified: bool, probed: bool = True) -> dict[str, Any]:
     }
 
 
+def _deregistered(n: int) -> dict[str, Any]:
+    """W4-2 — the Form 15 and the 8-K event before it, as ``AdminDeregistrationOut`` serves them."""
+    cik = 9_999_000 + n
+    return {
+        "form": "15-12G",
+        "filed": "2026-10-20",
+        "accession": f"{n:010d}-26-000052",
+        "filing_url": f"https://www.sec.gov/Archives/edgar/data/{cik}/{n:010d}26000052/",
+        "events": [
+            {
+                "form": "8-K",
+                "filed": "2026-10-14",
+                "accession": f"{n:010d}-26-000051",
+                "items": ["2.01", "3.03", "5.01"],
+                "item_titles": [
+                    "Completion of Acquisition or Disposition of Assets",
+                    "Material Modification to Rights of Security Holders",
+                    "Changes in Control of Registrant",
+                ],
+                "filing_url": f"https://www.sec.gov/Archives/edgar/data/{cik}/{n:010d}26000051/",
+            }
+        ],
+    }
+
+
 def _unpriceable(n: int) -> dict[str, Any]:
     """A never-priced name. The first (``n == 20``) is an ADR member whose EDGAR list also carries a foreign
-    ordinary line the never-priced probe fetched (W4-1): never recommended, the classes differ."""
+    ordinary line the never-priced probe fetched (W4-1): never recommended, the classes differ. The second
+    (``n == 21``, EDGAR lists nothing) deregistered: a Form 15 after an acquisition's 8-K (W4-2)."""
     adr = n == 20
     candidates = [
         {
@@ -969,6 +995,7 @@ def _unpriceable(n: int) -> dict[str, Any]:
         "candidates": candidates if adr else [],
         "recommended": None,
         "probed": adr,
+        "deregistered": _deregistered(n) if n == 21 else None,
     }
 
 

@@ -95,24 +95,23 @@ a decision and has no undo. Each value's history lists the recent extraction att
 
 ### Price feed repairs
 
-One card for every price-feed decision, shown only when it has something. Its inventory is the stopped-feed
-inventory; its decisions are read live from the repair log.
+The stopped-feed inventory's decisions, read live from the repair log; shown only when there is one.
 
-- **Renamed** (loud): a stopped tape whose company EDGAR lists under a symbol not priced, with the nightly splice
-  probe's verdict on each listed symbol and the EDGAR evidence. Adopt sets `price_symbol`; a symbol EDGAR does not
-  list for the name is refused (409; use Set).
-- **Never priced** (loud): Set price symbol (validated by one vendor fetch into a throwaway cache; no bars is 422,
-  nothing written), Acknowledge (kept unpriced, with a reason, revocable) or a link to the basket editor. Adopt
-  takes another symbol EDGAR lists that the probe fetched with bars; another class needs `confirm_class`
-  (setting `price_feed_cross_class_adopt`).
-- **Acknowledged, closed and in force** (quiet): acknowledged names, names that stopped trading, and every standing
-  Adopt or Set whose tape has healed, each with its inverse.
+- **Renamed** (loud): a stopped tape EDGAR lists under another symbol, with the splice probe's verdict on each.
+  Adopt sets `price_symbol`; an unlisted symbol is 409 (use Set).
+- **Never priced** (loud): Set price symbol (one vendor fetch into a throwaway cache; no bars is 422), Acknowledge
+  (kept unpriced, with a reason, revocable) or the basket editor. Adopt takes another listed symbol the probe
+  fetched with bars; another class needs `confirm_class` (setting `price_feed_cross_class_adopt`). A Form 15
+  filer EDGAR lists no symbol for shows the form, date and prior 8-K events with SEC's item titles; removal is
+  recommended.
+- **Acknowledged, closed and in force** (quiet): acknowledged names, closed names, and standing Adopts or Sets
+  whose tape healed, each with its inverse.
 - **Known feed limitations** (quiet): names whose vendor serves no history ([FEED_MONITORS](FEED_MONITORS.md), "Known
-  feed limitations"). A mark is made through the API with a required reason, after one vendor fetch shows the
-  vendor serves bars but no history (409 otherwise); it quiets nothing else and has an undo.
+  feed limitations"), marked through the API with a reason once a vendor fetch shows bars but no history (else
+  409). A mark quiets nothing else and has an undo.
 - **Successor CIK** (loud): a member whose CIK lists no symbol while SEC's ticker map gives its ticker to another
-  registrant. Adopt CIK re-points `security_master.cik` in place (only the recommended successor, read that night;
-  409 for anything else or a CIK another row holds); its undo restores every column it touched.
+  registrant. Adopt CIK re-points `security_master.cik` in place (only the recommended successor; else 409, as for
+  a CIK another row holds); undo restores every touched column.
 
 ### Insider amendments
 

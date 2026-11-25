@@ -25,6 +25,9 @@ What the operator can do here, and its inverse:
 - **Acknowledge, keep unpriced** -> an append-only ``price_feed_ack`` row: the name goes QUIET (no page, a
   quiet count, still listed — #9) and its 404 counts as expected (T3). **Revoke** appends the inverse.
 - **Remove from basket** is NOT here: the panel links to the existing basket editor (no second delete path).
+  A never-priced name EDGAR lists no symbol for and whose company filed a Form 15 (W4-2) carries that filing
+  and the 8-K events before it (``deregistered``, SEC's item titles only), making removal the recommended
+  action; nothing here removes or silences it.
 - **Mark limited history** (0056) — a KNOWN FEED LIMITATION on a name the vendor prices but serves no
   HISTORY for (its chart returns only the current bar under every range — SCE-PG): its tape builds one bar
   per night and can never be restated, repaired or backfilled from the vendor. Evidenced by ONE vendor pull
@@ -70,6 +73,8 @@ from app.deps import get_conn
 from app.schemas_api import (
     AdminAcknowledgeIn,
     AdminCikChangeOut,
+    AdminDeregistrationEventOut,
+    AdminDeregistrationOut,
     AdminFeedLimitationIn,
     AdminFeedLimitationOut,
     AdminFilingRefOut,
@@ -89,8 +94,10 @@ from app.schemas_api import (
     AdminUnpriceableRowOut,
 )
 from domain.feed_kinds import PRICE, feed_kind
+from domain.links import filing_index_url
 from domain.security import SecurityIdentity
 from domain.settings import get_settings
+from ingest.edgar.submissions import Deregistration
 from ingest.prices.source import DEFAULT_RANGE, PriceSource, YahooPriceSource
 from pipeline import successor_cik
 from pipeline.cron_run_log import carried_inventory, is_finished, list_run_logs
@@ -147,6 +154,7 @@ class _Row:
     theses: list[AdminThesisRefOut] = field(default_factory=list)
     first_thesis: str = ""
     vendor_error: str | None = None
+    deregistered: Deregistration | None = None
 
 
 def inventory_doc(payloads: list[dict]) -> dict | None:
@@ -238,6 +246,8 @@ def _inventory(doc: dict) -> dict[UUID, _Row]:
                         ),
                         first_thesis=str(t.get("name") or ""),
                         vendor_error=errors.get(str(sid)),
+                        # W4-2 — the Form 15 evidence (absent on an older artifact: None)
+                        deregistered=Deregistration.from_json(s.get("deregistered")),
                     )
                     rows[sid] = row
                 if ref is not None and all(x.id != ref.id for x in row.theses):
@@ -274,6 +284,31 @@ def _unpriced_probe_rows(doc: dict | None) -> dict[UUID, dict]:
         except Exception:  # noqa: BLE001 — a malformed row is skipped
             continue
     return out
+
+
+def _deregistration_out(d: Deregistration | None) -> AdminDeregistrationOut | None:
+    """W4-2 — the row's Form 15 and its 8-K events, each linked to its EDGAR index; ``item_titles`` are
+    SEC's titles for the known item codes (``Deregistration.from_json`` keeps no other code), never a word
+    from the artifact or a filing."""
+    if d is None:
+        return None
+    return AdminDeregistrationOut(
+        form=d.form,
+        filed=d.filed,
+        accession=d.accession,
+        filing_url=filing_index_url(d.cik, d.accession),
+        events=[
+            AdminDeregistrationEventOut(
+                form=e.form,
+                filed=e.filed,
+                accession=e.accession,
+                items=list(e.items),
+                item_titles=list(e.item_titles),
+                filing_url=filing_index_url(d.cik, e.accession),
+            )
+            for e in d.events
+        ],
+    )
 
 
 def _candidates_out(rec: dict) -> list[AdminProbeCandidateOut]:
@@ -568,6 +603,7 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
                     candidates=_candidates_out(u),
                     recommended=u.get("recommended"),
                     probed=bool(u),
+                    deregistered=_deregistration_out(row.deregistered),
                 )
             )
     acknowledged = [

@@ -4467,6 +4467,61 @@ export interface components {
             alarms: string[];
         };
         /**
+         * AdminDeregistrationEventOut
+         * @description One 8-K-family filing filed in the 45 days up to a Form 15 (W4-2): its form, FILING date and
+         *     accession, the evidence items it carries (1.03 / 2.01 / 3.03 / 5.01; ``[]`` for an 8-K15D5 carrying none)
+         *     and ``item_titles`` — SEC's own titles for them, in order (never a word read from the filing).
+         *     ``filing_url`` = the filing's EDGAR index.
+         */
+        AdminDeregistrationEventOut: {
+            /** Form */
+            form: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Accession */
+            accession: string;
+            /**
+             * Items
+             * @default []
+             */
+            items: string[];
+            /**
+             * Item Titles
+             * @default []
+             */
+            item_titles: string[];
+            /** Filing Url */
+            filing_url?: string | null;
+        };
+        /**
+         * AdminDeregistrationOut
+         * @description A never-priced name's DEREGISTRATION evidence (W4-2): the company's newest Form 15 (15-12B / 15-12G /
+         *     15-15D or a 15F variant: its form, FILING date, accession and EDGAR index link) and the 8-K events filed
+         *     before it (``events``, newest first). Set only when EDGAR lists no symbol for the company. Evidence for
+         *     the steward's removal in the basket editor; nothing is removed or silenced by it.
+         */
+        AdminDeregistrationOut: {
+            /** Form */
+            form: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Accession */
+            accession: string;
+            /** Filing Url */
+            filing_url?: string | null;
+            /**
+             * Events
+             * @default []
+             */
+            events: components["schemas"]["AdminDeregistrationEventOut"][];
+        };
+        /**
          * AdminEditionsCutOut
          * @description The automatic cut (editions S7), as ONE line for seven days after it published the newest Scoreboard
          *     edition — e.g. "Edition 2 · rule change: … · includes data that arrived since Edition 1 · 37
@@ -6987,6 +7042,10 @@ export interface components {
          *     no fetch error, a fresh last bar and the member's own class (``null`` = none). Adopt takes a probed
          *     candidate with bars; one whose class is known to differ from the member's (the foreign ordinary line
          *     for an ADR member) needs the request's ``confirm_class``.
+         *
+         *     W4-2 — ``deregistered``: when EDGAR lists no symbol for the name and the company filed a Form 15, that
+         *     filing and the 8-K events before it (``AdminDeregistrationOut``); removing the name in the basket editor
+         *     is then the recommended action. ``null`` otherwise.
          */
         AdminUnpriceableRowOut: {
             /**
@@ -7022,6 +7081,7 @@ export interface components {
              * @default false
              */
             probed: boolean;
+            deregistered?: components["schemas"]["AdminDeregistrationOut"] | null;
         };
         /**
          * AdoptionCardOut

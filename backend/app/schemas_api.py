@@ -2794,6 +2794,33 @@ class AdminRenamedRowOut(BaseModel):
     change: AdminPriceSymbolChangeOut | None = None
 
 
+class AdminDeregistrationEventOut(BaseModel):
+    """One 8-K-family filing filed in the 45 days up to a Form 15 (W4-2): its form, FILING date and
+    accession, the evidence items it carries (1.03 / 2.01 / 3.03 / 5.01; ``[]`` for an 8-K15D5 carrying none)
+    and ``item_titles`` — SEC's own titles for them, in order (never a word read from the filing).
+    ``filing_url`` = the filing's EDGAR index."""
+
+    form: str
+    filed: date
+    accession: str
+    items: list[str] = []
+    item_titles: list[str] = []
+    filing_url: HttpUrlOut = None
+
+
+class AdminDeregistrationOut(BaseModel):
+    """A never-priced name's DEREGISTRATION evidence (W4-2): the company's newest Form 15 (15-12B / 15-12G /
+    15-15D or a 15F variant: its form, FILING date, accession and EDGAR index link) and the 8-K events filed
+    before it (``events``, newest first). Set only when EDGAR lists no symbol for the company. Evidence for
+    the steward's removal in the basket editor; nothing is removed or silenced by it."""
+
+    form: str
+    filed: date
+    accession: str
+    filing_url: HttpUrlOut = None
+    events: list[AdminDeregistrationEventOut] = []
+
+
 class AdminUnpriceableRowOut(BaseModel):
     """An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)
     — WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor
@@ -2809,6 +2836,10 @@ class AdminUnpriceableRowOut(BaseModel):
     no fetch error, a fresh last bar and the member's own class (``null`` = none). Adopt takes a probed
     candidate with bars; one whose class is known to differ from the member's (the foreign ordinary line
     for an ADR member) needs the request's ``confirm_class``.
+
+    W4-2 — ``deregistered``: when EDGAR lists no symbol for the name and the company filed a Form 15, that
+    filing and the 8-K events before it (``AdminDeregistrationOut``); removing the name in the basket editor
+    is then the recommended action. ``null`` otherwise.
     """
 
     security_id: UUID
@@ -2822,6 +2853,7 @@ class AdminUnpriceableRowOut(BaseModel):
     candidates: list[AdminProbeCandidateOut] = []
     recommended: str | None = None
     probed: bool = False
+    deregistered: AdminDeregistrationOut | None = None
 
 
 class AdminFilingRefOut(BaseModel):
