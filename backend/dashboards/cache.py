@@ -75,7 +75,7 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -93,7 +93,7 @@ from signals.display.relative_strength import BENCHMARKS
 
 T = TypeVar("T")
 
-MAX_ENTRIES = 64
+MAX_ENTRIES = 256
 # piece groups kept, each one ``(workspace, asof, clock, known_at)``: the least recently used goes whole
 MAX_PIECE_GROUPS = 3
 
@@ -496,6 +496,58 @@ class DashboardCache:
                 with self._lock:
                     if self._inflight.get(key) is flight:
                         del self._inflight[key]
+
+    def is_warm(
+        self,
+        conn: psycopg.Connection,
+        slug: str,
+        params: tuple[Hashable, ...],
+        asof: date,
+        *,
+        workspace: UUID,
+    ) -> bool:
+        """Return whether ``(workspace, slug, params, asof)`` is warm in memory or on disk for the
+        current generation without mutating ``_entries`` or computing."""
+        if not isinstance(workspace, UUID):
+            raise TypeError(
+                f"a dashboard cache key needs the caller's workspace id, not {workspace!r}"
+            )
+        key: Key = (workspace, slug, tuple(params), asof)
+        token = self._observe(conn)
+        with self._lock:
+            if self._generation == token and key in self._entries:
+                return True
+        return self._read_disk(token, key) is not None
+
+    def count_warm(
+        self,
+        conn: psycopg.Connection,
+        workspace: UUID,
+        asof: date,
+        entries: Sequence[tuple[str, tuple[Hashable, ...]]],
+    ) -> int:
+        """Observe the generation token once and count how many ``(slug, params)`` entries are warm
+        in memory or on disk for ``(workspace, asof)`` without mutating ``_entries`` or computing.
+        """
+        if not isinstance(workspace, UUID):
+            raise TypeError(
+                f"a dashboard cache key needs the caller's workspace id, not {workspace!r}"
+            )
+        token = self._observe(conn)
+        keys: list[Key] = [(workspace, slug, tuple(params), asof) for slug, params in entries]
+        warm = 0
+        remaining: list[Key] = []
+        with self._lock:
+            in_mem = self._entries if self._generation == token else None
+            for key in keys:
+                if in_mem is not None and key in in_mem:
+                    warm += 1
+                else:
+                    remaining.append(key)
+        for key in remaining:
+            if self._read_disk(token, key) is not None:
+                warm += 1
+        return warm
 
     def clear(self) -> None:
         with self._lock:

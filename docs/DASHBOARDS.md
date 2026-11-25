@@ -151,12 +151,20 @@ entries and that company's pieces. The module docstring holds the contract. For 
 - Catalysts, kill criteria, exclusions and the decisions log move no cache event, so a page reads them live on
   every request (`baskets.with_live_entries`).
 
-The warm-up: the nightly pass empties the cache, so the cron sidecar's last step,
-`python -m pipeline.warm_dashboards`, reads each heavy page's default view for every workspace at the night just
-recorded, and the first morning visit is a hit. It is read-only and fail-open, with the system token and the workspace in
-`X-Alphadeck-Workspace`. `warm_dashboards.PAGES` mirrors each page's default query, and
-`tests/pipeline/test_warm_dashboards.py` proves the warmed read is the next visit's hit; a page whose default query
-changes updates both. Kill switch: `ALPHADECK_WARM_DASHBOARDS` (compose passes it).
+The warm-up works in two layers, both read-only and fail-open:
+
+- **Cron warm-up (`python -m pipeline.warm_dashboards`):** runs at the end of the nightly pass and after Saturday's
+  weekly company-list and term-mentions refreshes, reading each heavy page's default view for every workspace at the
+  night just recorded with the system token and `X-Alphadeck-Workspace`. `warm_dashboards.PAGES` mirrors each page's
+  default query, and `tests/pipeline/test_warm_dashboards.py` proves the warmed read is the next visit's hit; a page
+  whose default query changes updates both.
+- **In-process warm coordinator (`app/routers/dashboards/warm.py`):** runs single-flight in a background thread inside
+  the API process, warming default dashboard views in piece-sharing order plus each live card's Board call
+  (`app/call_cache.py`). Automatic triggers (`app/warm_hook.py`) fire debounced on boot, session activity
+  (`GET /clock`, `GET /theses`), and Admin **Run daily now** completion for `current_night()` only, yielding to a
+  running nightly pass and aborting cleanly if the cache generation moves mid-pass. Users can also inspect warmth and
+  trigger a warm for any `asof` via `GET /dashboards/warm/status`, `POST /dashboards/warm`, and the `/dashboards`
+  index. Kill switches: `ALPHADECK_WARM_DASHBOARDS=0` (all warming) and `ALPHADECK_AUTO_WARM=0` (auto-warm only).
 
 Shared readers; each module's docstring is its contract:
 

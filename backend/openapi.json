@@ -8203,6 +8203,112 @@
         }
       }
     },
+    "/dashboards/warm/status": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Get Warm Status",
+        "description": "Inspect dashboard and Board call cache warmth for the workspace at ``asof``.",
+        "operationId": "get_warm_status_dashboards_warm_status_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "as-of date to inspect (defaults to the server's current night)",
+              "title": "Asof"
+            },
+            "description": "as-of date to inspect (defaults to the server's current night)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarmStatusOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/warm": {
+      "post": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Trigger Warm",
+        "description": "Start (or join) a single-flight background warm-up for the workspace at ``asof``.",
+        "operationId": "trigger_warm_dashboards_warm_post",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "as-of date to warm (defaults to the server's current night)",
+              "title": "Asof"
+            },
+            "description": "as-of date to warm (defaults to the server's current night)"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarmStatusOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/what-changed": {
       "get": {
         "tags": [
@@ -49295,6 +49401,112 @@
           "managing"
         ],
         "title": "Verdict"
+      },
+      "WarmStatusOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "warm": {
+            "type": "integer",
+            "title": "Warm"
+          },
+          "calls_total": {
+            "type": "integer",
+            "title": "Calls Total"
+          },
+          "calls_warm": {
+            "type": "integer",
+            "title": "Calls Warm"
+          },
+          "running": {
+            "type": "boolean",
+            "title": "Running"
+          },
+          "current_page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Page"
+          },
+          "last_started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Started At"
+          },
+          "last_finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Finished At"
+          },
+          "last_wall_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Wall S"
+          },
+          "last_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reason"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "total",
+          "warm",
+          "calls_total",
+          "calls_warm",
+          "running"
+        ],
+        "title": "WarmStatusOut",
+        "description": "Current warmth coverage and background warm-up status for a workspace and as-of date."
       },
       "WhatChangedCardRefOut": {
         "properties": {

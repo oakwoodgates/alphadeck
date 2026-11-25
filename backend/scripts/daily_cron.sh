@@ -661,8 +661,13 @@ master_refresh_loop() {
     wait_until "$(next_weekly_epoch "$(date +%s)")"
     _mr_try=0
     while :; do
-      master_refresh_run && break
-      [ "$?" = 75 ] || break
+      _mr_loop_rc=0
+      master_refresh_run || _mr_loop_rc=$?
+      if [ "${_mr_loop_rc}" = 0 ]; then
+        warm_dashboards "$(last_expected_asof "$(date +%s)")"
+        break
+      fi
+      [ "${_mr_loop_rc}" = 75 ] || break
       _mr_try=$(( _mr_try + 1 ))
       [ "${_mr_try}" -le "${MASTER_REFRESH_RETRIES}" ] || break
       echo "master-refresh: retry ${_mr_try} of ${MASTER_REFRESH_RETRIES} in ${MASTER_REFRESH_RETRY_S}s"
@@ -703,8 +708,13 @@ term_mentions_loop() {
     wait_until "$(next_weekly_epoch "$(date +%s)" "${TERM_MENTIONS_DOW}" "${TERM_MENTIONS_AT}")"
     _tm_try=0
     while :; do
-      term_mentions_run && break
-      [ "$?" = 75 ] || break
+      _tm_loop_rc=0
+      term_mentions_run || _tm_loop_rc=$?
+      if [ "${_tm_loop_rc}" = 0 ]; then
+        warm_dashboards "$(last_expected_asof "$(date +%s)")"
+        break
+      fi
+      [ "${_tm_loop_rc}" = 75 ] || break
       _tm_try=$(( _tm_try + 1 ))
       [ "${_tm_try}" -le "${TERM_MENTIONS_RETRIES}" ] || break
       echo "term-mentions: retry ${_tm_try} of ${TERM_MENTIONS_RETRIES} in ${TERM_MENTIONS_RETRY_S}s"

@@ -155,8 +155,8 @@ def test_the_lru_bound(token_parts):
     assert c.get(CONN, "s", (), date(2026, 6, 2), compute, workspace=W).status == "computed"
 
 
-def test_the_default_bound_is_64():
-    assert cache_mod.MAX_ENTRIES == 64 and DashboardCache()._max == 64
+def test_the_default_bound_is_256():
+    assert cache_mod.MAX_ENTRIES == 256 and DashboardCache()._max == 256
 
 
 def test_single_flight_two_cold_requests_compute_once(token_parts):
@@ -291,3 +291,81 @@ def test_disk_cache_fails_open_on_corrupt_file_and_skips_default_dir_in_pytest(
     c2 = DashboardCache(disk_dir=tmp_path)
     got = c2.get(CONN, "s", (), D, compute, workspace=W)
     assert (got.status, got.value) == ("computed", "v2")
+
+
+def test_is_warm_and_count_warm_in_memory_and_workspace_isolation(token_parts):
+    c, compute = DashboardCache(), Counter()
+    entries = [("rotation-map", ()), ("leaders", ("link", False)), ("hot-board", ("armed",))]
+
+    assert c.is_warm(CONN, "rotation-map", (), D, workspace=W) is False
+    assert c.count_warm(CONN, W, D, entries) == 0
+
+    c.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    c.get(CONN, "leaders", ("link", False), D, compute, workspace=W)
+
+    assert c.is_warm(CONN, "rotation-map", (), D, workspace=W) is True
+    assert c.is_warm(CONN, "hot-board", ("armed",), D, workspace=W) is False
+    assert c.count_warm(CONN, W, D, entries) == 2
+
+    # Workspace isolation: another workspace sees zero warm entries for the same keys
+    assert c.is_warm(CONN, "rotation-map", (), D, workspace=V) is False
+    assert c.count_warm(CONN, V, D, entries) == 0
+    assert compute.calls == 2
+
+
+def test_is_warm_and_count_warm_disk_hit_without_mutating_entries(token_parts, tmp_path):
+    c1, compute = DashboardCache(disk_dir=tmp_path), Counter()
+    c1.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    c1.get(CONN, "market-map", (), D, compute, workspace=W)
+
+    fresh = DashboardCache(disk_dir=tmp_path)
+    assert len(fresh) == 0
+    assert fresh.is_warm(CONN, "rotation-map", (), D, workspace=W) is True
+    assert fresh.is_warm(CONN, "other", (), D, workspace=W) is False
+    assert (
+        fresh.count_warm(
+            CONN,
+            W,
+            D,
+            [("rotation-map", ()), ("market-map", ()), ("other", ())],
+        )
+        == 2
+    )
+    # Read-only introspection never populates or mutates in-memory entries
+    assert len(fresh) == 0
+    # Workspace isolation holds on disk as well
+    assert fresh.is_warm(CONN, "rotation-map", (), D, workspace=V) is False
+    assert fresh.count_warm(CONN, V, D, [("rotation-map", ()), ("market-map", ())]) == 0
+
+
+def test_is_warm_and_count_warm_miss_after_generation_move(token_parts, tmp_path):
+    c = DashboardCache(disk_dir=tmp_path)
+    c.get(CONN, "rotation-map", (), D, lambda: "v1", workspace=W)
+    c.get(CONN, "market-map", (), D, lambda: "v2", workspace=W)
+    entries = [("rotation-map", ()), ("market-map", ())]
+    assert c.is_warm(CONN, "rotation-map", (), D, workspace=W) is True
+    assert c.count_warm(CONN, W, D, entries) == 2
+
+    token_parts["basket"] = 2
+    assert c.is_warm(CONN, "rotation-map", (), D, workspace=W) is False
+    assert c.count_warm(CONN, W, D, entries) == 0
+
+    fresh = DashboardCache(disk_dir=tmp_path)
+    assert fresh.is_warm(CONN, "rotation-map", (), D, workspace=W) is False
+    assert fresh.count_warm(CONN, W, D, entries) == 0
+
+
+def test_count_warm_observes_generation_once(token_parts):
+    calls = 0
+
+    def token_fn(conn):
+        nonlocal calls
+        calls += 1
+        return ("gen", 1)
+
+    c = DashboardCache(token=token_fn)
+    c.get(CONN, "a", (), D, lambda: 1, workspace=W)
+    calls = 0
+    got = c.count_warm(CONN, W, D, [("a", ()), ("b", ()), ("c", ())])
+    assert got == 1
+    assert calls == 1

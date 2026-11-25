@@ -114,6 +114,7 @@ PAGES: tuple[tuple[str, Params], ...] = (
     ("theme-leaderboard", {}),
     # the scopes read; the default scope and `all` follow it, named by its reply (_peer_table_follow_ups)
     ("peer-table/scopes", {}),
+    ("market-map", {}),
     ("insider-tracker", {"days": 30, "silent": False}),
     # the morning page: one read holds every section (its cold cost is mostly Insider Buying's Form 4 read), no param
     ("daily-digest", {}),
@@ -134,6 +135,7 @@ PAGES: tuple[tuple[str, Params], ...] = (
     ("read-through", {}),
     ("rotation-quadrant", {"group_by": "link", "include_silent": False}),
     ("etfs", {"window": "1m"}),
+    ("overlap-map", {"include_silent": False}),
     # the card pickers (the picker read only, never a card)
     ("filing-stream/cards", {}),
     ("chain-map/cards", {}),

@@ -5,6 +5,7 @@ import { AppHeader } from "../AppHeader";
 import { dashboardPath } from "../nav";
 import { groupDashboards, preloadDashboard, type DashboardGroup } from "./groups";
 import { DASHBOARDS } from "./registry";
+import { useDashboardWarmStatus, useTriggerDashboardWarm, type WarmStatusOut } from "./useDashboardWarm";
 
 // The /dashboards page: every registry entry organized by navigation group (the Board first), each linking to its
 // page with ?asof= carried, under its thumbnail (the drawing in the dashboard's own folder). No as-of dial
@@ -15,9 +16,65 @@ type Props = {
   asofParam: string | null;
 };
 
+function DashboardWarmControl({
+  status,
+  isPending,
+  onWarm,
+}: {
+  status: WarmStatusOut;
+  isPending: boolean;
+  onWarm: () => void;
+}) {
+  const doneCount = status.warm + status.calls_warm;
+  const allCount = status.total + status.calls_total;
+  if (allCount === 0) return null;
+
+  const allWarm = doneCount >= allCount;
+  const wallSummary = status.last_wall_s != null ? ` · warmed in ${status.last_wall_s.toFixed(1)}s` : "";
+  const errorSuffix = status.error ? ` · last error: ${status.error}` : "";
+
+  if (status.running) {
+    const runningTitle = status.current_page ? `Warming ${status.current_page}` : "Warming dashboards";
+    return (
+      <div className="dash-warm">
+        <span className="dash-warm-pill running" title={runningTitle}>
+          <span className="dash-warm-dot" aria-hidden="true" />
+          Warming {doneCount}/{allCount}…
+        </span>
+      </div>
+    );
+  }
+
+  if (allWarm) {
+    return (
+      <div className="dash-warm">
+        <span className="dash-warm-pill warm" title={`As of ${status.asof}${wallSummary}${errorSuffix}`}>
+          Warm · {doneCount}/{allCount}
+        </span>
+        <button type="button" className="dash-warm-rewarm" disabled={isPending} onClick={onWarm}>
+          Re-warm
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="dash-warm">
+      <span className="dash-warm-pill cold" title={`As of ${status.asof}${wallSummary}${errorSuffix}`}>
+        {doneCount}/{allCount} warm
+      </span>
+      <button type="button" className="dash-warm-btn" disabled={isPending} onClick={onWarm}>
+        {isPending ? "Starting…" : "Warm now"}
+      </button>
+    </div>
+  );
+}
+
 export function DashboardsIndex({ asofParam }: Props) {
   const [query, setQuery] = useState("");
   const [pickedGroup, setPickedGroup] = useState<DashboardGroup | "all">("all");
+  const warmStatus = useDashboardWarmStatus(asofParam);
+  const triggerWarm = useTriggerDashboardWarm(asofParam);
 
   const allGroups = useMemo(() => groupDashboards(DASHBOARDS), []);
 
@@ -47,6 +104,13 @@ export function DashboardsIndex({ asofParam }: Props) {
       <div className="dash-title">
         <h1>Dashboards</h1>
         <span className="dash-desc">Views across the cards.</span>
+        {warmStatus.data && (
+          <DashboardWarmControl
+            status={warmStatus.data}
+            isPending={triggerWarm.isPending}
+            onWarm={() => triggerWarm.mutate()}
+          />
+        )}
       </div>
       <main className="dash-body">
         {DASHBOARDS.length === 0 ? (

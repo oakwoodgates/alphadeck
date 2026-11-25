@@ -8,7 +8,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app import call_cache, workspace_caps
+from app import call_cache, warm_hook, workspace_caps
 from app.auth import CurrentUser, require_user
 from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.routers.data_flags import MemberDataFlagsOut, read_member_data_flags
@@ -83,6 +83,7 @@ def list_theses(
     response carries no ``call`` key. A read: it writes nothing."""
     if with_call and asof is None:
         raise HTTPException(status_code=422, detail="with_call=true requires asof (YYYY-MM-DD)")
+    warm_hook.request_warm(workspace=workspace, reason="session")
     theses = thesis_repo.list_all(conn, workspace=workspace, include_archived=include_archived)
     if not with_call:
         return [ThesisSummary.from_thesis(t) for t in theses]
