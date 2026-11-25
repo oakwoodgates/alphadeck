@@ -19,6 +19,7 @@ the app host — see ``derived_position`` for the two-clock trap that rule close
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -86,6 +87,31 @@ def list_for_thesis(
             (thesis_id, tenant_id),
         )
         return cur.fetchall()
+
+
+def list_for_theses(
+    conn: psycopg.Connection, thesis_tenants: Sequence[tuple[UUID, UUID]]
+) -> dict[UUID, list[dict[str, Any]]]:
+    """Batch form of ``list_for_thesis``: every decision row per thesis, newest first (``ORDER BY
+    seq DESC``), scoped to each thesis's own ``tenant_id``, in ONE query. Theses with no decision rows
+    map to ``[]``. Read-only."""
+    pairs = list(dict.fromkeys(thesis_tenants))
+    if not pairs:
+        return {}
+    tids = [tid for tid, _ in pairs]
+    tenants = [ten for _, ten in pairs]
+    out: dict[UUID, list[dict[str, Any]]] = {tid: [] for tid in tids}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT d.* FROM operator_decision d "
+            "JOIN unnest(%s::uuid[], %s::uuid[]) AS req(thesis_id, tenant_id) "
+            "  ON d.thesis_id = req.thesis_id AND d.tenant_id = req.tenant_id "
+            "ORDER BY d.thesis_id, d.seq DESC",
+            (tids, tenants),
+        )
+        for r in cur.fetchall():
+            out[r["thesis_id"]].append(r)
+    return out
 
 
 def derived_position(

@@ -165,19 +165,21 @@ def read_scoreboard(
             edition=chosen,
             workspace=workspace,
         )
-        theses_out = []
-        for t in result.theses:
-            # Resolve tickers/CIKs/names in the DATA tenant (the master is shared, domain.scopes):
-            # episode names + the trigger evidence's names.
-            sids = (
-                {e.episode.security_id for e in t.episodes}
-                | {tr.security_id for e in t.episodes for tr in e.triggers_at_arm}
-                | {s.security_id for s in t.operator_spans if s.security_id is not None}
+        # Resolve tickers/CIKs/names ONCE across all theses in the DATA tenant (the master is shared,
+        # domain.scopes): episode names + trigger evidence names + off-record operator span names.
+        all_sids = {
+            sid
+            for t in result.theses
+            for sid in (
+                *(e.episode.security_id for e in t.episodes),
+                *(tr.security_id for e in t.episodes for tr in e.triggers_at_arm),
+                *(s.security_id for s in t.operator_spans if s.security_id is not None),
             )
-            ciks = master.ciks_for(conn, sids, tenant_id=DATA_TENANT_ID)
-            tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID)
-            names = master.names_for(conn, sids, tenant_id=DATA_TENANT_ID)
-            theses_out.append(_scoreboard_thesis_out(t, ciks, tickers, names))
+        }
+        ciks = master.ciks_for(conn, all_sids, tenant_id=DATA_TENANT_ID)
+        tickers = master.tickers_for(conn, all_sids, tenant_id=DATA_TENANT_ID)
+        names = master.names_for(conn, all_sids, tenant_id=DATA_TENANT_ID)
+        theses_out = [_scoreboard_thesis_out(t, ciks, tickers, names) for t in result.theses]
         summary = result.summary  # assemble_scoreboard always fills it
 
         # Record freshness (compute-on-read; the read still writes nothing) — the same staleness
@@ -443,24 +445,23 @@ def get_scoreboard_edition_diff(
         result = edition_diff(
             conn, before=before, after=after, through=through, workspace=current_tenant
         )
-        theses_out = []
-        for t in result.theses:
-            sids = [c.security_id for c in t.companies]
-            tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID) if sids else {}
-            names = master.names_for(conn, sids, tenant_id=DATA_TENANT_ID) if sids else {}
-            theses_out.append(
-                EditionThesisDiffOut(
-                    **t.model_dump(exclude={"companies", "tenant_id"}),
-                    companies=[
-                        EditionCompanyDiffOut(
-                            **c.model_dump(),
-                            ticker=tickers.get(c.security_id),
-                            company_name=names.get(c.security_id),
-                        )
-                        for c in t.companies
-                    ],
-                )
+        all_sids = {c.security_id for t in result.theses for c in t.companies}
+        tickers = master.tickers_for(conn, all_sids, tenant_id=DATA_TENANT_ID)
+        names = master.names_for(conn, all_sids, tenant_id=DATA_TENANT_ID)
+        theses_out = [
+            EditionThesisDiffOut(
+                **t.model_dump(exclude={"companies", "tenant_id"}),
+                companies=[
+                    EditionCompanyDiffOut(
+                        **c.model_dump(),
+                        ticker=tickers.get(c.security_id),
+                        company_name=names.get(c.security_id),
+                    )
+                    for c in t.companies
+                ],
             )
+            for t in result.theses
+        ]
         return ScoreboardEditionDiffResponse(
             before=before_out,
             after=after_out,

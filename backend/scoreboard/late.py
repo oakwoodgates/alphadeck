@@ -67,6 +67,27 @@ def late_call_ids(
     )
 
 
+def late_call_ids_by_thesis(
+    conn: psycopg.Connection,
+    thesis_ids: Sequence[UUID],
+    *,
+    upto: date | None = None,
+    tz: tzinfo | None = None,
+) -> dict[UUID, frozenset[UUID]]:
+    """Batch form of ``late_call_ids``: ``thesis_id -> frozenset of late call ids`` in ONE stamps
+    query. ``upto`` optionally caps at ``asof <= upto`` (matching a Scoreboard / diff read). Read-only.
+    """
+    ids = list(dict.fromkeys(thesis_ids))
+    if not ids:
+        return {}
+    tz = tz or market_tz()
+    grouped: dict[UUID, set[UUID]] = {tid: set() for tid in ids}
+    for s in calls_repo.call_stamps(conn, thesis_ids=ids, upto=upto):
+        if _late(s, tz):
+            grouped[s["thesis_id"]].add(s["id"])
+    return {tid: frozenset(v) for tid, v in grouped.items()}
+
+
 def judge_late_nights(stamps: Iterable[Mapping], *, tz: tzinfo) -> list[LateNight]:
     """PURE: every (thesis, as-of) holding at least one late row, from ``call_stamps``-shaped rows, ordered
     by as-of then thesis name. ``earlier_recorded_at`` = the stamp of the night's winning row under the

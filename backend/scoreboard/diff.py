@@ -51,9 +51,10 @@ from domain.scopes import DATA_TENANT_ID, WorkspaceScope
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
 from replay.scoring import score_episode
-from repositories import editions_repo, thesis_repo
+from repositories import calls_repo, editions_repo, thesis_repo
 from repositories.editions_repo import CauseSet, Edition
-from scoreboard.prices import PgRealizedPrices, market_tape_edge
+from scoreboard.late import late_call_ids_by_thesis
+from scoreboard.prices import PgRealizedPrices
 from scoreboard.record import (
     SNAPSHOT_UNREAD_CARD_KEYS,
     EditionSource,
@@ -617,6 +618,37 @@ def _source(edition: Edition | None) -> TimelineSource:
     return EditionSource(edition) if edition is not None else RecordSource()
 
 
+def _batch_raw_pages(
+    conn: psycopg.Connection,
+    src: TimelineSource,
+    thesis_ids: Sequence[UUID],
+    upto: date,
+) -> dict[UUID, list[calls_repo.LatestCallRow] | list[editions_repo.EditionPageRow]]:
+    """Batch-load raw trimmed pages for every thesis from ``src`` in 1-2 queries, leaving
+    ``CallCard`` validation to per-thesis fault isolation."""
+    if isinstance(src, RecordSource):
+        all_late: frozenset[UUID] = (
+            frozenset().union(*late_call_ids_by_thesis(conn, thesis_ids, upto=upto).values())
+            if src.exclude_late
+            else frozenset()
+        )
+        return calls_repo.latest_records_for_theses(
+            conn,
+            thesis_ids,
+            upto=upto,
+            include_reconstructed=False,
+            exclude_call_ids=all_late,
+            drop_card_keys=SNAPSHOT_UNREAD_CARD_KEYS,
+        )
+    return editions_repo.pages_for_theses(
+        conn,
+        src.edition.id,
+        thesis_ids,
+        upto=upto,
+        drop_card_keys=SNAPSHOT_UNREAD_CARD_KEYS,
+    )
+
+
 def edition_diff(
     conn: psycopg.Connection,
     *,
@@ -637,31 +669,57 @@ def edition_diff(
     # S7 — what the automatic cut's trial proved, when ``after`` was cut from ``before`` (else None: no cause)
     causes = editions_repo.cause_set(conn, before=before, after=after) if after else None
     result.causes = causes is not None
-    # ONE reader per tenant for the whole comparison (the market edge is a per-tenant scan, and a company in
-    # two theses keeps its tape loaded), pinned once like the Scoreboard's per-request readers
-    readers: dict[UUID, MemoPrices] = {}
-    for thesis in thesis_repo.list_all(conn, workspace=workspace, include_archived=True):
-        tenant = DATA_TENANT_ID  # the price tape is DATA (domain.scopes)
-        if tenant not in readers:
-            edge = market_tape_edge(conn, tenant_id=tenant, cap=through)
-            readers[tenant] = MemoPrices(
-                PgRealizedPrices(conn, tenant_id=tenant, cap=through, market_edge=edge)
-            )
-        prices = readers[tenant]
+    theses = thesis_repo.list_all(conn, workspace=workspace, include_archived=True)
+    if not theses:
+        return result
+
+    thesis_ids = [t.id for t in theses]
+    raw_b = _batch_raw_pages(conn, src_b, thesis_ids, through)
+    raw_a = _batch_raw_pages(conn, src_a, thesis_ids, through)
+
+    # Phase 1: parse snapshots per thesis under fault isolation and collect all armed security_ids
+    tenant = DATA_TENANT_ID  # the price tape is DATA (domain.scopes)
+    parsed: dict[UUID, tuple[list[CallSnapshot], list[CallSnapshot]]] = {}
+    errors: dict[UUID, ThesisDiff] = {}
+    armed_sids: set[UUID] = set()
+    for thesis in theses:
         ident = {
             "name": thesis.name,
             "archived": thesis.archived_at is not None,
             "tenant_id": tenant,
         }
         try:
-            # the snapshot timeline only: the card keys it never reads stay in Postgres
-            lean = {"drop_card_keys": SNAPSHOT_UNREAD_CARD_KEYS}
-            b = src_b.read(conn, thesis.id, through, **lean).snaps
-            a = src_a.read(conn, thesis.id, through, **lean).snaps
+            b_snaps = [CallSnapshot.from_card(r.parse_card()) for r in raw_b.get(thesis.id, [])]
+            a_snaps = [CallSnapshot.from_card(r.parse_card()) for r in raw_a.get(thesis.id, [])]
+            parsed[thesis.id] = (b_snaps, a_snaps)
+            for snaps in (b_snaps, a_snaps):
+                for s in snaps:
+                    for m in s.members:
+                        if m.tier == "armed":
+                            armed_sids.add(m.security_id)
+        except Exception as e:  # noqa: BLE001 — one thesis's bad page never blanks the comparison
+            errors[thesis.id] = ThesisDiff(
+                thesis_id=thesis.id, error=f"{type(e).__name__}: {e}", **ident
+            )
+
+    # Phase 2: batch-prefetch all armed securities' price tapes in ONE query, then diff every thesis
+    prices = PgRealizedPrices(conn, tenant_id=tenant, cap=through)
+    prices.prefetch(armed_sids)
+    for thesis in theses:
+        if thesis.id in errors:
+            result.theses.append(errors[thesis.id])
+            continue
+        ident = {
+            "name": thesis.name,
+            "archived": thesis.archived_at is not None,
+            "tenant_id": tenant,
+        }
+        b_snaps, a_snaps = parsed[thesis.id]
+        try:
             one = diff_thesis(
                 thesis.id,
-                b,
-                a,
+                b_snaps,
+                a_snaps,
                 through=through,
                 score=lambda e: score_episode(e, prices),
                 causes=causes,

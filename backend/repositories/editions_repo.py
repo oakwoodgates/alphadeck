@@ -27,10 +27,10 @@ the Scoreboard and the Admin show for seven days after a cut).
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import UUID
 
 import psycopg
@@ -542,7 +542,143 @@ def outcomes_for_thesis(
         }
 
 
+def outcomes_by_thesis(
+    conn: psycopg.Connection,
+    edition_id: UUID,
+    thesis_ids: Sequence[UUID] | None = None,
+) -> dict[UUID, dict[tuple[UUID, date], InkedOutcome]]:
+    """Batch form of ``outcomes_for_thesis``: ``thesis_id -> (security_id, arm_date) -> InkedOutcome``
+    in ONE query."""
+    if thesis_ids is not None and not thesis_ids:
+        return {}
+    sql = (
+        "SELECT thesis_id, security_id, arm_date, exit_by, kind, outcome, night, prices_known_by, "
+        "inked_at FROM edition_outcome WHERE edition_id = %s"
+    )
+    params: list[Any] = [edition_id]
+    if thesis_ids is not None:
+        sql += " AND thesis_id = ANY(%s)"
+        params.append(list(dict.fromkeys(thesis_ids)))
+    out: dict[UUID, dict[tuple[UUID, date], InkedOutcome]] = {}
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        for r in cur.fetchall():
+            out.setdefault(r["thesis_id"], {})[(r["security_id"], r["arm_date"])] = InkedOutcome(
+                thesis_id=r["thesis_id"],
+                security_id=r["security_id"],
+                arm_date=r["arm_date"],
+                exit_by=r["exit_by"],
+                kind=r["kind"],
+                outcome=Outcome.model_validate(r["outcome"]),
+                night=r["night"],
+                prices_known_by=r["prices_known_by"],
+                inked_at=r["inked_at"],
+            )
+    return out
+
+
 # --- the Scoreboard's reads ----------------------------------------------------------------------------
+
+
+class EditionPageRow(NamedTuple):
+    """One frozen ``edition_call`` page for batched Scoreboard / diff reads: carries raw (optionally
+    key-trimmed) card JSONB so each thesis parses inside its own fault-isolation guard."""
+
+    thesis_id: UUID
+    asof: date
+    raw_card: Any
+    risk_signals_invalid: bool = False
+
+    def parse_card(self) -> CallCard:
+        if self.risk_signals_invalid:
+            raise ValueError("malformed card: risk_signals must be a JSON array")
+        return row_to_call({"card": self.raw_card})
+
+
+def pages_for_theses(
+    conn: psycopg.Connection,
+    edition_id: UUID,
+    thesis_ids: Sequence[UUID],
+    *,
+    upto: date,
+    drop_card_keys: Sequence[str] = (),
+) -> dict[UUID, list[EditionPageRow]]:
+    """Batch form of ``pages_for_thesis``: frozen pages for all ``thesis_ids``, ASCENDING, ``asof <=
+    upto``, in ONE query. Raw card JSONB stays unvalidated on ``EditionPageRow`` so callers preserve
+    per-thesis fault isolation. Read-only."""
+    ids = list(dict.fromkeys(thesis_ids))
+    if not ids:
+        return {}
+    if drop_card_keys:
+        card_sql = (
+            "CASE WHEN jsonb_typeof(card) = 'object' THEN card - %s::text[] ELSE card END AS card"
+        )
+        card_params: tuple[Any, ...] = (list(drop_card_keys),)
+    else:
+        card_sql = "card"
+        card_params = ()
+    risk_check_sql = (
+        "(jsonb_typeof(card) = 'object' AND card ? 'risk_signals' "
+        "AND jsonb_typeof(card -> 'risk_signals') <> 'array') AS risk_signals_invalid"
+        if "risk_signals" in drop_card_keys
+        else "FALSE AS risk_signals_invalid"
+    )
+    out: dict[UUID, list[EditionPageRow]] = {tid: [] for tid in ids}
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT thesis_id, asof, {card_sql}, {risk_check_sql} FROM edition_call "
+            "WHERE edition_id = %s AND thesis_id = ANY(%s) AND asof <= %s "
+            "ORDER BY thesis_id, asof",
+            (*card_params, edition_id, ids, upto),
+        )
+        for r in cur.fetchall():
+            out[r["thesis_id"]].append(
+                EditionPageRow(
+                    thesis_id=r["thesis_id"],
+                    asof=r["asof"],
+                    raw_card=r["card"],
+                    risk_signals_invalid=bool(r["risk_signals_invalid"]),
+                )
+            )
+    return out
+
+
+def risk_signals_for_pages(
+    conn: psycopg.Connection,
+    edition_id: UUID,
+    thesis_asofs: Sequence[tuple[UUID, date]],
+    security_ids: Collection[UUID],
+) -> dict[tuple[UUID, date], list[Any]]:
+    """Selective Pass-2 read of ``card -> 'risk_signals'`` elements for the ``edition_call`` pages
+    named by ``(thesis_id, asof)`` whose ``security_id`` is in ``security_ids``, preserving exact wire
+    order (``WITH ORDINALITY``). Returns raw JSONB elements keyed by ``(thesis_id, asof)`` for
+    per-thesis validation. Read-only."""
+    pairs = list(dict.fromkeys(thesis_asofs))
+    sids = sorted({str(sid).lower() for sid in security_ids})
+    if not pairs or not sids:
+        return {}
+    tids = [tid for tid, _ in pairs]
+    asofs = [d for _, d in pairs]
+    out: dict[tuple[UUID, date], list[Any]] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT c.thesis_id, c.asof, r.elem AS risk_signal "
+            "FROM edition_call c "
+            "JOIN unnest(%s::uuid[], %s::date[]) AS req(thesis_id, asof) "
+            "  ON c.thesis_id = req.thesis_id AND c.asof = req.asof "
+            "CROSS JOIN LATERAL jsonb_array_elements("
+            "  CASE WHEN jsonb_typeof(c.card) = 'object' "
+            "        AND jsonb_typeof(c.card -> 'risk_signals') = 'array' "
+            "       THEN c.card -> 'risk_signals' ELSE '[]'::jsonb END"
+            ") WITH ORDINALITY AS r(elem, ord) "
+            "WHERE c.edition_id = %s "
+            "  AND lower(r.elem ->> 'security_id') = ANY(%s::text[]) "
+            "ORDER BY c.thesis_id, c.asof, r.ord",
+            (tids, asofs, edition_id, sids),
+        )
+        for row in cur.fetchall():
+            out.setdefault((row["thesis_id"], row["asof"]), []).append(row["risk_signal"])
+    return out
 
 
 def pages_for_thesis(

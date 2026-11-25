@@ -245,6 +245,28 @@ def basket_size_asof(
     return row["n"] if row is not None else live_fallback
 
 
+def basket_sizes_asof(
+    conn: psycopg.Connection, thesis_ids: Sequence[UUID], known_at: datetime | None
+) -> dict[UUID, int]:
+    """Batch form of ``basket_size_asof``: ``thesis_id -> roster count`` as known at ``known_at`` in
+    ONE query. Uses the identical ``taken_at <= COALESCE(known_at, now())`` predicate and
+    ``taken_at DESC, id DESC`` pick as ``basket_size_asof`` / ``get_asof`` (no lookahead, #1). Theses
+    with no qualifying snapshot are absent so the caller falls back to the live roster count
+    (``live_fallback``). Read-only; the caller owns the transaction."""
+    ids = list(dict.fromkeys(thesis_ids))
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (thesis_id) thesis_id, jsonb_array_length(members) AS n "
+            "FROM basket_snapshot "
+            "WHERE thesis_id = ANY(%s) AND taken_at <= COALESCE(%s, now()) "
+            "ORDER BY thesis_id, taken_at DESC, id DESC",
+            (ids, known_at),
+        )
+        return {r["thesis_id"]: r["n"] for r in cur.fetchall()}
+
+
 def _member_to_snapshot(ordinal: int, m: BasketMember) -> dict[str, Any]:
     """One basket member as a JSON-native snapshot object — the SAME key set and value types the deploy
     seed (migration 0043) builds from the ``basket_member`` columns, so ``md5(members::text)`` agrees
