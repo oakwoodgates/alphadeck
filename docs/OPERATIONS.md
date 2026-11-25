@@ -25,7 +25,7 @@ compose file or a stack script, or add a setting. The procedures live in skills:
 
 ### The stacks
 
-| Stack | Compose project and DB | Ports (app / api / postgres) | Cron | Env file | Runs from |
+| Stack | Compose project and DB | Loopback ports (app / api / postgres) | Cron | Env file | Runs from |
 |---|---|---|---|---|---|
 | prod | `alphadeck`: the base file plus `docker-compose.prod.yml` | 8080 / 8000 / 5544 | on | `.env`, auto-loaded | the main checkout |
 | dev | `alphadeck_dev` | 8081 / 8001 / 5545 | off | `.env.dev` | the main checkout |
@@ -273,7 +273,7 @@ HTTP timeouts, and `OPENFIGI_API_KEY`.
 | `ALPHADECK_MARKET_TZ`, `ALPHADECK_CRON_AT` | `domain/settings.py`, `backend/scripts/daily_cron.sh` | yes, both services |
 | `ALPHADECK_UVICORN_LIMIT_CONCURRENCY` | `backend/Dockerfile` and the overlays' commands | yes, backend |
 | `ALPHADECK_DRAFT_JOBS_MAX_RUNNING`, `ALPHADECK_INGEST_JOBS_MAX_RUNNING`, `ALPHADECK_DB_*_TIMEOUT_S`, `ALPHADECK_JOB_*_TIMEOUT_S` | `domain/settings.py` | yes, backend |
-| `ALPHADECK_PUBLIC_ORIGIN`: the hosted `/mcp` endpoint is available when it is set; set it only behind TLS ([SECURITY](SECURITY.md), "TLS") | `domain/settings.py` | yes, backend |
+| `ALPHADECK_PUBLIC_ORIGIN`: the hosted `/mcp` endpoint is available when it is set; needs TLS off localhost ([SECURITY](SECURITY.md), "TLS") | `domain/settings.py` | yes, backend |
 | `ALPHADECK_OPS_TOKEN` | read from `.env` by `deploy.sh` | no container gets it |
 | `FORK_NAME`, `FORK_SLOT`, the three port variables, `FORK_PIP_EXTRAS` | `.env.fork` | compose interpolation |
 
@@ -285,7 +285,7 @@ The cron's schedule settings are in [CRON_SIDECAR](CRON_SIDECAR.md); the sign-in
 - `refresh-fork.sh` still runs the platform-facts move after migrating (a no-op on a dump taken after the
   cutover) and keeps `--v1-state`.
 - The sig stack duplicates what a fork does and has no branch of its own.
-- Nothing terminates TLS, and the backend's port 8000 is published on the host, past nginx's headers
+- Nothing terminates TLS, and the backend's port 8000 is published on loopback, past nginx's headers
   ([SECURITY](SECURITY.md)).
 
 ## Related

@@ -23,7 +23,8 @@ services:
     # carry prod's 5544 too and sig would try to bind it, colliding with a running prod). Same for backend +
     # frontend below.
     ports: !override
-      - "5546:5432" # sig host port (prod: 5544, dev: 5545) — all three can bind at once
+      - "127.0.0.1:5546:5432" # sig host port (prod: 5544, dev: 5545) — all three can bind at once
+      - "[::1]:5546:5432"
     environment:
       POSTGRES_DB: alphadeck_sig # distinct DB name — belt-and-suspenders atop the volume isolation
 
@@ -39,7 +40,8 @@ services:
       args:
         PIP_EXTRAS: replay
     ports: !override
-      - "8002:8000" # sig API + Swagger docs (prod: 8000, dev: 8001)
+      - "127.0.0.1:8002:8000" # sig API + Swagger docs (prod: 8000, dev: 8001)
+      - "[::1]:8002:8000"
     environment:
       # The in-network address is unchanged (postgres:5432 inside the compose network); ONLY the DB name
       # switches to alphadeck_sig. This is the container's DB URL — not a host dev-loop one.
@@ -67,7 +69,8 @@ services:
 
   frontend:
     ports: !override
-      - "8082:80" # sig app (prod: 8080, dev: 8081)
+      - "127.0.0.1:8082:80" # sig app (prod: 8080, dev: 8081)
+      - "[::1]:8082:80"
 
   cron:
     # Cron is OFF in sig (R16). Assigning it to a profile the sig `up` never enables keeps the nightly

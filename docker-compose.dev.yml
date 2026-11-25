@@ -18,13 +18,15 @@ services:
     # carry prod's 5544 too and dev would try to bind it, colliding with a running prod). Same for backend +
     # frontend below.
     ports: !override
-      - "5545:5432" # dev host port (prod: 5544) — both can bind at once
+      - "127.0.0.1:5545:5432" # dev host port (prod: 5544) — both can bind at once
+      - "[::1]:5545:5432"
     environment:
       POSTGRES_DB: alphadeck_dev # distinct DB name — belt-and-suspenders atop the volume isolation
 
   backend:
     ports: !override
-      - "8001:8000" # dev API + Swagger docs (prod: 8000)
+      - "127.0.0.1:8001:8000" # dev API + Swagger docs (prod: 8000)
+      - "[::1]:8001:8000"
     environment:
       # The in-network address is unchanged (postgres:5432 inside the compose network); ONLY the DB name
       # switches to alphadeck_dev. This is the container's DB URL — not the host dev-loop one.
@@ -54,7 +56,8 @@ services:
 
   frontend:
     ports: !override
-      - "8081:80" # dev app (prod: 8080)
+      - "127.0.0.1:8081:80" # dev app (prod: 8080)
+      - "[::1]:8081:80"
 
   cron:
     # Cron is PROD-ONLY. Assigning it here to a profile that the dev `up` never enables keeps the nightly
