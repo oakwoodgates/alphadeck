@@ -93,4 +93,11 @@ def test_a_plain_stdio_caller_is_not_offered_the_prompt_or_the_tools():
 
     prompts, tools = run_in_process(api, steps)
     assert "splits-review" not in prompts and len(prompts) == 7
-    assert not tools & {"get_splits", "get_admin_status"} and len(tools) == 14
+    steward = {
+        "get_splits",
+        "get_admin_status",
+        "get_shared_facts",
+        "get_insider_holds",
+        "get_admin_onboarding",
+    }
+    assert not tools & steward and len(tools) == 14

@@ -65,6 +65,9 @@ Each tool's description (served at `tools/list`) is its contract; this is the in
 | `get_onboarding` | `thesis`, `section`, `cursor` | `/workbench/theses/{id}/onboarding` | `read` |
 | `get_splits` | `section`, `t`, `reason`, `cursor` | `/admin/splits` | `steward` |
 | `get_admin_status` | `section`, `cursor` | `/admin/status` | `steward` |
+| `get_shared_facts` | `section`, `t`, `fact`, `pen`, `cursor` | `/admin/platform-values/queue`, `/admin/platform-values/{id}` | `steward` |
+| `get_insider_holds` | `section`, `t`, `cursor` | `/admin/insider-holds` | `steward` |
+| `get_admin_onboarding` | `section`, `cursor` | `/admin/onboarding` | `steward` |
 
 **Dashboards.** `read_dashboard` reads the eight dashboards that have agent views (`views/dashboards/`), not every
 registered dashboard. `list_dashboards` returns, per dashboard, its settings with their allowed values, its
@@ -84,10 +87,25 @@ cached (its description gives the count) and spends the allowance unit above; `g
 view on every read, so a review reads it once. `get_discovery`, `get_extract` and `get_onboarding` take no `asof`
 and answer `asof: null`.
 
+**Admin reads.** The steward's five tools read one Admin panel each, live and undated, over the panel's own GET
+(`views/admin/`): `get_splits`, `get_admin_status`, `get_shared_facts` (Admin > Shared facts: the queue, and
+`section=company` with `t` for the company page, `fact` narrowing it to one value), `get_insider_holds` (Admin >
+Held insider rows, bucketed as the panel is; `section=one` with `t` reads a ticker's rows in full) and
+`get_admin_onboarding` (Admin > Onboarding: the shared queue, failed names first; the same view as
+`get_onboarding`, for the whole queue). Each view copies the API's values and its order, cuts a long string
+with its full length beside it and pages by `cursor`. The queue is paged by the API, so its `cursor` is the API's
+`offset` and `pen` (`after`, `only`, `exclude`) is passed through; a company page steps down to shorter lists and
+excerpts until it fits, and answers `output_too_large` naming `fact` when even the smallest does not. A user's
+email is never shown (the company page carries it for the steward; the tool drops it). A tool reads only: an
+approval, a correction, a dismissal, a held row's date and an onboarding Retry stay on the panel. The Insider
+amendments panel has no tool: its GET returns every Form 4/A with its evidence (measured on dev: 18.8 to 38 s and
+29 MB), so the owed amendments are read on the panel.
+
 ## Scopes
 
-A tool or a prompt carries a scope. Every tool but two needs `read`, which every user holds; `get_splits`,
-`get_admin_status` and the `splits-review` prompt need `steward`. Three layers hold the line:
+A tool or a prompt carries a scope. Every tool but five needs `read`, which every user holds; the Admin reads
+(`get_splits`, `get_admin_status`, `get_shared_facts`, `get_insider_holds` and `get_admin_onboarding`) and the
+`splits-review` prompt need `steward`. Three layers hold the line:
 
 1. The registry: a tool or prompt whose scope the caller lacks is neither listed nor callable (`forbidden` before
    any request; a prompt is refused as invalid params).
@@ -95,7 +113,7 @@ A tool or a prompt carries a scope. Every tool but two needs `read`, which every
    ([CONNECTORS](CONNECTORS.md)).
 3. The API: `/admin/*` is `require_super_admin`, and its 403 answers the tool as `forbidden` too.
 
-So a steward's session or a connector granted `read steward` lists 16 tools and 8 prompts; a plain user, or a
+So a steward's session or a connector granted `read steward` lists 19 tools and 8 prompts; a plain user, or a
 steward's app granted `read` only, lists 14 and 7. The stdio server learns its scopes once, from `GET /auth/me`
 with its token. Nothing under `agent_tools/` names a tenant: the API scopes every read to the token's workspace.
 
@@ -205,7 +223,7 @@ added or removed, or a description whose meaning changes, bumps the MINOR.
 | Action | Who | Enforced by |
 |---|---|---|
 | The 14 `read` tools and 7 prompts | anyone signed in (session, token or OAuth app), on their own workspace | the API gate; `server.SCOPES` |
-| The 2 steward tools and `splits-review` | the steward, or an app the steward granted `steward` | the registry, the OAuth role cap, `require_super_admin` |
+| The 5 steward tools and `splits-review` | the steward, or an app the steward granted `steward` | the registry, the OAuth role cap, `require_super_admin` |
 | Mint an MCP token | the user (Settings > Agents) or the operator (CLI) | `/account/tokens`; `pipeline.users` |
 | Read prod from a builder agent | nobody | `.claude/agents/builder.md` |
 

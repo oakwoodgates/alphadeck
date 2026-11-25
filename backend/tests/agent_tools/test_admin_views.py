@@ -18,6 +18,7 @@ from agent_tools import server as server_mod  # noqa: E402
 from agent_tools.budget import size  # noqa: E402
 from agent_tools.client import ApiClient  # noqa: E402
 from agent_tools.principal import CURRENT_PRINCIPAL, Principal  # noqa: E402
+from agent_tools.views.admin import shared_facts as shared_facts_view  # noqa: E402
 from tests.agent_tools import admin_fixtures as afx  # noqa: E402
 from tests.agent_tools.fake_api import FakeApi  # noqa: E402
 
@@ -373,10 +374,16 @@ def test_a_bad_get_admin_status_call_is_rejected(args, message):
     assert [p for _, p, _ in api.requests if p.startswith("/admin")] == []
 
 
-def test_an_asof_argument_is_ignored_by_either_steward_tool_and_the_reply_is_undated():
-    # MEASURED: neither tool advertises asof, so the SDK's argument model drops it silently (no error); the reply
+def test_an_asof_argument_is_ignored_by_every_steward_tool_and_the_reply_is_undated():
+    # MEASURED: no steward tool advertises asof, so the SDK's argument model drops it silently (no error); the reply
     # stays `asof: null`, like the research tools' undated reads
-    for tool in ("get_splits", "get_admin_status"):
+    for tool in (
+        "get_splits",
+        "get_admin_status",
+        "get_shared_facts",
+        "get_insider_holds",
+        "get_admin_onboarding",
+    ):
         reply = ok(FakeApi(), tool, asof="2026-11-01")
         assert reply["asof"] is None and reply["source"] == "live"
 
@@ -411,9 +418,458 @@ def test_an_empty_split_list_renders_zero_counts_and_an_empty_page():
     assert jumps["unlisted"] == [] and jumps["dismissed"] == []
 
 
-def test_neither_steward_tool_ever_sends_anything_but_a_get():
+def test_no_steward_tool_ever_sends_anything_but_a_get_and_only_to_the_panels_routes():
     api = FakeApi()
     ok(api, "get_splits")
     ok(api, "get_admin_status")
+    ok(api, "get_shared_facts")
+    ok(api, "get_shared_facts", section="company", t="TK01")
+    ok(api, "get_insider_holds")
+    ok(api, "get_admin_onboarding")
     assert {m for m, _, _ in api.requests} == {"GET"}
-    assert [p for _, p, _ in api.requests] == ["/admin/splits", "/admin/status"]
+    assert [p for _, p, _ in api.requests] == [
+        "/admin/splits",
+        "/admin/status",
+        "/admin/platform-values/queue",
+        "/dashboards/ticker-lookup/resolve",
+        f"/admin/platform-values/{afx.SHARED_SECURITY_ID}",
+        "/admin/insider-holds",
+        "/admin/onboarding",
+    ]
+
+
+# --- get_shared_facts ----------------------------------------------------------------------------------------------
+
+
+def _walk(api: FakeApi, tool: str, key: str, **args) -> list[dict]:
+    """Every row of ``key`` over the reply's cursor chain, from the first reply to the last (each within budget)."""
+    rows: list[dict] = []
+    cursor = 0
+    for _ in range(60):  # a bound, so a stuck cursor fails the test instead of hanging it
+        reply = ok(api, tool, cursor=cursor, **args) if cursor else ok(api, tool, **args)
+        rows += reply[key]
+        if reply["next_cursor"] is None:
+            return rows
+        assert reply["next_cursor_for"] == key
+        assert reply["next_cursor"] > cursor
+        cursor = reply["next_cursor"]
+    raise AssertionError("the cursor chain did not end")
+
+
+def test_the_default_shared_facts_reply_is_the_queue_in_the_apis_order():
+    api = FakeApi()
+    reply = ok(api, "get_shared_facts")
+    assert reply["asof"] is None and reply["source"] == "live" and reply["pen"] == "after"
+    assert reply["total"] == 6 and reply["pen_only_total"] == 2
+    assert [r["ticker"] for r in reply["items"]] == [f"TK0{k}" for k in range(1, 7)]
+    assert reply["sections"] == {"company": "t"} and reply["next_cursor"] is None
+    assert api.requests[0][1:] == (
+        "/admin/platform-values/queue",
+        {"limit": "25", "offset": "0", "pen": "after"},
+    )
+    first, second, third, fourth, _, pen = reply["items"]
+    assert first["cards"] == 3 and first["pen_only"] is False and first["open_flags"] == 0
+    assert pen["pen_only"] is True and pen["cards"] == 0
+    shares = first["shares"]
+    assert shares["state"] == "awaiting_steward" and shares["value"] is None
+    cand = shares["candidate"]
+    assert cand["shares"] == 10_000_001.0 and cand["flags"] == ["stale_share_count"]
+    assert cand["filing_accession"] == "0000000001-26-000020" and cand["event_date"] == "2026-10-30"
+    assert cand["passages"] == 2 and "passages_unreadable" not in cand and "reason" not in cand
+    assert "ads_ratio" not in cand  # an optional figure rides only when the candidate states it
+    assert len(cand["note"]) == 160 and cand["note_total_chars"] == 400
+    assert (
+        "located_passages" not in cand
+    )  # the queue row counts its passages; the company page reads them
+    cash = first["cash_burn"]["candidate"]
+    assert cash["cash_usd"] == 4_000_001.0 and cash["quarterly_burn_usd"] == 750_000.0
+    assert cash["investments_usd"] == 1_000_000.0 and cash["statement_currency"] == "USD"
+    assert second["cash_burn"] is None and second["shares"] is not None
+    shown = third["shares"]
+    assert shown["state"] == "from_filing"
+    assert set(shown["value"]) == {"valid_from", "ratified_by", "shares"}
+    assert fourth["shares"] is None and fourth["cash_burn"] is None and fourth["open_flags"] == 2
+    assert afx.USER_EMAIL not in json.dumps(reply)
+
+
+@pytest.mark.parametrize(
+    "pen,tickers",
+    [
+        ("only", ["TK05", "TK06"]),
+        ("exclude", ["TK01", "TK02", "TK03", "TK04"]),
+        ("after", [f"TK0{k}" for k in range(1, 7)]),
+    ],
+)
+def test_pen_is_passed_to_the_api_and_both_totals_stay_whole(pen, tickers):
+    api = FakeApi()
+    reply = ok(api, "get_shared_facts", pen=pen)
+    assert reply["pen"] == pen and [r["ticker"] for r in reply["items"]] == tickers
+    assert (
+        reply["total"] == 6 and reply["pen_only_total"] == 2
+    )  # every company waiting, whatever the pen
+    assert api.requests[0][2]["pen"] == pen
+
+
+def test_the_cursor_is_the_apis_offset_and_next_cursor_is_set_when_the_api_page_fits_whole(
+    monkeypatch,
+):
+    monkeypatch.setattr(shared_facts_view, "QUEUE_PAGE", 3)
+    api = FakeApi()
+    first = ok(api, "get_shared_facts")
+    assert [r["ticker"] for r in first["items"]] == ["TK01", "TK02", "TK03"]
+    assert first["next_cursor"] == 3 and first["next_cursor_for"] == "items"
+    assert api.requests[0][2]["limit"] == "3" and api.requests[0][2]["offset"] == "0"
+    second = ok(api, "get_shared_facts", cursor=3)
+    assert api.requests[-1][2]["offset"] == "3"
+    assert [r["ticker"] for r in second["items"]] == ["TK04", "TK05", "TK06"]
+    assert second["next_cursor"] is None  # the last page: 3 + 3 reached the total
+    only = ok(api, "get_shared_facts", pen="only")
+    assert [r["ticker"] for r in only["items"]] == ["TK05", "TK06"] and only["next_cursor"] is None
+    exclude = ok(api, "get_shared_facts", pen="exclude", cursor=3)
+    assert [r["ticker"] for r in exclude["items"]] == ["TK04"] and exclude["next_cursor"] is None
+
+
+def test_a_forty_company_queue_at_the_longest_notes_fits_and_the_cursor_walks_it_to_its_end():
+    items = afx.queue_items(
+        40,
+        5,
+        note_chars=afx.LONGEST_NOTE,
+        passage_chars=afx.LONGEST_PASSAGE,
+        passages=3,
+    )
+    api = FakeApi(queue=items)
+    first = ok(api, "get_shared_facts")
+    shown = len(first["items"])
+    assert 1 <= shown < 25 and first["total"] == 40
+    assert first["next_cursor"] == shown and first["next_cursor_for"] == "items"
+    rows = _walk(api, "get_shared_facts", "items")
+    assert [r["ticker"] for r in rows] == [i["ticker"] for i in items]  # the API's order, none lost
+    assert all(m == "GET" for m, _, _ in api.requests)
+
+
+def test_a_company_page_reads_both_values_and_cuts_every_long_text_with_its_length():
+    page = afx.company(
+        passage_chars=900,
+        passages=1,
+        note_chars=100,
+        candidates=1,
+        versions=1,
+        decisions=0,
+        attempts=1,
+        open_flags=1,
+    )
+    api = FakeApi(company=page)
+    reply = ok(api, "get_shared_facts", section="company", t="tk01")
+    assert reply["section"] == "company" and reply["t"] == "tk01"
+    assert (reply["ticker"], reply["name"]) == ("TK01", "Company 01")
+    assert [p for _, p, _ in api.requests] == [
+        "/dashboards/ticker-lookup/resolve",
+        f"/admin/platform-values/{afx.SHARED_SECURITY_ID}",
+    ]
+    shares, cash = reply["shares"], reply["cash_burn"]
+    assert shares["state"] == "awaiting_steward" and shares["value"] is None
+    wait = shares["awaiting"]
+    assert shares["pending"] is None and wait["passages_total"] == 1
+    passage = wait["located_passages"][0]
+    assert len(passage["excerpt"]) == 600 and passage["excerpt_total_chars"] == 900
+    assert wait["shares"] == 10_000_001.0 and len(wait["note"]) == 100
+    assert "note_total_chars" not in wait  # under its cut: whole
+    assert cash["pinned"] is True and cash["pin"]["action"] == "pin"
+    assert cash["pending"] is not None and cash["awaiting"] is None
+    assert cash["value"]["ratified_by"] == "auto" and cash["value"]["currency"] == "USD"
+    assert cash["versions_total"] == 1 and len(cash["versions"]) == 1
+    assert cash["candidates_total"] == 1 and len(cash["candidates"]) == 1
+    assert cash["decisions_total"] == 0 and cash["decisions"] == []
+    assert reply["attempts_total"] == 1 and len(reply["attempts"]) == 1
+    assert reply["flags"]["open_total"] == 1 and reply["flags"]["closed_total"] == 3
+    flag = reply["flags"]["open"][0]
+    assert len(flag["note"]) == 300 and flag["note_total_chars"] > 300
+    assert flag["seen_candidate"] and "user_email" not in flag
+    assert afx.USER_EMAIL not in json.dumps(reply)  # a user's email never reaches the model
+
+
+def test_a_company_page_with_more_rows_than_fit_shows_the_newest_and_the_totals():
+    page = afx.company()  # 4 versions, 6 candidates, 7 decisions, 4 attempts
+    reply = ok(FakeApi(company=page), "get_shared_facts", section="company", t="TK01")
+    cash = reply["cash_burn"]
+    assert (cash["versions_total"], cash["candidates_total"], cash["decisions_total"]) == (4, 6, 7)
+    assert reply["attempts_total"] == 4
+    shown = len(cash["versions"])
+    assert 0 < shown < 4  # the API lists versions oldest first: the newest ones, in its order
+    assert [v["id"] for v in cash["versions"]] == [
+        v["id"] for v in page["cash_burn"]["versions"][-shown:]
+    ]
+    # candidates and decisions come newest first: the first ones, in the API's order
+    assert [c["id"] for c in cash["candidates"]] == [
+        c["id"] for c in page["cash_burn"]["candidates"][: len(cash["candidates"])]
+    ]
+    assert [d["id"] for d in cash["decisions"]] == [
+        d["id"] for d in page["cash_burn"]["decisions"][: len(cash["decisions"])]
+    ]
+
+
+def test_the_largest_company_page_steps_down_to_fit_and_keeps_every_total():
+    big = afx.company(
+        passages=4,
+        passage_chars=afx.LONGEST_PASSAGE,
+        note_chars=afx.LONGEST_NOTE,
+        candidates=20,
+        versions=30,
+        decisions=50,
+        open_flags=12,
+        attempts=10,
+    )
+    reply = ok(FakeApi(company=big), "get_shared_facts", section="company", t="TK01")
+    assert (
+        reply["cash_burn"]["versions_total"] == 30 and reply["cash_burn"]["decisions_total"] == 50
+    )
+    assert reply["cash_burn"]["candidates_total"] == 20 and reply["attempts_total"] == 10
+    assert reply["flags"]["open_total"] == 12
+    wait = reply["shares"]["awaiting"]
+    assert (
+        wait["passages_total"] == 4 and wait["located_passages"]
+    )  # a cut list says how many there are
+    assert wait["located_passages"][0]["excerpt_total_chars"] == afx.LONGEST_PASSAGE
+
+
+def test_fact_reads_one_value_with_its_passages_and_every_candidate_paged_by_the_cursor():
+    api = FakeApi()
+    reply = ok(api, "get_shared_facts", section="company", t="TK01", fact="shares_outstanding")
+    assert reply["fact"] == "shares_outstanding" and "cash_burn" not in reply
+    assert [c["id"] for c in reply["candidates"]] == [
+        c["id"] for c in afx.company()["shares"]["candidates"]
+    ]  # every candidate, newest first as the API lists them
+    assert reply["shares"]["candidates_total"] == 6 and "candidates" not in reply["shares"]
+    assert reply["flags"]["open_total"] == 1  # only this value's user flags
+    big = afx.company(
+        passages=4,
+        passage_chars=afx.LONGEST_PASSAGE,
+        note_chars=afx.LONGEST_NOTE,
+        candidates=20,
+    )
+    api = FakeApi(company=big)
+    first = ok(api, "get_shared_facts", section="company", t="TK01", fact="cash_burn")
+    assert first["next_cursor_for"] == "candidates" and first["next_cursor"] == len(
+        first["candidates"]
+    )
+    assert first["cash_burn"]["pending"]["located_passages"][0][
+        "excerpt"
+    ]  # the waiting candidate, read whole
+    walked = _walk(
+        api, "get_shared_facts", "candidates", section="company", t="TK01", fact="cash_burn"
+    )
+    assert [c["id"] for c in walked] == [c["id"] for c in big["cash_burn"]["candidates"]]
+
+
+def test_an_unknown_ticker_on_the_company_page_is_unknown_ticker():
+    err = failed(FakeApi(), "get_shared_facts", section="company", t="TK99")
+    assert err["code"] == "unknown_ticker"
+
+
+@pytest.mark.parametrize(
+    "args,needle",
+    [
+        ({"t": "TK01"}, "t narrows section=company only."),
+        ({"fact": "cash_burn"}, "fact narrows section=company only."),
+        (
+            {"section": "company"},
+            "section=company of `get_shared_facts` needs t (a company's ticker).",
+        ),
+        ({"section": "bogus"}, "Unknown section 'bogus'; `get_shared_facts` has: company."),
+        ({"pen": "sideways"}, "pen must be one of: after, only, exclude."),
+        ({"section": "company", "t": "TK01", "pen": "only"}, "pen narrows the queue"),
+        (
+            {"section": "company", "t": "TK01", "fact": "revenue_mix"},
+            "fact must be one of: shares_outstanding, cash_burn.",
+        ),
+    ],
+)
+def test_a_bad_get_shared_facts_call_is_rejected_before_any_request(args, needle):
+    api = FakeApi()
+    body = failed(api, "get_shared_facts", **args)
+    assert body["code"] == "invalid_arguments" and needle in body["message"]
+    assert api.requests == []
+
+
+# --- get_insider_holds ---------------------------------------------------------------------------------------------
+
+
+def test_the_default_holds_reply_is_counts_words_and_the_owed_rows_in_the_apis_order():
+    api = FakeApi()
+    reply = ok(api, "get_insider_holds")
+    assert reply["asof"] is None and reply["source"] == "live" and reply["total"] == 9
+    assert reply["counts"] == dict(zip(afx.HOLD_BUCKETS, (3, 2, 1, 1, 1, 1), strict=True))
+    assert reply["bucket_words"] == afx.HOLD_BUCKET_WORDS
+    assert [r["accession"] for r in reply["owed"]] == [h["accession"] for h in afx.holds()["owed"]]
+    row = reply["owed"][0]
+    assert row["row"] == afx.holds()["owed"][0]["row"]  # the filing's row, copied
+    assert row["date_as_filed"] == "10/31/2027" and row["period_of_report_as_filed"] == "10/31/2026"
+    assert row["suggested_date"] == "2026-10-31" and row["agrees"] is True
+    assert row["market_date"] == "2026-11-02" and row["filing_url"].startswith(
+        "https://www.sec.gov/"
+    )
+    assert len(row["owed_why"]) == 200 and row["owed_why_total_chars"] > 200
+    assert {"decision", "why", "filing_night", "history"}.isdisjoint(row)
+    assert reply["sections"] == dict([(b, None) for b in afx.HOLD_BUCKETS] + [("one", "t")])
+    assert [p for _, p, _ in api.requests] == ["/admin/insider-holds"]
+
+
+@pytest.mark.parametrize("bucket", afx.HOLD_BUCKETS[1:])
+def test_a_bucket_section_pages_that_bucket_with_the_fields_its_state_needs(bucket):
+    body = afx.holds()
+    reply = ok(FakeApi(holds=body), "get_insider_holds", section=bucket)
+    assert reply["section"] == bucket and reply["total"] == len(body[bucket])
+    assert [r["hold_id"] for r in reply[bucket]] == [h["hold_id"] for h in body[bucket]]
+    row = reply[bucket][0]
+    assert ("filing_night" in row) == (bucket == "placed_by_rule")
+    assert ("why" in row) == (bucket == "filer_corrected")
+    assert ("decision" in row) == (bucket in ("decided", "dismissed"))
+    if bucket in ("decided", "dismissed"):
+        decision = row["decision"]
+        assert decision["action"] == ("approve" if bucket == "decided" else "dismiss")
+        assert len(decision["reason"]) == 200 and decision["reason_total_chars"] > 200
+        assert decision["decided_by"]["display_name"] == "Steward 01"
+    if bucket == "filer_corrected":
+        assert len(row["why"]) == 200
+
+
+def test_a_forty_row_owed_bucket_fits_the_budget_and_the_cursor_walks_it_to_its_end():
+    api = FakeApi(holds=afx.holds(owed=40))
+    reply = ok(api, "get_insider_holds")
+    assert 1 <= len(reply["owed"]) < 40 and reply["counts"]["owed"] == 40
+    assert reply["next_cursor"] == len(reply["owed"]) and reply["next_cursor_for"] == "owed"
+    walked = _walk(api, "get_insider_holds", "owed", section="owed")
+    assert [r["hold_id"] for r in walked] == [h["hold_id"] for h in afx.holds(owed=40)["owed"]]
+
+
+def test_one_reads_a_tickers_rows_in_full_with_their_history_and_pages_them():
+    body = afx.holds_on_one_ticker(18)
+    api = FakeApi(holds=body)
+    first = ok(api, "get_insider_holds", section="one", t="tk01")  # lower case matches
+    assert first["found"] == 18 and first["t"] == "tk01" and first["next_cursor_for"] == "holds"
+    full = first["holds"][0]
+    assert {"security_id", "accepted", "bucket", "reason", "history", "history_total"} <= set(full)
+    walked = _walk(api, "get_insider_holds", "holds", section="one", t="TK01")
+    assert len(walked) == 18 and len({h["hold_id"] for h in walked}) == 18
+    decided = [h for h in walked if h["bucket"] == "decided"]
+    assert decided and all(h["history_total"] == 2 and len(h["history"]) == 2 for h in decided)
+    assert (
+        decided[0]["history"][1]["action"] == "revoke"
+        and decided[0]["decision"]["action"] == "approve"
+    )
+    assert (
+        len(decided[0]["decision"]["reason"]) == 300
+    )  # the full row cuts a reason at 300, its length beside it
+    assert ok(FakeApi(), "get_insider_holds", section="one", t="TK99")["found"] == 0
+
+
+@pytest.mark.parametrize(
+    "args,needle",
+    [
+        ({"t": "TK01"}, "t narrows section=one only."),
+        ({"section": "owed", "t": "TK01"}, "t narrows section=one only."),
+        (
+            {"section": "one"},
+            "section=one of `get_insider_holds` needs t (a ticker with held insider rows).",
+        ),
+        (
+            {"section": "bogus"},
+            "Unknown section 'bogus'; `get_insider_holds` has: owed, placed_by_rule, filer_corrected, "
+            "decided, dismissed, amendment_row, one.",
+        ),
+    ],
+)
+def test_a_bad_get_insider_holds_call_is_rejected_before_any_request(args, needle):
+    api = FakeApi()
+    body = failed(api, "get_insider_holds", **args)
+    assert body["code"] == "invalid_arguments" and needle in body["message"]
+    assert api.requests == []
+
+
+# --- get_admin_onboarding ------------------------------------------------------------------------------------------
+
+
+def test_the_default_admin_onboarding_reply_is_the_shared_queue_with_failed_names_first():
+    api = FakeApi(admin_onboarding=afx.admin_onboarding())
+    reply = ok(api, "get_admin_onboarding")
+    assert reply["asof"] is None and reply["source"] == "live" and "thesis" not in reply
+    assert reply["counts"]["failed"] == 3 and reply["pending_total"] == 116
+    assert [n["status"] for n in reply["pending"][:5]] == [
+        "failed",
+        "failed",
+        "failed",
+        "in_progress",
+        "queued",
+    ]
+    assert len(reply["pending"]) == 10 and reply["recent_done_total"] == 20
+    assert reply["pending"][0]["last_error_total_chars"] == 210 + len("Synthetic: ")
+    assert reply["window"] and reply["stalled"] is None and reply["last_run"]["status"] == "ok"
+    assert reply["sections"] == {"pending": None, "recent_done": None}
+    assert [p for _, p, _ in api.requests] == ["/admin/onboarding"]
+
+
+def test_the_pending_section_walks_116_names_to_the_end_in_the_apis_order():
+    api = FakeApi(admin_onboarding=afx.admin_onboarding(pending=116))
+    names = _walk(api, "get_admin_onboarding", "pending", section="pending")
+    assert [n["ticker"] for n in names] == [p["ticker"] for p in afx.admin_onboarding()["pending"]]
+    assert [n["status"] for n in names[:4]] == ["failed", "failed", "failed", "in_progress"]
+    recent = ok(api, "get_admin_onboarding", section="recent_done")
+    assert recent["recent_done_total"] == 20 and len(recent["recent_done"]) == 20
+
+
+def test_an_admin_onboarding_queue_that_is_empty_reads_as_zero_counts():
+    quiet = afx.admin_onboarding(pending=0, failed=0, recent=0)
+    quiet["counts"] = {"queued": 0, "in_progress": 0, "failed": 0, "done": 0, "parked": 0}
+    reply = ok(FakeApi(admin_onboarding=quiet), "get_admin_onboarding")
+    assert reply["pending_total"] == 0 and reply["pending"] == [] and reply["recent_done"] == []
+
+
+def test_a_bad_get_admin_onboarding_call_is_rejected_before_any_request():
+    api = FakeApi()
+    body = failed(api, "get_admin_onboarding", section="bogus")
+    assert body["code"] == "invalid_arguments"
+    assert body["message"] == (
+        "Unknown section 'bogus'; `get_admin_onboarding` has: pending, recent_done."
+    )
+    assert api.requests == []
+
+
+# --- every new steward tool, together ------------------------------------------------------------------------------
+
+
+def test_each_new_tool_refuses_to_run_without_the_api_saying_the_caller_is_a_steward():
+    api = FakeApi(steward=False)
+    for tool, path in (
+        ("get_shared_facts", "/admin/platform-values/queue"),
+        ("get_insider_holds", "/admin/insider-holds"),
+        ("get_admin_onboarding", "/admin/onboarding"),
+    ):
+        body = failed(api, tool)
+        assert body["code"] == "forbidden" and body["message"] == "stewards only"
+        assert api.requests[-1][1] == path
+
+
+def test_the_new_tools_name_their_panel_and_say_they_only_read():
+    async def listing():
+        client = ApiClient("http://127.0.0.1:8001", transport=FakeApi().transport())
+        reset = CURRENT_PRINCIPAL.set(STEWARD)
+        try:
+            async with Client(server_mod.build_server(lambda: client)) as session:
+                return {t.name: t for t in (await session.list_tools()).tools}
+        finally:
+            CURRENT_PRINCIPAL.reset(reset)
+            await client.aclose()
+
+    tools = asyncio.run(listing())
+    for name, panel in (
+        ("get_shared_facts", "Admin > Shared facts"),
+        ("get_insider_holds", "Admin > Held insider rows"),
+        ("get_admin_onboarding", "Admin > Onboarding"),
+    ):
+        text = tools[name].description
+        assert panel in text and text.endswith("Steward scope."), name
+        assert "Reads only" in text, name
+        assert "asof" not in tools[name].input_schema["properties"], name
+    assert "positive when the company consumed cash" in tools["get_shared_facts"].description
+    assert "never shown" in tools["get_shared_facts"].description  # a user's email
+    assert "Retry" in tools["get_admin_onboarding"].description

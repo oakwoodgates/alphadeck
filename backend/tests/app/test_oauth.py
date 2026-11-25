@@ -658,8 +658,8 @@ def test_the_stewards_scopes_decide_the_admin_role(ow):
         return sorted(t.name for t in (await session.list_tools()).tools)
 
     assert (
-        len(ow.mcp(full["access_token"], names)) == 16
-    )  # read + steward: the two Admin reads join
+        len(ow.mcp(full["access_token"], names)) == 19
+    )  # read + steward: the five Admin reads join
     assert len(ow.mcp(read_only["access_token"], names)) == 14  # a steward's app granted read only
 
 
@@ -694,7 +694,7 @@ def test_a_steward_app_reads_the_split_list_only_with_the_steward_grant(ow):
     assert [p for p in seen if p.startswith("/admin")] == []
     seen.clear()
     assert "get_splits" in mcp(full["access_token"], listing)
-    reply = mcp(full["access_token"], read)  # the steward grant: lists 16 and reads the list
+    reply = mcp(full["access_token"], read)  # the steward grant: lists 19 and reads the list
     assert not reply.is_error, reply.content[0].text
     assert reply.structured_content["counts"]["total"] == api_splits["total"]
     assert [p for p in seen if p.startswith("/admin")] == ["/admin/splits"]
