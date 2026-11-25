@@ -34,7 +34,7 @@ procedure, the current bar and the operator's rulings. This is a live procedure,
    it out of the transcript. Run the mint in the dev backend container: on the host the default database URL is
    prod.
    ```
-   TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <owner> --name rescore | sed -n 's/^token (shown once): //p' | tr -d '\r')
+   TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <owner> --name rescore --write | sed -n 's/^token (shown once): //p' | tr -d '\r')
    ```
 3. Start the draft (a background job: 202, then poll):
    ```

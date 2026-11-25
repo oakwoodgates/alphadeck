@@ -136,10 +136,8 @@ def change_password(
     stays taken."""
     if user.principal == "system":
         raise HTTPException(status_code=403, detail="the system token has no password")
-    if (
-        user.principal == "oauth"
-    ):  # the gate refuses it first (auth.oauth_may); this is the second line
-        raise HTTPException(status_code=403, detail="a connected app cannot manage your account")
+    if user.restricted:  # the gate refuses it first (auth.restricted_may); this is the second line
+        raise HTTPException(status_code=403, detail=auth.account_refusal(user.principal))
     row = auth.find_user_by_email(conn, user.email)
     try:
         if row is None or not auth.verify_password(row["password_hash"], req.current):

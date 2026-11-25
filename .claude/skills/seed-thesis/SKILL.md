@@ -31,7 +31,7 @@ description: >-
 1. Mint the token (`python -m pipeline.users list` in the same container names the users):
 
    ```bash
-   TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <dev user> --name seed | sed -n 's/^token (shown once): //p' | tr -d '\r')
+   TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <dev user> --name seed --write | sed -n 's/^token (shown once): //p' | tr -d '\r')
    ```
 
 2. Create the card with `POST /workbench/theses`, body

@@ -4,8 +4,9 @@ How an AI client (claude.ai's custom connectors, Claude Code's `/mcp` sign-in) s
 that user's workspace through the hosted agent tools endpoint `<origin>/mcp`. The client sends the user to Alpha
 Deck's own consent page; the user signs in with their Alpha Deck email and password and clicks Allow; the client
 gets its own token, which can read and never write. A client can also use a personal access token pasted from
-Settings > Agents. All of it is available when `ALPHADECK_PUBLIC_ORIGIN` is set ([AGENT_TOOLS](AGENT_TOOLS.md)
-"Hosted endpoint"). Read it before you change `app/oauth/`, the consent page or the `oauth` principal.
+Settings > Agents, which reads only too. All of it is available when `ALPHADECK_PUBLIC_ORIGIN` is set
+([AGENT_TOOLS](AGENT_TOOLS.md) "Hosted endpoint"). Read it before you change `app/oauth/`, the consent page or the
+`oauth` principal.
 
 ## Code
 
@@ -82,7 +83,9 @@ asked for nothing. Only a super admin can grant `steward` (`store.grantable`); a
 and Allow leaves it out. At the API, a token without `write` (none carries it) answers 403 on every non-GET
 request, and the role is `super_admin` only when the user is one and the token carries `steward`, so a steward's
 read-only connector gets 403 on `/admin`. At `/mcp` the token's scopes become the tool principal's, which decides
-the tools and prompts the client lists ([AGENT_TOOLS](AGENT_TOOLS.md) "Scopes").
+the tools and prompts the client lists ([AGENT_TOOLS](AGENT_TOOLS.md) "Scopes"). A read-only personal access token
+follows the same two rules with the scopes stored on it, and the same refusal of `/account` (`auth.restricted_may`,
+[AUTH](AUTH.md)).
 
 ### The consent page
 
