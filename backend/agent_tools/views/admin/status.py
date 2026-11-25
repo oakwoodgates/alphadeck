@@ -2,9 +2,10 @@
 
 The default reply is the verdict and the counts: the cron verdict and its alarms, the record's edge, the newest
 finished pass and any unfinished one, the newest backup, the identity pair, the one-line jobs and the panel counts. A
-section pages one panel's rows whole, in the API's order. Every value is copied from the API's JSON; a thesis outside
-the caller's workspace already arrives as ``workspace <8 hex> . thesis <8 hex>`` and is never resolved here. A health
-readout: it never feeds a call.
+section pages one panel's rows whole, in the API's order (a never-priced row's Form 15 evidence without its EDGAR
+links, which the Admin panel carries). Every value is copied from the API's JSON; a thesis outside the caller's
+workspace already arrives as ``workspace <8 hex> . thesis <8 hex>`` and is never resolved here. A health readout: it
+never feeds a call.
 """
 
 from __future__ import annotations
@@ -137,6 +138,12 @@ def _default(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
         out = {"asof": repairs.get("asof")}
         for key in ("renamed", "unpriceable", "successor", "limitations", "closed"):
             out[key] = len(repairs.get(key) or [])
+        # W4-2 — the never-priced names whose company filed a Form 15 (their rows carry the evidence)
+        out["deregistered"] = sum(
+            1
+            for u in repairs.get("unpriceable") or []
+            if isinstance(u, dict) and u.get("deregistered")
+        )
         reply["price_repairs"] = out
     lines: dict[str, Any] = {}
     for name, keys in LINES.items():
@@ -148,6 +155,21 @@ def _default(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
         reply[key] = payload.get(key)
     reply["sections"] = dict(SECTIONS)
     return fit(reply, BUDGET, [])
+
+
+def _deregistered(row: Any) -> Any:
+    """W4-2 — an unpriceable row with its ``deregistered`` block cut to what the steward quotes: the Form 15's
+    form, date and accession, and each 8-K event's form, date, accession and SEC item titles. The EDGAR links
+    and the item codes stay on the Admin panel (the reply budget). Any other row is copied whole."""
+    d = row.get("deregistered") if isinstance(row, dict) else None
+    if not isinstance(d, dict):
+        return row
+    events = [
+        {k: e.get(k) for k in ("form", "filed", "accession", "item_titles")}
+        for e in d.get("events") or []
+        if isinstance(e, dict)
+    ]
+    return {**row, "deregistered": {**_pick(d, ("form", "filed", "accession")), "events": events}}
 
 
 def _scalars(panel: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
@@ -205,6 +227,7 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
             )
         )
         lists = [(k, panel.get(k) or []) for k in PRICE_REPAIR_LISTS]
+        lists = [(k, [_deregistered(r) for r in rows]) for k, rows in lists]
     elif section == "split_defects":
         reply.update(_scalars(panel, ("asof", "ran_at", "window_days", "newly_flagged", "error")))
         lists = [("defects", panel.get("defects") or []), ("settled", panel.get("settled") or [])]

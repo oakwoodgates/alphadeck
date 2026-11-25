@@ -9081,6 +9081,102 @@
         "title": "AdminCronOut",
         "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.\n\n``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English\nline, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the\ncron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an\nimage left stale by a partial rebuild) or the backend's own is unknown \u2014 compared only for a cron pass\nthat started after this backend process did, so a full deploy does not read ``unhealthy`` until the\nnight's pass confirms it; the last live pass paged\nthrough the LOG notifier (``SLACK_WEBHOOK_URL`` unset \u2014 a bad night pages nobody) or ran with\n``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than\n``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 \u2014 only on a stack whose run history shows the cron\nsidecar, where a nightly dump is expected). ``[]`` on a clean stack.\n\nM1 adds three alarms and one verdict. Alarms: **the last pass did not finish** (the newest artifact still\nreads ``running`` past the run timeout \u2014 killed or hung), **the last pass crashed** (``crashed``), and\n**rows without a run artifact** (a night has post-``RUN_AT`` rows but no pass artifact at all for it).\n``gappy`` now also covers a PARTIAL night (``record.partial_nights``). ``running`` = a pass is in flight\ninside its timeout and nothing else is wrong; its own night is not judged until it finishes, so a\nhealthy pass mid-loop never reads partial or stale. Priority: never_ran > unhealthy > stale > gappy >\nrunning > healthy."
       },
+      "AdminDeregistrationEventOut": {
+        "properties": {
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Items",
+            "default": []
+          },
+          "item_titles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Item Titles",
+            "default": []
+          },
+          "filing_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "form",
+          "filed",
+          "accession"
+        ],
+        "title": "AdminDeregistrationEventOut",
+        "description": "One 8-K-family filing filed in the 45 days up to a Form 15 (W4-2): its form, FILING date and\naccession, the evidence items it carries (1.03 / 2.01 / 3.03 / 5.01; ``[]`` for an 8-K15D5 carrying none)\nand ``item_titles`` \u2014 SEC's own titles for them, in order (never a word read from the filing).\n``filing_url`` = the filing's EDGAR index."
+      },
+      "AdminDeregistrationOut": {
+        "properties": {
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "filing_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Url"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/AdminDeregistrationEventOut"
+            },
+            "type": "array",
+            "title": "Events",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "form",
+          "filed",
+          "accession"
+        ],
+        "title": "AdminDeregistrationOut",
+        "description": "A never-priced name's DEREGISTRATION evidence (W4-2): the company's newest Form 15 (15-12B / 15-12G /\n15-15D or a 15F variant: its form, FILING date, accession and EDGAR index link) and the 8-K events filed\nbefore it (``events``, newest first). Set only when EDGAR lists no symbol for the company. Evidence for\nthe steward's removal in the basket editor; nothing is removed or silenced by it."
+      },
       "AdminEditionsCutOut": {
         "properties": {
           "line": {
@@ -14191,6 +14287,16 @@
             "type": "boolean",
             "title": "Probed",
             "default": false
+          },
+          "deregistered": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminDeregistrationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -14198,7 +14304,7 @@
           "security_id"
         ],
         "title": "AdminUnpriceableRowOut",
-        "description": "An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)\n\u2014 WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor\nfetch), acknowledge it (\"keep it, unpriced\"), or remove it from the basket in the editor (``theses``).\n``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists\n(``[]`` = none). ``change`` = a standing operator Set or Adopt (waiting for the next pass, with its\nUndo).\n\nW4-1 \u2014 when EDGAR lists another symbol for the name, the nightly probe fetched each one once\n(``probed``): ``candidates`` carry what the vendor serves and each one's ``listing_class``;\n``member_class`` is the member's own mark (``adr`` when EDGAR's entity name ends \"/ADR\" or the symbol\nends Y, ``ordinary`` when it ends F, ``null`` unknown). ``recommended`` = the first candidate with bars,\nno fetch error, a fresh last bar and the member's own class (``null`` = none). Adopt takes a probed\ncandidate with bars; one whose class is known to differ from the member's (the foreign ordinary line\nfor an ADR member) needs the request's ``confirm_class``."
+        "description": "An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)\n\u2014 WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor\nfetch), acknowledge it (\"keep it, unpriced\"), or remove it from the basket in the editor (``theses``).\n``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists\n(``[]`` = none). ``change`` = a standing operator Set or Adopt (waiting for the next pass, with its\nUndo).\n\nW4-1 \u2014 when EDGAR lists another symbol for the name, the nightly probe fetched each one once\n(``probed``): ``candidates`` carry what the vendor serves and each one's ``listing_class``;\n``member_class`` is the member's own mark (``adr`` when EDGAR's entity name ends \"/ADR\" or the symbol\nends Y, ``ordinary`` when it ends F, ``null`` unknown). ``recommended`` = the first candidate with bars,\nno fetch error, a fresh last bar and the member's own class (``null`` = none). Adopt takes a probed\ncandidate with bars; one whose class is known to differ from the member's (the foreign ordinary line\nfor an ADR member) needs the request's ``confirm_class``.\n\nW4-2 \u2014 ``deregistered``: when EDGAR lists no symbol for the name and the company filed a Form 15, that\nfiling and the 8-K events before it (``AdminDeregistrationOut``); removing the name in the basket editor\nis then the recommended action. ``null`` otherwise."
       },
       "AdoptionCardOut": {
         "properties": {

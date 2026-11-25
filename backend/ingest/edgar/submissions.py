@@ -280,6 +280,189 @@ def delisting_filings(submissions: dict[str, Any]) -> tuple[DelistingFiling, ...
     return tuple(out)
 
 
+# W4-2 — the DEREGISTRATION forms: a Form 15 ends (or suspends) the duty to report under section 12(b), 12(g) or
+# 15(d); the 15F variants are a foreign private issuer's. Kept HERE, beside ``DELISTING_FORMS``, and not in
+# ``domain/edgar_forms.py``: it is evidence for the price-feed panel, never an input to a call.
+DEREGISTRATION_FORMS = frozenset({"15-12B", "15-12G", "15-15D", "15F-12B", "15F-12G", "15F-15D"})
+
+# The 8-K items that say what happened to the equity before a Form 15, with SEC's own item titles (Form 8-K).
+# These titles are the ONLY words the evidence carries: a bankruptcy and an acquisition both end in a Form 15,
+# and only one of them cancels the equity, so no word is ever read out of a filing's document.
+DEREGISTRATION_EVENT_ITEMS: dict[str, str] = {
+    "1.03": "Bankruptcy or Receivership",
+    "2.01": "Completion of Acquisition or Disposition of Assets",
+    "3.03": "Material Modification to Rights of Security Holders",
+    "5.01": "Changes in Control of Registrant",
+}
+# A successor issuer's report under Rule 15d-5 (a reorganized company taking over the reporting duty, as on
+# emergence from bankruptcy) is evidence by its FORM, whatever items it carries.
+DEREGISTRATION_EVENT_FORMS = frozenset({"8-K15D5", "8-K15D5/A"})
+# How far back from the Form 15 an 8-K event counts, in calendar days (the Form 15 day itself included).
+DEREGISTRATION_EVENT_DAYS = 45
+
+
+@dataclass(frozen=True)
+class DeregistrationEvent:
+    """One 8-K-family filing filed in the ``DEREGISTRATION_EVENT_DAYS`` up to a Form 15: its form, FILING
+    date, accession, and the evidence items it carries (``DEREGISTRATION_EVENT_ITEMS`` codes, in EDGAR's
+    order; ``()`` for an 8-K15D5 that carries none of them)."""
+
+    form: str
+    filed: date
+    accession: str
+    items: tuple[str, ...] = ()
+
+    @property
+    def item_titles(self) -> tuple[str, ...]:
+        """SEC's titles for ``items``, in order — the only words the evidence ever shows."""
+        return tuple(
+            DEREGISTRATION_EVENT_ITEMS[c] for c in self.items if c in DEREGISTRATION_EVENT_ITEMS
+        )
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "form": self.form,
+            "filed": self.filed.isoformat(),
+            "accession": self.accession,
+            "items": list(self.items),
+        }
+
+
+@dataclass(frozen=True)
+class Deregistration:
+    """A company's newest Form 15 (``DEREGISTRATION_FORMS``) and the 8-K events filed in the
+    ``DEREGISTRATION_EVENT_DAYS`` up to it (newest first). Evidence for a never-priced basket name EDGAR
+    lists no symbol for (``pipeline/tape_health.py`` puts it on that row only): display, never a class,
+    never a call input. ``cik`` (from the doc, ``""`` when absent) lets each filing be linked on EDGAR.
+    """
+
+    form: str
+    filed: date
+    accession: str
+    primary_doc: str = ""
+    cik: str = ""
+    events: tuple[DeregistrationEvent, ...] = ()
+
+    def describe(self) -> str:
+        """``"15-12G filed 2026-06-10; 8-K 2026-06-04: Completion of ..., Changes in Control of Registrant"``
+        — the form, its date and each event with SEC's item titles (the nightly report's words)."""
+        parts = [f"{self.form} filed {self.filed.isoformat()}"]
+        for e in self.events:
+            titles = ", ".join(e.item_titles)
+            parts.append(f"{e.form} {e.filed.isoformat()}" + (f": {titles}" if titles else ""))
+        return "; ".join(parts)
+
+    def to_json(self) -> dict[str, Any]:
+        """The run artifact's shape: item CODES only (the titles are derived from them on read)."""
+        return {
+            "form": self.form,
+            "filed": self.filed.isoformat(),
+            "accession": self.accession,
+            "primary_doc": self.primary_doc,
+            "cik": self.cik,
+            "events": [e.to_json() for e in self.events],
+        }
+
+    @classmethod
+    def from_json(cls, raw: object) -> Deregistration | None:
+        """``to_json``'s inverse, fail-soft: ``None`` for anything without a form and a readable date; an
+        event without them is skipped, and only known item codes are kept."""
+        if not isinstance(raw, dict) or not raw.get("form"):
+            return None
+        filed = _iso_date(raw.get("filed"))
+        if filed is None:
+            return None
+        events = []
+        raw_events = raw.get("events")
+        for e in raw_events if isinstance(raw_events, list) else []:
+            e_filed = _iso_date(e.get("filed")) if isinstance(e, dict) else None
+            if e_filed is None or not e.get("form"):
+                continue
+            codes = e.get("items")
+            items = tuple(
+                str(c)
+                for c in (codes if isinstance(codes, list) else [])
+                if str(c) in DEREGISTRATION_EVENT_ITEMS
+            )
+            events.append(
+                DeregistrationEvent(
+                    form=str(e["form"]),
+                    filed=e_filed,
+                    accession=str(e.get("accession") or ""),
+                    items=items,
+                )
+            )
+        return cls(
+            form=str(raw["form"]),
+            filed=filed,
+            accession=str(raw.get("accession") or ""),
+            primary_doc=str(raw.get("primary_doc") or ""),
+            cik=str(raw.get("cik") or ""),
+            events=tuple(events),
+        )
+
+
+def _iso_date(v: object) -> date | None:
+    try:
+        return date.fromisoformat(str(v)) if v else None
+    except ValueError:
+        return None
+
+
+def deregistration(submissions: dict[str, Any]) -> Deregistration | None:
+    """The company's NEWEST Form 15 (``DEREGISTRATION_FORMS``, by filing date; a same-day tie keeps EDGAR's
+    order) with the 8-K-family filings (``CORPORATE_EVENT_FORMS``, the set ``form8k_filings`` walks) filed in
+    the ``DEREGISTRATION_EVENT_DAYS`` up to it that carry item 1.03, 2.01, 3.03 or 5.01 or are an 8-K15D5;
+    ``None`` when the doc carries no Form 15.
+
+    Judges nothing: whether a ROW carries it is the tape monitor's call (a never-priced name EDGAR lists no
+    symbol for). Pure, over the SAME ``filings.recent`` arrays every other leg walks, so a pass that already
+    holds the doc pays no fetch. Defensive like ``index_filings``: a short array reads ``""``, and a row with
+    a blank or malformed date is skipped, never guessed and never a raise."""
+    recent = submissions.get("filings", {}).get("recent", {}) or {}
+    forms = recent.get("form", []) or []
+    accns = recent.get("accessionNumber", []) or []
+    docs = recent.get("primaryDocument", []) or []
+    dates = recent.get("filingDate", []) or []
+    items = recent.get("items", []) or []
+
+    def at(arr: list[Any], i: int) -> str:
+        v = arr[i] if i < len(arr) else None
+        return "" if v is None else str(v)
+
+    form15: tuple[int, date] | None = None
+    for i, form in enumerate(forms):
+        filed = _iso_date(at(dates, i)) if form in DEREGISTRATION_FORMS else None
+        if filed is not None and (form15 is None or filed > form15[1]):
+            form15 = (i, filed)
+    if form15 is None:
+        return None
+    i15, filed15 = form15
+    events: list[DeregistrationEvent] = []
+    for i, form in enumerate(forms):
+        if form not in CORPORATE_EVENT_FORMS:
+            continue
+        filed = _iso_date(at(dates, i))
+        if filed is None or not 0 <= (filed15 - filed).days <= DEREGISTRATION_EVENT_DAYS:
+            continue
+        codes = tuple(
+            c for c in parse_item_codes(at(items, i)) or () if c in DEREGISTRATION_EVENT_ITEMS
+        )
+        if codes or form in DEREGISTRATION_EVENT_FORMS:
+            events.append(
+                DeregistrationEvent(form=form, filed=filed, accession=at(accns, i), items=codes)
+            )
+    events.sort(key=lambda e: e.filed, reverse=True)
+    return Deregistration(
+        form=forms[i15],
+        filed=filed15,
+        accession=at(accns, i15),
+        primary_doc=at(docs, i15),
+        cik=str(submissions.get("cik") or "").strip(),
+        events=tuple(events),
+    )
+
+
 def edgar_tickers(submissions: dict[str, Any]) -> tuple[str, ...]:
     """The company's CURRENT trading symbols as EDGAR lists them (the submissions ``tickers`` array),
     stripped and upper-cased, in EDGAR's order — ``()`` when EDGAR lists none (or the key is absent).
