@@ -1140,7 +1140,9 @@ def build_server(
         "announced (both agree, the first session still ahead), confirmed, set_aside (rejected or revoked, "
         "kept), plus the split-shaped price jumps no source listed. The default reply is the counts and the "
         "needs-review rows; section=needs_review, announced, confirmed, set_aside or jumps pages one bucket; "
-        "section=one with t reads one ticker's every entry and jump in full. Every needs-review row carries "
+        "section=one with t reads one ticker's every entry and jump in full, each needs-review or announced "
+        "entry with tape: the stored closes and volumes around its first session, each bar as first served "
+        "beside its newest close. Every needs-review row carries "
         "review_reason (sources_differ, extractor_abstained or one_source) and counts.needs_review_by_reason "
         "counts them; reason narrows section=needs_review to one. polygon.ticker is the vendor's symbol at the "
         "split; ticker is the master's current one (they differ after a rename). Reads only: a split's values "
@@ -1178,6 +1180,15 @@ def build_server(
         if t is not None and section != "one":
             raise ToolFailure("invalid_arguments", splits_view.T_RULE)
         payload, _ = await client.get("/admin/splits")
+        if section == "one" and t is not None and reason is None:
+            # W5-1: each open entry on this page carries the stored tape around its first session
+            for entry in splits_view.tape_targets(payload, t, cursor):
+                try:
+                    entry["tape"], _ = await client.get(
+                        f"/admin/splits/{path_seg(entry['version_id'])}/tape"
+                    )
+                except ToolFailure as failure:
+                    entry["tape_error"] = failure.message
         req = ResearchRequest(section=section, cursor=cursor, t=t, reason=reason)
         try:
             return _result(splits_view.view(payload, req))

@@ -21,6 +21,7 @@ from agent_tools.principal import CURRENT_PRINCIPAL, Principal  # noqa: E402
 from agent_tools.views.admin import shared_facts as shared_facts_view  # noqa: E402
 from tests.agent_tools import admin_fixtures as afx  # noqa: E402
 from tests.agent_tools.fake_api import FakeApi  # noqa: E402
+from tests.agent_tools.fixtures import uid  # noqa: E402
 
 STEWARD = Principal(frozenset({"read", "steward"}), "s", "pat")
 BUDGET = 8_000
@@ -229,6 +230,82 @@ def test_the_full_entry_cuts_a_passage_over_1500_characters_and_says_so():
     reply = ok(FakeApi(splits=body), "get_splits", section="one", t="TK01")
     sec = reply["entries"][0]["sec"]
     assert len(sec["passage"]) == 1_500 and sec["passage_chars"] == 2_000
+
+
+def test_one_reads_the_tape_around_each_open_entry_and_no_other_reply_reads_it():
+    """W5-1: section=one attaches each needs-review or announced entry's stored tape window (the API's ``GET
+    .../tape``, copied whole: each bar as first served beside its newest close); a confirmed entry carries none. The
+    default reply and a bucket section ask the API for the list only.
+    """
+    api = FakeApi()
+    listed = afx.splits()
+    open_entry, confirmed = ok(api, "get_splits", section="one", t="TK01")["entries"]
+    tape = open_entry["tape"]
+    assert tape == afx.split_tape(open_entry["version_id"], open_entry["key_date"])
+    assert tape["around"] == open_entry["key_date"] and len(tape["bars"]) == 10
+    restated = tape["bars"][0]
+    assert (
+        restated["restated"] is True
+        and restated["close"] == 19.5
+        and restated["newest_close"] == 1.95
+    )
+    assert "tape" not in confirmed and "tape_error" not in open_entry
+    announced = ok(api, "get_splits", section="one", t="TK04")["entries"][0]
+    assert (
+        announced["status"] == "announced" and announced["tape"]["around"] == announced["key_date"]
+    )
+    ok(api, "get_splits")
+    ok(api, "get_splits", section="needs_review")
+    ok(api, "get_splits", section="one", t="TK05")  # confirmed only: no tape read
+    v1, v4 = listed["needs_review"][0]["version_id"], listed["announced"][0]["version_id"]
+    assert [p for _, p, _ in api.requests] == [
+        "/admin/splits",
+        f"/admin/splits/{v1}/tape",
+        "/admin/splits",
+        f"/admin/splits/{v4}/tape",
+        "/admin/splits",
+        "/admin/splits",
+        "/admin/splits",
+    ]
+
+
+def test_a_failed_tape_read_is_named_on_its_entry_and_the_entry_still_reads():
+    reply = ok(FakeApi(tape_status=500), "get_splits", section="one", t="TK01")
+    entry = reply["entries"][0]
+    assert "tape" not in entry and entry["tape_error"] == "The API answered HTTP 500."
+    assert entry["version_id"] and reply["found"] == 2
+
+
+def test_one_with_many_open_entries_reads_at_most_three_tapes_a_call_and_pages_within_the_budget():
+    """Four open TK01 entries, each with a passage over the full cut: every page fits the budget, each call reads
+    at most three tapes (from its cursor on), and every open entry carries its tape on the page that shows it.
+    """
+    body = afx.splits()
+    for k in range(3):
+        row = afx.needs_review_row(
+            1, version_id=uid("split-version", 1, "more", k), key_date=f"2026-0{k + 6}-01"
+        )
+        body["needs_review"].append(row)
+    for row in body["needs_review"]:
+        row["sec"] = row["sec"] and {**row["sec"], "passage": "x" * 2_000}
+    api = FakeApi(splits=body)
+    shown: list[dict] = []
+    cursor, calls = 0, 0
+    while True:
+        before = len(api.requests)
+        reply = ok(api, "get_splits", section="one", t="TK01", cursor=cursor)
+        tapes = [p for _, p, _ in api.requests[before:] if p.endswith("/tape")]
+        assert len(tapes) <= 3
+        shown += reply["entries"]
+        calls += 1
+        if reply["next_cursor"] is None:
+            break
+        assert reply["next_cursor"] > cursor and calls < 10
+        cursor = reply["next_cursor"]
+    assert calls > 1  # it paged
+    open_rows = [e for e in shown if e["status"] == "needs_review"]
+    assert len(open_rows) == 4 and all(e["tape"]["bars"] for e in open_rows)
+    assert all("tape" not in e for e in shown if e["status"] == "confirmed")
 
 
 @pytest.mark.parametrize(

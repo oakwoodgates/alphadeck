@@ -1,7 +1,8 @@
 """The Admin "Splits" panel API (split plan S1), end to end over a real DB filled by the REAL backfill
 (``pipeline.backfill_splits`` on the fixture Massive.com pages and filings, cache-only). Every action is
 exercised WITH its inverse, and each step COUNTS THE TABLE (one version per action — nothing updated,
-nothing deleted). The steward's confirm with CITED values (D3, platform fixes W2-1) runs on POM's shape at the end.
+nothing deleted). The steward's confirm with CITED values (D3, platform fixes W2-1) runs on POM's shape, and the
+tape window around a split's first session (W5-1) on GNS's.
 """
 
 from __future__ import annotations
@@ -622,3 +623,141 @@ def test_the_tape_step_reads_the_first_served_bars_beside_the_entered_factor(cli
     assert client.get(url, params={**q, "ratio_from": "0"}).status_code == 422
     assert client.get(url, params={**q, "first_session": "1980-01-01"}).status_code == 422
     assert split_repo.count_rows(db) == n
+
+
+# --- the tape window (W5-1): GNS's shape -----------------------------------------------------------------------
+
+GNS_SESSION = date(2026, 11, 20)  # a Friday; 11-21 / 11-22 are the weekend
+GNS_HALT = (
+    date(2026, 11, 12),
+    date(2026, 11, 13),
+    date(2026, 11, 16),
+    date(2026, 11, 17),
+    date(2026, 11, 18),
+)
+
+
+def _seed_gns(db) -> uuid.UUID:
+    """GNS's shape (synthetic closes): a 1-for-10 reverse split, first session 11-20. The bars before it were first
+    served on the old scale (the halt's 11-12..11-18 at 0.101 on no volume) and restated x10 after the split (a
+    second version stored 11-24); the 11-19 bar was first served already on the new scale (the vendor adjusted a
+    night early); the first session's bar arrived late (stored 11-23). Returns the split's version id. Commits.
+    """
+    sid = uuid.uuid4()
+    restated = _served(date(2026, 11, 24))
+    rows = [
+        (date(2026, 11, 10), 0.12, 400_000, _served(date(2026, 11, 10))),
+        (date(2026, 11, 10), 1.2, 40_000, restated),
+        (date(2026, 11, 11), 0.11, 350_000, _served(date(2026, 11, 11))),
+        (date(2026, 11, 11), 1.1, 35_000, restated),
+        *[(d, 0.101, 0, _served(d)) for d in GNS_HALT],
+        *[(d, 1.01, 0, restated) for d in GNS_HALT],
+        (date(2026, 11, 19), 1.014, 0, _served(date(2026, 11, 19))),
+        (GNS_SESSION, 0.499, 2_000_000, _served(date(2026, 11, 23))),
+        (date(2026, 11, 23), 0.45, 900_000, _served(date(2026, 11, 23))),
+        (date(2026, 11, 24), 0.41, 800_000, _served(date(2026, 11, 24))),
+    ]
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "GNS", date(2025, 1, 1)),
+        )
+        for d, close, volume, at in rows:
+            cur.execute(
+                "INSERT INTO fact_price_eod (tenant_id, security_id, d, close, volume, valid_from, recorded_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (DEFAULT_TENANT_ID, sid, d, close, volume, d, at),
+            )
+    db.commit()
+    seeded = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=GNS_SESSION,
+        values={
+            "effective_date": GNS_SESSION,
+            "ratio_from": 10,
+            "ratio_to": 1,
+            "status": "needs_review",
+            "value_source": "polygon",
+            "polygon_split_from": 10,
+            "polygon_split_to": 1,
+            "polygon_execution_date": GNS_SESSION,
+            "valid_from": GNS_SESSION,
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    return seeded.id
+
+
+def test_the_tape_window_shows_both_closes_either_side_of_the_first_session(client, db):
+    """The stored sessions around the split's first session (its ``key_date`` by default), each bar as first
+    served beside its newest version: the halt's bars show 0.101 as served and 1.01 restated, the 11-19 bar one
+    version already on the new scale, so the step at 11-20 as first served is x0.49, not the split's x10. A read.
+    """
+    version_id = _seed_gns(db)
+    n = split_repo.count_rows(db)
+    r = client.get(f"{BASE}/{version_id}/tape")
+    assert r.status_code == 200, r.text
+    w = r.json()
+    assert (w["version_id"], w["around"], w["sessions"]) == (str(version_id), "2026-11-20", 5)
+    bars = {b["d"]: b for b in w["bars"]}
+    assert list(bars) == [
+        "2026-11-13",
+        "2026-11-16",
+        "2026-11-17",
+        "2026-11-18",
+        "2026-11-19",
+        "2026-11-20",
+        "2026-11-23",
+        "2026-11-24",
+    ]  # five stored sessions before it, then it and the two after (the tape ends there)
+    halt = bars["2026-11-18"]
+    assert (halt["close"], halt["volume"], halt["newest_close"], halt["restated"]) == (
+        0.101,
+        0,
+        1.01,
+        True,
+    )
+    early = bars["2026-11-19"]
+    assert (early["close"], early["newest_close"], early["restated"]) == (1.014, 1.014, False)
+    first = bars["2026-11-20"]
+    assert (first["close"], first["volume"], first["restated"]) == (0.499, 2_000_000, False)
+    # the step at the first session, as tape_at reads it
+    assert w["prior_date"] == "2026-11-19" and w["step"] == pytest.approx(0.499 / 1.014)
+    assert w["volume_ratio"] is None  # no volume on the prior bar
+    assert w["prior_served_before"] is True
+    assert split_repo.count_rows(db) == n
+
+
+def test_the_tape_window_clips_at_the_tapes_ends_and_is_bounded(client, db):
+    version_id = _seed_gns(db)
+    url = f"{BASE}/{version_id}/tape"
+    start = client.get(url, params={"around": "2026-11-11", "sessions": 3}).json()
+    assert [b["d"] for b in start["bars"]] == [
+        "2026-11-10",
+        "2026-11-11",
+        "2026-11-12",
+        "2026-11-13",
+    ]
+    assert start["around"] == "2026-11-11" and start["step"] == pytest.approx(0.11 / 0.12)
+    assert start["bars"][0]["newest_close"] == 1.2 and start["bars"][0]["restated"] is True
+    one = client.get(url, params={"sessions": 1}).json()
+    assert [b["d"] for b in one["bars"]] == ["2026-11-19", "2026-11-20"]
+    every = client.get(url, params={"sessions": 10}).json()
+    assert len(every["bars"]) == 11  # every stored session: eight before it, it and two after
+    weekend = client.get(
+        url, params={"around": "2026-11-21"}
+    ).json()  # no bar on a Saturday: no step
+    assert [b["d"] for b in weekend["bars"]][-3:] == ["2026-11-20", "2026-11-23", "2026-11-24"]
+    assert weekend["step"] is None and weekend["prior_date"] is None
+    for bad in (
+        {"sessions": 0},
+        {"sessions": 11},
+        {"around": "1980-01-01"},
+        {"around": "x"},
+    ):
+        assert client.get(url, params=bad).status_code == 422, bad
+    assert client.get(f"{BASE}/{uuid.uuid4()}/tape").status_code == 404

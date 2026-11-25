@@ -3,7 +3,10 @@
 ``review_reason`` (the API's: sources_differ, extractor_abstained or one_source) rides every needs-review row,
 ``counts.needs_review_by_reason`` counts it and ``reason=`` narrows ``section=needs_review`` to one value.
 The default reply keeps the counts, the whole needs-review list (the panel's loud one) and the first unlisted jumps;
-a section pages one bucket in the API's order; ``one`` with a ticker reads that ticker's every entry and jump in full.
+a section pages one bucket in the API's order; ``one`` with a ticker reads that ticker's every entry and jump in full,
+each open entry (needs review, announced) with ``tape``: the API's stored window around its first session (``GET
+/admin/splits/{version_id}/tape``, read by the server for at most ``TAPE_READS`` entries a call, from the cursor on;
+``tape_error`` names a read that failed).
 Every value is copied from the API's JSON: the view never sorts, derives a date or a ratio, or decides whether the two
 sources agree (the model reads the two side by side; ``confirm_options`` is the API's statement of what can be
 confirmed). ``name`` is the shared master's company name, which the Admin panel shows. A split the steward confirmed
@@ -32,6 +35,9 @@ REASON_RULE = "reason must be one of: " + ", ".join(REASONS) + "."
 
 T_RULE = "t narrows section=one only."
 REASON_SECTION_RULE = "reason narrows section=needs_review only."
+# section=one: the open entries whose stored tape window the server reads, at most this many a call
+TAPE_BUCKETS = ("needs_review", "announced")
+TAPE_READS = 3
 PASSAGE_BRIEF = 300
 PASSAGE_FULL = 1_500
 NOTE_BRIEF = 200
@@ -101,7 +107,7 @@ def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
 
 
 def _full_entry(e: dict[str, Any]) -> dict[str, Any]:
-    out = dict(e)
+    out = dict(e)  # ``tape`` / ``tape_error`` (section=one's open entries) ride whole
     sec = e.get("sec")
     if sec is not None:
         out["sec"] = {**sec, **_passage(sec, PASSAGE_FULL)}
@@ -122,6 +128,15 @@ def _matches(ticker: str, e: dict[str, Any]) -> bool:
     if master is None:
         master = (e.get("polygon") or {}).get("ticker")
     return master is not None and master.upper() == ticker
+
+
+def tape_targets(payload: dict[str, Any], t: str, cursor: int = 0) -> list[dict[str, Any]]:
+    """The open entries (needs review, then announced) of ticker ``t`` whose tape window section=one attaches, from
+    ``cursor`` on, at most ``TAPE_READS``. Open entries come first in section=one's order, so the cursor indexes
+    them directly: a later page reads the ones an earlier page did not show."""
+    ticker = t.strip().upper()
+    found = [e for b in TAPE_BUCKETS for e in payload.get(b) or [] if _matches(ticker, e)]
+    return found[cursor:][:TAPE_READS]
 
 
 def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:

@@ -66,7 +66,7 @@ Each tool's description (served at `tools/list`) is its contract; this is the in
 | `get_extract` | `t`, `thesis`, `section`, `fact`, `cursor` | `/workbench/securities/{id}/extract` | `read` |
 | `get_onboarding` | `thesis`, `section`, `cursor` | `/workbench/theses/{id}/onboarding` | `read` |
 | `get_recipe` | `name`, `arguments`, `cursor` | the package's prompt files (no API request) | `read` |
-| `get_splits` | `section`, `t`, `reason`, `cursor` | `/admin/splits` | `steward` |
+| `get_splits` | `section`, `t`, `reason`, `cursor` | `/admin/splits`, `/admin/splits/{id}/tape` | `steward` |
 | `get_admin_status` | `section`, `cursor` | `/admin/status` | `steward` |
 | `get_shared_facts` | `section`, `t`, `fact`, `pen`, `cursor` | `/admin/platform-values/queue`, `/admin/platform-values/{id}` | `steward` |
 | `get_insider_holds` | `section`, `t`, `cursor` | `/admin/insider-holds` | `steward` |

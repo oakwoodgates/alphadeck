@@ -148,23 +148,22 @@ row to the state before. A decision counts from when it was made, on the public 
 
 ### Splits
 
-The split list that `pipeline.backfill_splits` filled from Massive.com and each company's SEC filing
-(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings"). Shown only when the list has entries.
+The split list `pipeline.backfill_splits` filled from Massive.com and each company's SEC filing
+(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings").
 
-- **Needs review** (loud, the only loud list): a split one source cannot settle, with the SEC passage and
-  Massive.com's row side by side: confirm one source's values (or the only source's), or reject. When neither
-  source is right (POM's ADR termination: 10 ADSs -> 3 shares), confirm with cited values: a ratio, the first
-  session, a required https URL and an optional note. The server reads the stored tape's step at that session,
-  each bar as first served, and refuses a factor outside the tape tolerance, or a session with no bar, unless the
-  steward overrides; the version records the URL and the override.
-- **Auto-confirmed, announced and set aside** (quiet). Revoke any confirmed split; Restore undoes a reject or a
-  revoke. Rejected and revoked splits stay listed, grayed.
+- **Needs review** (loud, the only loud list): a split one source cannot settle, the SEC passage beside
+  Massive.com's row: confirm a source's values, or reject. When neither is right (POM's ADR termination: 10 ADSs
+  -> 3 shares), confirm cited values: a ratio, the first session, a required https URL, an optional note. Unless
+  the steward overrides, the server refuses a factor outside the tape tolerance of the stored step at that session
+  (bars as first served), or a session with no bar; the version records the URL and the override.
+- **Auto-confirmed, announced and set aside** (quiet; set-aside ones grayed). Revoke any confirmed split; Restore
+  undoes a reject or a revoke.
 - **Split-shaped jumps with no split listed** (quiet): jumps the split-night hold released that no source lists.
-  Dismissing one as a real move, and its undo, are display only; the hold never reads them.
+  Dismiss (a real move) and its undo are display only; the hold never reads them.
 
 Every action appends one version naming the steward and the version it acts on, so a stale card is refused (409).
-A confirm lifts the split-night hold the next night; the nightly price leg and the repair tool keep stored tapes on
-the list's scale. Nothing here sends a push.
+A confirm lifts the split-night hold next night; the price leg and the repair tool keep stored tapes on the list's
+scale. Nothing here sends a push.
 
 ### Data flags
 
@@ -230,7 +229,7 @@ list (`GET /admin/backups`) and the last snapshot's age are reads. Schedule, ret
 
 ## Contracts
 
-Wire shapes: `backend/openapi.json`. Every route below is steward-only; nine sit under `/admin/splits` and twelve
+Wire shapes: `backend/openapi.json`. Every route below is steward-only; ten sit under `/admin/splits` and twelve
 under `/admin/platform-values`.
 
 | Route | Panel | What it does |
@@ -252,7 +251,7 @@ under `/admin/platform-values`.
 | `POST /admin/insider-holds/{hold_id}/approve`, `/dismiss`; `POST /admin/insider-holds/decisions/{decision_id}/revoke` | Held insider rows | date, dismiss, undo |
 | `GET /admin/splits` | Splits | the list and the unlisted jumps |
 | `POST /admin/splits/{version_id}/confirm`, `/reject`, `/revoke`, `/restore` | Splits | decide a split; undo |
-| `GET /admin/splits/{version_id}/tape-step` | Splits | the stored step at a first session, beside an entered ratio |
+| `GET /admin/splits/{version_id}/tape-step`, `/tape` | Splits | a session's step, beside an entered ratio; the bars around it |
 | `POST /admin/splits/{version_id}/confirm-values` | Splits | confirm with cited values; undo is revoke |
 | `POST /admin/splits/jumps/{security_id}/{step_date}/dismiss` | Splits | dismiss a jump |
 | `POST /admin/splits/jumps/dismissals/{dismissal_id}/undo` | Splits | undo a dismissal |
