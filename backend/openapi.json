@@ -4364,6 +4364,83 @@
         }
       }
     },
+    "/admin/splits/{version_id}/tape": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Split Tape Window",
+        "description": "The stored closes and volumes around the split ``version_id`` names (W5-1): ``sessions`` stored sessions\neach side of ``around`` (default the split's ``key_date``), each bar as first served beside its newest close,\nand the step at ``around`` as first served. **404** unknown version, **422** ``sessions`` outside 1-10 or a\nbad date. Read-only.",
+        "operationId": "split_tape_window_admin_splits__version_id__tape_get",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          },
+          {
+            "name": "around",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the session to center on (default: the split's key_date)",
+              "title": "Around"
+            },
+            "description": "the session to center on (default: the split's key_date)"
+          },
+          {
+            "name": "sessions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10,
+              "minimum": 1,
+              "description": "stored sessions each side (1-10)",
+              "default": 5,
+              "title": "Sessions"
+            },
+            "description": "stored sessions each side (1-10)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitTapeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/splits/{version_id}/confirm-values": {
       "post": {
         "tags": [
@@ -13257,6 +13334,137 @@
         ],
         "title": "AdminSplitSettledOut",
         "description": "A SETTLED flap (``pipeline/split_basis.settle_flap``): the stored history changed basis and back, but\nevery night's view reads a single basis \u2014 the newest tape has no break, and no night's history view (the\npublic clock) reads a lookback on two bases. Named so it stays visible, never paged, never an alarm.\n``reason`` says how it was judged."
+      },
+      "AdminSplitTapeBarOut": {
+        "properties": {
+          "d": {
+            "type": "string",
+            "format": "date",
+            "title": "D"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          },
+          "newest_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Close"
+          },
+          "restated": {
+            "type": "boolean",
+            "title": "Restated",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "d"
+        ],
+        "title": "AdminSplitTapeBarOut",
+        "description": "One stored session in a split's tape window. ``close`` / ``volume`` = the bar as the vendor FIRST served it\n(the version ``tape_at`` reads: the as-traded print); ``newest_close`` = its newest stored version (the store's\nscale today); ``restated`` = the two closes differ (re-based later: by the vendor, or by the split list's own\nrescale of the stored tape)."
+      },
+      "AdminSplitTapeOut": {
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Version Id"
+          },
+          "around": {
+            "type": "string",
+            "format": "date",
+            "title": "Around"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitTapeBarOut"
+            },
+            "type": "array",
+            "title": "Bars"
+          },
+          "prior_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Date"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "volume_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume Ratio"
+          },
+          "prior_served_before": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Served Before"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version_id",
+          "around",
+          "sessions"
+        ],
+        "title": "AdminSplitTapeOut",
+        "description": "The stored tape around a split's first session (W5-1): what was served each session either side of it.\n``bars`` = up to ``sessions`` stored sessions before ``around`` and up to ``sessions`` from ``around`` on (it\nfirst, when stored), oldest first, fewer where the tape ends; ``around`` defaults to the split's ``key_date``.\n``prior_date`` / ``step`` / ``volume_ratio`` / ``prior_served_before`` = the step at ``around`` as first served,\nthe reading ``GET .../tape-step`` shows (the bar on ``around`` and the stored bar before it, at most 14 days\nback; ``null`` when either is missing). A read."
       },
       "AdminSplitTapeStepOut": {
         "properties": {
