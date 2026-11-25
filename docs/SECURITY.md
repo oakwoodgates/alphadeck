@@ -1,9 +1,9 @@
 # Security
 
 How the API and the UI treat what comes in and what goes out: one output rule per context, the error contract,
-the request limits, the caller's address, TLS and the Content-Security-Policy. Read it before you add a link
-field, a Slack message, a nginx location, an error path, a request field or a throttle. Sign-in, roles and
-allowances are in [AUTH](AUTH.md).
+the request limits, the caller's address, published ports, TLS and the Content-Security-Policy. Read it before
+you add a link field, a Slack message, a nginx location, an error path, a request field or a throttle. Sign-in,
+roles and allowances are in [AUTH](AUTH.md).
 
 ## Code
 
@@ -16,6 +16,7 @@ allowances are in [AUTH](AUTH.md).
 | Error contract | `backend/app/errors.py` (`install`, `fail`, `note_caller`, `SENTENCES`) |
 | Request limits | `backend/domain/text_types.py`; used by the request models in `backend/app/schemas_api.py`; mirrored in `frontend/src/api/limits.ts` |
 | The caller's address | `backend/app/client_address.py` |
+| Published ports | `docker-compose.yml`, its overlays and `infra/docker-compose.yml`; guard `backend/tests/ops/test_compose_ports.py` |
 
 ## Output rules
 
@@ -121,10 +122,24 @@ caller behind nginx.
   `request.client` or `scope["client"]`; `backend/tests/app/test_client_address.py`;
   `backend/tests/ops/test_nginx_real_ip.py` parses nginx.
 
+## Published ports
+
+Every compose stack publishes its ports on loopback only, each one twice: `127.0.0.1:H:C` and `[::1]:H:C`. Another
+device on the network reaches no app, no API and no database; a bare `H:C` would publish on every interface, and
+Postgres carries the compose password, which bypasses every gate. Both families because `scripts/deploy.sh` reads
+`[::1]` first and `localhost` resolves to either. A tool on another machine tunnels in.
+
+`backend/tests/ops/test_compose_ports.py` parses every compose file and fails on a bare publish, a missing
+family, or an overlay `ports:` without `!override` (Compose would append it to the base list).
+
+A running container keeps the binding it was created with until it is recreated. `scripts/deploy.sh` recreates
+only the services it names (`--no-deps`), so a Postgres container takes the new binding at its own planned
+recreate, after a backup ([OPERATIONS](OPERATIONS.md), "The deploy script").
+
 ## TLS
 
 The repo ships no TLS terminator: nginx listens on plain port 80 and the backend's port 8000 is published on the
-host. Prod runs as the local compose stack. Anything beyond localhost needs TLS first: the session cookie is
+host's loopback. Prod runs as the local compose stack. Anything beyond localhost needs TLS first: the session cookie is
 `Secure` by default (`ALPHADECK_COOKIE_SECURE`), a bearer token must never cross a network in clear, and
 `ALPHADECK_PUBLIC_ORIGIN` accepts `http` only on a loopback host ([AGENT_TOOLS](AGENT_TOOLS.md) "Hosted endpoint").
 When a TLS proxy goes in front of nginx, nginx must read the real address from it (`set_real_ip_from <proxy
@@ -149,7 +164,7 @@ built `index.html` has no inline `<script>`; keep it that way.
 ## Known limits
 
 - The Content-Security-Policy is report-only.
-- A direct request to the published port 8000 bypasses nginx's headers and body caps.
+- A direct request to the published port 8000, from this machine, bypasses nginx's headers and body caps.
 - Two GET routes write an allowance count; see [AUTH](AUTH.md) "The cookie and CSRF".
 
 ## Related

@@ -15,7 +15,8 @@ services:
       POSTGRES_PASSWORD: alphadeck
       POSTGRES_DB: alphadeck
     ports:
-      - "5544:5432" # non-default host port to avoid clashing with a local Postgres
+      - "127.0.0.1:5544:5432" # non-default host port to avoid clashing with a local Postgres
+      - "[::1]:5544:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

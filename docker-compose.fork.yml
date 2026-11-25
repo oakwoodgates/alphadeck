@@ -27,7 +27,8 @@ services:
     # carry prod's 5544 too and the fork would try to bind it, colliding with a running prod). Same for
     # backend + frontend below.
     ports: !override
-      - "${FORK_PG_PORT:?set FORK_PG_PORT in .env.fork (and pass --env-file .env.fork)}:5432"
+      - "127.0.0.1:${FORK_PG_PORT:?set FORK_PG_PORT in .env.fork (and pass --env-file .env.fork)}:5432"
+      - "[::1]:${FORK_PG_PORT:?set FORK_PG_PORT in .env.fork (and pass --env-file .env.fork)}:5432"
     environment:
       POSTGRES_DB: alphadeck_${FORK_NAME:?set FORK_NAME in .env.fork (and pass --env-file .env.fork)}
 
@@ -45,7 +46,8 @@ services:
       args:
         PIP_EXTRAS: ${FORK_PIP_EXTRAS-replay}
     ports: !override
-      - "${FORK_API_PORT:?set FORK_API_PORT in .env.fork (and pass --env-file .env.fork)}:8000"
+      - "127.0.0.1:${FORK_API_PORT:?set FORK_API_PORT in .env.fork (and pass --env-file .env.fork)}:8000"
+      - "[::1]:${FORK_API_PORT:?set FORK_API_PORT in .env.fork (and pass --env-file .env.fork)}:8000"
     environment:
       # The in-network address is unchanged (postgres:5432 inside the compose network); ONLY the DB name
       # switches to the fork's. This is the container's DB URL — not a host dev-loop one.
@@ -66,7 +68,8 @@ services:
 
   frontend:
     ports: !override
-      - "${FORK_APP_PORT:?set FORK_APP_PORT in .env.fork (and pass --env-file .env.fork)}:80"
+      - "127.0.0.1:${FORK_APP_PORT:?set FORK_APP_PORT in .env.fork (and pass --env-file .env.fork)}:80"
+      - "[::1]:${FORK_APP_PORT:?set FORK_APP_PORT in .env.fork (and pass --env-file .env.fork)}:80"
 
   cron:
     # Cron is OFF in every fork — non-negotiable (docs/OPERATIONS.md §Forks): exactly ONE live scheduled fetcher

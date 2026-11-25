@@ -3,6 +3,12 @@
 #   App:  http://localhost:8080      API + Swagger docs:  http://localhost:8000/docs
 # infra/docker-compose.yml stays the DB-only slice for the local backend dev loop; both share the
 # same project name (alphadeck) and the pgdata volume, so the data is the same either way.
+#
+# Every published port binds loopback only, twice: 127.0.0.1 and [::1]. A bare "H:C" publishes on every
+# interface, so another device on the network could reach Postgres (compose password below) and the whole
+# API. Both families because scripts/deploy.sh reads [::1] first (Docker Desktop's IPv4 loopback forward
+# resets at times) and `localhost` resolves to either. Every overlay's `ports: !override` list follows the
+# same rule; backend/tests/ops/test_compose_ports.py holds every compose file to it.
 name: alphadeck
 
 # O3 (2026-10-16) — a CAP on each container's log. The default json-file driver keeps every line forever
@@ -25,7 +31,8 @@ services:
       POSTGRES_PASSWORD: alphadeck
       POSTGRES_DB: alphadeck
     ports:
-      - "5544:5432" # non-default host port to avoid clashing with a local Postgres
+      - "127.0.0.1:5544:5432" # non-default host port to avoid clashing with a local Postgres
+      - "[::1]:5544:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -199,7 +206,8 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8000:8000" # the API direct (and Swagger docs at /docs)
+      - "127.0.0.1:8000:8000" # the API direct (and Swagger docs at /docs)
+      - "[::1]:8000:8000"
     volumes:
       # The runtime-data home. The image puts the app at /app, so the code's `<repo-root>/data/...` cache
       # paths (ingest/edgar, ingest/prices, ingest/doe, securities) resolve to /data/... in the container.
@@ -381,7 +389,8 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "8080:80" # the app
+      - "127.0.0.1:8080:80" # the app
+      - "[::1]:8080:80"
     restart: unless-stopped # match the rest of the stack — the SPA comes back after a reboot too
     logging: *capped-logs # O3 — the capped json-file log (top of file)
 
