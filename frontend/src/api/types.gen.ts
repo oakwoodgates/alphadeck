@@ -181,7 +181,9 @@ export interface paths {
         /**
          * Create Token
          * @description Create a named access token for an AI client or a script. The token is in this reply ONLY, never again.
-         *     The name is trimmed and must be 1 to 60 characters (400 otherwise); at most 20 live tokens per user (409).
+         *     It can only read: it holds my role's scopes (`read`, plus `steward` for a steward) and never reaches these
+         *     Settings routes. The name is trimmed and must be 1 to 60 characters (400 otherwise); at most 20 live tokens per
+         *     user (409).
          */
         post: operations["create_token_account_tokens_post"];
         delete?: never;
@@ -20217,7 +20219,7 @@ export interface components {
         /**
          * TokenCreatedOut
          * @description The new access token. `token` is shown in this reply only, never again: store it where the client reads
-         *     it.
+         *     it. It can only read: `scopes` are my role's (`read`, plus `steward` for a steward).
          */
         TokenCreatedOut: {
             /**
@@ -20227,6 +20229,8 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+            /** Scopes */
+            scopes?: string[] | null;
             /**
              * Created At
              * Format: date-time
@@ -20245,8 +20249,10 @@ export interface components {
         };
         /**
          * TokenOut
-         * @description One of my access tokens. The token itself is never returned after it is created. `last_used_at` is null
-         *     when it was never used (it is updated at most every 5 minutes); `revoked_at` is set once it is revoked.
+         * @description One of my access tokens. The token itself is never returned after it is created. `scopes` is what it may
+         *     do: `read`, plus `steward` for a steward's token, and such a token can only read; null is a full-access token
+         *     (made by the operator's command line), which holds my role's scopes and can change things. `last_used_at` is
+         *     null when it was never used (it is updated at most every 5 minutes); `revoked_at` is set once it is revoked.
          */
         TokenOut: {
             /**
@@ -20256,6 +20262,8 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+            /** Scopes */
+            scopes?: string[] | null;
             /**
              * Created At
              * Format: date-time

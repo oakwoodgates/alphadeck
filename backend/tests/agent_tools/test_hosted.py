@@ -561,3 +561,34 @@ def test_every_api_request_the_mount_made_carried_the_callers_bearer(world, db):
         used = {r["id"]: r["last_used_at"] for r in cur.fetchall()}
     assert used[world["token_ids"]["b"]] is not None
     assert used[world["token_ids"]["a"]] is None and used[world["token_ids"]["s"]] is None
+
+
+# --- 8.9 read-only personal tokens (migration 0214): the steward set follows the token's scopes -------------------
+
+
+def test_a_read_only_steward_pat_lists_the_steward_set_and_a_stewards_read_pat_the_plain_set(
+    world, db
+):
+    from tests.agent_tools.test_principal import STEWARD_TOOLS  # the steward set, kept by its owner
+
+    steward = world["users"]["s"]
+    _, read_steward = auth.create_api_token(db, steward, "agent", scopes={"read", "steward"})
+    _, read = auth.create_api_token(db, steward, "agent read", scopes={"read"})
+    db.commit()
+
+    async def names(session, init):
+        return {t.name for t in (await session.list_tools()).tools}
+
+    assert run_as(read_steward, names) - TOOLS == STEWARD_TOOLS
+    assert run_as(read, names) == TOOLS
+
+    async def status(session, init):
+        return await session.call_tool("get_admin_status", {})
+
+    reply = run_as(read_steward, status)
+    assert not reply.is_error, _text(reply)
+    # it reads the Admin panels; the API refuses it every write, the panels' included
+    rest = TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
+    bearer = {"authorization": f"Bearer {read_steward}"}
+    r = rest.post(f"/admin/onboarding/{uuid.uuid4()}/retry", headers=bearer)
+    assert r.status_code == 403 and r.json() == {"detail": "this token can only read"}

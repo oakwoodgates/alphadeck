@@ -278,7 +278,7 @@
           "account"
         ],
         "summary": "Create Token",
-        "description": "Create a named access token for an AI client or a script. The token is in this reply ONLY, never again.\nThe name is trimmed and must be 1 to 60 characters (400 otherwise); at most 20 live tokens per user (409).",
+        "description": "Create a named access token for an AI client or a script. The token is in this reply ONLY, never again.\nIt can only read: it holds my role's scopes (`read`, plus `steward` for a steward) and never reaches these\nSettings routes. The name is trimmed and must be 1 to 60 characters (400 otherwise); at most 20 live tokens per\nuser (409).",
         "operationId": "create_token_account_tokens_post",
         "requestBody": {
           "content": {
@@ -46829,6 +46829,20 @@
             "type": "string",
             "title": "Name"
           },
+          "scopes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scopes"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -46847,7 +46861,7 @@
           "token"
         ],
         "title": "TokenCreatedOut",
-        "description": "The new access token. `token` is shown in this reply only, never again: store it where the client reads\nit."
+        "description": "The new access token. `token` is shown in this reply only, never again: store it where the client reads\nit. It can only read: `scopes` are my role's (`read`, plus `steward` for a steward)."
       },
       "TokenListOut": {
         "properties": {
@@ -46876,6 +46890,20 @@
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scopes"
           },
           "created_at": {
             "type": "string",
@@ -46914,7 +46942,7 @@
           "created_at"
         ],
         "title": "TokenOut",
-        "description": "One of my access tokens. The token itself is never returned after it is created. `last_used_at` is null\nwhen it was never used (it is updated at most every 5 minutes); `revoked_at` is set once it is revoked."
+        "description": "One of my access tokens. The token itself is never returned after it is created. `scopes` is what it may\ndo: `read`, plus `steward` for a steward's token, and such a token can only read; null is a full-access token\n(made by the operator's command line), which holds my role's scopes and can change things. `last_used_at` is\nnull when it was never used (it is updated at most every 5 minutes); `revoked_at` is set once it is revoked."
       },
       "TrackCapOut": {
         "properties": {

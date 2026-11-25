@@ -71,6 +71,9 @@ def test_create_shows_the_token_once_stores_only_its_hash_and_it_signs_in(two, d
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["name"] == "laptop" and body["token"] and body["created_at"]
+    assert body["scopes"] == [
+        "read"
+    ]  # read-only: the Settings page never mints a token that writes
     with db.cursor() as cur:
         cur.execute("SELECT name, token_hash, user_id FROM api_token WHERE id = %s", (body["id"],))
         row = cur.fetchone()
@@ -82,7 +85,20 @@ def test_create_shows_the_token_once_stores_only_its_hash_and_it_signs_in(two, d
     listed = two["a"].get("/account/tokens")
     assert listed.status_code == 200
     assert body["token"] not in listed.text
-    assert [t["name"] for t in listed.json()["tokens"]] == ["laptop"]
+    assert [(t["name"], t["scopes"]) for t in listed.json()["tokens"]] == [("laptop", ["read"])]
+
+
+def test_a_stewards_token_reads_the_steward_scope_and_a_cli_full_token_lists_as_null(two, db):
+    made = two["s"].post("/account/tokens", json={"name": "steward agent"}).json()
+    assert made["scopes"] == ["read", "steward"]
+    auth.create_api_token(db, two["ids"]["s"], "script")  # the CLI's --write: scopes NULL
+    db.commit()
+    listed = two["s"].get("/account/tokens").json()["tokens"]
+    assert sorted((t["name"], t["scopes"] or []) for t in listed) == [
+        ("script", []),
+        ("steward agent", ["read", "steward"]),
+    ]
+    assert [t["scopes"] for t in listed if t["name"] == "script"] == [None]
 
 
 def test_each_user_lists_only_their_own_live_first(two):
@@ -130,11 +146,22 @@ def test_revoke_own_is_204_idempotent_and_the_token_stops_working(two):
     assert a.delete(f"/account/tokens/{made['id']}").status_code == 204  # already revoked
 
 
-def test_a_token_may_revoke_itself(two):
-    made = two["a"].post("/account/tokens", json={"name": "self"}).json()
+def test_a_full_token_may_revoke_itself_and_a_read_only_one_may_not(two, db):
+    tid, token = auth.create_api_token(
+        db, two["ids"]["a"], "self"
+    )  # the CLI's --write: a full token
+    db.commit()
+    bearer = {"authorization": f"Bearer {token}"}
+    assert _bare().delete(f"/account/tokens/{tid}", headers=bearer).status_code == 204
+    assert _me(token).status_code == 401
+    made = two["a"].post("/account/tokens", json={"name": "agent"}).json()  # read-only
     bearer = {"authorization": f"Bearer {made['token']}"}
-    assert _bare().delete(f"/account/tokens/{made['id']}", headers=bearer).status_code == 204
-    assert _me(made["token"]).status_code == 401
+    r = _bare().delete(f"/account/tokens/{made['id']}", headers=bearer)
+    assert r.status_code == 403
+    assert r.json() == {"detail": "a read-only token cannot manage your account"}
+    assert (
+        _me(made["token"]).status_code == 200
+    )  # still live: the user revokes it on the Settings page
 
 
 def test_another_users_token_and_an_unknown_id_are_404_alike(two):
