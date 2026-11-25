@@ -107,19 +107,7 @@ body {
 .agents-tab .url-row { display: flex; gap: 8px; align-items: stretch; }
 .agents-tab .url-row input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; color: var(--txt); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; }
 .agents-tab .steward-line { font-size: 12.5px; color: var(--txt-2); }
-.agents-tab details { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
-.agents-tab details + details { margin-top: 6px; }
-.agents-tab summary { cursor: pointer; padding: 8px 12px; font-size: 13px; color: var(--txt-2); list-style: none; display: flex; align-items: center; gap: 8px; }
-.agents-tab summary::-webkit-details-marker { display: none; }
-.agents-tab summary::before { content: "▸"; color: var(--txt-4); font-size: 11px; }
-.agents-tab details[open] summary::before { content: "▾"; }
-.agents-tab details[open] summary { color: var(--txt); border-bottom: 1px solid var(--line); }
-.agents-tab details .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: var(--txt-2); }
-.agents-tab details ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .agents-tab code { font-family: var(--mono); font-size: 11.5px; }
-.agents-tab .cmd { display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 7px 9px; color: var(--txt); white-space: pre-wrap; word-break: break-all; }
-.agents-tab .cmd-row { display: flex; gap: 8px; align-items: flex-start; }
-.agents-tab .cmd-row .cmd { flex: 1; }
 .agents-tab table.tokens { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .agents-tab table.tokens th { text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .agents-tab table.tokens td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
@@ -129,7 +117,11 @@ body {
 .agents-tab table.tokens td.act { text-align: right; white-space: nowrap; }
 .agents-tab .show-revoked { font-size: 12px; color: var(--txt-3); display: flex; align-items: center; gap: 6px; }
 .agents-tab .show-revoked input { accent-color: var(--txt-3); }
-.agents-tab table.tokens td.scopes-cell { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
+/* Access column (tokens and connected apps). `full access` is the one exception, amber; a revoked row grays it too. */
+.agents-tab table.tokens td.scopes-cell { font-family: var(--mono); font-size: 11px; color: var(--txt-2); white-space: nowrap; }
+.agents-tab table.tokens td.scopes-cell.full { color: var(--warm); }
+.agents-tab table.tokens tr.revoked td.scopes-cell.full { color: var(--txt-4); }
+.agents-tab .full-note { font-size: 12px; color: var(--txt-3); }
 .agents-tab .tag, .consent .tag { display: inline-block; margin-left: 6px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; vertical-align: middle; }
 /* the OAuth consent page (/oauth/consent/:id, docs/CONNECTORS.md): one quiet card, centered like the login form */
 .consent-wrap { display: flex; align-items: flex-start; justify-content: center; padding: 48px 16px; }

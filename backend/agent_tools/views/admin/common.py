@@ -9,9 +9,18 @@ from __future__ import annotations
 from typing import Any
 
 from ...budget import TrimRule, fit
-from ..research.common import BUDGET, ResearchRequest, ViewError, header
+from ..research.common import BUDGET, ResearchRequest, ViewError, header, pick, put_cut
 
-__all__ = ["BUDGET", "ResearchRequest", "ViewError", "head", "header", "paged"]
+__all__ = [
+    "BUDGET",
+    "ResearchRequest",
+    "ViewError",
+    "head",
+    "header",
+    "paged",
+    "pick",
+    "put_cut",
+]
 
 
 def head(out: dict[str, Any], key: str, rows: list[Any] | None, shown: int) -> None:

@@ -1,11 +1,12 @@
 # Connectors
 
-How an AI client (claude.ai's custom connectors, Claude Code's `/mcp` sign-in) signs a user in with OAuth and reads
-that user's workspace through the hosted agent tools endpoint `<origin>/mcp`. The client sends the user to Alpha
-Deck's own consent page; the user signs in with their Alpha Deck email and password and clicks Allow; the client
-gets its own token, which can read and never write. A client can also use a personal access token pasted from
-Settings > Agents. All of it is available when `ALPHADECK_PUBLIC_ORIGIN` is set ([AGENT_TOOLS](AGENT_TOOLS.md)
-"Hosted endpoint"). Read it before you change `app/oauth/`, the consent page or the `oauth` principal.
+How an AI client (any MCP client that signs in with OAuth: a chat app's custom connector, a coding agent's `/mcp`
+sign-in) signs a user in and reads that user's workspace through the hosted agent tools endpoint `<origin>/mcp`. The
+client sends the user to Alpha Deck's own consent page; the user signs in with their Alpha Deck email and password
+and clicks Allow; the client gets its own token, which can read and never write. A client can also use a personal
+access token pasted from Settings > Agents, which reads only too. All of it is available when
+`ALPHADECK_PUBLIC_ORIGIN` is set ([AGENT_TOOLS](AGENT_TOOLS.md) "Hosted endpoint"). Read it before you change
+`app/oauth/`, the consent page or the `oauth` principal.
 
 ## Code
 
@@ -77,12 +78,14 @@ The lifetimes are constants in `store.py` (`CONSENT_TTL`, `CODE_TTL`, `ACCESS_TT
 ### Scopes and the role cap
 
 Two scopes (`store.SCOPES`): `read` (cards, calls, decisions, ratified facts) and `steward` (the Admin readouts the
-two steward tools read). Every user can grant `read`, which is always on the consent page and added when an app
+five steward tools read). Every user can grant `read`, which is always on the consent page and added when an app
 asked for nothing. Only a super admin can grant `steward` (`store.grantable`); a plain user sees it struck through
 and Allow leaves it out. At the API, a token without `write` (none carries it) answers 403 on every non-GET
 request, and the role is `super_admin` only when the user is one and the token carries `steward`, so a steward's
 read-only connector gets 403 on `/admin`. At `/mcp` the token's scopes become the tool principal's, which decides
-the tools and prompts the client lists ([AGENT_TOOLS](AGENT_TOOLS.md) "Scopes").
+the tools and prompts the client lists ([AGENT_TOOLS](AGENT_TOOLS.md) "Scopes"). A read-only personal access token
+follows the same two rules with the scopes stored on it, and the same refusal of `/account` (`auth.restricted_may`,
+[AUTH](AUTH.md)).
 
 ### The consent page
 
@@ -104,9 +107,9 @@ Migration 0080 seeds two static clients (`store.STATIC_CLIENTS`), public (PKCE, 
 The metadata does not advertise client ID metadata documents (the SDK has no server side for them), and with
 registration off it names no `registration_endpoint`, so claude.ai asks for a client ID: the user enters
 `alphadeck-claude` with no secret. Claude Code's own client id is static here, so it works with or without
-registration. Settings > Agents shows each client's steps (`AgentsTab.tsx`). The steward adds another vetted app
-with `pipeline.users oauth-client add` ([AUTH](AUTH.md) "The CLI"): stored as `static`, public unless
-`--confidential` (a generated secret printed once, stored as its sha256), each redirect URI https or http on
+registration. Settings > Agents shows the connector URL, not per-client steps (`AgentsTab.tsx`). The steward adds
+another vetted app with `pipeline.users oauth-client add` ([AUTH](AUTH.md) "The CLI"): stored as `static`, public
+unless `--confidential` (a generated secret printed once, stored as its sha256), each redirect URI https or http on
 localhost.
 
 ### Dynamic registration

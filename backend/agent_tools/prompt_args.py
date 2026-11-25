@@ -125,7 +125,69 @@ PROMPTS: tuple[PromptSpec, ...] = (
         derived={"t_clause": lambda v: f", starting with {v['t']}" if v["t"] else ""},
         scope="steward",
     ),
+    PromptSpec(
+        "admin-triage",
+        "Everything waiting on the Admin page, in the order to work it: the held insider rows, the shared facts "
+        "queue, the price-feed repairs, the onboarding queue and the splits count, each with the review to run. "
+        "The Form 4/A panel has no tool and is named as read by hand. Steward scope.",
+        (),
+        scope="steward",
+    ),
+    PromptSpec(
+        "facts-review",
+        "The share counts and cash-and-burn values waiting on Admin > Shared facts: each candidate's own figure "
+        "beside its located filing passage. The model suggests Approve, Dismiss or the company page, never a "
+        "figure. Steward scope.",
+        (("t", False, None),),
+        derived={"t_clause": lambda v: f", starting with {v['t']}" if v["t"] else ""},
+        scope="steward",
+    ),
+    PromptSpec(
+        "insider-review",
+        "The held Form 4 rows owed on Admin > Held insider rows: the filing's dates as written, the suggested "
+        "date and whether it agrees, and why the rule did not place the row. The Form 4/A panel has no tool. "
+        "Steward scope.",
+        (("t", False, None),),
+        derived={"t_clause": lambda v: f", starting with {v['t']}" if v["t"] else ""},
+        scope="steward",
+    ),
+    PromptSpec(
+        "price-feed-review",
+        "The price-feed repairs owed on Admin > Price feed repairs: renamed names with the splice probe's "
+        "verdict, names never priced and members re-filed under a new CIK, each with its recommendation. "
+        "Steward scope.",
+        (),
+        scope="steward",
+    ),
 )
 PROMPT_NAMES = tuple(p.name for p in PROMPTS)
 # the scope each prompt needs: a prompt the caller does not hold is neither listed nor gettable (``AlphaDeckServer``)
 PROMPT_SCOPES = {p.name: p.scope for p in PROMPTS}
+
+
+def bind_values(spec: PromptSpec, given: dict[str, str]) -> dict:
+    """The values ``spec`` renders with, from a ``get_recipe`` call's string arguments: each argument the caller named,
+    the spec's default for each it left out. An integer argument (a default of ``int``) is read as the ``prompts/get``
+    path reads it, so both paths fill the same text. Raises ``ValueError(rule)`` for an argument the recipe does not
+    take, a required one left out, or an integer argument that is not a whole number.
+    """
+    takes = [name for name, _, _ in spec.arguments]
+    listed = ", ".join(takes) if takes else "no arguments"
+    foreign = sorted(set(given) - set(takes))
+    if foreign:
+        raise ValueError(f"{spec.name} does not take {', '.join(foreign)}; it takes {listed}.")
+    missing = [name for name, required, _ in spec.arguments if required and name not in given]
+    if missing:
+        raise ValueError(f"{spec.name} needs {', '.join(missing)}; it takes {listed}.")
+    values: dict = {}
+    for name, _, default in spec.arguments:
+        if name not in given:
+            values[name] = default
+        elif isinstance(default, int) and not isinstance(default, bool):
+            try:
+                values[name] = int(given[name])
+            except ValueError:
+                raise ValueError(f"{name} must be a whole number.") from None
+        else:
+            values[name] = given[name]
+    return values

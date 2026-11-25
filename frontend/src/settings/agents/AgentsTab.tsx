@@ -12,12 +12,14 @@ import type { ConnectionOut, TokenCreatedOut, TokenOut } from "../../api/hooks";
 import { errorDetail } from "../../auth/me";
 
 // /settings/agents — how an AI client reaches MY workspace (docs/AGENT_TOOLS.md §Hosted endpoint) and my access
-// tokens. The copy is the signed-off mockup's (docs/temp/mockups/agents-tab-mockup-2026-11-08.html). A quiet page:
-// no banner when the install has no public address. Every action has a visible inverse or is re-doable: a token
-// revoked here stays on screen, grayed, for the rest of the visit (hide, never vanish); after a reload the list hides
-// revoked tokens unless "Show revoked tokens" is ticked. A new token is shown ONCE, until Done. Connected apps
-// (the OAuth sign-in, docs/CONNECTORS.md; copy from docs/temp/mockups/consent-and-connected-apps-mockup-2026-11-08.html)
-// follow the same rules: a disconnected app stays on screen, grayed, for the visit.
+// tokens. The copy is the signed-off mockup's (docs/temp/mockups/agents-tab-2026-11-25.html): client-neutral (the
+// per-product steps live in docs/AGENT_TOOLS.md), the steward line on every install, an Access column on the tokens.
+// A quiet page: no banner when the install has no public address. Every action has a visible inverse or is re-doable:
+// a token revoked here stays on screen, grayed, for the rest of the visit (hide, never vanish); after a reload the
+// list hides revoked tokens unless "Show revoked tokens" is ticked. A new token is shown ONCE, until Done. Connected
+// apps (the OAuth sign-in, docs/CONNECTORS.md; copy from
+// docs/temp/mockups/consent-and-connected-apps-mockup-2026-11-08.html) follow the same rules: a disconnected app
+// stays on screen, grayed, for the visit.
 
 const COPIED_MS = 2000;
 
@@ -52,6 +54,20 @@ export function whenLabel(iso: string, now: Date = new Date()): string {
   return day === today ? `today ${pad(d.getHours())}:${pad(d.getMinutes())}` : day;
 }
 
+/** True when the connector URL points at this computer (`localhost`, 127.0.0.0/8, `::1`: the rule of
+ *  `domain/settings._is_loopback_host`), so a client on another machine, or an app's own servers, cannot reach it.
+ *  Derived here from the URL, so the API carries no extra field. A URL that does not parse is not loopback. */
+export function isLoopbackUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  return host === "localhost" || host === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
 function ConnectSection({
   hosted,
   url,
@@ -63,122 +79,61 @@ function ConnectSection({
   steward: boolean;
   oauth: boolean;
 }) {
-  if (!hosted || !url) {
-    return (
-      <p className="muted">
-        Connecting from Claude, ChatGPT or Grok needs Alpha Deck on a public address. This install does not have one
-        yet, so there is no connector URL to give them. Claude Code on this machine can read your workspace today
-        through the local server with a token from below (see docs/AGENT_TOOLS.md).
-      </p>
-    );
-  }
-  const command = `claude mcp add --transport http alphadeck ${url} --header "Authorization: Bearer <your token>"`;
   return (
     <>
-      <p className="muted">
-        Give this URL to an AI client. It signs in as you and reads only your workspace: your cards, calls, decisions
-        and ratified facts. Nothing it does can change them.
-      </p>
-      <div className="url-row">
-        <input type="text" readOnly value={url} aria-label="Connector URL" />
-        <CopyButton text={url} />
-      </div>
-      {steward && (
-        <p className="steward-line">
-          You are a steward: a client you grant the steward scope also reads the Admin readouts (the split list, the
-          status). It still cannot confirm or change anything.
+      {hosted && url ? (
+        <>
+          <p className="muted">
+            Give an AI client this URL. It reads only your workspace (your cards, calls, decisions and ratified facts)
+            and can change nothing.
+          </p>
+          <div className="url-row">
+            <input type="text" readOnly value={url} aria-label="Connector URL" />
+            <CopyButton text={url} />
+          </div>
+          {isLoopbackUrl(url) && (
+            <p className="muted">
+              This address works only for a client on this computer. Apps that connect from their own servers cannot
+              reach it until Alpha Deck moves to its server.
+            </p>
+          )}
+          <p className="muted">
+            Most clients take the URL and a token from Access tokens below, sent as the header{" "}
+            <code>Authorization: Bearer &lt;token&gt;</code>.
+            {oauth && (
+              <>
+                {" "}
+                A client that offers sign-in opens an Alpha Deck page: sign in with your email and password, then{" "}
+                <b>Allow</b>.
+              </>
+            )}
+          </p>
+        </>
+      ) : (
+        <p className="muted">
+          This install has no connector address. A client on this computer can read your workspace through the local
+          server (<code>alphadeck-mcp</code>) with a token from below.
         </p>
       )}
-      <div className="agent-clients">
-        <details>
-          <summary>Claude (claude.ai)</summary>
-          <div className="body">
-            {oauth ? (
-              <ol>
-                <li>
-                  In Claude, open <b>Customize → Connectors → Add custom connector</b>.
-                </li>
-                <li>
-                  Paste the URL above. Under Authentication choose <b>Sign in now</b> and leave the client identity on
-                  its default.
-                </li>
-                <li>
-                  Sign in with your Alpha Deck email and password on the page that opens, then <b>Allow</b>.
-                </li>
-              </ol>
-            ) : (
-              <ol>
-                <li>
-                  In Claude, open <b>Customize → Connectors → Add custom connector</b>.
-                </li>
-                <li>
-                  Paste the URL above. Under Authentication choose <b>Sign in now</b>.
-                </li>
-                <li>
-                  Sign in with your Alpha Deck email and password, then <b>Allow</b>.
-                </li>
-              </ol>
-            )}
-            {oauth && (
-              <p>
-                If Claude asks for a client ID instead, enter <code>alphadeck-claude</code> and leave the secret blank.
-              </p>
-            )}
-            <p>
-              On a Free plan one custom connector is allowed. On a Team plan the Owner adds it under Organization
-              settings → Connectors, and each member signs in to it individually.
-            </p>
-            {!oauth && (
-              <p>
-                Available once sign-in through Claude is enabled on this install (Phase 2). Until then use Claude Code
-                below.
-              </p>
-            )}
-          </div>
-        </details>
-        <details open>
-          <summary>Claude Code</summary>
-          <div className="body">
-            <p>With a token from the Access tokens section:</p>
-            <div className="cmd-row">
-              <code className="cmd">{command}</code>
-              <CopyButton text={command} />
-            </div>
-            <p>Start a new Claude Code session afterwards; a running session keeps the servers it opened with.</p>
-          </div>
-        </details>
-        <details>
-          <summary>ChatGPT</summary>
-          <div className="body">
-            <ol>
-              <li>
-                Open <b>Plugins → Add custom MCP server</b> (Business and Enterprise plans; Pro can read only).
-              </li>
-              <li>
-                Paste the URL above, choose OAuth, sign in with your Alpha Deck email and password, then <b>Allow</b>.
-              </li>
-            </ol>
-            <p>Available once sign-in through ChatGPT is enabled on this install (Phase 4).</p>
-          </div>
-        </details>
-        <details>
-          <summary>Grok</summary>
-          <div className="body">
-            <ol>
-              <li>
-                Open <b>grok.com/connectors → New Connector → Custom</b>.
-              </li>
-              <li>Paste the URL above and sign in with your Alpha Deck email and password.</li>
-            </ol>
-            <p>
-              On Business and Enterprise plans an admin provisions the connector first. Available once sign-in through
-              Grok is enabled on this install (Phase 4).
-            </p>
-          </div>
-        </details>
-      </div>
+      {steward && (
+        <p className="steward-line">
+          You are a steward: a token you create here, or an app you allow the steward scope, also reads the Admin panels
+          (shared facts, held insider rows, onboarding, the split list, the status). It cannot
+          approve, confirm or change anything.
+        </p>
+      )}
     </>
   );
+}
+
+/** A token with no stored scopes is a full-access one: the operator's CLI makes it (`--write`) and it can change
+ *  things. Every other token reads only (`TokenOut.scopes`, docs/AUTH.md). */
+function isFullAccess(token: TokenOut): boolean {
+  return token.scopes == null;
+}
+
+function accessLabel(token: TokenOut): string {
+  return token.scopes == null ? "full access" : token.scopes.join(" ");
 }
 
 function TokenRow({
@@ -196,6 +151,7 @@ function TokenRow({
   return (
     <tr className={revoked ? "revoked" : undefined}>
       <td>{token.name}</td>
+      <td className={isFullAccess(token) ? "scopes-cell full" : "scopes-cell"}>{accessLabel(token)}</td>
       <td className="when">{whenLabel(token.created_at)}</td>
       <td className="when">{token.last_used_at ? whenLabel(token.last_used_at) : "never"}</td>
       <td className={revoked ? "act muted" : "act"}>
@@ -242,8 +198,8 @@ function TokensSection() {
   return (
     <>
       <p className="muted">
-        A token lets a client read your workspace without signing in each time: Claude Code, a script, or an API that
-        takes a bearer token. Each one is shown once, when you create it. Revoke a token you no longer use.
+        A token lets a client or a script read your workspace without signing in each time. A token made here can only
+        read. Each one is shown once, when you create it. Revoke a token you no longer use.
       </p>
       {tokens.isPending && <p className="muted">Loading…</p>}
       {tokens.isError && <p className="login-error">Your tokens could not be read.</p>}
@@ -252,6 +208,7 @@ function TokensSection() {
           <thead>
             <tr>
               <th>Name</th>
+              <th>Access</th>
               <th>Created</th>
               <th>Last used</th>
               <th />
@@ -270,6 +227,11 @@ function TokensSection() {
           </tbody>
         </table>
       )}
+      {rows.some(isFullAccess) && (
+        <p className="full-note">
+          A token marked full access can also change things. It was made with the command line, not here.
+        </p>
+      )}
       {revoke.isError && <p className="login-error">{errorDetail(revoke.error, "The token was not revoked.")}</p>}
       <label className="show-revoked">
         <input type="checkbox" checked={showRevoked} onChange={(e) => setShowRevoked(e.target.checked)} /> Show
@@ -285,8 +247,8 @@ function TokensSection() {
             <CopyButton text={created.token} />
           </div>
           <p className="once">
-            This is the only time it is shown. Store it where your client reads it (for Claude Code, the{" "}
-            <code>--header</code> value; for the local server, <code>ALPHADECK_MCP_TOKEN</code>).
+            This is the only time it is shown. Store it where your client reads it: most take it as the header{" "}
+            <code>Authorization: Bearer &lt;token&gt;</code>; the local server reads <code>ALPHADECK_MCP_TOKEN</code>.
           </p>
           <div className="settings-actions">
             <button className="btn" type="button" onClick={() => setCreated(null)}>
@@ -301,7 +263,7 @@ function TokensSection() {
             <input
               type="text"
               autoComplete="off"
-              placeholder="e.g. claude-code laptop"
+              placeholder="e.g. laptop agent"
               value={name}
               maxLength={60}
               onChange={(e) => setName(e.target.value)}
@@ -324,6 +286,7 @@ function TokensSection() {
 
 export function AgentsTab() {
   const agents = useAgents();
+  const hasUrl = Boolean(agents.data?.hosted && agents.data.connector_url);
   return (
     <div className="settings-section agents-tab">
       <h3>Connect an AI client</h3>
@@ -340,7 +303,7 @@ export function AgentsTab() {
       <h3>Access tokens</h3>
       <TokensSection />
       <h3>Connected apps</h3>
-      <ConnectionsSection />
+      <ConnectionsSection hasUrl={hasUrl} />
     </div>
   );
 }
@@ -387,8 +350,9 @@ function ConnectionRow({
 }
 
 /** The apps signed in to my account through the OAuth sign-in (docs/CONNECTORS.md). Disconnect asks nothing and
- *  keeps the row, grayed, for the visit (hide, never vanish); "Show disconnected apps" brings back older ones. */
-function ConnectionsSection() {
+ *  keeps the row, grayed, for the visit (hide, never vanish); "Show disconnected apps" brings back older ones. The
+ *  empty line points at the URL above only when there is one (`hasUrl`). */
+function ConnectionsSection({ hasUrl }: { hasUrl: boolean }) {
   const connections = useConnections();
   const disconnect = useDisconnect();
   const [showGone, setShowGone] = useState(false);
@@ -409,7 +373,7 @@ function ConnectionsSection() {
       {connections.isPending && <p className="muted">Loading…</p>}
       {connections.isError && <p className="login-error">Your connected apps could not be read.</p>}
       {connections.data && rows.length === 0 && (
-        <p className="muted">No app is connected yet. Connect one with the URL above.</p>
+        <p className="muted">No app is connected yet.{hasUrl && " Connect one with the URL above."}</p>
       )}
       {connections.data && rows.length > 0 && (
         <table className="tokens" aria-label="Connected apps">

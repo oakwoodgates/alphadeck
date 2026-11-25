@@ -9,8 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.routers.admin_insider_holds import AdminInsiderHoldsOut
+from app.routers.admin_platform_values import CompanyValuesOut, PlatformQueueOut
 from app.routers.admin_splits import AdminSplitListOut
-from app.schemas_api import AdminStatusOut
+from app.schemas_api import AdminStatusOut, OnboardingReadoutOut
+from domain.insider_holds import reason_words
 from tests.agent_tools.fixtures import text, uid
 
 ASOF = "2026-11-06"
@@ -340,5 +343,676 @@ def status() -> dict[str, Any]:
         },
         "data_tenant_theses": 0,
         "oauth_clients": {"static": 2, "dcr": 1},
+    }
+    return _dump(AdminStatusOut, body)
+
+
+# --- GET /admin/platform-values/queue and /admin/platform-values/{security_id} (Shared facts) ----------------------
+
+# the longest note and the longest located-passage block MEASURED on the fork's candidates (2,034 characters each)
+LONGEST_NOTE = 2_034
+LONGEST_PASSAGE = 2_034
+SHARED_SECURITY_ID = uid(
+    "sec", "lookup"
+)  # TK01 on the fake ticker resolver (``fixtures.ticker_resolve``)
+STEWARD_EMAIL = "steward@example.test"
+USER_EMAIL = "user01@example.test"
+
+
+def _located(n: int, k: int, chars: int) -> dict[str, Any]:
+    return {
+        "kind": ("cover", "cash-flow", "balance-sheet")[k % 3],
+        "source_ref": f"https://www.sec.gov/Archives/edgar/data/{n + 1000}/{n:010d}26000020/doc{k}.htm",
+        "anchor": "shares outstanding" if k % 2 == 0 else "net cash used in operating activities",
+        "excerpt": text(chars, n + k),
+        "offset": 1_200 * (k + 1),
+    }
+
+
+def _cand(
+    n: int,
+    fact: str,
+    *,
+    tag: str = "",
+    note_chars: int = 400,
+    passage_chars: int = 600,
+    passages: int = 2,
+    flags: tuple[str, ...] = ("stale_share_count",),
+    outcome: str = "flag",
+    decision: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """One extractor candidate (``PlatformCandidateOut``) for company ``n``."""
+    shares = fact == "shares_outstanding"
+    row: dict[str, Any] = {
+        "id": uid("cand", n, fact, tag),
+        "security_id": uid("sec", "shared", n),
+        "fact_type": fact,
+        "outcome": outcome,
+        "reason": None if outcome == "flag" else "no value in the filing",
+        "flags": list(flags) if outcome == "flag" else [],
+        "source": "10-q-cover" if shares else "10-q",
+        "source_ref": f"https://www.sec.gov/Archives/edgar/data/{n + 1000}/{n:010d}26000020/doc.htm",
+        "event_date": "2026-10-30",
+        "filing_accession": f"{n:010d}-26-000020",
+        "filing_accepted": "2026-10-30T20:15:00Z",
+        "note": text(note_chars, n) if note_chars else None,
+        "located_passages": [_located(n, k, passage_chars) for k in range(passages)],
+        "recorded_at": "2026-11-02T09:00:00Z",
+        "decision": decision,
+    }
+    if shares:
+        row.update({"shares": 10_000_000.0 + n, "ads_ratio": None, "ads_ratio_status": None})
+    else:
+        row.update(
+            {
+                "cash_usd": 4_000_000.0 + n,
+                "quarterly_burn_usd": 750_000.0,
+                "investments_usd": 1_000_000.0,
+                "statement_currency": "USD",
+            }
+        )
+    return row
+
+
+def _version(n: int, fact: str, i: int, *, ratified_by: str = "auto") -> dict[str, Any]:
+    shares = fact == "shares_outstanding"
+    row: dict[str, Any] = {
+        "id": uid("version", n, fact, i),
+        "source": "10-q-cover" if shares else "10-q",
+        "source_ref": f"https://www.sec.gov/Archives/edgar/data/{n + 1000}/{n:010d}25000{i:03d}/doc.htm",
+        "valid_from": f"2026-0{i % 9 + 1}-15",
+        "recorded_at": f"2026-0{i % 9 + 1}-16T09:00:00Z",
+        "ratified_by": ratified_by,
+        "vouched": None,
+        "note": text(120, i),
+        "filing_accession": f"{n:010d}-25-{i:06d}",
+        "filing_accepted": f"2026-0{i % 9 + 1}-15T20:00:00Z",
+        "set_aside": False,
+    }
+    if shares:
+        row.update({"shares": 9_000_000.0 + i, "ads_ratio": None, "ads_ratio_status": None})
+    else:
+        row.update(
+            {
+                "cash_usd": 3_000_000.0 + i,
+                "quarterly_burn_usd": 600_000.0,
+                "currency": "USD",
+                "investments_usd": None,
+            }
+        )
+    return row
+
+
+def _queue_value(n: int, fact: str, **kw: Any) -> dict[str, Any]:
+    """A queue row's waiting value: no value shown (awaiting_steward), or the shown value with a newer flag."""
+    shown = kw.pop("shown", False)
+    cand = _cand(n, fact, **kw)
+    if not shown:
+        return {"state": "awaiting_steward", "candidate": cand, "value": None}
+    return {
+        "state": "from_filing",
+        "candidate": cand,
+        "value": _version(n, fact, 1, ratified_by=STEWARD_EMAIL),
+    }
+
+
+def queue_item(
+    n: int,
+    *,
+    pen_only: bool = False,
+    cards: int = 3,
+    shares: bool = True,
+    cash: bool = True,
+    shown: bool = False,
+    open_flags: int = 0,
+    **kw: Any,
+) -> dict[str, Any]:
+    """One company of the queue: a waiting share count and/or cash-and-burn (``PlatformQueueItemOut``)."""
+    return {
+        "security_id": uid("sec", "shared", n),
+        "ticker": f"TK{n:02d}",
+        "name": f"Company {n:02d}",
+        "cards": 0 if pen_only else cards,
+        "pen_only": pen_only,
+        "waiting_since": f"2026-11-0{n % 9 + 1}T09:00:00Z",
+        "shares": _queue_value(n, "shares_outstanding", shown=shown, **kw) if shares else None,
+        "cash_burn": _queue_value(n, "cash_burn", shown=shown, **kw) if cash else None,
+        "open_flags": open_flags,
+    }
+
+
+def queue_items(count: int = 6, pen_only: int = 2, **kw: Any) -> list[dict[str, Any]]:
+    """The whole queue in the API's order: ``count`` companies, the last ``pen_only`` of them on a pen only.
+
+    Company 2 waits on its share count alone, company 3 shows a value with a newer flag beside it and company 4
+    carries two open user flags and nothing waiting."""
+    out = []
+    for n in range(1, count + 1):
+        row_kw = dict(kw)
+        if n == 2:
+            row_kw["cash"] = False
+        if n == 3:
+            row_kw["shown"] = True
+        item = queue_item(n, pen_only=n > count - pen_only, **row_kw)
+        if n == 4:
+            item.update({"shares": None, "cash_burn": None, "open_flags": 2})
+        out.append(item)
+    return out
+
+
+def queue_page(
+    items: list[dict[str, Any]], *, limit: int = 50, offset: int = 0, pen: str = "after"
+) -> dict[str, Any]:
+    """``GET /admin/platform-values/queue`` over ``items``: the API's ``pen`` filter and paging, its two totals."""
+    pen_only_total = sum(1 for i in items if i["pen_only"])
+    chosen = {
+        "after": items,
+        "only": [i for i in items if i["pen_only"]],
+        "exclude": [i for i in items if not i["pen_only"]],
+    }[pen]
+    return _dump(
+        PlatformQueueOut,
+        {
+            "items": chosen[offset : offset + limit],
+            "total": len(items),
+            "pen_only_total": pen_only_total,
+        },
+    )
+
+
+def _decision(n: int, i: int, action: str, **over: Any) -> dict[str, Any]:
+    return {
+        "id": uid("decision", n, i),
+        "action": action,
+        "candidate_id": None,
+        "fact_id": None,
+        "revokes": None,
+        "reason": text(90, i),
+        "decided_by": STEWARD_EMAIL,
+        "recorded_at": f"2026-10-{i % 27 + 1:02d}T10:00:00Z",
+        "undone": False,
+        **over,
+    }
+
+
+def _user_flag(n: int, i: int, fact: str, cand: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": uid("flag", n, i),
+        "value_type": fact,
+        "user_email": USER_EMAIL,
+        "note": "Synthetic user note: " + text(500, i),
+        "opened_at": f"2026-11-0{i % 9 + 1}T12:00:00Z",
+        "current_when_flagged": "awaiting",
+        "seen_value": None,
+        "seen_candidate": cand,
+        "closed_at": None,
+        "can_reopen": False,
+    }
+
+
+def company(
+    n: int = 1,
+    *,
+    candidates: int = 6,
+    versions: int = 4,
+    decisions: int = 7,
+    passages: int = 2,
+    passage_chars: int = 600,
+    note_chars: int = 400,
+    open_flags: int = 2,
+    attempts: int = 4,
+) -> dict[str, Any]:
+    """The company page of company ``n`` (``CompanyValuesOut``): its share count awaits the steward with no value
+    shown, its cash-and-burn shows a value with a newer flag pending beside it and a pin; every user flag carries an
+    email (the view drops it)."""
+    kw = {"passages": passages, "passage_chars": passage_chars, "note_chars": note_chars}
+    shares_wait = _cand(n, "shares_outstanding", tag="wait", **kw)
+    cash_pending = _cand(n, "cash_burn", tag="pending", **kw)
+    older = [
+        _cand(n, "shares_outstanding", tag=f"old{k}", **{**kw, "passages": 1})
+        for k in range(candidates - 1)
+    ]
+    cash_older = [
+        _cand(
+            n,
+            "cash_burn",
+            tag=f"old{k}",
+            decision=_decision(n, k, "approve"),
+            **{**kw, "passages": 1},
+        )
+        for k in range(candidates - 1)
+    ]
+    values = [_version(n, "cash_burn", i, ratified_by="auto") for i in range(versions)]
+    flags = [
+        _user_flag(n, i, "shares_outstanding" if i % 2 == 0 else "cash_burn", shares_wait)
+        for i in range(open_flags)
+    ]
+    body = {
+        "security_id": uid("sec", "lookup") if n == 1 else uid("sec", "shared", n),
+        "ticker": f"TK{n:02d}",
+        "name": f"Company {n:02d}",
+        "shares": {
+            "fact_type": "shares_outstanding",
+            "state": "awaiting_steward",
+            "reason": None,
+            "ratifier": None,
+            "pinned": False,
+            "value": None,
+            "awaiting": shares_wait,
+            "pending": None,
+            "versions": [],
+            "candidates": [shares_wait, *older],
+            "decisions": [],
+            "pin": None,
+        },
+        "cash_burn": {
+            "fact_type": "cash_burn",
+            "state": "from_filing",
+            "reason": None,
+            "ratifier": "machine",
+            "pinned": True,
+            "value": values[-1] if values else None,
+            "awaiting": None,
+            "pending": cash_pending,
+            "versions": values,
+            "candidates": [cash_pending, *cash_older],
+            "decisions": [
+                _decision(n, i, "approve" if i % 2 else "dismiss") for i in range(decisions)
+            ],
+            "pin": {
+                "action": "pin",
+                "decided_by": STEWARD_EMAIL,
+                "note": "Synthetic pin note.",
+                "recorded_at": "2026-10-01T10:00:00Z",
+            },
+        },
+        "attempts": [
+            {
+                "id": uid("attempt", n, i),
+                "recorded_at": f"2026-11-0{i % 9 + 1}T03:00:00Z",
+                "run_kind": "nightly",
+                "status": "error" if i == 0 else "done",
+                "shares_reason": None,
+                "cash_reason": None,
+                "error": text(200, i) if i == 0 else None,
+                "detail": None,
+            }
+            for i in range(attempts)
+        ],
+        "flags": {
+            "open": flags,
+            "closed": [],
+            "closed_total": 3,
+            "closed_offset": 0,
+            "closed_limit": 20,
+        },
+    }
+    return _dump(CompanyValuesOut, body)
+
+
+# --- GET /admin/insider-holds (Held insider rows) -----------------------------------------------------------------
+
+HOLD_BUCKETS = (
+    "owed",
+    "placed_by_rule",
+    "filer_corrected",
+    "decided",
+    "dismissed",
+    "amendment_row",
+)
+HOLD_BUCKET_WORDS = {
+    "owed": "owed your decision",
+    "placed_by_rule": "placed by rule (counted from the filing night)",
+    "filer_corrected": "corrected by the filer",
+    "decided": "decided",
+    "dismissed": "dismissed",
+    "amendment_row": "held in a Form 4/A (cannot be applied yet)",
+}
+
+
+def _hold_decision(n: int, i: int, action: str, **over: Any) -> dict[str, Any]:
+    return {
+        "id": uid("hold-decision", n, i),
+        "action": action,
+        "ratified_date": "2026-10-20" if action == "approve" else None,
+        "reason": "Synthetic reason: " + text(300, i),
+        "recorded_at": f"2026-11-0{i % 9 + 1}T15:00:00Z",
+        "basis": f"steward:{action}",
+        "revokes": None,
+        "decided_by": {"user_id": uid("steward"), "display_name": "Steward 01"},
+        **over,
+    }
+
+
+def hold(n: int, bucket: str, *, ticker: int | None = None, seq: int = 1) -> dict[str, Any]:
+    """One held Form 4 row of company ``ticker`` (default ``n``) in ``bucket`` (``AdminInsiderHoldOut``)."""
+    company_n = ticker or n
+    accession = f"{1_000_000_000 + n}-26-{n:06d}"
+    reason = "after_filing"
+    row: dict[str, Any] = {
+        "hold_id": uid("hold", n, seq),
+        "security_id": uid("sec", "hold", company_n),
+        "ticker": f"TK{company_n:02d}",
+        "company_name": f"Company {company_n:02d}",
+        "accession": accession,
+        "txn_seq": seq,
+        "form": "4",
+        "reason": reason,
+        "reason_words": reason_words(reason),
+        "row": {
+            "insider_name": f"Insider {n:02d}",
+            "insider_role": "Chief Executive Officer",
+            "txn_code": "P",
+            "shares": 1_000.0 + n,
+            "price": 2.5,
+            "usd": 2_500.0 + n,
+        },
+        "date_as_filed": "10/31/2027",
+        "period_of_report_as_filed": "10/31/2026",
+        "signature_date_as_filed": "11/02/2026",
+        "filed": "2026-11-02",
+        "accepted": "2026-11-02T21:30:00Z",
+        "bucket": bucket,
+        "why": None,
+        "filing_night": None,
+        "suggested_date": "2026-10-31",
+        "agrees": True,
+        "market_date": "2026-11-02",
+        "owed_why": None,
+        "decision": None,
+        "history": [],
+        "filing_url": f"https://www.sec.gov/Archives/edgar/data/{company_n + 1000}/{accession.replace('-', '')}/",
+    }
+    if bucket == "owed":
+        row["owed_why"] = "Filed late, so the rule cannot place it: " + text(300, n)
+    elif bucket == "placed_by_rule":
+        row["filing_night"] = "2026-11-02"
+    elif bucket == "filer_corrected":
+        row["why"] = "The filer's Form 4/A replaced this row: " + text(300, n)
+    elif bucket in ("decided", "dismissed"):
+        action = "approve" if bucket == "decided" else "dismiss"
+        first = _hold_decision(n, 1, action)
+        row["decision"] = first
+        row["history"] = [first]
+    return row
+
+
+def holds(
+    owed: int = 3,
+    placed: int = 2,
+    filer: int = 1,
+    decided: int = 1,
+    dismissed: int = 1,
+    amendment: int = 1,
+) -> dict[str, Any]:
+    """The Held insider rows panel: the buckets in the API's order, their counts and the backend's words."""
+    sizes = dict(
+        zip(HOLD_BUCKETS, (owed, placed, filer, decided, dismissed, amendment), strict=True)
+    )
+    n = 0
+    body: dict[str, Any] = {}
+    for bucket in HOLD_BUCKETS:
+        rows = []
+        for _ in range(sizes[bucket]):
+            n += 1
+            rows.append(hold(n, bucket))
+        body[bucket] = rows
+    body["counts"] = sizes
+    body["bucket_words"] = dict(HOLD_BUCKET_WORDS)
+    body["total"] = sum(sizes.values())
+    return _dump(AdminInsiderHoldsOut, body)
+
+
+def holds_on_one_ticker(rows: int = 18) -> dict[str, Any]:
+    """``rows`` held rows all on TK01 (the MEASURED most on one company is 18), across the buckets: every fifth
+    is decided and carries a two-step history."""
+    sizes = dict.fromkeys(HOLD_BUCKETS, 0)
+    body: dict[str, Any] = {b: [] for b in HOLD_BUCKETS}
+    for k in range(rows):
+        bucket = "decided" if k % 5 == 4 else "owed"
+        row = hold(100 + k, bucket, ticker=1, seq=k + 1)
+        if bucket == "decided":
+            row["history"].append(
+                _hold_decision(100 + k, 2, "revoke", revokes=row["decision"]["id"])
+            )
+        body[bucket].append(row)
+        sizes[bucket] += 1
+    body["counts"] = sizes
+    body["bucket_words"] = dict(HOLD_BUCKET_WORDS)
+    body["total"] = rows
+    return _dump(AdminInsiderHoldsOut, body)
+
+
+# --- GET /admin/onboarding (Onboarding) ---------------------------------------------------------------------------
+
+ONBOARD_LEGS = ["price", "form4", "filings"]
+
+
+def _onboard(i: int, status: str, **over: Any) -> dict[str, Any]:
+    return {
+        "security_id": uid("sec", "admin-onboard", i),
+        "ticker": f"TK{i + 1:02d}",
+        "name": f"Company {i + 1:02d} synthetic onboarding name",
+        "status": status,
+        "legs_done": over.pop("legs_done", ONBOARD_LEGS[:2]),
+        "attempts": over.pop("attempts", 1),
+        "last_error": over.pop("last_error", None),
+        "source": "promote",
+        "in_live_basket": True,
+        "enqueued_at": f"{ASOF}T21:00:00Z",
+        "last_attempt_at": over.pop("last_attempt_at", f"{ASOF}T21:30:00Z"),
+        "finished_at": over.pop("finished_at", None),
+    }
+
+
+def admin_onboarding(pending: int = 116, failed: int = 3, recent: int = 20) -> dict[str, Any]:
+    """The shared onboarding queue as ``GET /admin/onboarding`` serves it: ``failed`` failed names first, then one
+    in progress, then the rest queued (the MEASURED fork has 116 pending names); ``recent`` done names.
+    """
+    names = [
+        _onboard(i, "failed", attempts=3, last_error="Synthetic: " + text(210, i))
+        for i in range(failed)
+    ]
+    names.append(_onboard(failed, "in_progress", legs_done=ONBOARD_LEGS[:1]))
+    names += [
+        _onboard(i, "queued", legs_done=[], attempts=0, last_attempt_at=None)
+        for i in range(failed + 1, pending)
+    ]
+    done = [
+        _onboard(
+            500 + k,
+            "done",
+            legs_done=ONBOARD_LEGS,
+            finished_at=f"{ASOF}T20:{k:02d}:00Z",
+            last_error=text(120, k) if k == 3 else None,
+        )
+        for k in range(recent)
+    ]
+    return _dump(
+        OnboardingReadoutOut,
+        {
+            "counts": {
+                "queued": max(pending - failed - 1, 0),
+                "in_progress": 1,
+                "failed": failed,
+                "done": 1_325,
+                "parked": 0,
+            },
+            "pending": names[:pending],
+            "recent_done": done,
+            "last_run": {
+                "started_at": f"{ASOF}T20:00:00Z",
+                "finished_at": f"{ASOF}T20:20:00Z",
+                "status": "ok",
+                "run_kind": "onboarding",
+                "stopped": "done",
+                "detail": None,
+                "counts": {"done": 20, "failed": failed, "requeued": 1},
+            },
+            "window": "refuses 21:30 to 23:30 ET",
+            "stalled": None,
+            "paused": None,
+            "history_legs": list(ONBOARD_LEGS),
+        },
+    )
+
+
+# --- GET /admin/status with a full Price feed repairs panel ---------------------------------------------------------
+
+
+def _probe(symbol: str, *, verified: bool, error: str | None = None) -> dict[str, Any]:
+    """One EDGAR-listed symbol as the splice probe judged it: verified = at least 5 shared dates within 1%."""
+    return {
+        "symbol": symbol,
+        "verified": verified,
+        "overlap": 0 if error else (250 if verified else 3),
+        "ratio": None if error else (1.0 if verified else 0.62),
+        "bars": 0 if error else 240,
+        "last_bar": None if error else "2026-11-05",
+        "error": error,
+    }
+
+
+def _repair_thesis(n: int) -> list[dict[str, Any]]:
+    return [{"id": uid("thesis", "repair", n), "name": "Thesis 01"}]
+
+
+def _renamed(n: int, *, verified: bool, probed: bool = True) -> dict[str, Any]:
+    ticker = f"TK{n:02d}"
+    candidates = [_probe(f"{ticker}N", verified=verified)] if probed else []
+    if probed and not verified:
+        candidates.append(_probe(f"{ticker}X", verified=False, error="vendor 404"))
+    return {
+        "security_id": uid("repair", "renamed", n),
+        "ticker": ticker,
+        "edge": "2026-10-30",
+        "theses": _repair_thesis(n),
+        "edgar_tickers": [f"{ticker}N"],
+        "edgar_name": f"Company {n:02d} Renamed Inc.",
+        "former_names": [
+            {"name": f"Company {n:02d} Inc.", "since": "2019-01-01", "until": "2026-09-30"}
+        ],
+        "name_change_filings": [{"filed": "2026-10-02", "accession": f"{n:010d}-26-000031"}],
+        "candidates": candidates,
+        "recommended": candidates[0]["symbol"] if probed and verified else None,
+        "probed": probed,
+        "price_symbol": ticker,
+        "change": None,
+    }
+
+
+def _unpriceable(n: int) -> dict[str, Any]:
+    return {
+        "security_id": uid("repair", "unpriceable", n),
+        "ticker": f"TK{n:02d}",
+        "theses": _repair_thesis(n),
+        "edgar_tickers": [] if n % 2 else [f"TK{n:02d}.TO"],
+        "vendor_error": "404 Not Found: " + text(120, n),
+        "price_symbol": None,
+        "change": None,
+    }
+
+
+def _successor(n: int, *, recommended: bool) -> dict[str, Any]:
+    cik = f"{1_000_000 + n:010d}"
+    new = f"{2_000_000 + n:010d}"
+    candidates = [
+        {
+            "cik": new,
+            "matched_on": [f"TK{n:02d}"],
+            "entity_name": f"Company {n:02d} Holdings plc",
+            "edgar_tickers": [f"TK{n:02d}"],
+            "former_names": [],
+            "succession_filings": [
+                {
+                    "form": "8-K12B",
+                    "filed": "2026-09-20",
+                    "accession": f"{n:010d}-26-000041",
+                    "items": [],
+                }
+            ],
+            "identity_read": True,
+            "recent_foreign_form": "20-F",
+            "files_domestic_forms": False,
+            "incorporation": "L3",
+            "error": None,
+        }
+    ]
+    if not recommended:  # SEC's map names two registrants: shown, never adoptable
+        candidates.append({**candidates[0], "cik": f"{3_000_000 + n:010d}", "identity_read": False})
+    return {
+        "security_id": uid("repair", "successor", n),
+        "ticker": f"TK{n:02d}",
+        "theses": _repair_thesis(n),
+        "stored_cik": cik,
+        "master_name": f"Company {n:02d} Inc.",
+        "old_entity_name": f"Company {n:02d} Inc.",
+        "old_former_names": [],
+        "deregistrations": [
+            {
+                "form": "15-12B",
+                "filed": "2026-09-15",
+                "accession": f"{n:010d}-26-000040",
+                "items": [],
+            }
+        ],
+        "candidates": candidates,
+        "recommended": new if recommended else None,
+        "current_cik": cik,
+        "change": None,
+    }
+
+
+def status_with_price_repairs(
+    renamed: int = 3, unpriceable: int = 4, successor: int = 2, closed: int = 2
+) -> dict[str, Any]:
+    """``GET /admin/status`` with a full Price feed repairs panel: ``renamed`` names (the first has a verified
+    successor symbol, the second a probe that verified none, the rest were not probed), ``unpriceable`` names never
+    priced, ``successor`` members that re-filed under a new CIK (the first has one recommended, the second an
+    ambiguous map), ``closed`` names that stopped trading, one acknowledged name and one known feed limitation.
+    """
+    body = status()
+    body["price_repairs"] = {
+        "asof": ASOF,
+        "ran_at": "2026-11-06T03:56:00Z",
+        "probe_evaluated": True,
+        "probe_error": None,
+        "renamed": [_renamed(n, verified=n == 1, probed=n <= 2) for n in range(1, renamed + 1)],
+        "unpriceable": [_unpriceable(20 + n) for n in range(unpriceable)],
+        "acknowledged": [
+            {
+                "id": uid("repair", "ack", 1),
+                "security_id": uid("repair", "ack-security", 1),
+                "ticker": "TK30",
+                "action": "acknowledge",
+                "reason": "Synthetic reason: kept unpriced.",
+                "basis": "operator:acknowledge",
+                "created_at": "2026-10-20T12:00:00Z",
+                "still_unpriceable": True,
+            }
+        ],
+        "closed": [
+            {
+                "security_id": uid("repair", "closed", n),
+                "ticker": f"TK{40 + n}",
+                "edge": "2026-09-30",
+                "thesis": "Thesis 01",
+                "kind": "price",
+                "closed_at": "2026-10-01",
+                "renamed": False,
+                "edgar_tickers": [],
+                "unpriceable": False,
+                "acknowledged": False,
+            }
+            for n in range(closed)
+        ],
+        "applied": [],
+        "expected_misses": closed + 1,
+        "successor_asof": ASOF,
+        "successor_evaluated": True,
+        "successor_error": None,
+        "successor": [_successor(50 + n, recommended=n == 0) for n in range(successor)],
+        "cik_applied": [],
+        "limitations": status()["price_repairs"]["limitations"],
     }
     return _dump(AdminStatusOut, body)

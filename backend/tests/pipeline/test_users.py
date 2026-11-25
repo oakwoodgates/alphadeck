@@ -107,9 +107,10 @@ def test_tokens_mint_once_and_revoke(conn):
     tid, token = users.create_token(conn, "t@example.test", "mcp")
     conn.commit()
     with conn.cursor() as cur:
-        cur.execute("SELECT token_hash, name FROM api_token WHERE id = %s", (tid,))
+        cur.execute("SELECT token_hash, name, scopes FROM api_token WHERE id = %s", (tid,))
         row = cur.fetchone()
     assert row["name"] == "mcp" and row["token_hash"] == auth.token_hash(token) != token
+    assert row["scopes"] == ["read"]  # read-only by default
     users.revoke_token(conn, tid)
     with pytest.raises(users.UserError, match="no live token"):
         users.revoke_token(conn, tid)
@@ -518,3 +519,35 @@ def test_caps_refuses_a_tenant_that_is_not_a_workspace(conn):
     assert users.run(argv, conn, emit=out.append) == 1
     assert out[-1] == f"refused: {DATA_TENANT_ID} is not a workspace"
     assert _caps(conn, DATA_TENANT_ID) == (None, None, None)
+
+
+# --- read-only tokens (migration 0214): read-only by default, --write for a full token ----------------------------
+
+
+@pytest.mark.parametrize(
+    "super_admin,extra,stored,access",
+    [
+        (False, [], ["read"], "access: read only (read)"),
+        (True, [], ["read", "steward"], "access: read only (read steward)"),
+        (False, ["--write"], None, "access: full (it can change things)"),
+        (True, ["--write"], None, "access: full (it can change things)"),
+    ],
+)
+def test_token_create_is_read_only_unless_write_and_prints_the_same_lines(
+    conn, super_admin, extra, stored, access
+):
+    users.create_user(conn, email="tk@example.test", display_name="Tk", super_admin=super_admin)
+    conn.commit()
+    out: list[str] = []
+    argv = ["token", "create", "--email", "tk@example.test", "--name", "agent", *extra]
+    assert users.run(argv, conn, emit=out.append) == 0
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, token_hash, scopes FROM api_token")
+        (row,) = cur.fetchall()
+    assert row["scopes"] == stored
+    # the two lines from before keep their exact form: seed-thesis and recall-rescore parse the shown-once one
+    assert out[0] == f"token {row['id']} (agent)"
+    assert out[1] == access
+    assert out[2].startswith("token (shown once): ")
+    assert auth.token_hash(out[2].removeprefix("token (shown once): ")) == row["token_hash"]
+    assert len(out) == 3

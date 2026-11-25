@@ -33,6 +33,7 @@ class ResearchRequest:
     run: str | None = None
     fact: str | None = None
     reason: str | None = None
+    pen: str | None = None
 
 
 def header(req: ResearchRequest) -> dict[str, Any]:

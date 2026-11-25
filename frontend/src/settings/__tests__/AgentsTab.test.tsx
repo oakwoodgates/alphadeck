@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../../App";
 import { createQueryClient } from "../../api/queryClient";
+import { isLoopbackUrl } from "../agents/AgentsTab";
 import { SETTINGS_TABS } from "../registry";
 
 // The Agents tab (docs/AGENT_TOOLS.md §Hosted endpoint) in the REAL App over a faked fetch (the settings.test.tsx
-// harness): the connect section hosted and not, the steward sentence, the one-time token reveal, revoke-in-place.
+// harness): the connect section hosted and not, the steward sentence, the Access column, the one-time token reveal,
+// revoke-in-place.
 
 vi.hoisted(() => {
   const RealRequest = globalThis.Request;
@@ -44,6 +46,7 @@ const HOSTED = { hosted: true, connector_url: URL_, steward: false, stdio_server
 const LIVE = {
   id: "t-1",
   name: "claude-code laptop",
+  scopes: ["read"],
   created_at: "2026-11-07T14:00:00Z",
   last_used_at: null,
   revoked_at: null,
@@ -51,6 +54,7 @@ const LIVE = {
 const OLD = {
   id: "t-0",
   name: "old phone",
+  scopes: ["read"],
   created_at: "2026-10-20T14:00:00Z",
   last_used_at: "2026-11-01T14:00:00Z",
   revoked_at: "2026-11-02T14:00:00Z",
@@ -127,24 +131,27 @@ describe("the Agents tab", () => {
     expect(screen.getByRole("heading", { name: "Access tokens" })).toBeInTheDocument();
   });
 
-  it("not hosted: the quiet paragraph, no URL, no client blocks", async () => {
+  it("not hosted: one quiet paragraph naming the local server; no URL, no client blocks", async () => {
     renderAt("/settings/agents");
-    expect(await screen.findByText(/needs Alpha Deck on a public address/)).toBeInTheDocument();
+    expect(await screen.findByText(/This install has no connector address\./)).toBeInTheDocument();
+    expect(screen.getByText("alphadeck-mcp").tagName).toBe("CODE");
     expect(screen.queryByLabelText("Connector URL")).toBeNull();
     expect(document.querySelectorAll("details")).toHaveLength(0);
   });
 
-  it("hosted: the URL with Copy and the four client blocks, the command filled in; no steward sentence", async () => {
+  it("hosted: the URL with Copy and the neutral copy; no product blocks, no command, no steward sentence", async () => {
     routes["GET /account/agents"] = { status: 200, body: HOSTED };
     renderAt("/settings/agents");
     const field = (await screen.findByLabelText("Connector URL")) as HTMLInputElement;
     expect(field.value).toBe(URL_);
     expect(field).toHaveAttribute("readonly");
-    const summaries = [...document.querySelectorAll("details summary")].map((s) => s.textContent);
-    expect(summaries).toEqual(["Claude (claude.ai)", "Claude Code", "ChatGPT", "Grok"]);
-    expect(screen.getByText(`claude mcp add --transport http alphadeck ${URL_} --header "Authorization: Bearer <your token>"`)).toBeInTheDocument();
+    expect(screen.getByText(/Give an AI client this URL\. It reads only your workspace/)).toBeInTheDocument();
+    expect(document.querySelectorAll("details")).toHaveLength(0);
+    for (const gone of [/claude mcp add/, /ChatGPT/, /Grok/, /claude\.ai/, /Claude Code/]) {
+      expect(screen.queryByText(gone), String(gone)).toBeNull();
+    }
     expect(screen.queryByText(/You are a steward/)).toBeNull();
-    expect(screen.queryByText(/needs Alpha Deck on a public address/)).toBeNull();
+    expect(screen.queryByText(/This install has no connector address/)).toBeNull();
     await userEvent.setup().click(within(field.parentElement as HTMLElement).getByRole("button", { name: "Copy" }));
     expect(within(field.parentElement as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
@@ -171,7 +178,12 @@ describe("the Agents tab", () => {
     let tokens = [LIVE];
     routes["GET /account/tokens"] = () => ({ status: 200, body: { tokens } });
     routes["POST /account/tokens"] = (body) => {
-      const made = { id: "t-2", name: (body as { name: string }).name, created_at: "2026-11-08T14:40:00Z" };
+      const made = {
+        id: "t-2",
+        name: (body as { name: string }).name,
+        scopes: ["read"],
+        created_at: "2026-11-08T14:40:00Z",
+      };
       tokens = [{ ...made, last_used_at: null, revoked_at: null }, ...tokens];
       return { status: 201, body: { ...made, token: SECRET } };
     };
@@ -288,33 +300,193 @@ describe("Connected apps", () => {
     expect(count("DELETE /account/connections/g-1")).toBe(1);
   });
 
-  it("empty: one quiet line, no table", async () => {
+  it("empty with a connector URL: one quiet line pointing at it, no table", async () => {
     routes["GET /account/connections"] = { status: 200, body: { connections: [] } };
+    routes["GET /account/agents"] = { status: 200, body: HOSTED };
     renderAt("/settings/agents");
     expect(await screen.findByText("No app is connected yet. Connect one with the URL above.")).toBeInTheDocument();
     expect(screen.queryByRole("table", { name: "Connected apps" })).toBeNull();
     expect(screen.queryByLabelText("Show disconnected apps")).toBeNull();
   });
 
-  it("with oauth off the Claude block keeps its Phase 2 line", async () => {
+  it("empty with no connector URL: the line does not point at a URL that is not there", async () => {
+    routes["GET /account/connections"] = { status: 200, body: { connections: [] } };
+    renderAt("/settings/agents");
+    await screen.findByText(/This install has no connector address\./);
+    expect(await screen.findByText("No app is connected yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/with the URL above/)).toBeNull();
+    expect(screen.queryByRole("table", { name: "Connected apps" })).toBeNull();
+  });
+
+  it("with oauth off the sign-in sentence is not shown; the URL and the header sentence are", async () => {
     routes["GET /account/connections"] = { status: 200, body: { connections: [] } };
     routes["GET /account/agents"] = { status: 200, body: { ...HOSTED, oauth: false } };
     renderAt("/settings/agents");
     await screen.findByLabelText("Connector URL");
-    expect(screen.getByText(/Available once sign-in through Claude is enabled/)).toBeInTheDocument();
-    expect(screen.queryByText("alphadeck-claude")).toBeNull();
+    expect(screen.getByText("Authorization: Bearer <token>").tagName).toBe("CODE");
+    expect(screen.queryByText(/A client that offers sign-in opens an Alpha Deck page/)).toBeNull();
   });
 
-  it("with oauth on: the live steps and the client-ID fallback; ChatGPT and Grok keep their Phase 4 line", async () => {
+  it("with oauth on the sign-in sentence follows the header sentence; no client-specific steps", async () => {
     routes["GET /account/connections"] = { status: 200, body: { connections: [] } };
     routes["GET /account/agents"] = { status: 200, body: { ...HOSTED, oauth: true } };
     renderAt("/settings/agents");
     await screen.findByLabelText("Connector URL");
-    expect(screen.getByText(/leave the client identity on its default/)).toBeInTheDocument();
-    expect(screen.getByText(/on the page that opens/)).toBeInTheDocument();
-    expect(screen.getByText("alphadeck-claude").tagName).toBe("CODE");
-    expect(screen.queryByText(/Available once sign-in through Claude is enabled/)).toBeNull();
-    expect(screen.getByText(/sign-in through ChatGPT is enabled on this install \(Phase 4\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Grok is enabled on this install \(Phase 4\)/)).toBeInTheDocument();
+    const para = screen.getByText("Authorization: Bearer <token>").closest("p") as HTMLElement;
+    expect(para.textContent).toBe(
+      "Most clients take the URL and a token from Access tokens below, sent as the header Authorization: Bearer <token>. " +
+        "A client that offers sign-in opens an Alpha Deck page: sign in with your email and password, then Allow.",
+    );
+    expect(within(para).getByText("Allow").tagName).toBe("B");
+    expect(screen.queryByText("alphadeck-claude")).toBeNull();
+  });
+});
+
+// --- Access column, the steward line and the loopback line (the mockup of 2026-11-25) ----------------------------
+
+const LOOPBACK_URL = "http://localhost:8080/mcp";
+const READ_TOKEN = LIVE;
+const STEWARD_TOKEN = {
+  id: "t-3",
+  name: "morning brief",
+  scopes: ["read", "steward"],
+  created_at: "2026-12-02T09:40:00Z",
+  last_used_at: null,
+  revoked_at: null,
+};
+const FULL_TOKEN = {
+  id: "t-4",
+  name: "release script",
+  scopes: null,
+  created_at: "2026-11-27T10:00:00Z",
+  last_used_at: "2026-11-30T10:00:00Z",
+  revoked_at: null,
+};
+const STEWARD_SENTENCE =
+  "You are a steward: a token you create here, or an app you allow the steward scope, also reads the Admin panels " +
+  "(shared facts, held insider rows, onboarding, the split list, the status). It cannot approve, " +
+  "confirm or change anything.";
+const LOOPBACK_SENTENCE =
+  "This address works only for a client on this computer. Apps that connect from their own servers cannot reach it " +
+  "until Alpha Deck moves to its server.";
+
+describe("the Access column", () => {
+  it("names what each token may do: read, read steward, or full access (the one exception, marked and explained)", async () => {
+    routes["GET /account/tokens"] = {
+      status: 200,
+      body: { tokens: [STEWARD_TOKEN, READ_TOKEN, FULL_TOKEN, OLD] },
+    };
+    renderAt("/settings/agents");
+    const table = await screen.findByRole("table", { name: "Access tokens" });
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((h) => h.textContent),
+    ).toEqual(["Name", "Access", "Created", "Last used", ""]);
+    const accessOf = (name: string) => {
+      const row = within(table).getByText(name).closest("tr") as HTMLElement;
+      return within(row).getAllByRole("cell")[1];
+    };
+    expect(accessOf("morning brief")).toHaveTextContent(/^read steward$/);
+    expect(accessOf("claude-code laptop")).toHaveTextContent(/^read$/);
+    expect(accessOf("release script")).toHaveTextContent(/^full access$/);
+    expect(accessOf("release script")).toHaveClass("full");
+    expect(accessOf("morning brief")).not.toHaveClass("full");
+    expect(accessOf("claude-code laptop")).not.toHaveClass("full");
+    expect(
+      screen.getByText("A token marked full access can also change things. It was made with the command line, not here."),
+    ).toBeInTheDocument();
+  });
+
+  it("a revoked token's access stays on screen with the row grayed", async () => {
+    routes["GET /account/tokens"] = {
+      status: 200,
+      body: { tokens: [READ_TOKEN, { ...OLD, scopes: ["read", "steward"] }] },
+    };
+    renderAt("/settings/agents");
+    const table = await screen.findByRole("table", { name: "Access tokens" });
+    await userEvent.setup().click(screen.getByLabelText("Show revoked tokens"));
+    const row = within(table).getByText("old phone").closest("tr") as HTMLElement;
+    expect(row).toHaveClass("revoked");
+    expect(within(row).getAllByRole("cell")[1]).toHaveTextContent(/^read steward$/);
+  });
+
+  it("no full access row, no explanation: the line is not true of every row", async () => {
+    routes["GET /account/tokens"] = { status: 200, body: { tokens: [READ_TOKEN, STEWARD_TOKEN] } };
+    renderAt("/settings/agents");
+    await screen.findByRole("table", { name: "Access tokens" });
+    expect(screen.queryByText(/full access can also change things/)).toBeNull();
+    expect(screen.queryByText("full access")).toBeNull();
+  });
+
+  it("a token made here can only read, and the form sends the name alone", async () => {
+    renderAt("/settings/agents");
+    expect(await screen.findByText(/A token made here can only read\./)).toBeInTheDocument();
+    expect(screen.getByLabelText("New token name")).toHaveAttribute("placeholder", "e.g. laptop agent");
+  });
+});
+
+describe("the steward line and the loopback line", () => {
+  const asSteward = (agents: object) => {
+    routes["GET /auth/me"] = { status: 200, body: { ...ME, role: "super_admin" } };
+    routes["GET /account/agents"] = { status: 200, body: agents };
+  };
+
+  it("a steward on an install with no connector address: the line shows, beside the local-server paragraph", async () => {
+    asSteward({ ...UNHOSTED, steward: true });
+    renderAt("/settings/agents");
+    expect(await screen.findByText(STEWARD_SENTENCE)).toBeInTheDocument();
+    expect(screen.getByText(/This install has no connector address\./)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Connector URL")).toBeNull();
+  });
+
+  it("a steward on a loopback install: the line, the loopback line and the bearer header all show", async () => {
+    asSteward({ ...HOSTED, connector_url: LOOPBACK_URL, steward: true, oauth: true });
+    renderAt("/settings/agents");
+    expect(await screen.findByText(STEWARD_SENTENCE)).toBeInTheDocument();
+    expect(((await screen.findByLabelText("Connector URL")) as HTMLInputElement).value).toBe(LOOPBACK_URL);
+    expect(screen.getByText(LOOPBACK_SENTENCE)).toBeInTheDocument();
+    expect(screen.getByText("Authorization: Bearer <token>").tagName).toBe("CODE");
+  });
+
+  it("a plain user never sees the steward line: no connector address", async () => {
+    renderAt("/settings/agents");
+    await screen.findByText(/This install has no connector address\./);
+    expect(screen.queryByText(/You are a steward/)).toBeNull();
+  });
+
+  it("a plain user never sees the steward line: loopback address", async () => {
+    routes["GET /account/agents"] = { status: 200, body: { ...HOSTED, connector_url: LOOPBACK_URL } };
+    renderAt("/settings/agents");
+    await screen.findByLabelText("Connector URL");
+    expect(screen.getByText(LOOPBACK_SENTENCE)).toBeInTheDocument();
+    expect(screen.queryByText(/You are a steward/)).toBeNull();
+  });
+
+  it("a public address does not carry the loopback line", async () => {
+    routes["GET /account/agents"] = { status: 200, body: { ...HOSTED, oauth: true } };
+    renderAt("/settings/agents");
+    await screen.findByLabelText("Connector URL");
+    expect(screen.queryByText(LOOPBACK_SENTENCE)).toBeNull();
+  });
+
+  it("isLoopbackUrl: localhost, 127.0.0.0/8 and ::1 are this computer; a public host, a lookalike and junk are not", () => {
+    for (const u of [
+      "http://localhost:8080/mcp",
+      "http://127.0.0.1:8080/mcp",
+      "http://127.1.2.3/mcp",
+      "http://[::1]:8080/mcp",
+    ]) {
+      expect(isLoopbackUrl(u), u).toBe(true);
+    }
+    for (const u of [
+      "https://deck.example.com/mcp",
+      "http://localhost.example.com/mcp",
+      "http://128.0.0.1/mcp",
+      "http://10.0.0.5:8080/mcp",
+      "not a url",
+    ]) {
+      expect(isLoopbackUrl(u), u).toBe(false);
+    }
   });
 });

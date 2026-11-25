@@ -156,11 +156,52 @@ def _admin_status(api: FakeApi, query: dict[str, str]):
     return _admin(api, query, lambda: api.status if api.status is not None else afx.status())
 
 
+def _admin_queue(api: FakeApi, query: dict[str, str]):
+    """``GET /admin/platform-values/queue``: the API's ``pen`` filter and paging over ``api.queue``."""
+    limit, offset, pen = (
+        int(query.get("limit", "50")),
+        int(query.get("offset", "0")),
+        query.get("pen"),
+    )
+    if not 1 <= limit <= 200 or offset < 0 or pen not in (None, "after", "only", "exclude"):
+        return 422, {"detail": "queue: parameter out of bounds"}
+    items = api.queue if api.queue is not None else afx.queue_items()
+    return _admin(
+        api,
+        query,
+        lambda: afx.queue_page(items, limit=limit, offset=offset, pen=pen or "after"),
+    )
+
+
+def _admin_company(api: FakeApi, query: dict[str, str], security_id: str):
+    if not api.steward:
+        return 403, {"detail": "stewards only"}
+    if security_id != SECURITY_ID:
+        return 404, {"detail": "No such company."}
+    return 200, api.company if api.company is not None else afx.company()
+
+
+def _admin_holds(api: FakeApi, query: dict[str, str]):
+    return _admin(api, query, lambda: api.holds if api.holds is not None else afx.holds())
+
+
+def _admin_onboarding(api: FakeApi, query: dict[str, str]):
+    return _admin(
+        api,
+        query,
+        lambda: api.admin_onboarding if api.admin_onboarding is not None else rfx.onboarding(),
+    )
+
+
 ROUTES: tuple[tuple[str, str | re.Pattern[str], Callable[..., tuple[int, object] | None]], ...] = (
     ("GET", "/clock", _clock),
     ("GET", "/auth/me", _auth_me),
     ("GET", "/admin/splits", _admin_splits),
     ("GET", "/admin/status", _admin_status),
+    ("GET", "/admin/platform-values/queue", _admin_queue),
+    ("GET", re.compile(r"^/admin/platform-values/(?P<security_id>[^/]+)$"), _admin_company),
+    ("GET", "/admin/insider-holds", _admin_holds),
+    ("GET", "/admin/onboarding", _admin_onboarding),
     ("GET", "/theses", _theses),
     ("GET", "/data-flags", _data_flags),
     ("GET", "/dashboards/ticker-lookup/resolve", _ticker_resolve),
@@ -191,6 +232,10 @@ class FakeApi:
         me_role: str | None = None,
         splits: dict | None = None,
         status: dict | None = None,
+        queue: list[dict] | None = None,
+        company: dict | None = None,
+        holds: dict | None = None,
+        admin_onboarding: dict | None = None,
     ) -> None:
         # GET /auth/me answers this role (None = 404): what a stdio server learns its scopes from
         self.me_role = me_role
@@ -198,6 +243,13 @@ class FakeApi:
         self.steward = steward
         self.splits = splits  # the GET /admin/splits payload (default: afx.splits())
         self.status = status  # the GET /admin/status payload (default: afx.status())
+        # the whole Shared facts queue (the fake pages and filters it like the route; default: afx.queue_items()),
+        # the company page of TK01 (afx.company()), the held rows (afx.holds()) and the shared onboarding queue
+        # (the card's own fixture, the same wire shape)
+        self.queue = queue
+        self.company = company
+        self.holds = holds
+        self.admin_onboarding = admin_onboarding
         self.theses = theses
         self.details = (
             details or {}
