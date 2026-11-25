@@ -35311,6 +35311,10 @@
             "type": "boolean",
             "title": "In Live Basket"
           },
+          "parked": {
+            "type": "boolean",
+            "title": "Parked"
+          },
           "enqueued_at": {
             "type": "string",
             "format": "date-time",
@@ -35349,10 +35353,11 @@
           "attempts",
           "source",
           "in_live_basket",
+          "parked",
           "enqueued_at"
         ],
         "title": "OnboardingNameOut",
-        "description": "X1 \u2014 one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;\n``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it \u2014 re-adding the\nname resumes it). ``last_error`` is the latest leg failure (on a ``done`` row: a tail leg's note)."
+        "description": "X1 \u2014 one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;\n``parked`` = waiting (queued or in progress) and ``in_live_basket`` false: no live basket holds it any more,\nso the job leaves it \u2014 re-adding the name resumes it (the readout's ``counts.parked`` counts these rows; a\nfailed or done name is never parked). ``last_error`` is the latest leg failure (on a ``done`` row: a tail\nleg's note)."
       },
       "OnboardingReadoutOut": {
         "properties": {

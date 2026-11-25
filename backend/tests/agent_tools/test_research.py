@@ -349,6 +349,20 @@ def test_onboarding_default_carries_counts_window_and_the_first_names_within_bud
     }
 
 
+def test_onboarding_a_parked_name_says_parked_on_the_per_card_read_too():
+    payload = copy.deepcopy(ONBOARDING)
+    parked = payload["pending"][1]  # the in-progress name; its card was removed since
+    parked.update(in_live_basket=False, parked=True)
+    brief = onboarding_view.view(payload, ResearchRequest(thesis=THESIS))
+    assert [(n["ticker"], n["parked"]) for n in brief["pending"]] == [
+        (payload["pending"][0]["ticker"], False),
+        (parked["ticker"], True),
+        (payload["pending"][2]["ticker"], False),
+    ]
+    full = onboarding_view.view(payload, ResearchRequest(thesis=THESIS, section="pending"))
+    assert [n["parked"] for n in full["pending"]] == [False, True, False]
+
+
 @pytest.mark.parametrize("section", ["pending", "recent_done"])
 def test_onboarding_sections_page_the_full_lists_to_the_end(section):
     rows, _ = walk("get_onboarding", section, thesis=rfx.THESIS_ID, section=section)

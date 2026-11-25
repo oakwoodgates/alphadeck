@@ -181,7 +181,8 @@ job's newest artifact. Shown once the queue has held a name.
   checkpoint kept (409 not failed, 404 not queued).
 - **Stalled** (loud): names waiting and no run finished for `onboard_stalled_after_h`, so the sidecar's onboarding
   loop is not running. A day that hit its cap reads as quietly paused instead.
-- Waiting, loading and recently loaded names (quiet), each with its checkpoint; a name no live card holds is parked.
+- Waiting, loading and recently loaded names (quiet), each with its checkpoint; a name no live card holds is parked
+  (`parked: true` on its row in the API and in `get_admin_onboarding` / `get_onboarding`).
 
 `python -m pipeline.onboarding --status` prints the same from the CLI.
 
