@@ -725,6 +725,14 @@ def test_the_default_holds_reply_is_counts_words_and_the_owed_rows_in_the_apis_o
         "https://www.sec.gov/"
     )
     assert len(row["owed_why"]) == 200 and row["owed_why_total_chars"] > 200
+    # W3-1: where the filing writes the suggestion, its words (cut, the length beside), the filing's window, copies
+    assert (row["suggestion_basis"], row["window_from"], row["window_to"], row["copies"]) == (
+        "period_of_report",
+        "2026-10-31",
+        "2026-11-02",
+        [],
+    )
+    assert len(row["suggestion_words"]) == 200 and row["suggestion_words_total_chars"] > 200
     assert {"decision", "why", "filing_night", "history"}.isdisjoint(row)
     assert reply["sections"] == dict([(b, None) for b in afx.HOLD_BUCKETS] + [("one", "t")])
     assert [p for _, p, _ in api.requests] == ["/admin/insider-holds"]
@@ -765,6 +773,8 @@ def test_one_reads_a_tickers_rows_in_full_with_their_history_and_pages_them():
     assert first["found"] == 18 and first["t"] == "tk01" and first["next_cursor_for"] == "holds"
     full = first["holds"][0]
     assert {"security_id", "accepted", "bucket", "reason", "history", "history_total"} <= set(full)
+    assert len(full["suggestion_words"]) == 600 and full["suggestion_words_total_chars"] > 600
+    assert full["copies"] == [] and full["suggestion_basis"] == "period_of_report"
     walked = _walk(api, "get_insider_holds", "holds", section="one", t="TK01")
     assert len(walked) == 18 and len({h["hold_id"] for h in walked}) == 18
     decided = [h for h in walked if h["bucket"] == "decided"]

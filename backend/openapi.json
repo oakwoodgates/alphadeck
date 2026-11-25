@@ -4002,7 +4002,7 @@
           "admin"
         ],
         "summary": "List Holds",
-        "description": "Every held insider row with its evidence, bucketed for the panel: owed your decision (loud); placed by\nrule, corrected by the filer, decided, dismissed and held Form 4/A rows (quiet). Each row carries the date\nthe filing wrote, its period of report and signature date, the suggested date and whether it agrees with\nthe filing, the filing's market date, why the rule did not place an owed row, and its standing decision;\nthe response names each bucket in the backend's words. Read-only.",
+        "description": "Every held insider row with its evidence, bucketed for the panel: owed your decision (loud); placed by\nrule, corrected by the filer, decided, dismissed and held Form 4/A rows (quiet). Each row carries the date\nthe filing wrote, its period of report and signature date, the suggested date, where the filing writes it\nand whether it agrees with the filing (or, withheld, the filing's own date window), its copies under the\nissuer's other securities, the filing's market date, why the rule did not place an owed row, and its standing\ndecision; the response names each bucket in the backend's words. Read-only.",
         "operationId": "list_holds_admin_insider_holds_get",
         "responses": {
           "200": {
@@ -4024,7 +4024,7 @@
           "admin"
         ],
         "summary": "Approve Hold",
-        "description": "RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from\nnow on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date \u2014 only a\nsuggestion that agrees with the filing's period of report; a weak one must be sent as the date. Undo\nwith ``POST /admin/insider-holds/decisions/{id}/revoke``. **404** unknown held row, **409** a decision\nalready stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion,\nno date and a suggestion that does not agree with the filing, a date that fails the year rule, or one\nafter the filing's market date (or none is known).",
+        "description": "RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from\nnow on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date \u2014 only a\nsuggestion that agrees with the filing; one that does not must be sent as the date. Undo\nwith ``POST /admin/insider-holds/decisions/{id}/revoke``. **404** unknown held row, **409** a decision\nalready stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion (a\nwithheld one: the filing's window is in the message), no date and a suggestion that does not agree with the\nfiling, a date that fails the year rule, or one\nafter the filing's market date (or none is known).",
         "operationId": "approve_hold_admin_insider_holds__hold_id__approve_post",
         "parameters": [
           {
@@ -9452,6 +9452,32 @@
         "title": "AdminHoldApproveIn",
         "description": "The date to ratify (omit it to ratify the suggested date, only when it agrees with the filing) and why\n(optional \u2014 a default is stored)."
       },
+      "AdminHoldCopyOut": {
+        "properties": {
+          "hold_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Hold Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hold_id"
+        ],
+        "title": "AdminHoldCopyOut",
+        "description": "The same filing row held under another security of the same issuer: its own held row (decided on its own)."
+      },
       "AdminHoldDeciderOut": {
         "properties": {
           "user_id": {
@@ -10319,6 +10345,59 @@
             "title": "Agrees",
             "default": false
           },
+          "suggestion_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestion Basis"
+          },
+          "suggestion_words": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestion Words"
+          },
+          "window_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window From"
+          },
+          "window_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window To"
+          },
+          "copies": {
+            "items": {
+              "$ref": "#/components/schemas/AdminHoldCopyOut"
+            },
+            "type": "array",
+            "title": "Copies"
+          },
           "market_date": {
             "anyOf": [
               {
@@ -10384,7 +10463,7 @@
           "bucket"
         ],
         "title": "AdminInsiderHoldOut",
-        "description": "One held insider row and everything the steward needs to decide it.\n\n``reason`` is the rule's code (``year_before_1934`` / ``year_after_filing_year`` / ``after_filing``) and\n``reason_words`` the same in plain words. ``date_as_filed``, ``period_of_report_as_filed`` and\n``signature_date_as_filed`` are the filing's own text, verbatim (any of them can itself be a typo: evidence,\nnever a correction). ``filed`` / ``accepted`` = SEC's filing date and acceptance instant (``None`` when not\nknown). ``bucket`` = where it sits (owed / placed_by_rule / filer_corrected / decided / dismissed /\namendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);\n``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic\nsuggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.\n``market_date`` = the filing's market date, the latest date a ratified date may be (``None`` when unknown);\n``owed_why`` = why the placement rule did not place it, in plain words (``owed`` rows only, else ``None``).\n``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the\nrow, Undos included, oldest first. ``filing_url`` = the filing on EDGAR."
+        "description": "One held insider row and everything the steward needs to decide it.\n\n``reason`` is the rule's code (``year_before_1934`` / ``year_after_filing_year`` / ``after_filing``) and\n``reason_words`` the same in plain words. ``date_as_filed``, ``period_of_report_as_filed`` and\n``signature_date_as_filed`` are the filing's own text, verbatim (any of them can itself be a typo: evidence,\nnever a correction). ``filed`` / ``accepted`` = SEC's filing date and acceptance instant (``None`` when not\nknown). ``bucket`` = where it sits (owed / placed_by_rule / filer_corrected / decided / dismissed /\namendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);\n``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the suggestion\n(``None`` = withheld because the filing contradicts it, or none can be made); ``agrees`` = it fits the filing's\nperiod of report (a ``00YY`` year read as ``20YY``) and the filing's balances, so Approve may take it with no\ndate; ``suggestion_basis`` = where it comes from (``footnote`` / ``sibling_row`` / ``period_of_report`` \u2014 the\nfiling writes it \u2014, ``arithmetic`` \u2014 the written month and day, a year back \u2014, ``period_of_report_one_row``);\n``suggestion_words`` = the same in plain words, or why no date is offered; ``window_from`` / ``window_to`` =\nthe filing's own range for the row (``None`` when unknown). ``copies`` = the same filing row held under the\nissuer's other securities, each decided on its own. ``market_date`` = the filing's market date, the latest\ndate a ratified date may be (``None`` when unknown); ``owed_why`` = why the placement rule did not place it,\nin plain words (``owed`` rows only, else ``None``). ``decision`` = the standing steward decision (decided /\ndismissed); ``history`` = every decision about the row, Undos included, oldest first. ``filing_url`` = the\nfiling on EDGAR."
       },
       "AdminInsiderHoldsOut": {
         "properties": {

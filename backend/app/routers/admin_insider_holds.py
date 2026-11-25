@@ -14,9 +14,13 @@ Each held row sits in ONE bucket, judged by the same ladder the insider read run
 - ``decided`` / ``dismissed`` — a standing steward decision, each with its Undo.
 - ``amendment_row`` — a held row of a Form 4/A: listed, no action (applying one is not built).
 
-The SUGGESTED date is arithmetic on the filing's own fields (the written month and day, in the latest year on
-or before the filing's market date — never a model), and ``agrees`` says whether it is on or after the filing's
-period of report. It changes nothing until a steward approves it.
+The SUGGESTED date is read from the filing itself — a date it writes with the row's month and day (a footnote the
+row cites, a stored row of the same filing, the period of report with a ``00YY`` year read as ``20YY``), else the
+written month and day in the latest year on or before the filing's market date — never a model
+(``domain.insider_holds.suggest``). ``agrees`` says it fits the filing's period of report and its balances; a
+suggestion the filing contradicts is withheld, with the filing's own date window instead. It changes nothing until
+a steward approves it. A filing row held under two securities of one issuer lists the other as its copy; each is
+decided on its own.
 
 Every write is ONE append-only row, recorded now (on the public clock a steward decision counts from when it was
 made — a past night's view is never rewritten), authored ``steward:<action>`` in ``basis``, the signed-in steward who
@@ -94,6 +98,13 @@ class AdminHoldDecisionOut(BaseModel):
     decided_by: AdminHoldDeciderOut | None = None
 
 
+class AdminHoldCopyOut(BaseModel):
+    """The same filing row held under another security of the same issuer: its own held row (decided on its own)."""
+
+    hold_id: UUID
+    ticker: str | None = None
+
+
 class AdminInsiderHoldOut(BaseModel):
     """One held insider row and everything the steward needs to decide it.
 
@@ -103,12 +114,18 @@ class AdminInsiderHoldOut(BaseModel):
     never a correction). ``filed`` / ``accepted`` = SEC's filing date and acceptance instant (``None`` when not
     known). ``bucket`` = where it sits (owed / placed_by_rule / filer_corrected / decided / dismissed /
     amendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);
-    ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic
-    suggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.
-    ``market_date`` = the filing's market date, the latest date a ratified date may be (``None`` when unknown);
-    ``owed_why`` = why the placement rule did not place it, in plain words (``owed`` rows only, else ``None``).
-    ``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the
-    row, Undos included, oldest first. ``filing_url`` = the filing on EDGAR.
+    ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the suggestion
+    (``None`` = withheld because the filing contradicts it, or none can be made); ``agrees`` = it fits the filing's
+    period of report (a ``00YY`` year read as ``20YY``) and the filing's balances, so Approve may take it with no
+    date; ``suggestion_basis`` = where it comes from (``footnote`` / ``sibling_row`` / ``period_of_report`` — the
+    filing writes it —, ``arithmetic`` — the written month and day, a year back —, ``period_of_report_one_row``);
+    ``suggestion_words`` = the same in plain words, or why no date is offered; ``window_from`` / ``window_to`` =
+    the filing's own range for the row (``None`` when unknown). ``copies`` = the same filing row held under the
+    issuer's other securities, each decided on its own. ``market_date`` = the filing's market date, the latest
+    date a ratified date may be (``None`` when unknown); ``owed_why`` = why the placement rule did not place it,
+    in plain words (``owed`` rows only, else ``None``). ``decision`` = the standing steward decision (decided /
+    dismissed); ``history`` = every decision about the row, Undos included, oldest first. ``filing_url`` = the
+    filing on EDGAR.
     """
 
     hold_id: UUID
@@ -131,6 +148,11 @@ class AdminInsiderHoldOut(BaseModel):
     filing_night: date | None = None
     suggested_date: date | None = None
     agrees: bool = False
+    suggestion_basis: str | None = None
+    suggestion_words: str | None = None
+    window_from: date | None = None
+    window_to: date | None = None
+    copies: list[AdminHoldCopyOut] = Field(default_factory=list)
     market_date: date | None = None
     owed_why: str | None = None
     decision: AdminHoldDecisionOut | None = None
@@ -214,6 +236,7 @@ def item_out(it: HoldItem) -> AdminInsiderHoldOut:
     r = h.get("row") if isinstance(h.get("row"), dict) else {}
     shares, price = _f(r.get("shares")), _f(r.get("price"))
     d = it.standing
+    s = it.suggestion
     return AdminInsiderHoldOut(
         hold_id=h["id"],
         security_id=h["security_id"],
@@ -246,6 +269,11 @@ def item_out(it: HoldItem) -> AdminInsiderHoldOut:
         filing_night=it.state.day if it.bucket == BUCKET_PLACED else None,
         suggested_date=it.suggested,
         agrees=it.agrees,
+        suggestion_basis=s.basis if s else None,
+        suggestion_words=s.words if s else None,
+        window_from=s.window_from if s else None,
+        window_to=s.window_to if s else None,
+        copies=[AdminHoldCopyOut(hold_id=hid, ticker=t) for hid, t in it.copies],
         market_date=it.market_date,
         owed_why=it.owed_why,
         decision=_decision(d) if d is not None else None,
@@ -317,9 +345,10 @@ def _one(conn: psycopg.Connection, hold_id: UUID) -> AdminInsiderHoldOut:
 def list_holds(conn: psycopg.Connection = Depends(get_conn)) -> AdminInsiderHoldsOut:
     """Every held insider row with its evidence, bucketed for the panel: owed your decision (loud); placed by
     rule, corrected by the filer, decided, dismissed and held Form 4/A rows (quiet). Each row carries the date
-    the filing wrote, its period of report and signature date, the suggested date and whether it agrees with
-    the filing, the filing's market date, why the rule did not place an owed row, and its standing decision;
-    the response names each bucket in the backend's words. Read-only."""
+    the filing wrote, its period of report and signature date, the suggested date, where the filing writes it
+    and whether it agrees with the filing (or, withheld, the filing's own date window), its copies under the
+    issuer's other securities, the filing's market date, why the rule did not place an owed row, and its standing
+    decision; the response names each bucket in the backend's words. Read-only."""
     try:
         return holds_out(insider_hold_repo.items(conn))
     finally:
@@ -335,10 +364,11 @@ def approve_hold(
 ) -> AdminInsiderHoldOut:
     """RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from
     now on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date — only a
-    suggestion that agrees with the filing's period of report; a weak one must be sent as the date. Undo
+    suggestion that agrees with the filing; one that does not must be sent as the date. Undo
     with ``POST /admin/insider-holds/decisions/{id}/revoke``. **404** unknown held row, **409** a decision
-    already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion,
-    no date and a suggestion that does not agree with the filing, a date that fails the year rule, or one
+    already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion (a
+    withheld one: the filing's window is in the message), no date and a suggestion that does not agree with the
+    filing, a date that fails the year rule, or one
     after the filing's market date (or none is known)."""
     b = body or AdminHoldApproveIn()
     _commit(
