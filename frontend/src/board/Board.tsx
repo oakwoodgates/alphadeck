@@ -61,7 +61,7 @@ export function Board({ header, asof, onSelect }: Props) {
   // the whole summary rides in (not just the ids) so the calls can fire smallest-basket-first —
   // progressive PAINT only: under one backend worker this orders what lands first, it does not
   // shorten the total (see useCalls)
-  const callResults = useCalls(theses, asof);
+  const callResults = useCalls(theses, asof, { hydrateBatch: true });
   // F1 — "past" is before the server's current night (the default view, read live), never before the browser's date
   const appClock = useAppClock();
   const { currentNight } = appClock;

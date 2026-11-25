@@ -5,7 +5,9 @@ import uuid
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
+from app import call_cache
 from app.openapi_export import export
+from app.routers import data_flags as data_flags_router
 from app.routers import theses as theses_router
 from app.schemas_api import CallCardResponse, edgar_url
 from db.session import DEFAULT_TENANT_ID
@@ -215,6 +217,7 @@ def test_call_endpoint_unknown_thesis_404(client):
 def test_openapi_export_exposes_the_call_contract(tmp_path):
     schema = json.loads(export(tmp_path / "openapi.json").read_text(encoding="utf-8"))
     assert "/theses/{thesis_id}/call" in schema["paths"]
+    assert "/theses/calls" in schema["paths"]
     assert "/theses" in schema["paths"]
 
 
@@ -405,3 +408,305 @@ def test_read_call_and_display_signals_hit_cache_and_invalidate_on_state_change(
     r3 = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
     assert r3.status_code == 200
     assert call_invocations == 2
+
+
+def test_call_cache_disk_persistence_workspace_cache_and_fail_open(tmp_path):
+    """Pure unit test for ``CallCache`` disk persistence, cross-instance hits across ``fn_token``
+    changes (simulating restart), ``get_cached_only`` disk promotion, ``get_or_compute_workspace``,
+    LRU disk pruning, and corrupt-file fail-open."""
+    from domain.call import KeyState
+    from domain.enums import State, Verdict
+
+    ws = uuid.uuid4()
+    asof = date(2026, 6, 1)
+    t1 = Thesis(id=uuid.uuid4(), tenant_id=ws, name="T1", narrative="n1")
+    t2 = Thesis(id=uuid.uuid4(), tenant_id=ws, name="T2", narrative="n2")
+    t3 = Thesis(id=uuid.uuid4(), tenant_id=ws, name="T3", narrative="n3")
+
+    def _card(tid: uuid.UUID) -> CallCardResponse:
+        return CallCardResponse(
+            thesis_id=tid,
+            asof=asof,
+            state=State.INCUBATING,
+            verdict=Verdict.NOT_YET,
+            expression="not yet",
+            key_conviction=KeyState(turned=False, label="none"),
+            key_confirmation=KeyState(turned=False, label="none"),
+        )
+
+    tok1 = ("run-1", "tok-1")
+    tok2 = ("run-2", "tok-2")
+    cache1 = call_cache.CallCache(max_entries=2, disk_dir=tmp_path)
+
+    # Cold miss on get_cached_only never computes.
+    assert (
+        cache1.get_cached_only(
+            None,  # type: ignore[arg-type]
+            kind="call",
+            thesis=t1,
+            asof=asof,
+            known_at=None,
+            clock="record",
+            fn_token=111,
+            token=tok1,
+        )
+        is None
+    )
+
+    computed = 0
+
+    def _make_t1() -> CallCardResponse:
+        nonlocal computed
+        computed += 1
+        return _card(t1.id)
+
+    c1 = cache1.get_or_compute(
+        None,  # type: ignore[arg-type]
+        kind="call",
+        thesis=t1,
+        asof=asof,
+        known_at=None,
+        clock="record",
+        fn_token=111,
+        compute=_make_t1,
+        token=tok1,
+    )
+    assert computed == 1
+    assert c1.thesis_id == t1.id
+
+    # Fresh instance (simulating process restart with a new function id) hits disk via get_cached_only
+    # and is_warm_call, promoting the disk entry into memory.
+    cache2 = call_cache.CallCache(max_entries=2, disk_dir=tmp_path)
+    assert cache2.size() == 0
+    assert (
+        cache2.is_warm_call(
+            None,  # type: ignore[arg-type]
+            thesis=t1,
+            asof=asof,
+            known_at=None,
+            clock="record",
+            fn_token=999,
+            token=tok1,
+        )
+        is True
+    )
+    promoted = cache2.get_cached_only(
+        None,  # type: ignore[arg-type]
+        kind="call",
+        thesis=t1,
+        asof=asof,
+        known_at=None,
+        clock="record",
+        fn_token=999,
+        token=tok1,
+    )
+    assert promoted == c1
+    assert cache2.size() == 1
+
+    # Different generation token misses both memory and disk.
+    assert (
+        cache2.get_cached_only(
+            None,  # type: ignore[arg-type]
+            kind="call",
+            thesis=t1,
+            asof=asof,
+            known_at=None,
+            clock="record",
+            fn_token=999,
+            token=tok2,
+        )
+        is None
+    )
+
+    # Corrupt disk file fails open and recomputes cleanly.
+    for p in tmp_path.glob("*.pkl"):
+        p.write_bytes(b"not-a-valid-pickle")
+    cache3 = call_cache.CallCache(max_entries=2, disk_dir=tmp_path)
+    assert (
+        cache3.get_cached_only(
+            None,  # type: ignore[arg-type]
+            kind="call",
+            thesis=t1,
+            asof=asof,
+            known_at=None,
+            clock="record",
+            fn_token=222,
+            token=tok1,
+        )
+        is None
+    )
+    rebuilt = cache3.get_or_compute(
+        None,  # type: ignore[arg-type]
+        kind="call",
+        thesis=t1,
+        asof=asof,
+        known_at=None,
+        clock="record",
+        fn_token=222,
+        compute=_make_t1,
+        token=tok1,
+    )
+    assert rebuilt == c1 and computed == 2
+
+    # Workspace-level cache persists to disk and respects LRU max_entries=2 across disk files.
+    ws_runs = 0
+
+    def _compute_flags() -> data_flags_router.DataFlagsResponse:
+        nonlocal ws_runs
+        ws_runs += 1
+        return data_flags_router.DataFlagsResponse(asof=asof, names=3, members=[])
+
+    df1 = cache3.get_or_compute_workspace(
+        None,  # type: ignore[arg-type]
+        kind="data_flags",
+        workspace=ws,
+        subkey=(asof, None, "record"),
+        fn_token=500,
+        compute=_compute_flags,
+        token=tok1,
+    )
+    assert ws_runs == 1 and df1.names == 3
+    cache4 = call_cache.CallCache(max_entries=2, disk_dir=tmp_path)
+    df2 = cache4.get_or_compute_workspace(
+        None,  # type: ignore[arg-type]
+        kind="data_flags",
+        workspace=ws,
+        subkey=(asof, None, "record"),
+        fn_token=600,
+        compute=_compute_flags,
+        token=tok1,
+    )
+    assert ws_runs == 1 and df2 == df1
+
+    # Adding two more entries prunes disk files down to max_entries=2.
+    for t in (t2, t3):
+        cache4.get_or_compute(
+            None,  # type: ignore[arg-type]
+            kind="call",
+            thesis=t,
+            asof=asof,
+            known_at=None,
+            clock="record",
+            compute=lambda tid=t.id: _card(tid),
+            token=tok1,
+        )
+    assert len(list(tmp_path.glob("*.pkl"))) <= 2
+
+
+def test_board_calls_cached_only_returns_missing_then_cached_without_recompute(
+    client, db, security_id, monkeypatch
+):
+    """``GET /theses/calls?asof=...&cached_only=true`` returns ``missing_ids`` when cold (zero
+    computes) and serves all warmed ``calls`` with ``missing_ids == []`` and zero recomputes once warm.
+    """
+    tid = _seed_hims_thesis(db, security_id)
+    call_invocations = 0
+    real_call = theses_router.call_for_thesis
+
+    def spy_call(conn, thesis_id, asof, **kw):
+        nonlocal call_invocations
+        call_invocations += 1
+        return real_call(conn, thesis_id, asof, **kw)
+
+    monkeypatch.setattr(theses_router, "call_for_thesis", spy_call)
+
+    cold = client.get("/theses/calls", params={"asof": "2026-06-01", "cached_only": "true"})
+    assert cold.status_code == 200, cold.text
+    cold_body = cold.json()
+    assert cold_body["asof"] == "2026-06-01"
+    assert cold_body["calls"] == []
+    assert cold_body["missing_ids"] == [str(tid)]
+    assert call_invocations == 0
+
+    # Warm the thesis call via the single-card endpoint.
+    warm_single = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
+    assert warm_single.status_code == 200
+    assert call_invocations == 1
+
+    # Batched cached_only now returns the warm CallCard with zero recomputes.
+    warm = client.get("/theses/calls", params={"asof": "2026-06-01", "cached_only": "true"})
+    assert warm.status_code == 200, warm.text
+    warm_body = warm.json()
+    assert warm_body["missing_ids"] == []
+    assert len(warm_body["calls"]) == 1
+    assert warm_body["calls"][0] == warm_single.json()
+    assert call_invocations == 1
+
+
+def test_board_calls_computes_and_caches_active_theses_excluding_archived(
+    client, db, security_id, monkeypatch
+):
+    """``GET /theses/calls?asof=...`` (default ``cached_only=false``) computes and caches all active
+    theses while excluding archived theses."""
+    active_tid = _seed_hims_thesis(db, security_id)
+    archived_tid = uuid.uuid4()
+    thesis_repo.upsert(
+        db,
+        Thesis(
+            id=archived_tid,
+            tenant_id=DEFAULT_TENANT_ID,
+            name="Archived thesis",
+            narrative="archived",
+            basket=[BasketMember(ticker="DEVCO", role="the name", security_id=security_id)],
+        ),
+    )
+    thesis_repo.set_archived(db, archived_tid, True)
+    db.commit()
+
+    call_invocations = 0
+    real_call = theses_router.call_for_thesis
+
+    def spy_call(conn, thesis_id, asof, **kw):
+        nonlocal call_invocations
+        call_invocations += 1
+        return real_call(conn, thesis_id, asof, **kw)
+
+    monkeypatch.setattr(theses_router, "call_for_thesis", spy_call)
+
+    r1 = client.get("/theses/calls", params={"asof": "2026-06-01"})
+    assert r1.status_code == 200, r1.text
+    body1 = r1.json()
+    assert body1["missing_ids"] == []
+    assert [c["thesis_id"] for c in body1["calls"]] == [str(active_tid)]
+    assert call_invocations == 1
+
+    # Second call hits cache with zero recomputes.
+    r2 = client.get("/theses/calls", params={"asof": "2026-06-01"})
+    assert r2.status_code == 200
+    assert r2.json() == body1
+    assert call_invocations == 1
+
+
+def test_data_flags_caches_and_invalidates_on_state_change(client, db, security_id, monkeypatch):
+    """``GET /data-flags?asof=...`` caches across consecutive calls and invalidates when workspace
+    state (decision / thesis / change stamp) moves."""
+    tid = _seed_hims_thesis(db, security_id)
+    flag_invocations = 0
+    real_read_flags = data_flags_router.flags_reader.read_flags
+
+    def spy_read_flags(*args, **kwargs):
+        nonlocal flag_invocations
+        flag_invocations += 1
+        return real_read_flags(*args, **kwargs)
+
+    monkeypatch.setattr(data_flags_router.flags_reader, "read_flags", spy_read_flags)
+
+    r1 = client.get("/data-flags", params={"asof": "2026-06-01"})
+    r2 = client.get("/data-flags", params={"asof": "2026-06-01"})
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json() == r2.json()
+    assert flag_invocations == 1
+
+    # Logging a decision moves workspace_token and invalidates cached data-flags.
+    dec = client.post(
+        f"/theses/{tid}/decisions",
+        json={
+            "action": "pass",
+            "decision_date": "2026-06-01",
+            "reason": "invalidate workspace token",
+        },
+    )
+    assert dec.status_code == 200
+    r3 = client.get("/data-flags", params={"asof": "2026-06-01"})
+    assert r3.status_code == 200
+    assert flag_invocations == 2

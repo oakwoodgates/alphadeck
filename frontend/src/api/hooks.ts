@@ -500,7 +500,14 @@ type CallSubject = { id: string; basket_size?: number | null };
 // re-renders this subscriber, the gate is recomputed from the cache, and the next slot opens.
 // The `queries` array is NEVER reordered — only the gate consults the sorted order — so
 // `results[i]` always pairs with `subjects[i]` (the Board relies on that alignment).
-export function useCalls(subjects: readonly CallSubject[], asof: string) {
+/** Batch cache-only Board calls response (`GET /theses/calls?cached_only=true`). */
+export type BoardCallsResponse = components["schemas"]["BoardCallsResponse"];
+
+export function useCalls(
+  subjects: readonly CallSubject[],
+  asof: string,
+  opts?: { hydrateBatch?: boolean },
+) {
   const qc = useQueryClient();
 
   // A subject is SETTLED once it holds data or has errored: it renders now and never occupies a
@@ -511,6 +518,34 @@ export function useCalls(subjects: readonly CallSubject[], asof: string) {
     return state?.data !== undefined || state?.status === "error";
   });
 
+  // When `hydrateBatch` is enabled (the Board) and at least one thesis is unsettled, probe the
+  // cache-only batch endpoint once before opening individual `/call` slots so warm cards paint
+  // together in a single round-trip while cold misses / errors fall back to progressive paint.
+  const hydrateBatch = Boolean(opts?.hydrateBatch);
+  const hasUnsettled = settled.some((s) => !s);
+  const subjectKey = subjects.map((s) => s.id).join(",");
+
+  const batchQ = useQuery({
+    queryKey: ["board-calls-batch", asof, subjectKey] as const,
+    enabled: hydrateBatch && Boolean(asof) && subjects.length > 0 && hasUnsettled,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/theses/calls", {
+        params: { query: { asof, cached_only: true } },
+      });
+      if (error || !data) throw error ?? new Error("Failed to read cached board calls");
+      for (const card of data.calls) {
+        qc.setQueryData(["call", card.thesis_id, asof], card);
+      }
+      return data;
+    },
+  });
+
+  const waitingForBatch =
+    hydrateBatch && Boolean(asof) && subjects.length > 0 && hasUnsettled && batchQ.isPending;
+
   // Launch order: smallest basket first, ties broken by the caller's order (a stable sort of
   // indices, so the ordering is deterministic across renders).
   const order = subjects
@@ -518,7 +553,7 @@ export function useCalls(subjects: readonly CallSubject[], asof: string) {
     .sort((a, b) => (subjects[a].basket_size ?? 0) - (subjects[b].basket_size ?? 0) || a - b);
 
   const open = new Array<boolean>(subjects.length).fill(false);
-  let slots = CALL_CONCURRENCY;
+  let slots = waitingForBatch ? 0 : CALL_CONCURRENCY;
   for (const i of order) {
     if (settled[i]) open[i] = true; // settled: enabled, but takes no slot
     else if (slots > 0) {

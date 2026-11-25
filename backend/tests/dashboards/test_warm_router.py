@@ -14,6 +14,7 @@ from fastapi.routing import APIRoute
 from app import call_cache, warm_hook
 from app.auth import require_user
 from app.main import app
+from app.routers import data_flags as data_flags_router
 from app.routers import theses as theses_router
 from app.routers.dashboards import (
     chain_map,
@@ -354,10 +355,22 @@ def _install_stub_routers(
         return {"thesis_id": str(thesis.id)}
 
     monkeypatch.setattr(theses_router, "read_call", _read_call_stub)
+
+    def _read_data_flags_stub(
+        _conn: Any, *, asof: date, tenant_id: UUID, view: Any = None
+    ) -> dict[str, Any]:
+        recorded.append(("data-flags", {"asof": asof, "tenant_id": tenant_id, "view": view}))
+        if on_step is not None:
+            on_step("data-flags", {"asof": asof, "tenant_id": tenant_id, "view": view})
+        if fail_on == "data-flags":
+            raise RuntimeError("boom in data-flags")
+        return {"asof": asof.isoformat(), "names": 0, "members": []}
+
+    monkeypatch.setattr(data_flags_router, "read_data_flags", _read_data_flags_stub)
     monkeypatch.setattr(
         call_cache.CACHE,
         "is_warm_call",
-        lambda _conn, *, thesis, asof, known_at, clock, decisions_asof=None, fn_token=0: (
+        lambda _conn, *, thesis, asof, known_at, clock, decisions_asof=None, fn_token=0, token=None: (
             (thesis.id, asof) in warmed_calls
             and fn_token == id(theses_router.call_for_thesis)
             and decisions_asof == serve_decisions_asof(asof, MCLOCK)
@@ -528,6 +541,7 @@ def test_status_and_post_warm_full_pass_in_piece_sharing_order(monkeypatch: pyte
         "chain-wave/cards",
         "board-call",
         "board-call",
+        "data-flags",
     ]
     # Verify hot-board ran armed then all.
     hb_rows = [kw["rows"] for label, kw in recorded if label == "hot-board"]
@@ -641,6 +655,7 @@ def test_per_step_failure_is_fail_open_and_records_error(monkeypatch: pytest.Mon
     assert "insider-tracker" in labels
     assert "daily-digest" in labels
     assert "board-call" in labels
+    assert "data-flags" in labels
     assert warm._running is False
     assert warm._error is not None and "insider-tracker" in warm._error
     assert job_conn.closed is True
@@ -805,3 +820,37 @@ def test_executor_spawn_error_resets_running_state(monkeypatch: pytest.MonkeyPat
     assert warm.start_warm(WS_A, NIGHT, reason="manual") is True
     assert warm._running is False
     assert warm._error is not None and "thread limit reached" in warm._error
+
+
+def test_warm_status_fetches_workspace_token_once_for_all_theses(monkeypatch: pytest.MonkeyPatch):
+    t1, t2, t3 = (
+        _make_thesis(WS_A, "Card 1"),
+        _make_thesis(WS_A, "Card 2"),
+        _make_thesis(WS_A, "Card 3"),
+    )
+    _install_stub_routers(monkeypatch, theses_by_ws={WS_A: [t1, t2, t3]})
+    req_conn = _FakeConn([WS_A])
+
+    token_calls = 0
+    sentinel_token = ("run-1", "ws-tok")
+
+    def _spy_workspace_token(_conn: Any, _ws: UUID) -> tuple[Any, ...]:
+        nonlocal token_calls
+        token_calls += 1
+        return sentinel_token
+
+    seen_tokens: list[Any] = []
+    monkeypatch.setattr(call_cache, "workspace_token", _spy_workspace_token)
+    monkeypatch.setattr(
+        call_cache.CACHE,
+        "is_warm_call",
+        lambda _conn, *, thesis, asof, known_at, clock, decisions_asof=None, fn_token=0, token=None: (
+            seen_tokens.append(token) or True
+        ),
+    )
+
+    status = warm.get_warm_status(asof=None, conn=req_conn, workspace=WS_A)
+    assert token_calls == 1
+    assert seen_tokens == [sentinel_token, sentinel_token, sentinel_token]
+    assert status.calls_total == 3
+    assert status.calls_warm == 3

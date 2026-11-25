@@ -609,6 +609,64 @@
         }
       }
     },
+    "/theses/calls": {
+      "get": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Get Calls",
+        "description": "Batched live/cached CallCards for the Board's active (non-archived) theses at ``asof``.\n\nRead-only: writes nothing to the database or the ``calls`` log. Reads the workspace generation\ntoken once for the batch; when ``cached_only=true``, returns every warm CallCard immediately\nand lists cold thesis ids in ``missing_ids`` so the Board can stream only the missing cards.",
+        "operationId": "get_calls_theses_calls_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; each call uses no data knowable after it",
+              "title": "Asof"
+            },
+            "description": "as-of date; each call uses no data knowable after it"
+          },
+          {
+            "name": "cached_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "when true, return only cached CallCards and list uncached thesis ids in missing_ids",
+              "default": false,
+              "title": "Cached Only"
+            },
+            "description": "when true, return only cached CallCards and list uncached thesis ids in missing_ids"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardCallsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses/{thesis_id}/archive": {
       "post": {
         "tags": [
@@ -15409,6 +15467,37 @@
         ],
         "title": "BasketMemberIn",
         "description": "A basket row as a REQUEST sends it: ``BasketMember`` with the request limits (one-line fields 200 characters,\n``thesis_fit`` 2,000, at most 200 surfaced terms of 200 characters each). ``ticker`` is a one-line label here,\nnot the strict ticker pattern: a name with no ticker is sent under its company name. Stored rows are read as\n``BasketMember``, which carries none (security hardening PR 3)."
+      },
+      "BoardCallsResponse": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/CallCardResponse"
+            },
+            "type": "array",
+            "title": "Calls"
+          },
+          "missing_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Missing Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "calls"
+        ],
+        "title": "BoardCallsResponse",
+        "description": "Batched live/cached CallCards for the Board's active theses at one as-of date."
       },
       "BusinessSupersector": {
         "type": "string",
