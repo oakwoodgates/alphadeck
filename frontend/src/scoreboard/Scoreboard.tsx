@@ -1,4 +1,5 @@
 import { Fragment, useState, type ReactNode } from "react";
+import { useInRouterContext, useNavigate, useSearchParams } from "react-router";
 
 import type {
   OperatorSpanOut,
@@ -9,6 +10,8 @@ import type {
 import { useScoreboard, useScoreboardEditions } from "../api/hooks";
 import { useAppClock } from "../clock";
 import { Drawer } from "../components/Drawer";
+import { CompanyDrawer, type CompanyDrawerSelection } from "../dashboards/CompanyDrawer";
+import { ASOF, validAsof } from "../nav";
 import { fmtDate, isPastAsof } from "../util/format";
 import { editionLabel, editionNote, editionTitle, isRerun } from "./editions";
 import { lateNightsLine, lateNightsTitle, nextLateOverride } from "./late";
@@ -63,6 +66,28 @@ type Props = {
 
 // Beyond this many editions the segmented control would crowd the header — a plain list picker takes over.
 const SEGMENTED_MAX = 5;
+
+function ScoreboardTickerLookupAction({ ticker, onClose }: { ticker: string; onClose: () => void }) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const asofParam = validAsof(searchParams.get(ASOF));
+  return (
+    <button
+      type="button"
+      className="cd-cockpit cd-action-quiet"
+      title={`Open ${ticker} in Ticker Lookup (full filings and cross-card dossier)`}
+      onClick={() => {
+        const sp = new URLSearchParams();
+        sp.set("t", ticker);
+        if (asofParam) sp.set(ASOF, asofParam);
+        onClose();
+        navigate(`/dashboards/ticker-lookup?${sp.toString()}`);
+      }}
+    >
+      Ticker Lookup ↗
+    </button>
+  );
+}
 
 /** The header's quiet edition label + switcher (S4). Renders only when there is something to switch
  *  between (a one-option control does not discriminate, #7): with nothing published the page looks exactly
@@ -274,6 +299,10 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
   // the episode-scorecard drawer's open episode — local state only (no URL param this slice); a
   // click opens it, the drawer's ✕/backdrop/Esc close it, and the ledger underneath never rerenders.
   const [openEp, setOpenEp] = useState<ScoreboardEpisodeOut | null>(null);
+  // Full Company View drawer opened on demand from an episode scorecard (shares member-panel +
+  // price-window caches for an instant switch).
+  const [companySel, setCompanySel] = useState<CompanyDrawerSelection | null>(null);
+  const inRouter = useInRouterContext();
   // the Summary | Timing ledger view (Slice 2) — local component state, no URL param this slice; a
   // pure VIEW control that swaps the ledger's middle columns (never the rows or the data).
   const [view, setView] = useState<LedgerView>("summary");
@@ -659,9 +688,48 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
             </>
           ) : undefined
         }
+        actions={
+          openEp ? (
+            <>
+              {openEp.security_id && (
+                <button
+                  type="button"
+                  className="cd-cockpit cd-action-quiet"
+                  title="Open full Company View dossier (thesis fit, scoring meters, catalysts, and cards)"
+                  onClick={() => {
+                    const sel = { thesisId: openEp.thesis_id, nameKey: openEp.security_id };
+                    setOpenEp(null);
+                    setCompanySel(sel);
+                  }}
+                >
+                  Company view
+                </button>
+              )}
+              {openEp.ticker && inRouter && (
+                <ScoreboardTickerLookupAction
+                  ticker={openEp.ticker}
+                  onClose={() => setOpenEp(null)}
+                />
+              )}
+              <button
+                type="button"
+                className="cd-cockpit"
+                title="Open this company in the Cockpit"
+                onClick={() => {
+                  const ep = openEp;
+                  setOpenEp(null);
+                  onSelect(ep.thesis_id, ep.ticker ?? ep.security_id ?? undefined);
+                }}
+              >
+                Open in Cockpit ↗
+              </button>
+            </>
+          ) : undefined
+        }
       >
         {openEp && (
           <EpisodeScorecard
+            key={`${openEp.thesis_id}-${openEp.security_id}-${openEp.arm_date}`}
             ep={openEp}
             thesisName={data?.theses.find((t) => t.thesis_id === openEp.thesis_id)?.name}
             asof={asof}
@@ -669,6 +737,19 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
           />
         )}
       </Drawer>
+
+      {companySel && (
+        <CompanyDrawer
+          selection={companySel}
+          asof={asof}
+          onClose={() => setCompanySel(null)}
+          onSwitchCard={(thesisId, nameKey) => setCompanySel({ thesisId, nameKey })}
+          onOpenCockpit={(thesisId, nameKey) => {
+            setCompanySel(null);
+            onSelect(thesisId, nameKey ?? undefined);
+          }}
+        />
+      )}
     </div>
   );
 }

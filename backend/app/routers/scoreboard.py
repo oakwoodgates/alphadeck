@@ -46,8 +46,7 @@ from scoreboard.overlays import (
     annotate_sma,
     episode_activist_stakes,
     episode_corporate_events,
-    episode_insider_buys,
-    episode_insider_sells,
+    episode_insider_overlays,
     thesis_created_at,
     universe_floor,
 )
@@ -560,105 +559,122 @@ def get_price_window(
         # ``get_thesis_or_404`` already loads from the caller's workspace only; this stays as a second guard
         # (a thesis in another workspace is "not found", never a leak).
         raise HTTPException(status_code=404, detail="thesis not found")
-    # every read below is a DATA read (prices, splits, insider rows, corporate events, stakes: domain.scopes)
-    tenant = DATA_TENANT_ID
-    # cap=asof carries the no-lookahead guarantee on the valid axis; known_at defaults to now (the scorer's
-    # transaction-axis config), so the chart matches the bars behind the ledger's numbers.
-    reader = PgRealizedPrices(conn, tenant_id=tenant, cap=asof)
-    # R1: the BACKEND owns the relevance floor (it has the thesis) = max(created_at − 365d, first_bar). The
-    # loaded window is [floor, end] REGARDLESS of the requested ``start`` (advisory now — the FE loads the
-    # whole universe and pans to it). Warm-up reads BEHIND the created floor so an SMA at ``floor`` sees its
-    # real prior closes (the same asof-capped ``bars_between`` — never a forked as-of path). The relevance
-    # floor is ADDITIVE to the no-lookahead caps (cap=asof, known_at≤asof), never a replacement.
-    created_at = thesis_created_at(conn, thesis.id)
-    created_floor = created_at - timedelta(days=UNIVERSE_LOOKBACK_DAYS)
-    warmup = reader.bars_between(security_id, created_floor - timedelta(days=SMA_WARMUP_DAYS), end)
-    floor = universe_floor(created_at, warmup[0]["d"] if warmup else None)
-    annotated = annotate_sma(warmup)
-    window_bars = [b for b in annotated if b["d"] >= floor]
-    # The offer-price insider screen needs the EOD low on each trade date — built from the SAME asof-capped
-    # price view (no lookahead); an absent low keeps the buy (recall-safe, #9).
-    day_lows = {b["d"]: b["low"] for b in warmup if b.get("low") is not None}
-    # S2 — the bars above are the stored tape on the split list's scale (read as of the reader's
-    # ``known_at``, the scorer's axis) and a Form 4 price is as traded: the screens put it on the tape's
-    # scale with the splits the store held at that same instant (``domain.splits.tape_scale``) — the call's
-    # own rule
-    price_scale = tape_scale(
-        split_repo.as_of_rows(
-            conn, tenant_id=tenant, security_ids=[security_id], known_at=reader.known_at
-        )[security_id],
-        through=view_day(reader.known_at),
-    )
+    # Resolve edition before caching so an invalid edition number still returns 404 immediately.
+    chosen_edition = _resolve_edition(conn, current_tenant, edition)
     # ONE knowability cap for every event family (Slice B): min(now, end of the asof's night — EDGAR's
-    # next open, F6) — the two-axis
-    # no-lookahead every dated overlay read shares (invariant #1).
+    # next open, F6) — the two-axis no-lookahead every dated overlay read shares (invariant #1).
     # ``now`` from the DATABASE clock (``db.clock``): for a PAST asof the night cap dominates and
     # the host clock never binds, but for asof == TODAY ``min(now, night end)`` IS ``now`` — and that
     # bound is compared against database-stamped ``recorded_at`` values. One clock, per db/clock.py.
     # WHICH axis it bounds (operator decision 2026-10-21): a PAST asof is a history view, judged on the
     # PUBLIC clock — an event counts from when it became public (``db.public_clock``), not from when we
     # ingested it; a live asof stays on the record clock (where the two coincide) — ``serve_view``'s rule.
-    known_at = known_at_for_asof(asof, now=db_now(conn))
+    now_dt = db_now(conn)
     _, clock = serve_view(asof)
     # Editions S4: an edition is a history view on the PUBLIC clock end to end, so its drawer reads every
     # overlay there — a live as-of included (where the two clocks coincide anyway, ``db.public_clock``).
     # The same shared ``clock="public"`` reads #433 gave a past as-of; no edition-specific clock.
-    if _resolve_edition(conn, current_tenant, edition) is not None:
+    if chosen_edition is not None:
         clock = "public"
-    buys = episode_insider_buys(
+    # ``start`` is advisory (server owns floor = max(thesis.created_at - 365d, first_bar)), and every
+    # read caps at ``min(end, asof)``. Keying on ``effective_end`` lets open episodes and CompanyDrawer
+    # share one cached payload while still echoing the caller's requested ``end``.
+    effective_end = min(end, asof)
+    today_market = view_day(now_dt)
+
+    def _compute() -> ScoreboardPriceWindowOut:
+        # every read below is a DATA read (prices, splits, insider rows, corporate events, stakes: domain.scopes)
+        tenant = DATA_TENANT_ID
+        # cap=asof carries the no-lookahead guarantee on the valid axis; known_at defaults to now (the scorer's
+        # transaction-axis config), so the chart matches the bars behind the ledger's numbers.
+        reader = PgRealizedPrices(conn, tenant_id=tenant, cap=asof)
+        # R1: the BACKEND owns the relevance floor (it has the thesis) = max(created_at − 365d, first_bar). The
+        # loaded window is [floor, end] REGARDLESS of the requested ``start`` (advisory now — the FE loads the
+        # whole universe and pans to it). Warm-up reads BEHIND the created floor so an SMA at ``floor`` sees its
+        # real prior closes (the same asof-capped ``bars_between`` — never a forked as-of path). The relevance
+        # floor is ADDITIVE to the no-lookahead caps (cap=asof, known_at≤asof), never a replacement.
+        created_at = thesis_created_at(conn, thesis.id)
+        created_floor = created_at - timedelta(days=UNIVERSE_LOOKBACK_DAYS)
+        warmup = reader.bars_between(
+            security_id, created_floor - timedelta(days=SMA_WARMUP_DAYS), effective_end
+        )
+        floor = universe_floor(created_at, warmup[0]["d"] if warmup else None)
+        annotated = annotate_sma(warmup)
+        window_bars = [b for b in annotated if b["d"] >= floor]
+        # The offer-price insider screen needs the EOD low on each trade date — built from the SAME asof-capped
+        # price view (no lookahead); an absent low keeps the buy (recall-safe, #9).
+        day_lows = {b["d"]: b["low"] for b in warmup if b.get("low") is not None}
+        # S2 — the bars above are the stored tape on the split list's scale (read as of the reader's
+        # ``known_at``, the scorer's axis) and a Form 4 price is as traded: the screens put it on the tape's
+        # scale with the splits the store held at that same instant (``domain.splits.tape_scale``) — the call's
+        # own rule
+        price_scale = tape_scale(
+            split_repo.as_of_rows(
+                conn, tenant_id=tenant, security_ids=[security_id], known_at=reader.known_at
+            )[security_id],
+            through=view_day(reader.known_at),
+        )
+        known_at = known_at_for_asof(asof, now=now_dt)
+        buys, sells = episode_insider_overlays(
+            conn,
+            tenant_id=tenant,
+            security_id=security_id,
+            start=floor,  # events bounded to the relevance window, regardless of the requested start
+            end=effective_end,
+            asof=asof,
+            known_at=known_at,
+            clock=clock,
+            day_lows=day_lows,
+            price_scale=price_scale,
+        )
+        corp_events = episode_corporate_events(
+            conn,
+            tenant_id=tenant,
+            security_id=security_id,
+            start=floor,
+            end=effective_end,
+            asof=asof,
+            known_at=known_at,
+            clock=clock,
+        )
+        stakes = episode_activist_stakes(
+            conn,
+            tenant_id=tenant,
+            security_id=security_id,
+            start=floor,
+            end=effective_end,
+            asof=asof,
+            known_at=known_at,
+            clock=clock,
+        )
+        return ScoreboardPriceWindowOut(
+            thesis_id=thesis.id,
+            security_id=security_id,
+            start=floor,  # the EFFECTIVE floor — the FE reads it to know the loaded extent (R1)
+            end=effective_end,
+            asof=asof,
+            source="fact_price_eod",
+            bars=[PriceBar(**b) for b in window_bars],
+            insider_buys=[InsiderBuyOut(**b) for b in buys],
+            insider_sells=[InsiderSellOut(**s) for s in sells],
+            corporate_events=[CorporateEventOut(**e) for e in corp_events],
+            activist_stakes=[ActivistStakeOut(**s) for s in stakes],
+        )
+
+    out = call_cache.CACHE.get_or_compute_workspace(
         conn,
-        tenant_id=tenant,
-        security_id=security_id,
-        start=floor,  # events bounded to the relevance window, regardless of the requested start
-        end=end,
-        asof=asof,
-        known_at=known_at,
-        clock=clock,
-        day_lows=day_lows,
-        price_scale=price_scale,
+        kind="scoreboard_price_window",
+        workspace=current_tenant,
+        subkey=(thesis.id, security_id, effective_end, asof, clock, today_market),
+        fn_token=hash(
+            (
+                id(PgRealizedPrices),
+                id(episode_insider_overlays),
+                id(episode_corporate_events),
+                id(episode_activist_stakes),
+                id(db_now),
+            )
+        ),
+        compute=_compute,
     )
-    sells = episode_insider_sells(
-        conn,
-        tenant_id=tenant,
-        security_id=security_id,
-        start=floor,
-        end=end,
-        asof=asof,
-        known_at=known_at,
-        clock=clock,
-        day_lows=day_lows,  # the below-day-low secondary screen reads the SAME asof-capped lows
-        price_scale=price_scale,
-    )
-    corp_events = episode_corporate_events(
-        conn,
-        tenant_id=tenant,
-        security_id=security_id,
-        start=floor,
-        end=end,
-        asof=asof,
-        known_at=known_at,
-        clock=clock,
-    )
-    stakes = episode_activist_stakes(
-        conn,
-        tenant_id=tenant,
-        security_id=security_id,
-        start=floor,
-        end=end,
-        asof=asof,
-        known_at=known_at,
-        clock=clock,
-    )
-    return ScoreboardPriceWindowOut(
-        thesis_id=thesis.id,
-        security_id=security_id,
-        start=floor,  # the EFFECTIVE floor — the FE reads it to know the loaded extent (R1)
-        end=end,
-        asof=asof,
-        source="fact_price_eod",
-        bars=[PriceBar(**b) for b in window_bars],
-        insider_buys=[InsiderBuyOut(**b) for b in buys],
-        insider_sells=[InsiderSellOut(**s) for s in sells],
-        corporate_events=[CorporateEventOut(**e) for e in corp_events],
-        activist_stakes=[ActivistStakeOut(**s) for s in stakes],
-    )
+    return out if out.end == end else out.model_copy(update={"end": end})

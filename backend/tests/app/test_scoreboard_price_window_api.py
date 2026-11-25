@@ -1044,3 +1044,113 @@ def test_price_window_split_factor_reads_only_the_thesis_tenants_split_list(
     assert character() == "primary_market"
     split(thesis.tenant_id)
     assert character() == "open_market"
+
+
+def test_price_window_deduplicates_insider_query_and_hits_cache(
+    client, db, security_id, monkeypatch
+):
+    """Tier 3: cold ``GET /scoreboard/price-window`` reads ``fact_insider_txn`` and
+    ``security_master.name`` ONCE for both buys and sells; repeat requests (including different
+    advisory ``start`` or future ``end > asof``) serve from ``call_cache`` and invalidate
+    immediately when new Form 4 data or ``thesis.created_at`` changes."""
+    from scoreboard import overlays as overlays_mod
+
+    thesis = persist_thesis(db, security_id)
+    ohlcv_bar(db, security_id, date(2026, 6, 5), 49.0, 52.0, 48.0, 50.0, 10_000.0)
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000150-26-000150",
+        valid_from=date(2026, 6, 5),
+        recorded_at=datetime(2026, 6, 6, tzinfo=timezone.utc),
+        txn_code="P",
+        price=50.0,
+        usd=50_000.0,
+    )
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000151-26-000151",
+        valid_from=date(2026, 6, 5),
+        recorded_at=datetime(2026, 6, 6, tzinfo=timezone.utc),
+        txn_code="S",
+        price=50.0,
+        usd=75_000.0,
+    )
+
+    as_of_calls: list[str] = []
+    issuer_calls: list[uuid.UUID] = []
+    orig_as_of = overlays_mod.as_of
+    orig_issuer = overlays_mod.security_issuer_name
+
+    def counting_as_of(conn, table, *args, **kwargs):
+        as_of_calls.append(table)
+        return orig_as_of(conn, table, *args, **kwargs)
+
+    def counting_issuer(conn, tenant_id, sid):
+        issuer_calls.append(sid)
+        return orig_issuer(conn, tenant_id, sid)
+
+    monkeypatch.setattr(overlays_mod, "as_of", counting_as_of)
+    monkeypatch.setattr(overlays_mod, "security_issuer_name", counting_issuer)
+
+    # 1. Cold miss: fact_insider_txn and security_issuer_name are each read ONCE (not twice).
+    r1 = client.get(
+        "/scoreboard/price-window",
+        params={
+            "thesis_id": str(thesis.id),
+            "security_id": str(security_id),
+            "start": "2026-06-01",
+            "end": "2026-08-01",  # > asof -> effective_end == asof
+            "asof": "2026-07-15",
+        },
+    )
+    assert r1.status_code == 200
+    body1 = r1.json()
+    assert len(body1["insider_buys"]) == 1
+    assert len(body1["insider_sells"]) == 1
+    assert body1["end"] == "2026-08-01"
+    assert as_of_calls.count("fact_insider_txn") == 1
+    assert len(issuer_calls) == 1
+
+    # 2. Warm hit with different advisory start and end == asof (same effective_end): zero DB recompute,
+    #    and the caller's requested `end` is echoed accurately.
+    r2 = client.get(
+        "/scoreboard/price-window",
+        params={
+            "thesis_id": str(thesis.id),
+            "security_id": str(security_id),
+            "start": "2026-07-15",
+            "end": "2026-07-15",
+            "asof": "2026-07-15",
+        },
+    )
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["end"] == "2026-07-15"
+    assert body2["insider_buys"] == body1["insider_buys"]
+    assert body2["insider_sells"] == body1["insider_sells"]
+    assert as_of_calls.count("fact_insider_txn") == 1  # cache hit
+
+    # 3. New Form 4 row invalidates immediately.
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000152-26-000152",
+        valid_from=date(2026, 6, 10),
+        recorded_at=datetime(2026, 6, 11, tzinfo=timezone.utc),
+        txn_code="P",
+        price=51.0,
+        usd=60_000.0,
+    )
+    r3 = _get(client, thesis.id, security_id, "2026-07-15")
+    assert r3.status_code == 200
+    assert len(r3.json()["insider_buys"]) == 2
+    assert as_of_calls.count("fact_insider_txn") == 2
+
+    # 4. Updating thesis.created_at invalidates the cached relevance floor immediately.
+    _set_created_at(db, thesis.id, date(2027, 6, 10))  # floor moves to 2026-06-10 (hides 06-05 buy)
+    r4 = _get(client, thesis.id, security_id, "2026-07-15")
+    assert r4.status_code == 200
+    assert len(r4.json()["insider_buys"]) == 1
+    assert as_of_calls.count("fact_insider_txn") == 3

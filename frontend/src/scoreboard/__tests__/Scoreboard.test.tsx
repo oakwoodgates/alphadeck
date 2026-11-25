@@ -58,8 +58,9 @@ vi.mock("../../api/hooks", () => ({
     windowCalls.push(args);
     return { data: undefined, isLoading: false, isError: false };
   },
-  // Slice B lifted the Cockpit identity + signal-headline reads into the drawer's scorecard — stub them
-  // no-data so the ledger's strip degrades to "—" (and no ledger renders without a price window anyway)
+  // Tier 3 replaced the 3 whole-basket hooks with single-member useMemberPanel (and CompanyDrawer uses useDecisions)
+  useMemberPanel: () => ({ data: undefined, isLoading: false, isPending: false, isError: false, isPlaceholderData: false }),
+  useDecisions: () => ({ data: undefined, isLoading: false, isError: false }),
   useWorkbenchScored: () => ({ data: undefined, isLoading: false, isError: false }),
   useDisplaySignals: () => ({ data: undefined, isLoading: false, isError: false }),
   useThesisDataFlags: () => ({ data: undefined, isLoading: false, error: null }),
