@@ -908,14 +908,29 @@ def _renamed(n: int, *, verified: bool, probed: bool = True) -> dict[str, Any]:
 
 
 def _unpriceable(n: int) -> dict[str, Any]:
+    """A never-priced name. The first (``n == 20``) is an ADR member whose EDGAR list also carries a foreign
+    ordinary line the never-priced probe fetched (W4-1): never recommended, the classes differ."""
+    adr = n == 20
+    candidates = [
+        {
+            **_probe("TKTAF", verified=False),
+            "overlap": 0,
+            "ratio": None,
+            "listing_class": "ordinary",
+        }
+    ]
     return {
         "security_id": uid("repair", "unpriceable", n),
         "ticker": f"TK{n:02d}",
         "theses": _repair_thesis(n),
-        "edgar_tickers": [] if n % 2 else [f"TK{n:02d}.TO"],
+        "edgar_tickers": [f"TK{n:02d}", "TKTAF"] if adr else [] if n % 2 else [f"TK{n:02d}.TO"],
         "vendor_error": "404 Not Found: " + text(120, n),
         "price_symbol": None,
         "change": None,
+        "member_class": "adr" if adr else None,
+        "candidates": candidates if adr else [],
+        "recommended": None,
+        "probed": adr,
     }
 
 

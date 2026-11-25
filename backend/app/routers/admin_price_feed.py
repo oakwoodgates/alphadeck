@@ -14,6 +14,11 @@ What the operator can do here, and its inverse:
   (``master.set_price_symbol(basis="operator:adopt")``), the display name refreshed from EDGAR's current
   entity name (read by the pass from the cached submissions — no fetch). **Undo adopt** restores the prior
   ``price_symbol`` / ``price_symbol_basis`` / ``name`` byte-for-byte (``price_symbol_change``, 0046).
+- **Adopt** on a NEVER-PRICED name (W4-1) -> one of the other symbols EDGAR lists for it, which the nightly
+  probe fetched with bars (``rename_probe.unpriced``) — no name refresh (the name was never renamed). A
+  candidate whose listing class is known to differ from the member's (the foreign ordinary line for an ADR
+  member) needs the request's ``confirm_class`` and the setting ``price_feed_cross_class_adopt`` =
+  ``confirm``; ``refuse`` turns such adopts off. Same Undo.
 - **Set price symbol** on an unpriceable name (the operator types a vendor symbol, e.g. a TSX listing) ->
   validated by ONE vendor fetch into a throwaway cache (bars must exist), then set the same way
   (``basis="operator:set"``). Same Undo.
@@ -85,6 +90,7 @@ from app.schemas_api import (
 )
 from domain.feed_kinds import PRICE, feed_kind
 from domain.security import SecurityIdentity
+from domain.settings import get_settings
 from ingest.prices.source import DEFAULT_RANGE, PriceSource, YahooPriceSource
 from pipeline import successor_cik
 from pipeline.cron_run_log import carried_inventory, is_finished, list_run_logs
@@ -152,20 +158,22 @@ def inventory_doc(payloads: list[dict]) -> dict | None:
     ``theses`` replaced by the carried entries; built in memory, never written), so every per-thesis
     reader below walks it unchanged. Its ``rename_probe`` block is the newest pass's, with each probe row
     taken from the newest of the passes read that probed that name (a renamed row carried from a thesis the
-    catch-up skipped keeps the probe of the pass that saw it). ``None`` = no pass has looked yet."""
+    catch-up skipped keeps the probe of the pass that saw it) — the renamed ``rows`` and, the same way, the
+    never-priced ``unpriced`` rows (W4-1). ``None`` = no pass has looked yet."""
     inv = carried_inventory(payloads, evaluated_key="tape_evaluated")
     if inv is None:
         return None
     doc = inv.as_doc()
     block = inv.newest.get("rename_probe")
     probe = dict(block) if isinstance(block, dict) else {}
-    rows: dict[str, dict] = {}
-    for p in inv.passes:  # newest first: the first pass that probed a name wins
-        b = p.get("rename_probe")
-        for r in (b.get("rows") if isinstance(b, dict) else None) or []:
-            if isinstance(r, dict) and r.get("security_id"):
-                rows.setdefault(str(r["security_id"]), r)
-    probe["rows"] = list(rows.values())
+    for key in ("rows", "unpriced"):
+        rows: dict[str, dict] = {}
+        for p in inv.passes:  # newest first: the first pass that probed a name wins
+            b = p.get("rename_probe")
+            for r in (b.get(key) if isinstance(b, dict) else None) or []:
+                if isinstance(r, dict) and r.get("security_id"):
+                    rows.setdefault(str(r["security_id"]), r)
+        probe[key] = list(rows.values())
     doc["rename_probe"] = probe
     return doc
 
@@ -252,6 +260,28 @@ def _probe_rows(doc: dict | None) -> tuple[dict[UUID, dict], bool, str | None]:
             continue
     err = block.get("error")
     return out, bool(block.get("evaluated")), (str(err) if err else None)
+
+
+def _unpriced_probe_rows(doc: dict | None) -> dict[UUID, dict]:
+    """``security_id -> never-priced probe row`` (W4-1) from an artifact's ``rename_probe.unpriced`` (an
+    artifact written before W4-1 has none: every never-priced row then reads unprobed). Fail-open per row.
+    """
+    block = (doc or {}).get("rename_probe")
+    out: dict[UUID, dict] = {}
+    for r in (block.get("unpriced") if isinstance(block, dict) else None) or []:
+        try:
+            out[UUID(str(r["security_id"]))] = r
+        except Exception:  # noqa: BLE001 — a malformed row is skipped
+            continue
+    return out
+
+
+def _candidates_out(rec: dict) -> list[AdminProbeCandidateOut]:
+    return [
+        AdminProbeCandidateOut(**c)
+        for c in rec.get("candidates") or []
+        if isinstance(c, dict) and c.get("symbol")
+    ]
 
 
 # --- T7: the successor-CIK inventory -------------------------------------------------------------------
@@ -472,6 +502,7 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
     doc = inventory_doc(payloads)
     inv = _inventory(doc) if doc is not None else {}
     probes, probe_evaluated, probe_error = _probe_rows(doc)
+    unpriced_probes = _unpriced_probe_rows(doc)
     standing = {c.security_id: c for c in price_feed_repo.standing_changes(conn)}
     acks = price_feed_repo.active_acks(conn)
     acked = {a.security_id: a for a in acks}
@@ -515,11 +546,7 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
                         for f in p.get("name_change_filings") or []
                         if isinstance(f, dict) and f.get("filed")
                     ],
-                    candidates=[
-                        AdminProbeCandidateOut(**c)
-                        for c in p.get("candidates") or []
-                        if isinstance(c, dict) and c.get("symbol")
-                    ],
+                    candidates=_candidates_out(p),
                     recommended=p.get("recommended"),
                     probed=bool(p),
                     price_symbol=current,
@@ -527,6 +554,7 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
                 )
             )
         elif row.unpriceable and sid not in acked:
+            u = unpriced_probes.get(sid) or {}
             unpriceable.append(
                 AdminUnpriceableRowOut(
                     security_id=sid,
@@ -536,6 +564,10 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
                     vendor_error=row.vendor_error,
                     price_symbol=current,
                     change=change,
+                    member_class=u.get("member_class"),
+                    candidates=_candidates_out(u),
+                    recommended=u.get("recommended"),
+                    probed=bool(u),
                 )
             )
     acknowledged = [
@@ -662,17 +694,27 @@ def adopt_successor(
     body: AdminPriceSymbolIn,
     conn: psycopg.Connection = Depends(get_conn),
 ) -> AdminPriceSymbolChangeOut:
-    """ADOPT a renamed name's successor symbol — the operator's ratification of the nightly splice probe.
-    The symbol must be one EDGAR lists for this name on the newest pass that looked (verified or not: the
-    probe recommends, the operator decides). Sets ``price_symbol`` through the existing writer (basis
-    ``operator:adopt``) and refreshes the display name from EDGAR's current entity name when it differs;
-    the change row records the prior values, so ``POST /admin/price-feed/changes/{id}/undo`` restores them
-    exactly. The next nightly pass re-pulls the tape under the new symbol. **404** unknown security, **409**
-    not a listed candidate / no rename recommendation / nothing to change, **422** a malformed symbol.
+    """ADOPT a probed symbol — the operator's ratification of the nightly probe. A RENAMED name: the symbol
+    must be one EDGAR lists for it on the newest pass that looked (verified or not: the probe recommends,
+    the operator decides); the display name is refreshed from EDGAR's current entity name when it differs.
+    A NEVER-PRICED name (W4-1): the symbol must be one of the other symbols EDGAR lists for it that the probe
+    fetched with bars and no error; the name is not touched. When the candidate's listing class is known to
+    differ from the member's (the foreign ordinary line for an ADR member), **409** unless ``confirm_class``
+    is true and the setting ``price_feed_cross_class_adopt`` is ``confirm`` (``refuse``: always 409). Sets
+    ``price_symbol`` through the existing writer (basis ``operator:adopt``); the change row records the
+    prior values and the probe (for a never-priced name both class marks and the confirm), so ``POST
+    /admin/price-feed/changes/{id}/undo`` restores them exactly. The next nightly pass re-pulls the tape
+    under the new symbol. **404** unknown security, **409** not a listed or probed candidate / no rename or
+    never-priced row / a cross-class symbol without the confirm / nothing to change, **422** a malformed
+    symbol.
     """
     symbol = _symbol(body.symbol)
     ticker = _ticker_of(conn, security_id)
     doc, row = _inventory_row(security_id)
+    if doc is not None and row is not None and not row.renamed and row.unpriceable:
+        return _adopt_unpriced(
+            conn, security_id, symbol, ticker, doc, row, bool(body.confirm_class)
+        )
     if doc is None or row is None or not row.renamed:
         raise HTTPException(
             status_code=409,
@@ -705,6 +747,92 @@ def adopt_successor(
             symbol=symbol,
             basis=BASIS_ADOPT,
             new_name=rec.get("edgar_name"),
+            detail=detail,
+        ),
+    )
+    return _change_out(change, ticker=ticker)  # type: ignore[arg-type]
+
+
+def _adopt_unpriced(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    symbol: str,
+    ticker: str | None,
+    doc: dict,
+    row: _Row,
+    confirm_class: bool,
+) -> AdminPriceSymbolChangeOut:
+    """W4-1 — Adopt on a NEVER-PRICED name: one of the other symbols EDGAR lists for it, fetched with bars
+    and no error by the nightly probe; a cross-class one only with the explicit confirm under the setting
+    (see ``adopt_successor``). No display-name refresh: the member was never renamed."""
+    who = ticker or security_id
+    listed = [str(x).strip().upper() for x in row.edgar_tickers or []]
+    if symbol not in listed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{symbol} is not a symbol EDGAR lists for {who} ({', '.join(listed) or 'none'}) — "
+            "use Set price symbol",
+        )
+    rec = _unpriced_probe_rows(doc).get(security_id) or {}
+    cand = next(
+        (
+            c
+            for c in rec.get("candidates") or []
+            if isinstance(c, dict) and str(c.get("symbol") or "").upper() == symbol
+        ),
+        None,
+    )
+    if cand is None or cand.get("error") or not cand.get("bars"):
+        why = (
+            "the probe did not fetch it"
+            if cand is None
+            else f"its fetch failed ({cand['error']})" if cand.get("error") else "no bars"
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=f"{symbol} was not probed with bars for {who} on the last pass ({why}) — use Set "
+            "price symbol (it validates the symbol with a vendor fetch)",
+        )
+    member = rec.get("member_class")
+    mark = cand.get("listing_class")
+    cross = bool(member and mark and member != mark)
+    if cross:
+        words = {"adr": "an ADR", "ordinary": "a foreign ordinary share"}
+        what = (
+            f"{symbol} is {words.get(mark, mark)} and {who} is {words.get(member, member)} (class marks "
+            "by convention: EDGAR's /ADR name, the OTC fifth letter)"
+        )
+        if get_settings().price_feed_cross_class_adopt != "confirm":
+            raise HTTPException(
+                status_code=409,
+                detail=f"{what}; cross-class adopts are off (price_feed_cross_class_adopt=refuse) — "
+                "check the price basis and use Set price symbol",
+            )
+        if not confirm_class:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{what}: pricing one class on the other puts the cap off by the ADS ratio — "
+                "check the price basis and send confirm_class to adopt it",
+            )
+    detail = {
+        "pass_asof": doc.get("asof"),
+        "edgar_tickers": row.edgar_tickers or [],
+        "probe": cand,
+        "recommended": rec.get("recommended"),
+        "never_priced": True,
+        "member_class": member,
+        "listing_class": mark,
+        "cross_class": cross,
+        "confirm_class": bool(confirm_class),
+    }
+    change = _commit(
+        conn,
+        lambda: price_feed_repo.apply_change(
+            conn,
+            security_id,
+            action="adopt",
+            symbol=symbol,
+            basis=BASIS_ADOPT,
             detail=detail,
         ),
     )

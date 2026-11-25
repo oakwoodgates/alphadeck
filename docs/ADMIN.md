@@ -102,7 +102,9 @@ inventory; its decisions are read live from the repair log.
   probe's verdict on each listed symbol and the EDGAR evidence. Adopt sets `price_symbol`; a symbol EDGAR does not
   list for the name is refused (409; use Set).
 - **Never priced** (loud): Set price symbol (validated by one vendor fetch into a throwaway cache; no bars is 422,
-  nothing written), Acknowledge (kept unpriced, with a reason, revocable) or a link to the basket editor.
+  nothing written), Acknowledge (kept unpriced, with a reason, revocable) or a link to the basket editor. Adopt
+  takes another symbol EDGAR lists that the probe fetched with bars; another class needs `confirm_class`
+  (setting `price_feed_cross_class_adopt`).
 - **Acknowledged, closed and in force** (quiet): acknowledged names, names that stopped trading, and every standing
   Adopt or Set whose tape has healed, each with its inverse.
 - **Known feed limitations** (quiet): names whose vendor serves no history ([FEED_MONITORS](FEED_MONITORS.md), "Known

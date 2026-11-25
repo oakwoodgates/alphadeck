@@ -1804,13 +1804,19 @@ export interface paths {
         put?: never;
         /**
          * Adopt Successor
-         * @description ADOPT a renamed name's successor symbol — the operator's ratification of the nightly splice probe.
-         *     The symbol must be one EDGAR lists for this name on the newest pass that looked (verified or not: the
-         *     probe recommends, the operator decides). Sets ``price_symbol`` through the existing writer (basis
-         *     ``operator:adopt``) and refreshes the display name from EDGAR's current entity name when it differs;
-         *     the change row records the prior values, so ``POST /admin/price-feed/changes/{id}/undo`` restores them
-         *     exactly. The next nightly pass re-pulls the tape under the new symbol. **404** unknown security, **409**
-         *     not a listed candidate / no rename recommendation / nothing to change, **422** a malformed symbol.
+         * @description ADOPT a probed symbol — the operator's ratification of the nightly probe. A RENAMED name: the symbol
+         *     must be one EDGAR lists for it on the newest pass that looked (verified or not: the probe recommends,
+         *     the operator decides); the display name is refreshed from EDGAR's current entity name when it differs.
+         *     A NEVER-PRICED name (W4-1): the symbol must be one of the other symbols EDGAR lists for it that the probe
+         *     fetched with bars and no error; the name is not touched. When the candidate's listing class is known to
+         *     differ from the member's (the foreign ordinary line for an ADR member), **409** unless ``confirm_class``
+         *     is true and the setting ``price_feed_cross_class_adopt`` is ``confirm`` (``refuse``: always 409). Sets
+         *     ``price_symbol`` through the existing writer (basis ``operator:adopt``); the change row records the
+         *     prior values and the probe (for a never-priced name both class marks and the confirm), so ``POST
+         *     /admin/price-feed/changes/{id}/undo`` restores them exactly. The next nightly pass re-pulls the tape
+         *     under the new symbol. **404** unknown security, **409** not a listed or probed candidate / no rename or
+         *     never-priced row / a cross-class symbol without the confirm / nothing to change, **422** a malformed
+         *     symbol.
          */
         post: operations["adopt_successor_admin_price_feed__security_id__adopt_post"];
         delete?: never;
@@ -5644,10 +5650,16 @@ export interface components {
         /**
          * AdminPriceSymbolIn
          * @description The operator's chosen vendor symbol (an Adopt of a probed candidate, or a typed Set).
+         *     ``confirm_class`` (Adopt on a never-priced name only) = the steward checked the price basis and adopts a
+         *     listing whose class mark differs from the member's (the foreign ordinary line for an ADR member);
+         *     absent or ``null`` reads as not confirmed (optional, so existing callers send ``{symbol}`` unchanged);
+         *     ignored by Set and by a renamed name's Adopt.
          */
         AdminPriceSymbolIn: {
             /** Symbol */
             symbol: string;
+            /** Confirm Class */
+            confirm_class?: boolean | null;
         };
         /**
          * AdminProbeCandidateOut
@@ -5656,6 +5668,10 @@ export interface components {
          *     close / ours over them, ``verified`` = at least 5 shared dates with the ratio within 1% (the same
          *     company's tape under its new symbol). ``bars`` / ``last_bar`` say what the vendor serves under it (whether
          *     adopting it would extend our tape); ``error`` = its one fetch failed (then nothing else is known).
+         *     For a NEVER-PRICED name (W4-1) there is no stored tape to splice against: ``verified`` is false, with no
+         *     overlap or ratio, and ``listing_class`` is the symbol's class mark by the OTC naming convention
+         *     (``adr`` = a five-letter symbol ending Y, ``ordinary`` = one ending F, a foreign ordinary share; ``null``
+         *     = unknown, and always ``null`` on a renamed name's candidates). A convention, never proof.
          */
         AdminProbeCandidateOut: {
             /** Symbol */
@@ -5681,6 +5697,8 @@ export interface components {
             last_bar?: string | null;
             /** Error */
             error?: string | null;
+            /** Listing Class */
+            listing_class?: string | null;
         };
         /**
          * AdminReconstructedNightOut
@@ -6878,7 +6896,16 @@ export interface components {
          *     — WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor
          *     fetch), acknowledge it ("keep it, unpriced"), or remove it from the basket in the editor (``theses``).
          *     ``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists
-         *     (``[]`` = none). ``change`` = a standing operator Set (waiting for the next pass, with its Undo).
+         *     (``[]`` = none). ``change`` = a standing operator Set or Adopt (waiting for the next pass, with its
+         *     Undo).
+         *
+         *     W4-1 — when EDGAR lists another symbol for the name, the nightly probe fetched each one once
+         *     (``probed``): ``candidates`` carry what the vendor serves and each one's ``listing_class``;
+         *     ``member_class`` is the member's own mark (``adr`` when EDGAR's entity name ends "/ADR" or the symbol
+         *     ends Y, ``ordinary`` when it ends F, ``null`` unknown). ``recommended`` = the first candidate with bars,
+         *     no fetch error, a fresh last bar and the member's own class (``null`` = none). Adopt takes a probed
+         *     candidate with bars; one whose class is known to differ from the member's (the foreign ordinary line
+         *     for an ADR member) needs the request's ``confirm_class``.
          */
         AdminUnpriceableRowOut: {
             /**
@@ -6900,6 +6927,20 @@ export interface components {
             /** Price Symbol */
             price_symbol?: string | null;
             change?: components["schemas"]["AdminPriceSymbolChangeOut"] | null;
+            /** Member Class */
+            member_class?: string | null;
+            /**
+             * Candidates
+             * @default []
+             */
+            candidates: components["schemas"]["AdminProbeCandidateOut"][];
+            /** Recommended */
+            recommended?: string | null;
+            /**
+             * Probed
+             * @default false
+             */
+            probed: boolean;
         };
         /**
          * AdoptionCardOut

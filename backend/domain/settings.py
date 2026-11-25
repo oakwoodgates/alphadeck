@@ -33,6 +33,7 @@ from __future__ import annotations
 import ipaddress
 from datetime import time
 from functools import lru_cache
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, field_validator
@@ -297,6 +298,17 @@ class Settings(BaseSettings):
     # docker-compose. The defaults are pinned equal to tape_health's DEFAULT_CLOSED_* by a test.
     tape_closed_before_days: int = 30
     tape_closed_after_days: int = 45
+    # W4-1 (decision W4-a) — ADOPTING A LISTING OF ANOTHER CLASS for a never-priced name: the nightly probe
+    # fetches the other symbols EDGAR lists for an unpriceable member (pipeline/rename_probe.py) and marks
+    # each one's class by convention (an EDGAR name ending "/ADR"; the OTC fifth letter, Y = ADR, F = foreign
+    # ordinary). The measured shape is an ADR member whose EDGAR list also carries the company's ordinary
+    # line: pricing the ADR card on the ordinary share puts its cap off by the ADS ratio once a share count
+    # exists. "confirm" (the default) = the Admin Adopt accepts such a cross-class symbol only when the
+    # request carries the steward's explicit confirm (``confirm_class``); "refuse" = never (409, use Set
+    # price symbol after checking the price basis by hand). Read via the env_prefix
+    # (ALPHADECK_PRICE_FEED_CROSS_CLASS_ADOPT); NOT injected by docker-compose (tests/domain/test_settings.py
+    # pins the default and fails on a compose fallback that differs from it).
+    price_feed_cross_class_adopt: Literal["confirm", "refuse"] = "confirm"
     # F1 — the FUND-SHARES RECENCY threshold: the same rule for the OTHER per-name feed (an ETF sleeve's
     # shares-outstanding sample, which the flow read is built on), with its own number because the cadences
     # differ. MEASURED on dev 2026-09-13 from the stored samples: the primary source (Massive.com) states the

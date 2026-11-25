@@ -138,7 +138,7 @@ from pipeline.price_feed import (
     expected_miss_reasons,
     mark_acknowledged,
 )
-from pipeline.rename_probe import RenameProbe, run_auto_adopt, run_rename_probe
+from pipeline.rename_probe import RenameProbe, describe_unpriced, run_auto_adopt, run_rename_probe
 from pipeline.rename_probe import describe as describe_rename
 from pipeline.run_lock import (
     EXIT_ALREADY_RUNNING,
@@ -1657,13 +1657,16 @@ def _run_daily_pass_locked(
     # against our stored tape (>= 5 shared dates, median close ratio within 1% = verified). A pending
     # RECOMMENDATION only — it writes nothing; the operator's Adopt on the Admin page applies it. Fail-open
     # for the pass (a fault rides `rename_probe.error`, printed loud and shown on Admin). Nothing to probe
-    # (the common night) opens no connection and makes no request.
+    # (the common night) opens no connection and makes no request. W4-1 — the same probe also fetches the
+    # OTHER symbols EDGAR lists for a never-priced (unpriceable, unacknowledged) name, marks each one's
+    # listing class, and recommends only a same-class candidate whose tape is fresh by `tape_stale_days`.
     rename_probe = timed("rename_probe")(run_rename_probe)(
         results=results,
         asof=asof,
         allow_live=allow_live,
         connect=_pass_connect,
         clock=perf_counter,
+        stale_days=tape_stale_days,
     )
     # THE AUTO-ADOPT (the company-list refresh's hand-off, 2026-10-24): a renamed name the refresh PINNED to its
     # old ticker (`system:rename-pin`) whose probe splice-verifies SEC's NEW ticker under the strict rule
@@ -2111,6 +2114,7 @@ def _report(
     # noise (#7). Quiet by casing: the STALE headers are UPPERCASE (loud), the closed header is lowercase.
     stale = {f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale}
     recs = probe.by_security() if probe is not None else {}
+    unpriced_recs = probe.unpriced_by_security() if probe is not None else {}
     for kind in FEED_KINDS.values():
         rows = [s for s in stale.values() if feed_kind(s.kind).key == kind.key and not s.quiet]
         if not rows:
@@ -2132,6 +2136,10 @@ def _report(
                 if s.unpriceable
                 else ""
             )
+            # W4-1 — and the never-priced probe's verdict on the OTHER symbols EDGAR lists for it (a
+            # cross-class one named with both class marks, never offered as the Adopt)
+            if s.unpriceable and s.security_id in unpriced_recs:
+                unpriceable += f" · {describe_unpriced(unpriced_recs[s.security_id])}"
             print(
                 f"  {s.label}: last {kind.edge_noun} {s.edge.isoformat() if s.edge else 'never'}"
                 f"{renamed}{unpriceable}"
