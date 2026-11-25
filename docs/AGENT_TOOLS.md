@@ -114,8 +114,8 @@ A tool or a prompt carries a scope. Every tool but five needs `read`, which ever
    any request; a prompt is refused as invalid params). `get_recipe` applies the prompt rule through the same helper
    (`prompt_held`): it lists only the recipes the caller holds and answers `forbidden` for a steward recipe named
    without the scope.
-2. The gate: an OAuth token without `steward` is a plain user at the API even when its user is a super admin
-   ([CONNECTORS](CONNECTORS.md)).
+2. The gate: an OAuth token or a read-only personal token without `steward` is a plain user at the API even when
+   its user is a super admin, and both are refused every write ([CONNECTORS](CONNECTORS.md)).
 3. The API: `/admin/*` is `require_super_admin`, and its 403 answers the tool as `forbidden` too.
 
 So a steward's session or a connector granted `read steward` lists 20 tools and 8 prompts; a plain user, or a
@@ -210,8 +210,9 @@ The SDK (`mcp`) is a base dependency (the API image mounts the hosted server); t
 - **The stdio token.** Every API route needs a credential ([AUTH](AUTH.md)), so the stdio server sends
   `Authorization: Bearer <token>` from `ALPHADECK_MCP_TOKEN` in the environment the client launches it from; it is
   never an argument (an argv is visible to every process) and never logged. Mint one per user on the stack it reads
-  with `python -m pipeline.users token create --email <you> --name mcp` (or Settings > Agents). Prod and dev keep
-  separate users, and the two servers share the one variable, so set it to the token of the stack you read.
+  with `python -m pipeline.users token create --email <you> --name mcp` (or Settings > Agents): a read-only token
+  holding the user's role scopes, which is all the tools need. Prod and dev keep separate users, and the two servers
+  share the one variable, so set it to the token of the stack you read.
 - **Another stdio client.** Run `alphadeck-mcp --backend-base http://127.0.0.1:<port>` over stdio. The base must be a
   loopback origin with an explicit port; `--timeout` and `--trace` are in `--help`.
 
@@ -227,8 +228,9 @@ when `ALPHADECK_PUBLIC_ORIGIN` is set. Each user reads only their own workspace.
 - **Verification.** The endpoint asks the API's own `GET /auth/me` in-process with the request's bearer and nothing
   else, so a revoked token, a disabled user, a session cookie alone and the system token are all 401. There is no
   cache: a revocation bites on the next request. Every API read a tool makes carries the same bearer.
-- **Two kinds of token.** A personal access token (Settings > Agents or the CLI), sent as a header; or an OAuth
-  access token from the sign-in in [CONNECTORS](CONNECTORS.md). A 401 carries `WWW-Authenticate` with
+- **Two kinds of token.** A personal access token (Settings > Agents or the CLI; read-only unless made with the
+  CLI's `--write`), sent as a header; or an OAuth access token from the sign-in in [CONNECTORS](CONNECTORS.md).
+  A 401 carries `WWW-Authenticate` with
   `resource_metadata` pointing at the RFC 9728 document (`/.well-known/oauth-protected-resource/mcp`), which names
   the connector URL, the authorization server and the two scopes.
 - **The nightly window.** A hosted reply during the nightly pass carries `"nightly_window": true` at its top level,
@@ -251,7 +253,7 @@ added or removed, or a description whose meaning changes, bumps the MINOR.
 |---|---|---|
 | The 15 `read` tools (`get_recipe` included) and 7 prompts | anyone signed in (session, token or OAuth app), on their own workspace | the API gate; `server.SCOPES` |
 | The 5 steward tools, `splits-review` and its recipe | the steward, or an app the steward granted `steward` | the registry (`SCOPES`, `prompt_held`), the OAuth role cap, `require_super_admin` |
-| Mint an MCP token | the user (Settings > Agents) or the operator (CLI) | `/account/tokens`; `pipeline.users` |
+| Mint an MCP token (read-only) | the user (Settings > Agents) or the operator (CLI) | `/account/tokens`; `pipeline.users` |
 | Read prod from a builder agent | nobody | `.claude/agents/builder.md` |
 
 ## Settings

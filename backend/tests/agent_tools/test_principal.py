@@ -442,3 +442,30 @@ def test_agent_tools_imports_nothing_from_repositories_or_db():
                 if name.split(".")[0] in {"repositories", "db"}:
                     offenders.append(f"{path.name}: {name}")
     assert offenders == []
+
+
+# --- read-only personal tokens (migration 0214): the stdio principal follows the gate's capped role ---------------
+
+
+@pytest.mark.parametrize(
+    "role,scopes",
+    [
+        ("super_admin", ["read", "steward"]),  # a steward's read steward token
+        ("user", ["read"]),  # a steward's read token: the gate capped its role
+    ],
+)
+def test_the_stdio_principal_of_a_read_only_token_follows_its_capped_role(role, scopes):
+    body = {"id": "s-1", "role": role, "token": {"principal": "token", "scopes": scopes}}
+
+    async def go():
+        client = ApiClient("http://127.0.0.1:8001", transport=_me_transport(200, body))
+        try:
+            return await server_mod.stdio_principal(client)
+        finally:
+            await client.aclose()
+
+    principal = asyncio.run(go())
+    assert principal.scopes == frozenset(scopes)
+    names = set(_listing(principal))
+    assert names - TOOLS == (STEWARD_TOOLS if "steward" in scopes else set())
+    assert TOOLS <= names

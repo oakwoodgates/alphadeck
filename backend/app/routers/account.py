@@ -11,12 +11,13 @@ a second line, by each writer here.
   user's cards to (docs/FEED_LOOP.md step 3).
 * ``GET /account/agents`` says how an AI client reaches the caller's workspace (the hosted connector URL when
   ``ALPHADECK_PUBLIC_ORIGIN`` is set); ``/account/tokens`` lists, creates (the token shown ONCE) and revokes the
-  caller's own personal access tokens (docs/AGENT_TOOLS.md §Hosted endpoint). Another user's token is 404.
+  caller's own personal access tokens (docs/AGENT_TOOLS.md §Hosted endpoint). Another user's token is 404. A token
+  made here is READ-ONLY, with the caller's role scopes (decision D-I (a)); a full token comes only from the CLI.
 * ``/account/connections`` lists the apps connected to the caller's account through the OAuth sign-in and
   disconnects one (docs/CONNECTORS.md). Another user's connection is 404.
 
-An app connected through the OAuth sign-in (the ``oauth`` principal) never reaches this router: the gate refuses
-it (``auth.oauth_may``) and ``_refuse_system`` refuses it again here.
+A restricted bearer (an app connected through the OAuth sign-in, or a read-only personal token) never reaches this
+router: the gate refuses it (``auth.restricted_may``) and ``_refuse_system`` refuses it again here.
 """
 
 from __future__ import annotations
@@ -60,8 +61,8 @@ MAX_LIVE_TOKENS = 20
 def _refuse_system(user: CurrentUser) -> None:
     if user.principal == "system":
         raise HTTPException(status_code=403, detail="the system token has no account")
-    if user.principal == "oauth":
-        raise HTTPException(status_code=403, detail="a connected app cannot manage your account")
+    if user.restricted:
+        raise HTTPException(status_code=403, detail=auth.account_refusal(user.principal))
 
 
 @router.put("/profile", response_model=MeOut)
@@ -165,6 +166,7 @@ def _token_out(row: dict) -> TokenOut:
     return TokenOut(
         id=row["id"],
         name=row["name"],
+        scopes=row["scopes"],
         created_at=row["created_at"],
         last_used_at=row["last_used_at"],
         revoked_at=row["revoked_at"],
@@ -190,7 +192,9 @@ def create_token(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> TokenCreatedOut:
     """Create a named access token for an AI client or a script. The token is in this reply ONLY, never again.
-    The name is trimmed and must be 1 to 60 characters (400 otherwise); at most 20 live tokens per user (409).
+    It can only read: it holds my role's scopes (`read`, plus `steward` for a steward) and never reaches these
+    Settings routes. The name is trimmed and must be 1 to 60 characters (400 otherwise); at most 20 live tokens per
+    user (409).
     """
     _refuse_system(user)
     name = req.name.strip()
@@ -201,10 +205,14 @@ def create_token(
     if auth.count_live_api_tokens(conn, user.id) >= MAX_LIVE_TOKENS:
         conn.rollback()
         raise HTTPException(status_code=409, detail="too many tokens; revoke one first")
-    token_id, token = auth.create_api_token(conn, user.id, name)
+    token_id, token = auth.create_api_token(
+        conn, user.id, name, scopes=auth.scopes_for_role(user.role)
+    )
     row = auth.get_api_token(conn, token_id)
     conn.commit()
-    return TokenCreatedOut(id=token_id, name=name, created_at=row["created_at"], token=token)
+    return TokenCreatedOut(
+        id=token_id, name=name, scopes=row["scopes"], created_at=row["created_at"], token=token
+    )
 
 
 @router.delete("/tokens/{token_id}", status_code=204)

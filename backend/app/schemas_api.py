@@ -3634,12 +3634,15 @@ class AgentsOut(BaseModel):
 
 
 class TokenOut(BaseModel):
-    """One of my access tokens. The token itself is never returned after it is created. `last_used_at` is null
-    when it was never used (it is updated at most every 5 minutes); `revoked_at` is set once it is revoked.
+    """One of my access tokens. The token itself is never returned after it is created. `scopes` is what it may
+    do: `read`, plus `steward` for a steward's token, and such a token can only read; null is a full-access token
+    (made by the operator's command line), which holds my role's scopes and can change things. `last_used_at` is
+    null when it was never used (it is updated at most every 5 minutes); `revoked_at` is set once it is revoked.
     """
 
     id: UUID
     name: str
+    scopes: list[str] | None = None
     created_at: datetime
     last_used_at: datetime | None = None
     revoked_at: datetime | None = None
@@ -3659,10 +3662,11 @@ class TokenCreateIn(BaseModel):
 
 class TokenCreatedOut(BaseModel):
     """The new access token. `token` is shown in this reply only, never again: store it where the client reads
-    it."""
+    it. It can only read: `scopes` are my role's (`read`, plus `steward` for a steward)."""
 
     id: UUID
     name: str
+    scopes: list[str] | None = None
     created_at: datetime
     token: str
 

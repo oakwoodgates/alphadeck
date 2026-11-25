@@ -25,8 +25,8 @@ DETAIL_LIMIT = 300
 TOKEN_ENV = "ALPHADECK_MCP_TOKEN"
 NOT_SIGNED_IN = (
     f"The API answered 401 (sign in required): set {TOKEN_ENV} in the environment the MCP server starts in to "
-    "a token from `python -m pipeline.users token create --email <you> --name mcp`, then reconnect "
-    "(docs/AGENT_TOOLS.md)."
+    "a read-only token from Settings > Agents or `python -m pipeline.users token create --email <you> --name mcp` "
+    "(read-only by default), then reconnect (docs/AGENT_TOOLS.md)."
 )
 
 
