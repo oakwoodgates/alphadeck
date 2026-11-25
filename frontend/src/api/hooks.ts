@@ -690,6 +690,7 @@ export function useScoreboard(
     enabled: Boolean(asof),
     // the record changes at the nightly pass (the daily-run job invalidates ["scoreboard"]) and on a logged decision (now invalidated too)
     staleTime: MONITOR_STALE_MS,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard", {
         params: {
@@ -718,6 +719,7 @@ export type EditionCutNoticeOut = components["schemas"]["EditionCutNoticeOut"];
 export function useScoreboardEditions() {
   return useQuery({
     queryKey: ["scoreboard", "editions"] as const,
+    staleTime: MONITOR_STALE_MS,
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard/editions");
       if (error) throw error;

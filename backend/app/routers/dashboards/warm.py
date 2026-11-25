@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from app import call_cache, warm_hook
 from app.deps import get_conn, get_workspace
 from app.routers import data_flags as data_flags_router
+from app.routers import scoreboard as scoreboard_router
 from app.routers import theses as theses_router
 from dashboards.cache import CACHE, latest_run_identity
 from db.session import connect_job, name_session
@@ -630,6 +631,20 @@ def _warm_workspace(
         lambda: data_flags_router.read_data_flags(
             conn, asof=target_asof, tenant_id=workspace, view=(known_at, clock)
         ),
+    )
+    if aborted:
+        return True, errors
+
+    aborted, _ = _run_step(
+        "scoreboard-editions",
+        lambda: scoreboard_router.read_scoreboard_editions(conn, workspace=workspace),
+    )
+    if aborted:
+        return True, errors
+
+    aborted, _ = _run_step(
+        "scoreboard",
+        lambda: scoreboard_router.read_scoreboard(conn, asof=target_asof, workspace=workspace),
     )
     if aborted:
         return True, errors

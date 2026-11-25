@@ -15,6 +15,7 @@ from app import call_cache, warm_hook
 from app.auth import require_user
 from app.main import app
 from app.routers import data_flags as data_flags_router
+from app.routers import scoreboard as scoreboard_router
 from app.routers import theses as theses_router
 from app.routers.dashboards import (
     chain_map,
@@ -367,6 +368,27 @@ def _install_stub_routers(
         return {"asof": asof.isoformat(), "names": 0, "members": []}
 
     monkeypatch.setattr(data_flags_router, "read_data_flags", _read_data_flags_stub)
+
+    def _read_scoreboard_editions_stub(_conn: Any, *, workspace: UUID, now: Any = None) -> dict:
+        recorded.append(("scoreboard-editions", {"workspace": workspace}))
+        if on_step is not None:
+            on_step("scoreboard-editions", {"workspace": workspace})
+        if fail_on == "scoreboard-editions":
+            raise RuntimeError("boom in scoreboard-editions")
+        return {"default": 0, "editions": [], "notice": None}
+
+    def _read_scoreboard_stub(_conn: Any, *, asof: date, workspace: UUID, **kw: Any) -> dict:
+        recorded.append(("scoreboard", {"asof": asof, "workspace": workspace}))
+        if on_step is not None:
+            on_step("scoreboard", {"asof": asof, "workspace": workspace})
+        if fail_on == "scoreboard":
+            raise RuntimeError("boom in scoreboard")
+        return {"asof": asof.isoformat(), "theses": []}
+
+    monkeypatch.setattr(
+        scoreboard_router, "read_scoreboard_editions", _read_scoreboard_editions_stub
+    )
+    monkeypatch.setattr(scoreboard_router, "read_scoreboard", _read_scoreboard_stub)
     monkeypatch.setattr(
         call_cache.CACHE,
         "is_warm_call",
@@ -542,6 +564,8 @@ def test_status_and_post_warm_full_pass_in_piece_sharing_order(monkeypatch: pyte
         "board-call",
         "board-call",
         "data-flags",
+        "scoreboard-editions",
+        "scoreboard",
     ]
     # Verify hot-board ran armed then all.
     hb_rows = [kw["rows"] for label, kw in recorded if label == "hot-board"]
@@ -565,7 +589,11 @@ def test_post_warm_supports_historical_asof(monkeypatch: pytest.MonkeyPatch):
     # 26 base + 1 peer-table follow-up (scope="all" only when default_scope="all", default_key=None)
     assert body["total"] == 27
     assert body["warm"] == 27
-    assert all(kw["asof"] == hist for _, kw in recorded)
+    assert all(
+        kw["asof"] == hist
+        for label, kw in recorded
+        if label not in ("scoreboard-editions", "scoreboard")
+    )
 
 
 def test_peer_table_skips_follow_ups_when_workspace_has_zero_companies(

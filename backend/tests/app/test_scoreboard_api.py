@@ -730,3 +730,54 @@ def test_edition_0s_nights_are_the_callers_workspace_and_the_freshness_edge_stay
     assert body["summary"]["record_edge"] == "2026-07-20"  # the cron's edge: every workspace
     (zero,) = [e for e in client.get("/scoreboard/editions").json()["editions"] if e["number"] == 0]
     assert (zero["first_night"], zero["last_night"]) == ("2026-07-17", "2026-07-17")
+
+
+def test_scoreboard_and_editions_hit_cache_and_invalidate_on_new_record(
+    client, db, security_id, monkeypatch
+):
+    """Consecutive ``GET /scoreboard`` and ``GET /scoreboard/editions`` requests serve from
+    ``app.call_cache.CACHE`` without re-running ``assemble_scoreboard`` / ``list_editions``, and
+    invalidate immediately when a new call row is appended."""
+    thesis = _seed_one_open_censored(db, security_id)
+    _pin(monkeypatch, datetime(2026, 7, 15, 12, 0))
+
+    assemble_calls = 0
+    real_assemble = scoreboard.assemble_scoreboard
+
+    def spy_assemble(*args, **kwargs):
+        nonlocal assemble_calls
+        assemble_calls += 1
+        return real_assemble(*args, **kwargs)
+
+    editions_calls = 0
+    real_list_editions = scoreboard.editions_repo.list_editions
+
+    def spy_editions(*args, **kwargs):
+        nonlocal editions_calls
+        editions_calls += 1
+        return real_list_editions(*args, **kwargs)
+
+    monkeypatch.setattr(scoreboard, "assemble_scoreboard", spy_assemble)
+    monkeypatch.setattr(scoreboard.editions_repo, "list_editions", spy_editions)
+
+    r1 = client.get("/scoreboard", params={"asof": ASOF})
+    r2 = client.get("/scoreboard", params={"asof": ASOF})
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json() == r2.json()
+    assert assemble_calls == 1
+
+    e1 = client.get("/scoreboard/editions")
+    e2 = client.get("/scoreboard/editions")
+    assert e1.status_code == 200 and e2.status_code == 200
+    assert e1.json() == e2.json()
+    assert editions_calls == 1
+
+    # Appending a new call row advances calls_tok and invalidates both caches
+    conv, conf = keys_fired(security_id, date(2026, 7, 15), conv_liveness=120, conf_liveness=120)
+    record_day(db, thesis, [conv, conf], date(2026, 7, 15))
+
+    r3 = client.get("/scoreboard", params={"asof": ASOF})
+    e3 = client.get("/scoreboard/editions")
+    assert r3.status_code == 200 and e3.status_code == 200
+    assert assemble_calls == 2
+    assert editions_calls == 2
