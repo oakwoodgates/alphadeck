@@ -11,7 +11,8 @@ There is no sign-up page and no email delivery: the super admin creates every ac
     python -m pipeline.users enable --email bo@example.com         # the inverse
     python -m pipeline.users reset-password --email bo@example.com [--password-stdin]
     python -m pipeline.users list                                  # email, role, workspace, webhook, created, disabled, sessions
-    python -m pipeline.users token create --email ana@example.com --name mcp    # prints the token ONCE
+    python -m pipeline.users token create --email ana@example.com --name mcp    # read-only; prints the token ONCE
+    python -m pipeline.users token create --email ana@example.com --name seed --write   # full: it can change things
     python -m pipeline.users token revoke --id <token uuid>
     python -m pipeline.users oauth-client list                     # the OAuth clients (static + self-registered)
     python -m pipeline.users oauth-client disable --client-id <id> # refused everywhere from the next request
@@ -28,6 +29,11 @@ user on the Settings page (``/settings/notifications``), never here: ``list`` sh
 
 A generated password (20 characters) or a minted token is printed ONCE and never stored in the clear: the
 database keeps an argon2id hash (passwords) or a sha256 (tokens). ``list`` never prints a hash.
+
+``token create`` mints a READ-ONLY token by default (decision D-C (b)): it holds the user's role scopes (``read``,
+plus ``steward`` for a super admin), answers 403 on any request but GET, HEAD and OPTIONS, and never reaches
+``/account``. ``--write`` mints a FULL token (stored scopes NULL): the user's role, and it can change things, for a
+script that writes. It prints the same two lines as before plus one ``access:`` line naming which.
 
 The functions take a connection and do NOT commit (the caller owns the transaction, the repo's rule); ``main``
 commits once per command. ``create`` of an email that exists (case-insensitively) refuses — it never overwrites.
@@ -259,12 +265,22 @@ def list_users(conn: psycopg.Connection) -> list[dict[str, Any]]:
         return list(cur.fetchall())
 
 
-def create_token(conn: psycopg.Connection, email: str, name: str) -> tuple[UUID, str]:
+def create_token(
+    conn: psycopg.Connection, email: str, name: str, *, write: bool = False
+) -> tuple[UUID, str]:
+    """Mint a token for ``email``: read-only with the user's role scopes, or full with ``write``."""
     row = _require_user(conn, email)
+    scopes = None if write else auth.scopes_for_role(row["role"])
     try:
-        return auth.create_api_token(conn, row["id"], name)
+        return auth.create_api_token(conn, row["id"], name, scopes=scopes)
     except ValueError as exc:
         raise UserError(str(exc)) from exc
+
+
+def _access_line(scopes: list[str] | None) -> str:
+    if scopes is None:
+        return "access: full (it can change things)"
+    return f"access: read only ({' '.join(scopes)})"
 
 
 def revoke_token(conn: psycopg.Connection, token_id: UUID) -> None:
@@ -340,9 +356,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="every user (no hashes)")
     t = sub.add_parser("token", help="API tokens")
     tsub = t.add_subparsers(dest="token_cmd", required=True)
-    tc = tsub.add_parser("create", help="mint a bearer token (prints it once)")
+    tc = tsub.add_parser("create", help="mint a read-only bearer token (prints it once)")
     tc.add_argument("--email", required=True)
     tc.add_argument("--name", required=True)
+    tc.add_argument(
+        "--write",
+        action="store_true",
+        help="a full token: the user's role, and it can change things (default: read only)",
+    )
     tr = tsub.add_parser("revoke", help="revoke a token by id")
     tr.add_argument("--id", type=UUID, required=True)
     cp = sub.add_parser(
@@ -451,9 +472,11 @@ def run(
                 f"at most {most} terms on one live card"
             )
         elif args.cmd == "token" and args.token_cmd == "create":
-            tid, token = create_token(conn, args.email, args.name)
+            tid, token = create_token(conn, args.email, args.name, write=args.write)
+            row = auth.get_api_token(conn, tid)
             conn.commit()
             emit(f"token {tid} ({args.name})")
+            emit(_access_line(row["scopes"]))
             emit(f"token (shown once): {token}")
         elif args.cmd == "token" and args.token_cmd == "revoke":
             revoke_token(conn, args.id)

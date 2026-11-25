@@ -5,13 +5,17 @@ Three principals reach the API:
 * **session** — a browser sign-in. ``POST /auth/login`` mints a random token, stores only its sha256 in
   ``user_session`` and hands the token to the browser in the ``alphadeck_session`` cookie (HttpOnly, SameSite=Lax).
   Idle expiry ``session_idle_days`` (slid forward on use, at most once per ``_TOUCH_EVERY``).
-* **token** — ``Authorization: Bearer <token>`` against ``api_token`` (sha256 only), minted by
-  ``python -m pipeline.users token create``: the MCP agent tools, the deploy script's probes, curl.
+* **token** — ``Authorization: Bearer <token>`` against ``api_token`` (sha256 only), minted on the Settings page or
+  by ``python -m pipeline.users token create``: the MCP agent tools, the deploy script's probes, curl. A token with
+  stored ``scopes`` (every Settings token, the CLI's default, every token older than migration 0214) is READ-ONLY:
+  it follows the oauth token's two rules below. A token whose ``scopes`` are NULL (the CLI's ``--write``) carries
+  its user's full role.
 * **oauth** — ``Authorization: Bearer <token>`` against ``oauth_access_token`` (sha256 only): an app the user
-  connected through our OAuth sign-in (docs/CONNECTORS.md). Two rules, both here in the gate: a token without the
-  ``write`` scope (none carries it yet) answers 403 on every request that is not GET / HEAD / OPTIONS, and the
-  role is ``super_admin`` only when the user is one AND the token carries ``steward``. It never reaches
-  ``/account`` or ``/auth/change-password`` (a connected app never manages the account that connected it).
+  connected through our OAuth sign-in (docs/CONNECTORS.md). Two rules, both here in the gate and shared with a
+  read-only personal token (``restricted_may``, ``capped_role``): a bearer without the ``write`` scope (none
+  carries it yet) answers 403 on every request that is not GET / HEAD / OPTIONS, and the role is ``super_admin``
+  only when the user is one AND the bearer carries ``steward``. It never reaches ``/account`` or
+  ``/auth/change-password`` (an agent never manages the account it reads for).
 * **system** — the ``ALPHADECK_SYSTEM_TOKEN`` env secret (the cron's dashboard warm-up). It can only READ:
   ``GET`` under ``/dashboards/``, ``/clock`` and ``/health``; anything else answers 403.
 
@@ -32,7 +36,7 @@ import secrets
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -57,12 +61,15 @@ _TOUCH_EVERY = timedelta(minutes=5)
 
 Principal = Literal["session", "token", "oauth", "system"]
 
-# The scopes a caller holds (docs/CONNECTORS.md): a user's session and personal tokens hold their role's (``read``,
-# plus ``steward`` for a super admin); an OAuth token holds what the user granted the app; the system token holds
-# ``read``. ``write`` is the scope a non-GET request would need from an OAuth token: none carries it in this phase.
+# The scopes a caller holds (docs/CONNECTORS.md): a user's session and full personal tokens hold their role's
+# (``read``, plus ``steward`` for a super admin); an OAuth token holds what the user granted the app; a read-only
+# personal token holds its stored scopes, capped by the role; the system token holds ``read``. ``write`` is the
+# scope a non-GET request would need from a restricted bearer: none carries it in this phase.
 READ_SCOPE = "read"
 STEWARD_SCOPE = "steward"
 WRITE_SCOPE = "write"
+# What a read-only personal token may hold (migration 0214's check): ``read`` always, ``steward`` for a super admin.
+TOKEN_SCOPES = frozenset({READ_SCOPE, STEWARD_SCOPE})
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -71,6 +78,12 @@ def scopes_for_role(role: str) -> frozenset[str]:
     return (
         frozenset({READ_SCOPE, STEWARD_SCOPE}) if role == "super_admin" else frozenset({READ_SCOPE})
     )
+
+
+def capped_role(role: str, scopes: frozenset[str]) -> str:
+    """A restricted bearer's role: ``super_admin`` only when the user is one AND the bearer carries ``steward``,
+    else ``user``. The scopes are a ceiling, never a grant above the user's role."""
+    return "super_admin" if role == "super_admin" and STEWARD_SCOPE in scopes else "user"
 
 
 # argon2id with the library's current defaults (RFC 9106 low-memory profile). The PHC string carries its own
@@ -89,10 +102,12 @@ class CurrentUser:
     role: str
     workspace_id: UUID
     principal: Principal
-    # empty = the role's own scopes (filled in below): only an OAuth token states its own
+    # empty = the role's own scopes (filled in below): only a restricted bearer states its own
     scopes: frozenset[str] = frozenset()
     # the connected app, for an ``oauth`` principal only
     client_id: str | None = None
+    # a restricted bearer (every OAuth access token, a read-only personal token): ``restricted_may`` applies
+    restricted: bool = False
 
     def __post_init__(self) -> None:
         if not self.scopes:
@@ -404,26 +419,56 @@ def revoke_other_sessions(conn: psycopg.Connection, user_id: UUID, keep_token: s
 # --- API tokens --------------------------------------------------------------------------------------------------
 
 
-def create_api_token(conn: psycopg.Connection, user_id: UUID, name: str) -> tuple[UUID, str]:
-    """Mint a named bearer token for ``user_id``; returns ``(id, token)``. The token is shown once and only its
-    hash is stored. The caller commits."""
+def _check_token_scopes(
+    conn: psycopg.Connection, user_id: UUID, scopes: Iterable[str]
+) -> list[str]:
+    """A read-only token's scopes, sorted, or ``ValueError``: ``read`` is required, nothing outside
+    ``TOKEN_SCOPES``, and ``steward`` only for a super admin."""
+    held = frozenset(scopes)
+    if READ_SCOPE not in held:
+        raise ValueError("a read-only token needs the read scope")
+    if not held <= TOKEN_SCOPES:
+        raise ValueError(f"a token's scopes are {READ_SCOPE} and {STEWARD_SCOPE} only")
+    if STEWARD_SCOPE in held:
+        with conn.cursor() as cur:
+            cur.execute("SELECT role FROM app_user WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+        if row is None or row["role"] != "super_admin":
+            raise ValueError("only a super admin's token can hold the steward scope")
+    return sorted(held)
+
+
+def create_api_token(
+    conn: psycopg.Connection,
+    user_id: UUID,
+    name: str,
+    *,
+    scopes: Iterable[str] | None = None,
+) -> tuple[UUID, str]:
+    """Mint a named bearer token for ``user_id``; returns ``(id, token)``. ``scopes`` None mints a FULL token (the
+    user's role, and it can change things: the CLI's ``--write``); a set mints a READ-ONLY token holding exactly
+    those scopes (``read``, plus ``steward`` only for a super admin; ``ValueError`` otherwise). The token is shown
+    once and only its hash is stored. The caller commits."""
     if not name.strip():
         raise ValueError("a token name is required")
+    stored = None if scopes is None else _check_token_scopes(conn, user_id, scopes)
     token = new_token()
     tid = uuid.uuid4()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO api_token (id, user_id, name, token_hash) VALUES (%s, %s, %s, %s)",
-            (tid, user_id, name.strip(), token_hash(token)),
+            "INSERT INTO api_token (id, user_id, name, token_hash, scopes) VALUES (%s, %s, %s, %s, %s)",
+            (tid, user_id, name.strip(), token_hash(token), stored),
         )
     return tid, token
 
 
 def list_api_tokens(conn: psycopg.Connection, user_id: UUID) -> list[dict[str, Any]]:
-    """``user_id``'s API tokens (never a hash): live ones first, then revoked, newest first within each."""
+    """``user_id``'s API tokens (never a hash): live ones first, then revoked, newest first within each.
+    ``scopes`` is None for a full token, else the read-only token's scopes."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, name, created_at, last_used_at, revoked_at FROM api_token WHERE user_id = %s "
+            "SELECT id, name, scopes, created_at, last_used_at, revoked_at FROM api_token "
+            "WHERE user_id = %s "
             "ORDER BY (revoked_at IS NOT NULL), created_at DESC, id",
             (user_id,),
         )
@@ -444,7 +489,8 @@ def get_api_token(conn: psycopg.Connection, token_id: UUID) -> dict[str, Any] | 
     """One API token's row by id (never its hash), or None. The caller checks ``user_id`` before acting on it."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, user_id, name, created_at, last_used_at, revoked_at FROM api_token WHERE id = %s",
+            "SELECT id, user_id, name, scopes, created_at, last_used_at, revoked_at FROM api_token "
+            "WHERE id = %s",
             (token_id,),
         )
         return cur.fetchone()
@@ -548,7 +594,7 @@ def _session_user(conn: psycopg.Connection, token: str) -> tuple[CurrentUser, st
 def _token_user(conn: psycopg.Connection, token: str) -> CurrentUser | None:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT u.*, t.id AS token_id, t.last_used_at AS token_last_used "
+            "SELECT u.*, t.id AS token_id, t.last_used_at AS token_last_used, t.scopes AS token_scopes "
             "FROM api_token t JOIN app_user u ON u.id = t.user_id "
             "WHERE t.token_hash = %s AND t.revoked_at IS NULL AND u.disabled_at IS NULL",
             (token_hash(token),),
@@ -561,7 +607,21 @@ def _token_user(conn: psycopg.Connection, token: str) -> CurrentUser | None:
             cur.execute(
                 "UPDATE api_token SET last_used_at = now() WHERE id = %s", (row["token_id"],)
             )
-    return _user_from_row(row, "token")
+    # a full token (scopes NULL): its user's role, exactly as before migration 0214
+    if row["token_scopes"] is None:
+        return _user_from_row(row, "token")
+    # a read-only token: its stored scopes, never above its user's role (a demoted steward's token reads as a user)
+    held = frozenset(row["token_scopes"]) & scopes_for_role(row["role"])
+    return CurrentUser(
+        id=row["id"],
+        email=row["email"],
+        display_name=row["display_name"],
+        role=capped_role(row["role"], held),
+        workspace_id=row["workspace_id"],
+        principal="token",
+        scopes=held,
+        restricted=True,
+    )
 
 
 def _oauth_user(conn: psycopg.Connection, token: str) -> CurrentUser | None:
@@ -573,26 +633,39 @@ def _oauth_user(conn: psycopg.Connection, token: str) -> CurrentUser | None:
     if row is None:
         return None
     scopes = frozenset(row["oauth_scopes"])
-    role = "super_admin" if row["role"] == "super_admin" and STEWARD_SCOPE in scopes else "user"
     return CurrentUser(
         id=row["id"],
         email=row["email"],
         display_name=row["display_name"],
-        role=role,
+        role=capped_role(row["role"], scopes),
         workspace_id=row["workspace_id"],
         principal="oauth",
         scopes=scopes,
         client_id=row["oauth_client_id"],
+        restricted=True,
     )
 
 
-def oauth_may(method: str, path: str, scopes: frozenset[str]) -> str | None:
-    """Why an ``oauth`` principal may NOT make this request (the 403 detail), or None when it may. A token without
-    ``write`` reads only; no OAuth token manages the account that connected it."""
+def _nouns(principal: str) -> tuple[str, str]:
+    """How a restricted bearer's refusals name it: an OAuth access token is a connected app."""
+    if principal == "oauth":
+        return "a connected app", "this connected app"
+    return "a read-only token", "this token"
+
+
+def account_refusal(principal: str) -> str:
+    """The 403 detail when a restricted bearer reaches ``/account`` or ``/auth/change-password``."""
+    return f"{_nouns(principal)[0]} cannot manage your account"
+
+
+def restricted_may(method: str, path: str, scopes: frozenset[str], principal: str) -> str | None:
+    """Why a RESTRICTED bearer (an OAuth access token or a read-only personal token, ``principal`` naming which)
+    may NOT make this request (the 403 detail), or None when it may. One rule for both kinds: without ``write`` it
+    reads only (none carries ``write`` yet); it never manages the account."""
     if path == "/account" or path.startswith("/account/") or path == "/auth/change-password":
-        return "a connected app cannot manage your account"
+        return account_refusal(principal)
     if method.upper() not in _SAFE_METHODS and WRITE_SCOPE not in scopes:
-        return "this connected app can only read"
+        return f"{_nouns(principal)[1]} can only read"
     return None
 
 
@@ -614,8 +687,9 @@ def system_may(method: str, path: str) -> bool:
 
 
 def require_user(request: Request, conn: psycopg.Connection = Depends(get_conn)) -> CurrentUser:
-    """The gate on every router: the session cookie, else a bearer API token, else a bearer OAuth access token
-    (403 on any request ``oauth_may`` refuses), else the system token; else 401.
+    """The gate on every router: the session cookie, else a bearer API token, else a bearer OAuth access token,
+    else the system token; else 401. A restricted bearer (every OAuth token, a read-only personal token) answers
+    403 on any request ``restricted_may`` refuses.
 
     The gate ENDS the transaction it opened (``commit``): its own reads and the occasional ``last_seen_at`` /
     ``last_used_at`` touch are committed before the route runs, so the route starts on an idle connection exactly
@@ -630,13 +704,15 @@ def require_user(request: Request, conn: psycopg.Connection = Depends(get_conn))
         bearer = _bearer(request)
         if bearer:
             user = _token_user(conn, bearer)
+            if user is None:
+                user = _oauth_user(conn, bearer)
             if user is not None:
-                return user
-            user = _oauth_user(conn, bearer)
-            if user is not None:
-                refused = oauth_may(request.method, request.url.path, user.scopes)
-                if refused is not None:
-                    raise HTTPException(status_code=403, detail=refused)
+                if user.restricted:
+                    refused = restricted_may(
+                        request.method, request.url.path, user.scopes, user.principal
+                    )
+                    if refused is not None:
+                        raise HTTPException(status_code=403, detail=refused)
                 return user
             system = get_settings().system_token
             if system and hmac.compare_digest(bearer.encode("utf-8"), system.encode("utf-8")):

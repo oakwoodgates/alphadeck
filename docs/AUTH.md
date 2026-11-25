@@ -19,11 +19,12 @@ the OAuth sign-in for AI clients is in [CONNECTORS](CONNECTORS.md); what a works
 | Workspace caps | `backend/app/workspace_caps.py` |
 | The user CLI | `backend/pipeline/users.py` |
 | The prune | `backend/db/housekeeping.py` |
-| Tables | migrations `0077_auth.sql`, `0079_user_meta.sql`, `0080_oauth.sql`, `0084_user_action_count.sql`; the caps columns in 0203 |
+| Tables | migrations `0077_auth.sql`, `0079_user_meta.sql`, `0080_oauth.sql`, `0084_user_action_count.sql`; the caps columns in 0203; `api_token.scopes` in 0214 |
 
 `app_user` holds the email (unique case-insensitively), the argon2id password hash, the role (`user` or
 `super_admin`, the steward), the workspace and `disabled_at`. `user_session` and `api_token` hold the sha256 of a
 `secrets.token_urlsafe(32)` token, never the token, so a read of these tables cannot be replayed as a credential.
+`api_token.scopes` NULL is a full token; set, the token can only read, with those scopes.
 `user_meta` holds a user's preferences (today the Slack webhook); nothing in it rides into `/auth/me`. The
 `oauth_*` tables are described in [CONNECTORS](CONNECTORS.md).
 
@@ -40,8 +41,8 @@ answers 401 before any parameter is validated. It tries, in order:
 | Principal | Credential | What it may do |
 |---|---|---|
 | `session` | the `alphadeck_session` cookie of a live session | everything the user's role allows; the idle expiry slides forward on use |
-| `token` | `Authorization: Bearer <token>` matching an unrevoked `api_token` | the same; used by the MCP agent tools, the deploy script's probes and curl |
-| `oauth` | a bearer matching a live OAuth access token | read only: any method but `GET`, `HEAD` or `OPTIONS` is 403 (no token carries `write`); the role is `super_admin` only when the user is one and the token carries `steward`; never `/account/*` or `/auth/change-password` (`auth.oauth_may`) |
+| `token` | `Authorization: Bearer <token>` matching an unrevoked `api_token` | a full token (stored `scopes` NULL; only the CLI's `--write` mints one): the same. A read-only token (stored `scopes`: every Settings token, the CLI's default, every token older than migration 0214) follows the `oauth` rules with its own scopes, 403 "this token can only read". Used by the MCP agent tools, the deploy script's probes and curl |
+| `oauth` | a bearer matching a live OAuth access token | read only: any method but `GET`, `HEAD` or `OPTIONS` is 403 (no token carries `write`); the role is `super_admin` only when the user is one and the token carries `steward`; never `/account/*` or `/auth/change-password` (`auth.restricted_may`, shared with a read-only token) |
 | `system` | the `ALPHADECK_SYSTEM_TOKEN` secret (constant-time compare) | `GET` under `/dashboards/`, `/clock` and `/health` only, else 403 (`auth.system_may`); the cron's dashboard warm-up uses it, and with it unset the warm-up prints one line and exits 1 |
 
 Else 401. The gate reads `disabled_at` and the role on every request, so disabling a user, revoking a token and a
@@ -83,18 +84,18 @@ nothing else.
 
 ## The routes
 
-Every `/account` route acts on the caller's own rows (no user id in a path) and refuses the system token and an
-`oauth` principal (403).
+Every `/account` route acts on the caller's own rows (no user id in a path) and refuses the system token, an
+`oauth` principal and a read-only token (403).
 
 | Route | Who | Notes |
 |---|---|---|
 | `POST /auth/login` | anyone | sets the cookie; the protections above |
 | `POST /auth/logout`, `GET /auth/me` | anyone signed in | `/auth/me` adds a `token` object (principal, client id, scopes) for a bearer; the hosted `/mcp` endpoint reads it |
-| `POST /auth/change-password` | a session or a personal token | 400 on a wrong current password |
+| `POST /auth/change-password` | a session or a full personal token | 400 on a wrong current password |
 | `PUT /account/profile` | the user | display name and email; 409 when another user has the email |
 | `GET`, `PUT`, `DELETE /account/notifications/slack-webhook`; `POST .../test` | the user | the URL is write-only (a webhook URL is a credential) and must be a Slack hooks URL; the test posts one line through the real path |
 | `GET /account/agents` | the user | whether the install is hosted, the connector URL, whether OAuth is mounted |
-| `GET`, `POST /account/tokens`; `DELETE /account/tokens/{id}` | the user | a new token is in the create reply only; at most `account.MAX_LIVE_TOKENS` live; another user's id is 404, never 403 |
+| `GET`, `POST /account/tokens`; `DELETE /account/tokens/{id}` | the user | a new token is in the create reply only and can only read (the user's role scopes); at most `account.MAX_LIVE_TOKENS` live; another user's id is 404, never 403 |
 | `GET /account/connections`; `DELETE /account/connections/{id}` | the user | the apps connected through OAuth; a disconnect stops every token under the grant |
 | `GET`, `POST /oauth/consent/{id}` | a browser session only | 403 for any bearer, so no app approves its own request ([CONNECTORS](CONNECTORS.md)) |
 
@@ -134,7 +135,8 @@ master writer under `app/routers/` (and one hop into `backend/workbench/`) only 
 
 `backend/tests/app/test_auth_gate.py` makes an open route a failing test: it walks `app.routes`, sends every
 operation without a credential (401, never 422), sends a plain user to every steward route (403), and covers the
-system principal, the cookie flags, throttling, expiry and revocation. `test_oauth.py` holds the `oauth` rules.
+system principal, the cookie flags, throttling, expiry and revocation. `test_oauth.py` holds the `oauth` rules,
+`test_read_only_tokens.py` the read-only token's.
 Every other API test runs as a super admin through an autouse override (`tests/auth_fixtures.py`).
 
 ## User-triggered fetches
@@ -191,7 +193,7 @@ There is no sign-up page and no email delivery: the operator creates every accou
 | `set-role` | `user` or `super_admin`, effective on the next request |
 | `reset-password` | a new password; signs every session out |
 | `list` | users, roles, workspaces, whether a webhook is set, sessions and tokens; never a hash or a URL |
-| `token create`, `token revoke` | a personal access token, printed once |
+| `token create`, `token revoke` | a personal access token, printed once: read-only with the user's role scopes, or full (it can change things) with `--write` |
 | `oauth-client list`, `add`, `disable` | the OAuth clients ([CONNECTORS](CONNECTORS.md)) |
 | `caps` | print or set one workspace's caps |
 
