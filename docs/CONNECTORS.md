@@ -107,9 +107,9 @@ Migration 0080 seeds two static clients (`store.STATIC_CLIENTS`), public (PKCE, 
 The metadata does not advertise client ID metadata documents (the SDK has no server side for them), and with
 registration off it names no `registration_endpoint`, so claude.ai asks for a client ID: the user enters
 `alphadeck-claude` with no secret. Claude Code's own client id is static here, so it works with or without
-registration. Settings > Agents shows each client's steps (`AgentsTab.tsx`). The steward adds another vetted app
-with `pipeline.users oauth-client add` ([AUTH](AUTH.md) "The CLI"): stored as `static`, public unless
-`--confidential` (a generated secret printed once, stored as its sha256), each redirect URI https or http on
+registration. Settings > Agents shows the connector URL, not per-client steps (`AgentsTab.tsx`). The steward adds
+another vetted app with `pipeline.users oauth-client add` ([AUTH](AUTH.md) "The CLI"): stored as `static`, public
+unless `--confidential` (a generated secret printed once, stored as its sha256), each redirect URI https or http on
 localhost.
 
 ### Dynamic registration
