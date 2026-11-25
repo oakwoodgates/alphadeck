@@ -285,3 +285,126 @@ def test_reject_moves_the_companys_change_stamp(db):
     db.commit()
     assert stamp_map(db)[sid] > before
     db.rollback()
+
+
+# --- D3: the steward's cited values (migration 0215, platform fixes W2-1) ---------------------------------------
+
+CITED = "https://example.test/wnrs/1-a-a"
+
+
+def _steward(db, version_id, **over):
+    kw = {
+        "ratio_from": Decimal(300),
+        "ratio_to": Decimal(2),
+        "first_session": date(2026, 5, 13),
+        "cited_url": CITED,
+        "note": "the offering circular's own words",
+        "tape_why": None,
+        "override_tape": False,
+        "tenant_id": DEFAULT_TENANT_ID,
+        "today": ASOF,
+    }
+    kw.update(over)
+    return split_repo.confirm_steward(db, version_id, **kw)
+
+
+def test_a_system_versions_content_is_unchanged_by_the_steward_columns(db):
+    """A system version carries NULL in both 0215 columns, and its content still equals the matcher's decision —
+    the compare a re-run makes to decide "unchanged" (``content_of(decision_values(d))``)."""
+    sid = _security(db, "BTOC")
+    for d in (_btoc(), _wnrs()):
+        v = _append(db, sid, d)
+        assert (v.cited_url, v.tape_override) == (None, None)
+        assert split_repo.content_of(split_repo.decision_values(d)) == v.content()
+    assert split_repo.CONTENT_COLUMNS[-2:] == ("cited_url", "tape_override")
+
+
+def test_confirm_steward_stores_the_cited_values_and_revoke_restore_is_exact(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    c = _steward(db, v1.id)
+    db.commit()
+    assert (c.status, c.confirmed_via, c.value_source, c.author, c.action) == (
+        STATUS_CONFIRMED,
+        VIA_OPERATOR,
+        split_repo.SOURCE_STEWARD,
+        "operator",
+        "confirm",
+    )
+    assert (c.ratio_from, c.ratio_to, c.price_factor, c.effective_date) == (
+        Decimal(300),
+        Decimal(2),
+        150,
+        date(2026, 5, 13),
+    )
+    assert (c.cited_url, c.tape_override, c.note) == (
+        CITED,
+        False,
+        "the offering circular's own words",
+    )
+    # the evidence the split carried rides on: Massive.com's row and the 1-A/A
+    assert (c.polygon_split_from, c.sec_accession) == (v1.polygon_split_from, v1.sec_accession)
+    assert split_repo.allowed_actions(c) == ["revoke"]
+    r = split_repo.revoke(db, c.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert (r.status, r.cited_url, r.value_source) == (STATUS_REVOKED, CITED, "steward")
+    back = split_repo.restore(db, r.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert back.content() == c.content()  # the citation and the override come back with it
+    assert _n(db) == 4
+
+
+def test_confirm_steward_needs_the_tape_or_an_override(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    why = "the tape steps x4.53 on 2026-05-13, not within x1.65 of the entered x150"
+    with pytest.raises(SplitConflict, match="the tape steps x4.53"):
+        _steward(db, v1.id, tape_why=why)
+    db.rollback()
+    assert _n(db) == 1
+    c = _steward(db, v1.id, tape_why=why, override_tape=True)
+    db.commit()
+    assert (c.status, c.tape_override) == (STATUS_CONFIRMED, True)
+
+
+def test_confirm_steward_refusals_write_nothing(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    btoc = _append(db, sid, _btoc())  # another LIVE split of the same security, on 2026-10-15
+    with pytest.raises(SplitConflict, match="already listed on 2026-10-15"):
+        _steward(db, v1.id, first_session=date(2026, 10, 15))
+    db.rollback()
+    with pytest.raises(SplitConflict, match="only a split that needs review"):
+        _steward(db, btoc.id)
+    db.rollback()
+    with pytest.raises(ValueError, match="not a split ratio"):
+        _steward(db, v1.id, ratio_to=Decimal(300))
+    db.rollback()
+    with pytest.raises(ValueError, match="cited URL"):
+        _steward(db, v1.id, cited_url="")
+    db.rollback()
+    with pytest.raises(LookupError):
+        _steward(db, uuid.uuid4())
+    db.rollback()
+    rj = split_repo.reject(db, v1.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    with pytest.raises(SplitConflict, match="changed since you looked"):
+        _steward(db, v1.id)
+    db.rollback()
+    assert rj.status == STATUS_REJECTED and _n(db) == 3
+
+
+def test_confirm_steward_ahead_of_the_first_session_is_announced(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    c = _steward(db, v1.id, today=date(2026, 5, 12), tape_why="no stored bar", override_tape=True)
+    db.commit()
+    assert (c.status, c.value_source, c.tape_override) == (STATUS_ANNOUNCED, "steward", True)
+
+
+def test_a_source_confirm_carries_no_citation(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    c = split_repo.confirm(db, v1.id, source="polygon", tenant_id=DEFAULT_TENANT_ID, today=ASOF)
+    db.commit()
+    assert (c.value_source, c.cited_url, c.tape_override) == ("polygon", None, None)

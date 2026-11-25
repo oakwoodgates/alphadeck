@@ -4270,6 +4270,154 @@
         }
       }
     },
+    "/admin/splits/{version_id}/tape-step": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Split Tape Step",
+        "description": "The stored tape's STEP at ``first_session`` for the split ``version_id`` names, each bar as first served,\nbeside the factor ``ratio_from`` -> ``ratio_to`` the steward entered (both or neither): what ``POST\n.../confirm-values`` checks. **404** unknown version, **422** one side of the ratio only. Read-only.",
+        "operationId": "split_tape_step_admin_splits__version_id__tape_step_get",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          },
+          {
+            "name": "first_session",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "the first session at the new price",
+              "title": "First Session"
+            },
+            "description": "the first session at the new price"
+          },
+          {
+            "name": "ratio_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,6}(\\.\\d{1,10})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "old shares (decimal text)",
+              "title": "Ratio From"
+            },
+            "description": "old shares (decimal text)"
+          },
+          {
+            "name": "ratio_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,6}(\\.\\d{1,10})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "new shares (decimal text)",
+              "title": "Ratio To"
+            },
+            "description": "new shares (decimal text)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitTapeStepOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/{version_id}/confirm-values": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Confirm Split Values",
+        "description": "CONFIRM a split that needs review with the steward's OWN cited values (decision D3): ``ratio_from`` ->\n``ratio_to``, ``first_session`` and the ``cited_url`` of the document that states them become the list's\n(``value_source`` ``steward``; a first session still ahead lands as ``announced``). The server reads the stored\ntape's step at ``first_session`` as first served and refuses a factor outside the tape tolerance, or a session\nwith no bar, unless ``override_tape`` (stored as ``tape_override``). Undo with ``POST\n/admin/splits/{version_id}/revoke``. **404** unknown version, **409** not the split's newest version / not\nawaiting review / another split is listed on that date / the tape does not support the values, **422** a bad\nratio, date or URL.",
+        "operationId": "confirm_split_values_admin_splits__version_id__confirm_values_post",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminSplitConfirmValuesIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitListEntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/splits/{version_id}/reject": {
       "post": {
         "tags": [
@@ -12072,6 +12220,56 @@
         "title": "AdminRunsOut",
         "description": "The run history \u2014 parsed run-of-record artifacts, newest first. An unreadable artifact is\nSKIPPED fail-open (a corrupt night never blanks the history)."
       },
+      "AdminSplitConfirmValuesIn": {
+        "properties": {
+          "ratio_from": {
+            "type": "string",
+            "pattern": "^\\d{1,6}(\\.\\d{1,10})?$",
+            "title": "Ratio From"
+          },
+          "ratio_to": {
+            "type": "string",
+            "pattern": "^\\d{1,6}(\\.\\d{1,10})?$",
+            "title": "Ratio To"
+          },
+          "first_session": {
+            "type": "string",
+            "format": "date",
+            "title": "First Session"
+          },
+          "cited_url": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Cited Url"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "override_tape": {
+            "type": "boolean",
+            "title": "Override Tape",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "ratio_from",
+          "ratio_to",
+          "first_session",
+          "cited_url"
+        ],
+        "title": "AdminSplitConfirmValuesIn",
+        "description": "The steward's OWN values for a needs-review split (decision D3): ``ratio_from`` old shares -> ``ratio_to`` new\nshares (decimal text, above 0 and at most 100,000, never equal), ``first_session`` = the first session at the\nnew price, ``cited_url`` = the https URL of the document that states them (required), ``note`` (optional).\n``override_tape`` = confirm although the stored tape's step at that session sits outside the tolerance of the\nentered factor, or no bar can be read (the server checks it either way: ``GET .../tape-step``)."
+      },
       "AdminSplitDefectOut": {
         "properties": {
           "security_id": {
@@ -12487,6 +12685,28 @@
               }
             ],
             "title": "Review Reason"
+          },
+          "cited_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cited Url"
+          },
+          "tape_override": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tape Override"
           }
         },
         "type": "object",
@@ -12509,7 +12729,7 @@
           "valid_from"
         ],
         "title": "AdminSplitListEntryOut",
-        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date)."
+        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the\ndocument that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both\n``null`` on every other split)."
       },
       "AdminSplitListOptionOut": {
         "properties": {
@@ -12936,6 +13156,170 @@
         ],
         "title": "AdminSplitSettledOut",
         "description": "A SETTLED flap (``pipeline/split_basis.settle_flap``): the stored history changed basis and back, but\nevery night's view reads a single basis \u2014 the newest tape has no break, and no night's history view (the\npublic clock) reads a lookback on two bases. Named so it stays visible, never paged, never an alarm.\n``reason`` says how it was judged."
+      },
+      "AdminSplitTapeStepOut": {
+        "properties": {
+          "first_session": {
+            "type": "string",
+            "format": "date",
+            "title": "First Session"
+          },
+          "prior_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Date"
+          },
+          "prior_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Close"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "prior_volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Volume"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "volume_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume Ratio"
+          },
+          "prior_served_before": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Served Before"
+          },
+          "price_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Factor"
+          },
+          "tolerance": {
+            "type": "number",
+            "title": "Tolerance",
+            "default": 0.5
+          },
+          "step_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Low"
+          },
+          "step_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step High"
+          },
+          "within_tolerance": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Within Tolerance"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "first_session"
+        ],
+        "title": "AdminSplitTapeStepOut",
+        "description": "The stored tape at a first session, beside the factor the steward entered (D3) \u2014 what the confirm-values\nroute checks. Each bar is read as the vendor FIRST served it (``pipeline.detect_splits.tape_at``: the bar on\n``first_session`` and the stored bar before it, at most 14 days back). ``step`` = close / prior close;\n``volume_ratio`` = volume / prior volume. ``price_factor`` = old / new shares of the entered ratio (``null``\nwhen none was entered); ``step_low`` .. ``step_high`` = the steps ``tolerance`` (``domain.splits.\nTAPE_TOLERANCE``, in ln, either direction) accepts around it. ``within_tolerance`` = the step sits inside\n(``null`` with no ratio, ``false`` when no bar can be read); ``reason`` says why not. A read."
       },
       "AdminStaleTapeOut": {
         "properties": {

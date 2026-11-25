@@ -162,6 +162,22 @@ def test_a_set_aside_row_carries_its_restore_target_and_a_cut_note():
     assert len(row["note"]) == 200 and row["note_total_chars"] > 200
 
 
+def test_a_split_confirmed_with_cited_values_carries_its_citation_and_the_tape_override():
+    """D3: the steward's cited values ride the brief row (copied from the API); a source-confirmed row carries
+    neither key."""
+    body = afx.splits()
+    body["confirmed"][0].update(
+        value_source="steward",
+        decided_by="you (cited values), 11-25",
+        cited_url="https://example.test/6-k",
+        tape_override=False,
+    )
+    rows = ok(FakeApi(splits=body), "get_splits", section="confirmed")["confirmed"]
+    assert (rows[0]["cited_url"], rows[0]["tape_override"]) == ("https://example.test/6-k", False)
+    assert rows[0]["decided_by"] == "you (cited values), 11-25"
+    assert "cited_url" not in rows[1] and "tape_override" not in rows[1]
+
+
 def test_a_bucket_section_continues_at_its_cursor():
     reply = ok(FakeApi(), "get_splits", section="confirmed", cursor=1)
     assert [r["ticker"] for r in reply["confirmed"]] == ["TK01", "TK06"]
