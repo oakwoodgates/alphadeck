@@ -142,3 +142,17 @@ submission's). On the pre-change extractor each reproduced the reading prod's sp
 | 0001493152-26-022840 | EZRA | 8-K (5.03, 7.01, 9.01) | 1-for-40, split-adjusted trading 2026-05-18; "the June 10, 2026 compliance deadline" |
 | 0001213900-26-093996 | VEEA | 8-K (1.01, 2.03, 3.03, 5.03, 7.01, 9.01) | 1-for-20, effective 4:30 p.m. 08-28, trading 2026-08-31 (written "August 31 , 2026") |
 | 0001493152-26-049433 | ALPS | 6-K | 5 -> 1; "The Authorized Share Capital Changes will be effective at market open on November 9, 2026" (tied to the split only by a defined term: still no date) |
+
+The ratio phrasings (2026-11-25, W2-6) added five full submissions, fetched and trimmed the same way (the SGML
+header plus the documents the extractor reads, each kept whole and byte-exact; every reading of each trimmed file,
+on the pre-change and the changed extractor, CHECKED identical to its full submission's). On the pre-change
+extractor each reproduced the reading prod's split list stored (`docs/temp/platform-fixes-w0-w2-plan-2026-11-25.md`
+§2):
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001373715-25-000321 | NOW | 8-K (5.03, 5.07, 9.01) | a 5-for-1 "with a proportionate increase in … authorized common stock"; "four additional shares for each share"; split-adjusted trading 2025-12-18 (read: no direction) |
+| 0001292814-26-005066 | EMBJ | 6-K | an ADS ratio change 1:4 -> 1:1, "three additional ADSs for every ADS held" (no split word in that sentence); trading 2026-11-16 (read: no ratio) |
+| 0001279569-26-001064 | DFSC | 6-K | "a consolidation of its common shares on a 9-to-1 basis", effective 12:01 a.m. / trading 2026-11-16 (read: no ratio) |
+| 0001279569-26-001077 | DFSC | 6-K | the completion of the same 9-to-1 consolidation, trading 2026-11-16 (read: no ratio) |
+| 0001213900-26-110501 | POM | 6-K | terminates its ADR program: ordinary shares consolidate 10 -> 1 while "each holder of ten (10) ADSs will receive three (3)" shares (read: 10 -> 1; now abstains, ADS termination) |

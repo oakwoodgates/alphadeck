@@ -893,3 +893,189 @@ def test_a_date_written_with_a_space_before_its_comma_is_read():
         "The 1-for-20 reverse split became effective as of the market open on December 15 th , 2025."
     )
     assert (y.effective_date, y.date_kind) == (date(2025, 12, 15), "trading")
+
+
+# --- 2026-11-25: the ratio phrasings the split list misread (W2-6) ---------------------------------------------
+#
+# Each filing below is a REAL full submission (``tests/fixtures/splits/README.md``), read the way the nightly reads
+# it. Until 2026-11-25 each read as its comment says (prod's stored reading).
+
+RATIO_PHRASINGS = [
+    # NOW (charter 8-K): "a 5-for-1 stock split …, with a proportionate increase in the number of shares of
+    # authorized common stock" named no direction, and "will receive four additional shares for each share" had no
+    # number after "for each": "a ratio is stated but not whether the split is reverse or forward". Both read 1 -> 5
+    # now
+    (
+        "0001373715-25-000321.txt",
+        ("1", "5"),
+        "2025-12-18",
+        "trading",
+        "to effect a 5-for-1 stock split",
+    ),
+    # EMBJ (6-K, an ADS ratio change): "three additional ADSs for every ADS held on the record date" — no number
+    # after "for every", in a sentence with no split word: "no split ratio found"
+    (
+        "0001292814-26-005066.txt",
+        ("1", "4"),
+        "2026-11-16",
+        "trading",
+        "three additional ADSs for every ADS held on the record date",
+    ),
+    # DFSC (two 6-Ks): "a consolidation of its common shares on a 9-to-1 basis": "no split ratio found"
+    (
+        "0001279569-26-001064.txt",
+        ("9", "1"),
+        "2026-11-16",
+        "trading",
+        "will complete a consolidation of its common shares on a 9-to-1 basis",
+    ),
+    (
+        "0001279569-26-001077.txt",
+        ("9", "1"),
+        "2026-11-16",
+        "trading",
+        "has completed a consolidation of its common shares on a 9-to-1 basis",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "ratio", "when", "kind", "phrase"),
+    RATIO_PHRASINGS,
+    ids=["NOW", "EMBJ", "DFSC-1064", "DFSC-1077"],
+)
+def test_the_filing_states_its_ratio(name, ratio, when, kind, phrase):
+    x = _as_the_nightly_reads(name, False)
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
+    assert (x.effective_date, x.date_kind, x.date_note) == (date.fromisoformat(when), kind, None)
+    assert phrase in x.passage
+    assert all(m.startswith("operative:") for m in x.mentions)  # every ratio stated reads the same
+
+
+def test_pom_ads_termination_abstains_on_the_ordinary_share_ratio():
+    """POM's 6-K terminates its ADR program: \"every ten (10) ordinary shares … consolidated into one (1)\" is the
+    ORDINARY share's ratio, while \"each holder of ten (10) ADSs will receive three (3) post-Share Consolidation
+    Class A ordinary shares\" — the ADS price moves x10/3, not x10. It read 10 -> 1, so the ordinary-share ratio could
+    be confirmed onto the ADS's tape; the exchange's factor is the operator's, from cited values.
+    """
+    x = _as_the_nightly_reads("0001213900-26-110501.txt", False)
+    assert not x.has_ratio
+    assert x.abstain_reason == (
+        "ADS termination: the exchange sets the ADS price factor — confirm it with cited values"
+    )
+    assert x.about_a_split  # shown as a split filing the extractor abstained on
+    assert "each holder of ten (10) ADSs will receive three (3)" in x.passage
+    assert (x.effective_date, x.date_kind) == (date(2026, 10, 21), "trading")
+
+
+# --- the ratio rules, on direct inputs ---------------------------------------------------------------------------
+
+
+def test_consolidated_financial_statements_are_no_reverse_split():
+    """NOW's 10-Q (0001373715-25-000309) and 10-K (0001373715-26-000007) read its 5-for-1 as 5 -> 1: the reverse cue
+    \"consolidat\" matched \"consolidated financial statements\" (and \"reclassified into\" matched \"reclassified into
+    earnings\") all through the report, and the 10-K's table footnote cites the statements in the ratio's own
+    sentence. Their own words, verbatim."""
+    ten_q = (
+        "These condensed consolidated financial statements should be read in conjunction with the audited "
+        "consolidated financial statements and related notes included in our Annual Report on Form 10-K for the "
+        "year ended December 31, 2024, which was filed with the SEC on January 30, 2025. Principles of "
+        "Consolidation The accompanying condensed consolidated financial statements have been prepared in "
+        "conformity with GAAP, and include our accounts and the accounts of our wholly-owned subsidiaries. All "
+        "intercompany transactions and balances have been eliminated upon consolidation. (19) Subsequent Event On "
+        "October 29, 2025, we announced that our Board of Directors approved a 5 -for-1 split of our common stock, "
+        "with a proportionate increase in authorized shares of common stock."
+    )
+    x = extract_split(
+        [FilingDocument(type="10-Q", filename="now-20250930.htm", raw=ten_q)], wide=True
+    )
+    assert (x.ratio_from, x.ratio_to) == (Decimal(1), Decimal(5))
+    ten_k = (
+        "(1) Share and per share information in this table has been adjusted to reflect the 5-for-1 common stock "
+        "split effected on December 17, 2025. Refer to Note 2 “Summary of Significant Accounting Policies” in the "
+        "notes to the consolidated financial statements included in Part II, Item 8 of this Annual Report on Form "
+        "10-K for additional information. For contracts qualifying as cash flow hedges, the derivative’s gain or "
+        "loss is initially reported as a component of accumulated other comprehensive income (loss) and "
+        "subsequently reclassified into earnings in the same period the forecasted transaction affects earnings."
+    )
+    y = extract_split(
+        [FilingDocument(type="10-K", filename="now-20251231.htm", raw=ten_k)], wide=True
+    )
+    assert y.abstain_reason == "a ratio is stated but not whether the split is reverse or forward"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The Company will complete a consolidation of its common shares on a 9-to-1 basis.",
+        "Every nine (9) ordinary shares will be consolidated into one (1) ordinary share.",
+        "The shares will begin trading on a post-consolidation basis; the 1-for-9 ratio was set by the Board.",
+        "The common shares will be consolidated at a ratio of 9:1.",
+        "The Board approved the 1-for-9 Share Consolidation of the consolidated group's parent.",
+    ],
+)
+def test_a_share_consolidation_is_still_a_reverse_split(text):
+    x = _x(text)
+    assert (x.ratio_from, x.ratio_to) == (Decimal(9), Decimal(1))
+
+
+def test_a_proportionate_increase_in_authorized_shares_is_a_forward_split():
+    x = _x(
+        "The Board approved a 4-for-1 split of the common stock, with a proportionate increase in the number of "
+        "authorized shares. The common stock will begin trading on a split-adjusted basis on March 2, 2026."
+    )
+    assert (x.ratio_from, x.ratio_to) == (Decimal(1), Decimal(4))
+    # …but never where the sentence itself names a reverse split, nor where it says there is no such increase
+    y = _x(
+        "The 1-for-4 reverse split will not cause a proportionate increase in the authorized shares."
+    )
+    assert (y.ratio_from, y.ratio_to) == (Decimal(4), Decimal(1))
+    z = _x(
+        "The Company effected a reverse stock split. The 1-for-4 split was effected without a proportionate "
+        "increase in the number of authorized shares."
+    )
+    assert (z.ratio_from, z.ratio_to) == (Decimal(4), Decimal(1))
+
+
+def test_additional_shares_elsewhere_never_turn_a_reverse_split_forward():
+    """\"additional shares\" orients only the ratio's own sentence, never the document."""
+    x = _x(
+        "The Company effected a reverse stock split. Each holder's 1-for-20 split shares were rounded up. The "
+        "Company may issue additional shares in the future."
+    )
+    assert (x.ratio_from, x.ratio_to) == (Decimal(20), Decimal(1))
+
+
+def test_n_to_m_is_read_only_as_a_basis():
+    x = _x("The Board may select a consolidation ratio from 1-to-5 to 1-to-50 at its discretion.")
+    assert not x.has_ratio
+
+
+def test_a_ceiling_or_a_past_split_needs_no_direction():
+    """With accounting "consolidated" no longer a reverse cue, a 10-Q's covenant and a restated old split often
+    name no direction: a ceiling is still a ceiling and a past split still a past one (NEE's 10-Q restates "the
+    four-for-one stock split of NEE common stock effective October 26, 2020")."""
+    x = _x("The credit agreement limits our consolidated leverage ratio to no more than 4.0:1.0.")
+    assert x.abstain_reason.startswith("only an authorized range of ratios")
+    y = extract_split(
+        [
+            FilingDocument(
+                type="10-Q",
+                filename="t.htm",
+                raw="Share counts reflect the four-for-one stock split of the common stock effective "
+                "October 26, 2020.",
+            )
+        ],
+        filed=date(2026, 9, 30),
+        wide=True,
+    )
+    assert y.abstain_reason == "only a past split's ratio is stated"
+
+
+def test_an_ads_termination_only_supposed_is_none():
+    x = _x(
+        "If we terminate our ADR program, holders may receive ordinary shares. The Board approved a 1-for-10 "
+        "reverse stock split effective as of March 2, 2026."
+    )
+    assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(10), Decimal(1), None)
