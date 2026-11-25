@@ -335,6 +335,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/theses/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Calls
+         * @description Batched live/cached CallCards for the Board's active (non-archived) theses at ``asof``.
+         *
+         *     Read-only: writes nothing to the database or the ``calls`` log. Reads the workspace generation
+         *     token once for the batch; when ``cached_only=true``, returns every warm CallCard immediately
+         *     and lists cold thesis ids in ``missing_ids`` so the Board can stream only the missing cards.
+         */
+        get: operations["get_calls_theses_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses/{thesis_id}/archive": {
         parameters: {
             query?: never;
@@ -7552,6 +7576,21 @@ export interface components {
              */
             signed_off: boolean;
             context_role?: components["schemas"]["ContextRole"] | null;
+        };
+        /**
+         * BoardCallsResponse
+         * @description Batched live/cached CallCards for the Board's active theses at one as-of date.
+         */
+        BoardCallsResponse: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Calls */
+            calls: components["schemas"]["CallCardResponse"][];
+            /** Missing Ids */
+            missing_ids?: string[];
         };
         /**
          * BusinessSupersector
@@ -21840,6 +21879,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThesisSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_calls_theses_calls_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; each call uses no data knowable after it */
+                asof: string;
+                /** @description when true, return only cached CallCards and list uncached thesis ids in missing_ids */
+                cached_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardCallsResponse"];
                 };
             };
             /** @description Validation Error */

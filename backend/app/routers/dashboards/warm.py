@@ -29,6 +29,7 @@ from pydantic import BaseModel
 
 from app import call_cache, warm_hook
 from app.deps import get_conn, get_workspace
+from app.routers import data_flags as data_flags_router
 from app.routers import theses as theses_router
 from dashboards.cache import CACHE, latest_run_identity
 from db.session import connect_job, name_session
@@ -607,7 +608,8 @@ def _warm_workspace(
         if aborted:
             return True, errors
 
-    # 21. Board / call_cache step: warm read_call for every live thesis in the workspace
+    # 21. Board / call_cache step: warm read_call for every live thesis + union data-flags
+    known_at, clock = serve_view(target_asof, night=mclock.night)
     aborted, theses = _run_step(
         "board-calls",
         lambda: thesis_repo.list_all(conn, workspace=workspace),
@@ -622,6 +624,15 @@ def _warm_workspace(
             )
             if aborted:
                 return True, errors
+
+    aborted, _ = _run_step(
+        "data-flags",
+        lambda: data_flags_router.read_data_flags(
+            conn, asof=target_asof, tenant_id=workspace, view=(known_at, clock)
+        ),
+    )
+    if aborted:
+        return True, errors
 
     return False, errors
 
@@ -820,6 +831,7 @@ def _build_status(
     known_at, clock = serve_view(target_asof, night=mclock.night)
     decisions_asof = serve_decisions_asof(target_asof, mclock)
     fn_token = id(theses_router.call_for_thesis)
+    ws_token = call_cache.workspace_token(conn, workspace)
     calls_warm = sum(
         1
         for t in theses
@@ -831,6 +843,7 @@ def _build_status(
             clock=clock,
             decisions_asof=decisions_asof,
             fn_token=fn_token,
+            token=ws_token,
         )
     )
 

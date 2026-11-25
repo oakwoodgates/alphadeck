@@ -15,6 +15,7 @@ from app.routers.data_flags import MemberDataFlagsOut, read_member_data_flags
 from app.routers.platform_values import UserCompanyValuesOut, company_out
 from app.routers.workbench import read_scored_member
 from app.schemas_api import (
+    BoardCallsResponse,
     CallCardResponse,
     CatalystCountingIn,
     CatalystList,
@@ -121,6 +122,62 @@ def list_theses(
         )
         out.append(summary)
     return out
+
+
+@router.get("/calls", response_model=BoardCallsResponse)
+def get_calls(
+    asof: AsofDate = Query(..., description="as-of date; each call uses no data knowable after it"),
+    cached_only: bool = Query(
+        False,
+        description="when true, return only cached CallCards and list uncached thesis ids in missing_ids",
+    ),
+    conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
+) -> BoardCallsResponse:
+    """Batched live/cached CallCards for the Board's active (non-archived) theses at ``asof``.
+
+    Read-only: writes nothing to the database or the ``calls`` log. Reads the workspace generation
+    token once for the batch; when ``cached_only=true``, returns every warm CallCard immediately
+    and lists cold thesis ids in ``missing_ids`` so the Board can stream only the missing cards.
+    """
+    warm_hook.request_warm(workspace=workspace, reason="session")
+    theses = thesis_repo.list_all(conn, workspace=workspace)
+    mclock = market_clock()
+    known_at, clock = serve_view(asof, night=mclock.night)
+    decisions_asof = serve_decisions_asof(asof, mclock)
+    token = call_cache.workspace_token(conn, workspace)
+    fn_token = id(call_for_thesis)
+
+    calls: list[CallCardResponse] = []
+    missing_ids: list[UUID] = []
+    for thesis in theses:
+        cached = call_cache.CACHE.get_cached_only(
+            conn,
+            kind="call",
+            thesis=thesis,
+            asof=asof,
+            known_at=known_at,
+            clock=clock,
+            decisions_asof=decisions_asof,
+            fn_token=fn_token,
+            token=token,
+        )
+        if cached is not None:
+            calls.append(cached)
+        elif cached_only:
+            missing_ids.append(thesis.id)
+        else:
+            calls.append(
+                read_call(
+                    conn,
+                    thesis,
+                    asof,
+                    mclock=mclock,
+                    view=(known_at, clock),
+                    token=token,
+                )
+            )
+    return BoardCallsResponse(asof=asof, calls=calls, missing_ids=missing_ids)
 
 
 @router.post(
@@ -245,6 +302,7 @@ def read_call(
     *,
     mclock: MarketClock,
     view: tuple[datetime | None, Literal["record", "public"]] | None = None,
+    token: tuple[Any, ...] | None = None,
 ) -> CallCardResponse:
     """The read-only call and its wire shaping behind ``GET /theses/{id}/call``; ``view`` is the clock the facts
     are read on (omitted: ``serve_view`` for the as-of and the clock's night, what the route uses).
@@ -288,6 +346,7 @@ def read_call(
         decisions_asof=decisions_asof,
         fn_token=id(call_for_thesis),
         compute=_compute,
+        token=token,
     )
 
 

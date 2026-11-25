@@ -24,6 +24,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
+from app import call_cache
 from app.deps import get_conn, get_thesis_or_404, get_workspace
 from domain.data_flags import DataFlag, MemberFlags, SplitLabel
 from domain.links import HttpUrlOut
@@ -284,21 +285,33 @@ def read_data_flags(
 ) -> DataFlagsResponse:
     """The union flags behind ``GET /data-flags`` and their wire shaping; ``view`` is the clock the facts are read
     on (omitted: ``serve_view(asof)``, what the route uses)."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT bm.security_id, t.id, t.name FROM basket_member bm JOIN thesis t ON t.id = bm.thesis_id "
-            "WHERE t.archived_at IS NULL AND t.tenant_id = %s AND bm.security_id IS NOT NULL "
-            "ORDER BY t.name, bm.ordinal",
-            (tenant_id,),
-        )
-        rows = cur.fetchall()
-    held: dict[UUID, list[DataFlagThesisRefOut]] = {}
-    for r in rows:
-        refs = held.setdefault(r["security_id"], [])
-        if all(x.id != r["id"] for x in refs):
-            refs.append(DataFlagThesisRefOut(id=r["id"], name=r["name"]))
-    ids = list(held)
-    out = _read(conn, tenant_id=DATA_TENANT_ID, ids=ids, asof=asof, view=view)
-    members = [_member_out(out[s], held[s]) for s in ids if out[s].flags or out[s].notes]
-    members.sort(key=lambda m: (not m.marked, m.ticker or str(m.security_id)))
-    return DataFlagsResponse(asof=asof, names=len(ids), members=members)
+    known_at, clock = view if view is not None else serve_view(asof)
+
+    def _compute() -> DataFlagsResponse:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT bm.security_id, t.id, t.name FROM basket_member bm JOIN thesis t ON t.id = bm.thesis_id "
+                "WHERE t.archived_at IS NULL AND t.tenant_id = %s AND bm.security_id IS NOT NULL "
+                "ORDER BY t.name, bm.ordinal",
+                (tenant_id,),
+            )
+            rows = cur.fetchall()
+        held: dict[UUID, list[DataFlagThesisRefOut]] = {}
+        for r in rows:
+            refs = held.setdefault(r["security_id"], [])
+            if all(x.id != r["id"] for x in refs):
+                refs.append(DataFlagThesisRefOut(id=r["id"], name=r["name"]))
+        ids = list(held)
+        out = _read(conn, tenant_id=DATA_TENANT_ID, ids=ids, asof=asof, view=(known_at, clock))
+        members = [_member_out(out[s], held[s]) for s in ids if out[s].flags or out[s].notes]
+        members.sort(key=lambda m: (not m.marked, m.ticker or str(m.security_id)))
+        return DataFlagsResponse(asof=asof, names=len(ids), members=members)
+
+    return call_cache.CACHE.get_or_compute_workspace(
+        conn,
+        kind="data_flags",
+        workspace=tenant_id,
+        subkey=(asof, known_at, clock),
+        fn_token=hash((id(flags_reader.read_flags), id(flags_reader.run_reads))),
+        compute=_compute,
+    )

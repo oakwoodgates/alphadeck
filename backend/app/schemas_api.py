@@ -287,6 +287,14 @@ class CallCardResponse(BaseModel):
         )
 
 
+class BoardCallsResponse(BaseModel):
+    """Batched live/cached CallCards for the Board's active theses at one as-of date."""
+
+    asof: date
+    calls: list[CallCardResponse]
+    missing_ids: list[UUID] = Field(default_factory=list)
+
+
 class RecordedTriggerOut(BaseModel):
     """One entry trigger the recorded card fired, cut to its identity (the sources stay on the live call)."""
 
