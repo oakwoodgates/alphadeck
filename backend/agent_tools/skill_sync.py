@@ -1,15 +1,21 @@
 """Keep the Claude Code skill equal to the prompts: ``python -m agent_tools.skill_sync --check | --write``.
 
 A Claude Code session cannot run an MCP prompt (prompts are user-typed ``/mcp__<server>__<prompt>`` commands), so the
-repository's ``alphadeck-agent`` skill carries each recipe as a block, embedded verbatim from ``prompts/<name>.md``::
+repository's ``alphadeck-agent`` skill carries each READ recipe as a block, embedded verbatim from
+``prompts/<name>.md``::
 
     <!-- recipe:morning-brief -->
     ...the prompt file...
     <!-- /recipe -->
 
-``--check`` exits 1 with a unified diff when a block differs from its file, a registered prompt (``PROMPT_NAMES``) has
-no block, or a block names no prompt. ``--write`` regenerates the text between the markers in place; everything
-hand-written stays. Pure: stdlib only, no I/O beyond the files named here (no client, server, httpx or mcp).
+This builds the Claude Code copy of the recipes; a plugin for another harness would generate its own from the same
+``PROMPTS`` table. A steward recipe never enters a copy (a file cannot hold a scope): the server serves it through
+``get_recipe``, scope-gated, to any client.
+
+``--check`` exits 1 with a unified diff when a block differs from its file, a read prompt (``SKILL_PROMPTS``) has no
+block, a block names a steward prompt or a block names no prompt. ``--write`` regenerates the text between the
+markers in place; everything hand-written stays. Pure: stdlib only, no I/O beyond the files named here (no client,
+server, httpx or mcp).
 """
 
 from __future__ import annotations
@@ -20,9 +26,11 @@ import re
 import sys
 from pathlib import Path
 
-from .prompt_args import PROMPT_NAMES
+from .prompt_args import PROMPT_NAMES, PROMPTS
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+# the recipes the skill embeds: the read ones. The steward's are served by ``get_recipe`` only.
+SKILL_PROMPTS = tuple(p.name for p in PROMPTS if p.scope == "read")
 SKILL_PATH = (
     Path(__file__).resolve().parents[2] / ".claude" / "skills" / "alphadeck-agent" / "SKILL.md"
 )
@@ -39,16 +47,17 @@ def _norm(text: str) -> str:
 def prompt_texts(prompts_dir: Path = PROMPTS_DIR) -> dict[str, str]:
     return {
         name: _norm((prompts_dir / f"{name}.md").read_text(encoding="utf-8"))
-        for name in PROMPT_NAMES
+        for name in SKILL_PROMPTS
     }
 
 
 def problems(skill_text: str, prompts: dict[str, str]) -> list[str]:
-    """What is out of step: a block that differs (as a unified diff), a prompt with no block, a block with no prompt."""
+    """What is out of step: a block that differs (as a unified diff), a read prompt with no block, a block naming a
+    steward prompt, a block with no prompt."""
     skill = skill_text.replace("\r\n", "\n")
     found = {m.group("name"): m.group("body") for m in _BLOCK.finditer(skill)}
     out: list[str] = []
-    for name in PROMPT_NAMES:
+    for name in SKILL_PROMPTS:
         if name not in found:
             out.append(f"prompt {name} has no <!-- recipe:{name} --> block in the skill")
         elif found[name] != prompts[name]:
@@ -61,7 +70,11 @@ def problems(skill_text: str, prompts: dict[str, str]) -> list[str]:
             )
             out.append(f"recipe {name} differs from its prompt file:\n" + "\n".join(diff))
     for name in found:
-        if name not in PROMPT_NAMES:
+        if name in PROMPT_NAMES and name not in SKILL_PROMPTS:
+            out.append(
+                f"the skill has a recipe block for {name}: steward recipes are served by get_recipe only"
+            )
+        elif name not in PROMPT_NAMES:
             out.append(f"the skill has a recipe block for {name}, which is not a registered prompt")
     return out
 
@@ -104,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     if issues:
         print("run: python -m agent_tools.skill_sync --write", file=sys.stderr)
         return 1
-    print(f"OK: {len(PROMPT_NAMES)} recipes equal their prompt files")
+    print(f"OK: {len(SKILL_PROMPTS)} recipes equal their prompt files")
     return 0
 
 

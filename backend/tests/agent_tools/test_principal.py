@@ -191,12 +191,12 @@ def _steward_call(
     return asyncio.run(go())
 
 
-def test_the_steward_lists_nineteen_tools_and_a_plain_principal_fourteen():
+def test_the_steward_lists_twenty_tools_and_a_plain_principal_fifteen():
     names, _ = _steward_call(FakeApi(), STEWARD_PRINCIPAL)
-    assert names == TOOLS | STEWARD_TOOLS and len(names) == 19
+    assert names == TOOLS | STEWARD_TOOLS and len(names) == 20
     assert {"get_shared_facts", "get_insider_holds", "get_admin_onboarding"} <= names
     names, _ = _steward_call(FakeApi(), PLAIN_PRINCIPAL)
-    assert names == TOOLS and len(names) == 14
+    assert names == TOOLS and len(names) == 15
     assert not names & STEWARD_TOOLS  # a plain principal lists none of the steward tools
 
 
@@ -217,7 +217,7 @@ def _listing(principal) -> dict:
 def test_every_tools_output_schema_documents_the_nightly_window_note():
     """E41: the hosted endpoint adds ``nightly_window: true`` inside the window; no handler sets it."""
     tools = _listing(STEWARD_PRINCIPAL)
-    assert len(tools) == 19
+    assert len(tools) == 20
     for name, tool in tools.items():
         props = (tool.output_schema or {}).get("properties", {})
         assert "nightly_window" in props, name
@@ -314,13 +314,13 @@ def _prompts(principal, *, get: str | None = None, arguments: dict | None = None
     return asyncio.run(go())
 
 
-def test_the_steward_lists_nineteen_tools_and_eight_prompts_a_plain_principal_fourteen_and_seven():
+def test_the_steward_lists_twenty_tools_and_eight_prompts_a_plain_principal_fifteen_and_seven():
     names, tools, _ = _prompts(STEWARD_PRINCIPAL)
-    assert len(names) == 8 and "splits-review" in names and len(tools) == 19
+    assert len(names) == 8 and "splits-review" in names and len(tools) == 20
     names, tools, _ = _prompts(PLAIN_PRINCIPAL)
-    assert len(names) == 7 and "splits-review" not in names and len(tools) == 14
+    assert len(names) == 7 and "splits-review" not in names and len(tools) == 15
     names, tools, _ = _prompts(None)  # no principal at all is plain
-    assert len(names) == 7 and len(tools) == 14
+    assert len(names) == 7 and len(tools) == 15
 
 
 def test_a_plain_principal_cannot_get_the_steward_prompt_and_is_told_why():

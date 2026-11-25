@@ -129,3 +129,31 @@ PROMPTS: tuple[PromptSpec, ...] = (
 PROMPT_NAMES = tuple(p.name for p in PROMPTS)
 # the scope each prompt needs: a prompt the caller does not hold is neither listed nor gettable (``AlphaDeckServer``)
 PROMPT_SCOPES = {p.name: p.scope for p in PROMPTS}
+
+
+def bind_values(spec: PromptSpec, given: dict[str, str]) -> dict:
+    """The values ``spec`` renders with, from a ``get_recipe`` call's string arguments: each argument the caller named,
+    the spec's default for each it left out. An integer argument (a default of ``int``) is read as the ``prompts/get``
+    path reads it, so both paths fill the same text. Raises ``ValueError(rule)`` for an argument the recipe does not
+    take, a required one left out, or an integer argument that is not a whole number.
+    """
+    takes = [name for name, _, _ in spec.arguments]
+    listed = ", ".join(takes) if takes else "no arguments"
+    foreign = sorted(set(given) - set(takes))
+    if foreign:
+        raise ValueError(f"{spec.name} does not take {', '.join(foreign)}; it takes {listed}.")
+    missing = [name for name, required, _ in spec.arguments if required and name not in given]
+    if missing:
+        raise ValueError(f"{spec.name} needs {', '.join(missing)}; it takes {listed}.")
+    values: dict = {}
+    for name, _, default in spec.arguments:
+        if name not in given:
+            values[name] = default
+        elif isinstance(default, int) and not isinstance(default, bool):
+            try:
+                values[name] = int(given[name])
+            except ValueError:
+                raise ValueError(f"{name} must be a whole number.") from None
+        else:
+            values[name] = given[name]
+    return values

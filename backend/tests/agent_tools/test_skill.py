@@ -1,6 +1,7 @@
-"""The Claude Code skill (``.claude/skills/alphadeck-agent/SKILL.md``) carries the eight recipes verbatim: the sync check
-runs in-process (the same check ``python -m agent_tools.skill_sync --check`` runs), the size and frontmatter bars hold,
-and the tracked skill names no live card, company or ticker.
+"""The Claude Code skill (``.claude/skills/alphadeck-agent/SKILL.md``) carries the READ recipes verbatim (the seven the
+plain user holds; a steward's are served by ``get_recipe`` only, so no block names one): the sync check runs in-process
+(the same check ``python -m agent_tools.skill_sync --check`` runs), the size and frontmatter bars hold, and the tracked
+skill names no live card, company or ticker.
 """
 
 from __future__ import annotations
@@ -10,10 +11,11 @@ import re
 from pathlib import Path
 
 from agent_tools import skill_sync
-from agent_tools.prompt_args import PROMPT_NAMES
+from agent_tools.prompt_args import PROMPT_NAMES, PROMPTS
 
 SKILL = skill_sync.SKILL_PATH
-# the bars moved for the eighth recipe (splits-review) and the two steward tools: 17,000 / 95 before
+# the bars hold at what the eighth recipe (splits-review) set: that recipe left the skill for get_recipe, and the four
+# steward recipes after it never enter, so the skill does not grow with the steward's reviews (17,000 / 95 before it)
 MAX_CHARS = 18_500
 MAX_LINES = 300
 MAX_HAND_LINES = 100
@@ -62,6 +64,26 @@ def test_the_check_command_exits_zero_and_a_one_character_edit_exits_one(tmp_pat
     )  # only the blocks changed
 
 
+def test_the_skill_embeds_the_read_recipes_only():
+    read = tuple(s.name for s in PROMPTS if s.scope == "read")
+    assert skill_sync.SKILL_PROMPTS == read and len(read) == 7
+    assert list(skill_sync.prompt_texts()) == list(read)
+    found = [m.group("name") for m in skill_sync._BLOCK.finditer(_text())]  # noqa: SLF001
+    assert sorted(found) == sorted(read)
+    assert "splits-review" not in found and "splits-review" in PROMPT_NAMES
+
+
+def test_a_block_naming_a_steward_recipe_is_a_problem_and_write_leaves_it_alone():
+    steward = next(s.name for s in PROMPTS if s.scope != "read")
+    prompts = skill_sync.prompt_texts()
+    text = _text() + f"\n<!-- recipe:{steward} -->\n{steward} text\n<!-- /recipe -->\n"
+    found = skill_sync.problems(text, prompts)
+    assert [p for p in found if steward in p] == [
+        f"the skill has a recipe block for {steward}: steward recipes are served by get_recipe only"
+    ]
+    assert skill_sync.rewrite(text, prompts) == text  # a block it does not own is never regenerated
+
+
 def test_a_missing_or_unknown_recipe_block_is_a_problem():
     prompts = skill_sync.prompt_texts()
     text = _text()
@@ -95,12 +117,14 @@ def test_the_frontmatter_names_the_skill_and_each_recipe_and_fits_1000_character
         "compare the rotation map",
         "card data check",
         "discovery review",
-        "splits review",
-        "review the splits",
+        "admin",
     ):
         assert needle in description, needle
-    for name in PROMPT_NAMES:
+    assert "splits review" not in description  # the steward's reviews are not a skill trigger
+    for name in skill_sync.SKILL_PROMPTS:
         assert name in fields["argument-hint"], name
+    for name in set(PROMPT_NAMES) - set(skill_sync.SKILL_PROMPTS):
+        assert name not in fields["argument-hint"], name
     assert "$ARGUMENTS" in _text()
 
 
@@ -140,10 +164,11 @@ TOOLS = (
     "get_discovery",
     "get_extract",
     "get_onboarding",
+    "get_recipe",
 )
 
 
-def test_the_setup_select_line_names_all_fourteen_tools_and_can_be_pasted():
+def test_the_setup_select_line_names_all_fifteen_tools_and_can_be_pasted():
     line = next(x.strip() for x in _text().splitlines() if x.strip().startswith("select:"))
     assert "..." not in line and " " not in line
     names = line.removeprefix("select:").split(",")
@@ -164,3 +189,5 @@ def test_the_steward_line_adds_exactly_the_five_admin_reads_to_the_select_line()
         "mcp__alphadeck-prod__get_admin_onboarding",
     ]
     assert "does not list them" in text  # a plain user's session never lists them
+    # the steward's recipes come from the tool, never from the skill
+    assert "reads the steward recipes" in text and "`get_recipe(name)`" in text

@@ -100,4 +100,4 @@ def test_a_plain_stdio_caller_is_not_offered_the_prompt_or_the_tools():
         "get_insider_holds",
         "get_admin_onboarding",
     }
-    assert not tools & steward and len(tools) == 14
+    assert not tools & steward and len(tools) == 15

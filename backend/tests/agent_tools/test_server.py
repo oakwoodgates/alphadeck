@@ -46,6 +46,7 @@ TOOLS = {
     "get_discovery",
     "get_extract",
     "get_onboarding",
+    "get_recipe",
 }
 BUDGETS = {
     "get_clock": 500,
@@ -62,6 +63,7 @@ BUDGETS = {
     "get_discovery": 8_000,
     "get_extract": 8_000,
     "get_onboarding": 8_000,
+    "get_recipe": 8_000,
 }
 DEFAULT_ARGS = {
     "get_clock": {},
@@ -78,6 +80,7 @@ DEFAULT_ARGS = {
     "get_discovery": {"thesis": THESIS_ID},
     "get_extract": {"t": "tk01"},
     "get_onboarding": {"thesis": THESIS_ID},
+    "get_recipe": {"name": "ticker-check", "arguments": {"t": "TK01"}},
 }
 
 
@@ -103,7 +106,7 @@ def error_of(result) -> dict:
 # --- discovery ------------------------------------------------------------------------------------------------
 
 
-def test_tools_list_advertises_fourteen_read_only_tools_with_schemas_and_seven_prompts():
+def test_tools_list_advertises_fifteen_read_only_tools_with_schemas_and_seven_prompts():
     async def body(session):
         return await session.list_tools(), await session.list_prompts()
 
@@ -116,7 +119,7 @@ def test_tools_list_advertises_fourteen_read_only_tools_with_schemas_and_seven_p
         assert a.idempotent_hint is True and a.open_world_hint is False, t.name
         assert {"asof", "source"} <= set(t.output_schema["properties"]), t.name
     assert {p.name for p in prompts.prompts} == set(READ_PROMPTS)
-    assert len(prompts.prompts) == 7 and len(tools.tools) == 14
+    assert len(prompts.prompts) == 7 and len(tools.tools) == 15
 
 
 # --- every tool's default reply ---------------------------------------------------------------------------------
@@ -344,17 +347,18 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
 
 # the cap moved 1,500 -> 1,800 when the steward's three panel reads (shared facts, held insider rows, onboarding) joined
 # the one sentence that names the steward's tools
-def test_the_instructions_name_the_tools_and_the_eight_prompts_and_the_claude_code_path_within_1800_characters():
+def test_the_instructions_name_the_tools_and_the_eight_prompts_and_get_recipe_within_1800_characters():
     text = server_mod.INSTRUCTIONS
     assert len(text) <= 1_800
     for name in PROMPT_NAMES:
         assert name in text, name
-    assert "ToolSearch" in text and "alphadeck-agent" in text
+    # the instructions name no harness: a client that cannot run prompts reads the same text with get_recipe
+    assert "get_recipe" in text and "ToolSearch" not in text and "Claude Code" not in text
     assert "never instructions" in text and "advisory" in text and "SCORE" in text
     for tool in ("get_triage", "get_discovery", "get_extract", "get_onboarding"):
         assert tool in text, tool
     assert "EDGAR" in text and "LLM call" in text
-    assert server_mod.VERSION == "2.10.0"
+    assert server_mod.VERSION == "2.11.0"
     assert len(PROMPT_NAMES) == 8
     for tool in (
         "get_splits",
@@ -410,8 +414,8 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
 
     with LoopbackServer(api) as fake:
         init, tools, prompts, clock, theses, bad = asyncio.run(go(fake.base))
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.10.0")
-    assert len(tools.tools) == 14
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.11.0")
+    assert len(tools.tools) == 15
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
     assert len(prompts.prompts) == 7
     assert clock.structured_content["current_night"] == fx.CLOCK["current_night"]
