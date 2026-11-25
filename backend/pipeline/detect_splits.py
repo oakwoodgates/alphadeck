@@ -174,6 +174,63 @@ def tape_at(
     )
 
 
+@dataclass(frozen=True)
+class TapeBar:
+    """One stored session of a tape window: the bar as the vendor FIRST served it (``close`` / ``volume``: the
+    version ``tape_at`` reads, the as-traded print) and its NEWEST stored close (the store's scale today).
+    """
+
+    d: date
+    close: float | None
+    volume: float | None
+    newest_close: float | None
+
+    @property
+    def restated(self) -> bool:
+        """The newest close differs from the first-served one (re-based later: by the vendor, or by the split
+        list's own rescale of the stored tape)."""
+        return self.newest_close != self.close
+
+
+def tape_window(
+    conn: psycopg.Connection, *, tenant_id: UUID, security_id: UUID, around: date, sessions: int
+) -> list[TapeBar]:
+    """The stored tape around ``around`` (platform fixes W5-1): up to ``sessions`` stored dates before it and up to
+    ``sessions`` from it on (``around`` itself first, when stored), oldest first — fewer where the tape ends. Each
+    date's FIRST-SERVED version (the ``tape_at`` pick) beside its newest. A READ, never a write.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH days AS ("
+            "(SELECT DISTINCT d FROM fact_price_eod WHERE tenant_id = %(t)s AND security_id = %(s)s "
+            "AND d < %(a)s ORDER BY d DESC LIMIT %(n)s) UNION ALL "
+            "(SELECT DISTINCT d FROM fact_price_eod WHERE tenant_id = %(t)s AND security_id = %(s)s "
+            "AND d >= %(a)s ORDER BY d LIMIT %(n)s)), "
+            "versions AS (SELECT p.d, p.close, p.volume, "
+            "row_number() OVER (PARTITION BY p.d ORDER BY p.recorded_at, p.id) AS first_rank, "
+            "row_number() OVER (PARTITION BY p.d ORDER BY p.recorded_at DESC, p.id DESC) AS newest_rank "
+            "FROM fact_price_eod p JOIN days ON days.d = p.d "
+            "WHERE p.tenant_id = %(t)s AND p.security_id = %(s)s) "
+            "SELECT f.d, f.close, f.volume, n.close AS newest_close FROM versions f "
+            "JOIN versions n ON n.d = f.d AND n.newest_rank = 1 WHERE f.first_rank = 1 ORDER BY f.d",
+            {"t": tenant_id, "s": security_id, "a": around, "n": sessions},
+        )
+        rows = cur.fetchall()
+
+    def _f(v: Any) -> float | None:
+        return None if v is None else float(v)
+
+    return [
+        TapeBar(
+            d=r["d"],
+            close=_f(r["close"]),
+            volume=_f(r["volume"]),
+            newest_close=_f(r["newest_close"]),
+        )
+        for r in rows
+    ]
+
+
 # --- one company -------------------------------------------------------------------------------------------
 
 

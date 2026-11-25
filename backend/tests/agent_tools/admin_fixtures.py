@@ -1,4 +1,4 @@
-"""Synthetic API payloads for the steward tools (``GET /admin/splits`` and ``GET /admin/status``).
+"""Synthetic API payloads for the steward tools (``GET /admin/splits``, its tape window and ``GET /admin/status``).
 
 Every name is synthetic (``TK01``..``TK08``, ``Company 01``..); no card, company or ticker from the live store. Each
 payload is built as a dict, VALIDATED through the API's own wire model (so a fixture cannot drift from the contract) and
@@ -7,11 +7,12 @@ dumped to JSON exactly as FastAPI serves it.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from app.routers.admin_insider_holds import AdminInsiderHoldsOut
 from app.routers.admin_platform_values import CompanyValuesOut, PlatformQueueOut
-from app.routers.admin_splits import AdminSplitListOut
+from app.routers.admin_splits import AdminSplitListOut, AdminSplitTapeOut
 from app.schemas_api import AdminStatusOut, OnboardingReadoutOut
 from domain.insider_holds import reason_words
 from tests.agent_tools.fixtures import text, uid
@@ -180,6 +181,43 @@ def splits(extra_needs_review: int = 0) -> dict[str, Any]:
         len(body[b]) for b in ("needs_review", "announced", "confirmed", "set_aside")
     )
     return _dump(AdminSplitListOut, body)
+
+
+SPLIT_BUCKETS = ("needs_review", "announced", "confirmed", "set_aside")
+TAPE_SESSIONS = 5
+
+
+def split_tape(version_id: str, around: str) -> dict[str, Any]:
+    """``GET /admin/splits/{version_id}/tape`` (W5-1): five stored sessions either side of ``around`` (synthetic
+    calendar days). The five before it were first served at about 20 and restated x0.1 (two closes each); from
+    ``around`` on one version at about 2, so the step at ``around`` as first served reads about x0.1.
+    """
+    start = date.fromisoformat(around)
+    bars = []
+    for k in range(-TAPE_SESSIONS, TAPE_SESSIONS):
+        before = k < 0
+        close = round(20.0 + k / 10 if before else 2.0 + k / 100, 4)
+        bars.append(
+            {
+                "d": (start + timedelta(days=k)).isoformat(),
+                "close": close,
+                "volume": 100_000.0 if before else 900_000.0,
+                "newest_close": round(close / 10, 4) if before else close,
+                "restated": before,
+            }
+        )
+    prior, first = bars[TAPE_SESSIONS - 1], bars[TAPE_SESSIONS]
+    body = {
+        "version_id": version_id,
+        "around": around,
+        "sessions": TAPE_SESSIONS,
+        "bars": bars,
+        "prior_date": prior["d"],
+        "step": first["close"] / prior["close"],
+        "volume_ratio": first["volume"] / prior["volume"],
+        "prior_served_before": True,
+    }
+    return _dump(AdminSplitTapeOut, body)
 
 
 def status() -> dict[str, Any]:
