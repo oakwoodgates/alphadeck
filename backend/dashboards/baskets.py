@@ -28,11 +28,15 @@ writes nothing.
 
 from __future__ import annotations
 
+import bisect
+import threading
+import weakref
+from collections import OrderedDict
 from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import date, datetime, tzinfo
-from typing import Literal, NamedTuple, TypeVar
+from datetime import date, datetime, timedelta, tzinfo
+from typing import Any, Literal, NamedTuple, TypeVar
 from uuid import UUID
 
 import psycopg
@@ -61,6 +65,88 @@ GROUP_BYS: tuple[GroupBy, ...] = ("link", "business_type", "sector", "card")
 CHUNK = 250
 
 T = TypeVar("T")
+
+# --- the price + split rows ``read_price_flags`` hands to the ``per_company`` that follows it ---------------
+#
+# On a cold page ``read_price_flags`` loads every company's bars and split list (an unbounded view), and
+# ``per_company`` then loads the SAME rows again for the display window. The first read's rows are stashed here
+# and seeded into the second's view (``PointInTimeData.seed_price_and_splits``) so Postgres is asked once.
+# Keyed on the request's own connection plus ``(asof, clock, known_at)``: only a ``per_company`` on the SAME
+# connection and view reads them (a later request, or a test's fresh connection, never sees another's rows).
+# An entry is consumed by the first view that seeds from it, and at most ``MAX_TAPE_GROUPS`` groups are held.
+MAX_TAPE_GROUPS = 2
+_TapeRows = tuple[list[dict[str, Any]], list[date], list[dict[str, Any]]]
+_TapeKey = tuple[int, date, str, datetime | None]
+
+
+class _TapeGroup:
+    __slots__ = ("conn_ref", "rows")
+
+    def __init__(self, conn_ref: weakref.ref[Any]) -> None:
+        self.conn_ref = (
+            conn_ref  # guards against a freed connection's id() being handed to a new one
+        )
+        self.rows: dict[UUID, _TapeRows] = {}
+
+
+_TAPE_STASH: OrderedDict[_TapeKey, _TapeGroup] = OrderedDict()
+_TAPE_LOCK = threading.Lock()
+
+
+def _stash_tape(
+    conn: Any, asof: date, clock: str, known_at: datetime | None, pit: Any, ids: Sequence[UUID]
+) -> None:
+    """Stash ``pit``'s memoized price + split rows for ``ids``, trimmed to the display window."""
+    export = getattr(pit, "export_price_and_splits", None)
+    if export is None:
+        return
+    try:
+        ref = weakref.ref(conn)
+    except TypeError:  # a connection that cannot be weakly referenced is not shared
+        return
+    days = display_bounds().get("fact_price_eod")
+    lower = None if days is None else asof - timedelta(days=days)
+    got: dict[UUID, _TapeRows] = {}
+    for sid in ids:
+        exported = export(sid)
+        if exported is None:
+            continue
+        bars, dates, splits = exported
+        idx = 0 if lower is None else bisect.bisect_left(dates, lower)
+        got[sid] = (bars[idx:], dates[idx:], splits)
+    key = (id(conn), asof, clock, known_at)
+    with _TAPE_LOCK:
+        group = _TAPE_STASH.get(key)
+        if group is None or group.conn_ref() is not conn:
+            group = _TapeGroup(ref)
+            _TAPE_STASH[key] = group
+        group.rows.update(got)
+        _TAPE_STASH.move_to_end(key)
+        for k in [k for k, g in _TAPE_STASH.items() if g.conn_ref() is None]:
+            del _TAPE_STASH[k]  # a freed connection's rows can never be read
+        while len(_TAPE_STASH) > MAX_TAPE_GROUPS:
+            _TAPE_STASH.popitem(last=False)
+
+
+def _seed_from_tape(
+    pit: Any,
+    chunk: Sequence[UUID],
+    conn: Any,
+    asof: date,
+    clock: str,
+    known_at: datetime | None,
+) -> None:
+    """Seed ``pit`` with the stashed rows of the chunk's companies (each consumed once)."""
+    seed = getattr(pit, "seed_price_and_splits", None)
+    if seed is None:
+        return
+    with _TAPE_LOCK:
+        group = _TAPE_STASH.get((id(conn), asof, clock, known_at))
+        if group is None or group.conn_ref() is not conn:
+            return
+        taken = [(sid, group.rows.pop(sid)) for sid in chunk if sid in group.rows]
+    for sid, rows in taken:
+        seed(sid, *rows)
 
 
 # --- the cards and their rosters ----------------------------------------------------------------------------
@@ -392,6 +478,7 @@ def _read_companies(
                 bounds=bounds,
                 clock=clock,
             )
+            _seed_from_tape(pit, chunk, conn, asof, clock, known_at)
             view.pit = pit
             for sid in chunk:
                 out[sid] = read(pit, sid)
@@ -465,26 +552,34 @@ def read_price_flags(
         readings, corrections = flags_reader.run_reads()
         tickers = master.tickers_for(conn, missing, tenant_id=DATA_TENANT_ID)
         stale_days = get_settings().tape_stale_days
-        for i in range(0, len(missing), CHUNK):
-            chunk = missing[i : i + CHUNK]
-            got = flags_reader.read_flags(
-                conn,
-                tenant_id=DATA_TENANT_ID,
-                security_ids=chunk,
-                tickers=tickers,
-                asof=asof,
-                known_at=known_at,
-                clock=clock,
-                stale_days=stale_days,
-                readings=readings,
-                corrections=corrections,
-                price_only=True,  # only price-reaching flags are read: skip fundamentals/insider/share reads
-            )
-            for sid in chunk:
-                member = got.get(sid)
-                read = None if member is None else _price_flag_read(member.flags)
-                known[sid] = read
-                put_piece(PRICE_FLAGS_PIECE, sid, asof, clock, known_at, read)
+
+        def on_pit(pit: Any, pit_ids: list[UUID]) -> None:
+            _stash_tape(conn, asof, clock, known_at, pit, pit_ids)
+
+        token = flags_reader._ON_PIT.set(on_pit)
+        try:
+            for i in range(0, len(missing), CHUNK):
+                chunk = missing[i : i + CHUNK]
+                got = flags_reader.read_flags(
+                    conn,
+                    tenant_id=DATA_TENANT_ID,
+                    security_ids=chunk,
+                    tickers=tickers,
+                    asof=asof,
+                    known_at=known_at,
+                    clock=clock,
+                    stale_days=stale_days,
+                    readings=readings,
+                    corrections=corrections,
+                    price_only=True,  # only price-reaching flags are read: skip fundamentals/insider/share reads
+                )
+                for sid in chunk:
+                    member = got.get(sid)
+                    read = None if member is None else _price_flag_read(member.flags)
+                    known[sid] = read
+                    put_piece(PRICE_FLAGS_PIECE, sid, asof, clock, known_at, read)
+        finally:
+            flags_reader._ON_PIT.reset(token)
     return {sid: r for sid in ids if (r := known[sid]) is not None}
 
 

@@ -223,3 +223,71 @@ def test_the_shared_instance_and_helper(token_parts):
         assert cache_mod.cached(CONN, "s", (), D, lambda: 2, workspace=DEFAULT_TENANT_ID).value == 1
     finally:
         cache_mod.CACHE.clear()
+
+
+def test_disk_cache_survives_a_fresh_instance_when_generation_and_code_match(token_parts, tmp_path):
+    compute = Counter()
+    first_instance = DashboardCache(disk_dir=tmp_path)
+    first = first_instance.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    assert (first.status, first.value) == ("computed", "v1")
+    assert compute.calls == 1
+
+    fresh_instance = DashboardCache(disk_dir=tmp_path)
+    assert len(fresh_instance) == 0
+    second = fresh_instance.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    assert (second.status, second.value) == ("hit", "v1")
+    assert second.compute_ms == first.compute_ms
+    assert compute.calls == 1
+    assert len(fresh_instance) == 1
+
+
+def test_disk_cache_misses_when_generation_or_code_fingerprint_moves(
+    token_parts, tmp_path, monkeypatch
+):
+    fp = ("sha-1", 1000)
+    monkeypatch.setattr(cache_mod, "code_fingerprint", lambda: fp)
+    compute = Counter()
+
+    c1 = DashboardCache(disk_dir=tmp_path)
+    first = c1.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    assert (first.status, first.value) == ("computed", "v1")
+
+    # Moving a generation part (basket) misses disk on a fresh instance
+    token_parts["basket"] = 2
+    c2 = DashboardCache(disk_dir=tmp_path)
+    after_gen = c2.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    assert (after_gen.status, after_gen.value) == ("computed", "v2")
+
+    # Moving the code fingerprint misses disk on a fresh instance
+    fp = ("sha-2", 1000)
+    c3 = DashboardCache(disk_dir=tmp_path)
+    after_code = c3.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    assert (after_code.status, after_code.value) == ("computed", "v3")
+    assert compute.calls == 3
+
+
+def test_disk_cache_respects_lru_bound_and_clear(token_parts, tmp_path):
+    c, compute = DashboardCache(max_entries=2, disk_dir=tmp_path), Counter()
+    for day in (1, 2, 3):
+        c.get(CONN, "s", (), date(2026, 6, day), compute, workspace=W)
+    pkl_files = list(tmp_path.glob("*.pkl"))
+    assert len(pkl_files) <= 2
+    assert len(pkl_files) == 2
+
+    c.clear()
+    assert list(tmp_path.glob("*.pkl")) == []
+
+
+def test_disk_cache_fails_open_on_corrupt_file_and_skips_default_dir_in_pytest(
+    token_parts, tmp_path
+):
+    assert cache_mod.CACHE._active_disk_dir() is None
+
+    c1, compute = DashboardCache(disk_dir=tmp_path), Counter()
+    c1.get(CONN, "s", (), D, compute, workspace=W)
+    for p in tmp_path.glob("*.pkl"):
+        p.write_bytes(b"corrupt-pickle-bytes")
+
+    c2 = DashboardCache(disk_dir=tmp_path)
+    got = c2.get(CONN, "s", (), D, compute, workspace=W)
+    assert (got.status, got.value) == ("computed", "v2")

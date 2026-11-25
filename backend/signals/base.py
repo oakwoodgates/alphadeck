@@ -198,23 +198,27 @@ class PointInTimeData:
         key = (table, tenants, security_id)
         if key not in self._memo:
             if security_id in self._basket and table not in self._prefetched:
-                batch = as_of_many(
-                    self.conn,
-                    table,
-                    security_ids=self._basket,
-                    asof=self.asof,
-                    known_at=self.known_at,
-                    tenant_id=tenants,
-                    valid_from_lower=self._lower(table),
-                    clock=self.clock,
-                )
-                for sid, rows in batch.items():
-                    self._store_memo(
+                # a company already memoized (``seed_price_and_splits``) is not read again; with nothing
+                # seeded ``missing`` is the whole basket, the read unchanged
+                missing = [sid for sid in self._basket if (table, tenants, sid) not in self._memo]
+                if missing:
+                    batch = as_of_many(
+                        self.conn,
                         table,
-                        tenants,
-                        sid,
-                        rows,  # an empty list too: "nothing on file", memoized
+                        security_ids=missing,
+                        asof=self.asof,
+                        known_at=self.known_at,
+                        tenant_id=tenants,
+                        valid_from_lower=self._lower(table),
+                        clock=self.clock,
                     )
+                    for sid, rows in batch.items():
+                        self._store_memo(
+                            table,
+                            tenants,
+                            sid,
+                            rows,  # an empty list too: "nothing on file", memoized
+                        )
                 self._prefetched.add(table)
             if key not in self._memo:  # outside the basket (a benchmark), or no basket at all
                 rows = as_of(
@@ -485,12 +489,17 @@ class PointInTimeData:
         public clock the list's current reading, each row's ``recorded_at`` = the split's PUBLIC instant
         (``split_repo.current_rows``)."""
         if security_id not in self._splits:
-            ids = list(self._basket) if security_id in self._basket else [security_id]
-            if self.clock == "public":
+            # a company whose list was seeded (``seed_price_and_splits``) is not read again
+            ids = (
+                [sid for sid in self._basket if sid not in self._splits]
+                if security_id in self._basket
+                else [security_id]
+            )
+            if ids and self.clock == "public":
                 self._splits.update(
                     split_repo.current_rows(self.conn, tenant_id=self.data_tenant, security_ids=ids)
                 )
-            else:
+            elif ids:
                 self._splits.update(
                     split_repo.as_of_rows(
                         self.conn,
@@ -500,6 +509,39 @@ class PointInTimeData:
                     )
                 )
         return self._splits.get(security_id, [])
+
+    def export_price_and_splits(
+        self, security_id: UUID
+    ) -> tuple[list[dict[str, Any]], list[date], list[dict[str, Any]]] | None:
+        """Export the already-memoized, view-scale-cleaned ``fact_price_eod`` rows, their parallel dates,
+        and raw ``_splits`` rows for ``security_id``, or ``None`` if not yet loaded in this PIT."""
+        tenants = self._tenants("fact_price_eod")
+        key = ("fact_price_eod", tenants, security_id)
+        if key not in self._memo or security_id not in self._splits:
+            return None
+        return self._memo[key], self._price_dates[key], self._splits[security_id]
+
+    def seed_price_and_splits(
+        self,
+        security_id: UUID,
+        bars: list[dict[str, Any]],
+        dates: list[date],
+        splits: list[dict[str, Any]],
+    ) -> None:
+        """Seed ``fact_price_eod`` and ``_splits`` for ``security_id`` from an unbounded PIT of the same
+        ``(asof, clock, known_at, data_tenant)``, trimming ``bars`` to this PIT's ``_lower('fact_price_eod')``
+        floor via binary search."""
+        tenants = self._tenants("fact_price_eod")
+        key = ("fact_price_eod", tenants, security_id)
+        lower = self._lower("fact_price_eod")
+        if lower is not None:
+            idx = bisect.bisect_left(dates, lower)
+            self._memo[key] = bars[idx:]
+            self._price_dates[key] = dates[idx:]
+        else:
+            self._memo[key] = list(bars)
+            self._price_dates[key] = list(dates)
+        self._splits[security_id] = list(splits)
 
     def split_events(self, security_id: UUID) -> list[dict[str, Any]]:
         """The SPLIT LIST for this security as this view knows it (split plan S2): the newest version of each

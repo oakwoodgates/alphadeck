@@ -89,6 +89,9 @@ def db(_migrated):
             "data_repair, security_change CASCADE"
         )
     conn.commit()
+    from app import call_cache
+
+    call_cache.CACHE.clear()
     try:
         yield conn
     finally:

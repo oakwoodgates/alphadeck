@@ -402,3 +402,97 @@ def test_flagged_in_view_names_each_flagged_company_once_by_ticker_under_its_dis
         (A, "ZZZ", "mixed-scale price history"),
     ]
     assert flagged_in_view(rows, {}) == ()
+
+
+# --- the price + split rows ``read_price_flags`` shares with the ``per_company`` after it -------------------
+
+
+class _Conn:
+    """A weakly-referenceable stand-in connection (the reads are stubbed; nothing is ever opened)."""
+
+
+def test_per_company_is_seeded_with_the_price_and_split_rows_read_price_flags_loaded(monkeypatch):
+    from domain.trading_days import closure_name
+    from signals import base as signals_base
+    from signals.base import PointInTimeData
+    from signals.horizons import display_bounds
+
+    sids = [uuid.uuid4() for _ in range(3)]
+    known_at = datetime(2026, 6, 2, 3, 0, tzinfo=timezone.utc)
+    tape = _weekdays(700)
+    price_calls: list[dict] = []
+    split_calls: list[list] = []
+    split_row = {"split_date": date(2026, 1, 5), "ratio": 2}
+
+    def as_of_many(conn, table, *, security_ids, valid_from_lower, **_):
+        price_calls.append({"table": table, "ids": list(security_ids), "lower": valid_from_lower})
+        return {
+            sid: [
+                {"d": d, "valid_from": d, "close": 10.0}
+                for d in tape
+                if valid_from_lower is None or d >= valid_from_lower
+            ]
+            for sid in security_ids
+        }
+
+    def split_rows(conn, *, security_ids, **_):
+        split_calls.append(list(security_ids))
+        return {sid: [split_row] for sid in security_ids}
+
+    monkeypatch.setattr(signals_base, "as_of_many", as_of_many)
+    monkeypatch.setattr(signals_base.split_repo, "as_of_rows", split_rows)
+
+    def read_flags(conn, **kw):
+        # the real reader's shape: ONE unbounded view over the chunk, its rows read, then the hook
+        pit = PointInTimeData(
+            conn,
+            asof=kw["asof"],
+            known_at=kw["known_at"],
+            workspace=kw["tenant_id"],
+            basket=kw["security_ids"],
+            bounds=None,
+            clock=kw["clock"],
+        )
+        for sid in kw["security_ids"]:
+            pit.price_history(sid)
+            pit.split_events(sid)
+        hook = baskets.flags_reader._ON_PIT.get()
+        assert hook is not None
+        hook(pit, list(kw["security_ids"]))
+        return {}
+
+    monkeypatch.setattr(baskets.flags_reader, "read_flags", read_flags)
+    monkeypatch.setattr(baskets.flags_reader, "run_reads", lambda: ({}, {}))
+    monkeypatch.setattr(
+        baskets.master, "tickers_for", lambda conn, ids, tenant_id: {s: "X" for s in ids}
+    )
+    monkeypatch.setattr(baskets, "get_piece", lambda *a, **k: (False, None))
+    monkeypatch.setattr(baskets, "put_piece", lambda *a, **k: None)
+    baskets._TAPE_STASH.clear()
+
+    conn = _Conn()
+    baskets.read_price_flags(conn, sids, ASOF, known_at=known_at, clock="record")
+    assert [c["lower"] for c in price_calls] == [None] and len(split_calls) == 1  # the flags' read
+
+    seen: dict = {}
+
+    def read(pit, sid):
+        seen[sid] = pit.price_history(sid)
+        assert pit.split_events(sid) == [split_row]
+        return len(seen[sid])
+
+    price_calls.clear()
+    split_calls.clear()
+    out = per_company(conn, sids, ASOF, known_at, "record", read, workspace=DEFAULT_TENANT_ID)
+    days = display_bounds()["fact_price_eod"]
+    lower = None if days is None else ASOF - timedelta(days=days)
+    want = [d for d in tape if (lower is None or d >= lower) and closure_name(d) is None]
+    assert price_calls == [] and split_calls == []  # no second read of either table
+    assert all([r["d"] for r in seen[sid]] == want for sid in sids)
+    assert set(out.values()) == {len(want)}
+
+    # the rows are consumed, and another connection never sees them
+    price_calls.clear()
+    per_company(_Conn(), sids, ASOF, known_at, "record", read, workspace=DEFAULT_TENANT_ID)
+    assert len(price_calls) == 1 and len(split_calls) == 1
+    baskets._TAPE_STASH.clear()
