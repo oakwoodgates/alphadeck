@@ -583,6 +583,14 @@ def tape_agreement(
     if tape is None or tape.session != first_session:
         return False, f"no stored bar on {first_session.isoformat()} to read"
     k = float(price_factor(ratio_from, ratio_to))
+    if direction(ratio_from, ratio_to) == "forward":
+        # by design (the constants above), and never a verdict on the tape: say what it did and what a
+        # split of this ratio would have done
+        return False, (
+            "the tape never confirms a forward split (a fall on rising volume reads like a crash); "
+            f"it stepped x{tape.step:.3g} on {first_session.isoformat()}, "
+            f"a {_fmt(ratio_to)}-for-{_fmt(ratio_from)} is x{k:.3g}"
+        )
     if k < TAPE_K_MIN:
         return False, (
             f"a {ratio_label(ratio_from, ratio_to)} moves the price by less than x{TAPE_K_MIN} up, which the "
@@ -629,6 +637,9 @@ def with_tape(d: SplitDecision, tape: TapeEvidence | None) -> SplitDecision:
         return replace(d, note=note)
     agree, why = tape_agreement(tape, d.ratio_from, d.ratio_to, d.effective_date)
     if not agree:
+        if direction(d.ratio_from, d.ratio_to) == "forward":
+            # tape_agreement's words for a forward split already say "never confirms"
+            return replace(d, note=f"{note} {why[0].upper()}{why[1:]}.")
         return replace(d, note=f"{note} The tape does not confirm it: {why}.")
     src = "Massive.com's" if via == VIA_POLYGON_TAPE else "the SEC filing's"
     return replace(

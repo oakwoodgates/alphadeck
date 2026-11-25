@@ -5,6 +5,7 @@ nights, never fit a number to pass."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -15,6 +16,8 @@ from domain.splits import (
     STATUS_NEEDS_REVIEW,
     VIA_POLYGON_TAPE,
     VIA_SEC_TAPE,
+    PolygonEvidence,
+    TapeEvidence,
     cluster_sec,
     decide,
     decide_sec_only,
@@ -67,9 +70,44 @@ def test_a_vendor_that_re_based_the_session_before_does_not_confirm():
 def test_the_tape_never_confirms_a_forward_split_or_a_small_one():
     tape = first_served("GAME", date(2026, 8, 24))
     agree, why = tape_agreement(tape, Decimal(1), Decimal(8), date(2026, 8, 24))  # 8-for-1 forward
+    assert not agree and why.startswith("the tape never confirms a forward split")
+    agree, why = tape_agreement(tape, Decimal(3), Decimal(2), date(2026, 8, 24))  # 2-for-3: k = 1.5
     assert not agree and "cannot tell" in why
-    agree, _ = tape_agreement(tape, Decimal(3), Decimal(2), date(2026, 8, 24))  # 2-for-3: k = 1.5
-    assert not agree
+
+
+def test_ita_the_note_on_a_forward_split_says_the_step_and_the_factor_it_expected():
+    # ITA: Massive.com lists a 3-for-1 first trading 2026-11-05 and the as-traded tape fell x0.32 that day on
+    # rising volume. By design the tape never confirms a forward split (a fall on rising volume reads like a
+    # crash); the note used to say "moves the price by less than x1.8 up", a reverse split's words. Only
+    # the words change: the decision stays needs-review, unconfirmed, on Massive.com's values.
+    poly = PolygonEvidence(
+        id="ita",
+        ticker="ITA",
+        execution_date=date(2026, 11, 5),
+        split_from=Decimal(1),
+        split_to=Decimal(3),
+    )
+    d = decide(poly, [], asof=date(2026, 11, 6))
+    assert (d.status, d.value_source) == (STATUS_NEEDS_REVIEW, SOURCE_POLYGON)
+    tape = TapeEvidence(
+        session=date(2026, 11, 5),
+        prior=date(2026, 11, 4),
+        prior_close=100.0,
+        close=32.0,
+        prior_volume=1_000_000.0,
+        volume=2_500_000.0,
+        prior_served_before=True,
+    )
+    out = with_tape(d, tape)
+    assert replace(out, note=d.note) == d  # nothing but the note differs from the decision as made
+    assert (out.status, out.confirmed_via) == (STATUS_NEEDS_REVIEW, None)
+    assert (
+        " The tape never confirms a forward split (a fall on rising volume reads like a crash); "
+        "it stepped x0.32 on 2026-11-05, a 3-for-1 is x0.333."
+    ) in out.note
+    assert "does not confirm" not in out.note and "less than" not in out.note
+    # the evidence stays
+    assert "Tape as first served: 2026-11-04 close 100 -> 2026-11-05 32 (x0.32)" in out.note
 
 
 def test_polygon_alone_plus_the_tape_confirms():
