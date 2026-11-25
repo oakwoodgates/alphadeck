@@ -106,8 +106,8 @@ its backend container (`python -m replay.run`, [REPLAY](REPLAY.md); `python -m b
 - **Images are built.** Prod has no bind mount, so a change is dormant until its service is rebuilt: `frontend` for
   a frontend change, `backend` for any backend half (a route, a field, a migration).
 - **The cron is its own image,** built from the same context with the replay extra and carrying
-  `backend/scripts/daily_cron.sh`. A change on the nightly path, in the cron's jobs or in that script needs `cron`
-  too; `deploy.sh` notes when the backend and cron shas differ.
+  `backend/scripts/daily_cron.sh`. `/admin/status` alarms when the backend and the cron's last pass ran different
+  shas, so `deploy.sh` rebuilds `cron` with any `backend` deploy, from one sha. `--backend-only` opts out.
 - **The boot migrates.** The backend's command (`backend/Dockerfile`) runs `db.wait`, `db.migrate`, then
   `pipeline.seed`, then uvicorn. Every backend start applies pending migrations to prod, which writes schema and
   data, so a deploy is not read-only and the backup comes first. `pipeline.seed` writes only when
@@ -117,7 +117,8 @@ its backend container (`python -m replay.run`, [REPLAY](REPLAY.md); `python -m b
   sha stamps NULL, which is honest; a wrong one is a false provenance claim. On a mounted backend it is the image's
   sha and can lag the code.
 - **The frontend restart.** A recreated backend gets a new network address and nginx keeps the one it resolved at
-  start, so `/api` answers 502 until the frontend restarts. `deploy.sh` restarts it after a backend-only rebuild.
+  start, so `/api` answers 502 until the frontend restarts. `deploy.sh` restarts it after a backend rebuild without
+  the frontend.
 - **Env changes need a recreate** (`up -d --no-deps --no-build <service>`, which `deploy.sh --env-only cron` runs),
   never `docker restart`. `PYTHONUNBUFFERED` is set in the image, so it needs a rebuild.
 
@@ -130,11 +131,12 @@ is WSL.
 - **It refuses, changing nothing,** on a linked worktree, no `.env`, a dirty tree, a branch other than `main`, `HEAD`
   not equal to `origin/main`, a New York clock inside 22:20 to 22:50 (it falls back to the `EST5EDT` rule when Git
   for Windows has no zoneinfo), a pass running (`cron.status` running, or an unfinished run inside its timeout) or
-  the call-of-record lock held. It reads the lock from `pg_locks` and never takes it.
+  the call-of-record lock held. When it will recreate the cron (`cron` or `backend` named, or `--env-only`; not
+  `--backend-only` or `--hold-cron`) it also refuses while the editions lock is held: a recreate kills a running
+  editions job ([EDITIONS](EDITIONS.md), "Cutting by hand"). It reads each lock from `pg_locks` and never takes it.
 - **It does not refuse on** the per-company write lock (an interrupted ingest leg rolls back and the next run
-  appends what is missing), the onboarding job (it resumes from its per-name checkpoint, and its lock dies with the
-  container), or **the editions lock**: a `cron` deploy kills a running hand `editions.run cut`
-  ([EDITIONS](EDITIONS.md), "Cutting by hand"). Do not deploy `cron` during a hand cut.
+  appends what is missing) or the onboarding job (it resumes from its per-name checkpoint, and its lock dies with the
+  container).
 - **Status reads carry a steward's token,** `ALPHADECK_OPS_TOKEN` from `.env`, never printed. Each read tries
   `[::1]`, then `127.0.0.1`, never `localhost`: Docker Desktop's IPv4 loopback forward can reset while IPv6
   answers.
@@ -281,7 +283,6 @@ The cron's schedule settings are in [CRON_SIDECAR](CRON_SIDECAR.md); the sign-in
 
 ## Known limits
 
-- `deploy.sh` does not check the editions lock, so a `cron` deploy can kill a hand cut.
 - `refresh-fork.sh` still runs the platform-facts move after migrating (a no-op on a dump taken after the
   cutover) and keeps `--v1-state`.
 - The sig stack duplicates what a fork does and has no branch of its own.
