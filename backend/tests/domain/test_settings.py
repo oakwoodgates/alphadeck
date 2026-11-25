@@ -286,6 +286,33 @@ def test_compose_passes_dynamic_registration_off_by_default():
     assert m.group(1) == "false"
 
 
+def test_the_one_row_held_insider_suggestion_does_not_agree_by_default_and_compose_passes_it(
+    monkeypatch,
+):
+    """W3-1 (decision W3-b): a one-row filing's period of report is suggested for its held row without agreeing,
+    unless the steward turns it on; the backend (the steward's queue) is the only reader, so compose passes it there
+    with a fallback EQUAL to the Settings default."""
+    import re
+    from pathlib import Path
+
+    monkeypatch.delenv("ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES", raising=False)
+    assert Settings().insider_hold_one_row_por_agrees is False
+    monkeypatch.setenv("ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES", "true")
+    assert Settings().insider_hold_one_row_por_agrees is True
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    backend = _compose_service_block(compose, "backend")
+    m = re.search(
+        r"^\s+ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES: "
+        r"\$\{ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES:-(\w+)\}",
+        backend,
+        re.M,
+    )
+    assert m is not None, "ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES is not passed to the backend"
+    assert m.group(1) == "false"
+
+
 def test_compose_passes_the_stewards_flag_webhook_to_the_backend_blank_by_default(monkeypatch):
     """V2 W5b (decision W-c): the backend raises users' flags, so it reads the steward's flag webhook; compose
     passes it with an EMPTY fallback, which the setting reads as unset (the flags then fall back to

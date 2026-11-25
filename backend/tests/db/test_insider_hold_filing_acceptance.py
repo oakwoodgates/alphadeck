@@ -168,14 +168,13 @@ def test_after_the_fill_the_hold_reads_its_filings_acceptance_and_can_be_ratifie
     it = _item(db, a)
     assert it.hold["accepted"] == ACCEPTED  # the RESOLVED acceptance
     assert (it.bucket, it.market_date, it.owed_why) == ("owed", MARKET_DAY, YEAR_RULE)
-    # a suggestion of the filing's market date that does NOT agree (no readable period of report)
-    assert (it.suggested, it.agrees) == (MARKET_DAY, False)
+    # rule W3-1: the filing's other rows write 2025-07-25 and its period of report (0025-07-25) reads 2025 for the
+    # suggestion, so it AGREES (it did not before: the 00YY period of report was unreadable to it); the placement
+    # rule still reads the raw text (``owed_why`` above). The other security's hold of the same row is its copy.
+    assert (it.suggested, it.agrees, it.suggestion.basis) == (MARKET_DAY, True, "sibling_row")
+    assert [ticker for _, ticker in it.copies] == ["HLDNB"]
 
     hid = it.id
-    with pytest.raises(ValueError, match="does not agree with the filing's period of report"):
-        repo.approve(db, hid, None, None, tenant_id=T)
-    db.rollback()
-    assert _counts(db) == after
     with pytest.raises(ValueError, match="is after the filing's market date 2025-07-25"):
         repo.approve(db, hid, date(2025, 7, 26), None, tenant_id=T)
     db.rollback()

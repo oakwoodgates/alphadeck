@@ -35,6 +35,7 @@ NAME_KEYS = (
     "last_error",
     "source",
     "in_live_basket",
+    "parked",
     "enqueued_at",
     "last_attempt_at",
     "finished_at",
@@ -52,6 +53,7 @@ def _pending_brief(n: dict[str, Any]) -> dict[str, Any]:
     put_cut(out, "last_error", n.get("last_error"), ERROR_CUT_BRIEF)
     out["enqueued_at"] = n.get("enqueued_at")
     out["in_live_basket"] = n.get("in_live_basket")
+    out["parked"] = n.get("parked")
     return out
 
 

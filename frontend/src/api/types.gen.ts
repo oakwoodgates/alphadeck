@@ -2200,9 +2200,10 @@ export interface paths {
          * List Holds
          * @description Every held insider row with its evidence, bucketed for the panel: owed your decision (loud); placed by
          *     rule, corrected by the filer, decided, dismissed and held Form 4/A rows (quiet). Each row carries the date
-         *     the filing wrote, its period of report and signature date, the suggested date and whether it agrees with
-         *     the filing, the filing's market date, why the rule did not place an owed row, and its standing decision;
-         *     the response names each bucket in the backend's words. Read-only.
+         *     the filing wrote, its period of report and signature date, the suggested date, where the filing writes it
+         *     and whether it agrees with the filing (or, withheld, the filing's own date window), its copies under the
+         *     issuer's other securities, the filing's market date, why the rule did not place an owed row, and its standing
+         *     decision; the response names each bucket in the backend's words. Read-only.
          */
         get: operations["list_holds_admin_insider_holds_get"];
         put?: never;
@@ -2226,10 +2227,11 @@ export interface paths {
          * Approve Hold
          * @description RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from
          *     now on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date — only a
-         *     suggestion that agrees with the filing's period of report; a weak one must be sent as the date. Undo
+         *     suggestion that agrees with the filing; one that does not must be sent as the date. Undo
          *     with ``POST /admin/insider-holds/decisions/{id}/revoke``. **404** unknown held row, **409** a decision
-         *     already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion,
-         *     no date and a suggestion that does not agree with the filing, a date that fails the year rule, or one
+         *     already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion (a
+         *     withheld one: the filing's window is in the message), no date and a suggestion that does not agree with the
+         *     filing, a date that fails the year rule, or one
          *     after the filing's market date (or none is known).
          */
         post: operations["approve_hold_admin_insider_holds__hold_id__approve_post"];
@@ -4625,6 +4627,19 @@ export interface components {
             reason?: string | null;
         };
         /**
+         * AdminHoldCopyOut
+         * @description The same filing row held under another security of the same issuer: its own held row (decided on its own).
+         */
+        AdminHoldCopyOut: {
+            /**
+             * Hold Id
+             * Format: uuid
+             */
+            hold_id: string;
+            /** Ticker */
+            ticker?: string | null;
+        };
+        /**
          * AdminHoldDeciderOut
          * @description Who decided: the steward's user id and display name (never an email).
          */
@@ -4953,12 +4968,18 @@ export interface components {
          *     never a correction). ``filed`` / ``accepted`` = SEC's filing date and acceptance instant (``None`` when not
          *     known). ``bucket`` = where it sits (owed / placed_by_rule / filer_corrected / decided / dismissed /
          *     amendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);
-         *     ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic
-         *     suggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.
-         *     ``market_date`` = the filing's market date, the latest date a ratified date may be (``None`` when unknown);
-         *     ``owed_why`` = why the placement rule did not place it, in plain words (``owed`` rows only, else ``None``).
-         *     ``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the
-         *     row, Undos included, oldest first. ``filing_url`` = the filing on EDGAR.
+         *     ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the suggestion
+         *     (``None`` = withheld because the filing contradicts it, or none can be made); ``agrees`` = it fits the filing's
+         *     period of report (a ``00YY`` year read as ``20YY``) and the filing's balances, so Approve may take it with no
+         *     date; ``suggestion_basis`` = where it comes from (``footnote`` / ``sibling_row`` / ``period_of_report`` — the
+         *     filing writes it —, ``arithmetic`` — the written month and day, a year back —, ``period_of_report_one_row``);
+         *     ``suggestion_words`` = the same in plain words, or why no date is offered; ``window_from`` / ``window_to`` =
+         *     the filing's own range for the row (``None`` when unknown). ``copies`` = the same filing row held under the
+         *     issuer's other securities, each decided on its own. ``market_date`` = the filing's market date, the latest
+         *     date a ratified date may be (``None`` when unknown); ``owed_why`` = why the placement rule did not place it,
+         *     in plain words (``owed`` rows only, else ``None``). ``decision`` = the standing steward decision (decided /
+         *     dismissed); ``history`` = every decision about the row, Undos included, oldest first. ``filing_url`` = the
+         *     filing on EDGAR.
          */
         AdminInsiderHoldOut: {
             /**
@@ -5009,6 +5030,16 @@ export interface components {
              * @default false
              */
             agrees: boolean;
+            /** Suggestion Basis */
+            suggestion_basis?: string | null;
+            /** Suggestion Words */
+            suggestion_words?: string | null;
+            /** Window From */
+            window_from?: string | null;
+            /** Window To */
+            window_to?: string | null;
+            /** Copies */
+            copies?: components["schemas"]["AdminHoldCopyOut"][];
             /** Market Date */
             market_date?: string | null;
             /** Owed Why */
@@ -15735,8 +15766,10 @@ export interface components {
         /**
          * OnboardingNameOut
          * @description X1 — one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;
-         *     ``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it — re-adding the
-         *     name resumes it). ``last_error`` is the latest leg failure (on a ``done`` row: a tail leg's note).
+         *     ``parked`` = waiting (queued or in progress) and ``in_live_basket`` false: no live basket holds it any more,
+         *     so the job leaves it — re-adding the name resumes it (the readout's ``counts.parked`` counts these rows; a
+         *     failed or done name is never parked). ``last_error`` is the latest leg failure (on a ``done`` row: a tail
+         *     leg's note).
          */
         OnboardingNameOut: {
             /**
@@ -15763,6 +15796,8 @@ export interface components {
             source: string;
             /** In Live Basket */
             in_live_basket: boolean;
+            /** Parked */
+            parked: boolean;
             /**
              * Enqueued At
              * Format: date-time

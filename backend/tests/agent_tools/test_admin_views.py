@@ -725,6 +725,14 @@ def test_the_default_holds_reply_is_counts_words_and_the_owed_rows_in_the_apis_o
         "https://www.sec.gov/"
     )
     assert len(row["owed_why"]) == 200 and row["owed_why_total_chars"] > 200
+    # W3-1: where the filing writes the suggestion, its words (cut, the length beside), the filing's window, copies
+    assert (row["suggestion_basis"], row["window_from"], row["window_to"], row["copies"]) == (
+        "period_of_report",
+        "2026-10-31",
+        "2026-11-02",
+        [],
+    )
+    assert len(row["suggestion_words"]) == 200 and row["suggestion_words_total_chars"] > 200
     assert {"decision", "why", "filing_night", "history"}.isdisjoint(row)
     assert reply["sections"] == dict([(b, None) for b in afx.HOLD_BUCKETS] + [("one", "t")])
     assert [p for _, p, _ in api.requests] == ["/admin/insider-holds"]
@@ -765,6 +773,8 @@ def test_one_reads_a_tickers_rows_in_full_with_their_history_and_pages_them():
     assert first["found"] == 18 and first["t"] == "tk01" and first["next_cursor_for"] == "holds"
     full = first["holds"][0]
     assert {"security_id", "accepted", "bucket", "reason", "history", "history_total"} <= set(full)
+    assert len(full["suggestion_words"]) == 600 and full["suggestion_words_total_chars"] > 600
+    assert full["copies"] == [] and full["suggestion_basis"] == "period_of_report"
     walked = _walk(api, "get_insider_holds", "holds", section="one", t="TK01")
     assert len(walked) == 18 and len({h["hold_id"] for h in walked}) == 18
     decided = [h for h in walked if h["bucket"] == "decided"]
@@ -831,6 +841,23 @@ def test_the_pending_section_walks_116_names_to_the_end_in_the_apis_order():
     assert [n["status"] for n in names[:4]] == ["failed", "failed", "failed", "in_progress"]
     recent = ok(api, "get_admin_onboarding", section="recent_done")
     assert recent["recent_done_total"] == 20 and len(recent["recent_done"]) == 20
+
+
+def test_a_parked_admin_onboarding_name_says_parked_in_the_brief_and_the_full_row():
+    payload = afx.admin_onboarding(pending=6, failed=1)
+    ame = payload["pending"][1]  # the in-progress name: loading, then its card was removed
+    assert ame["status"] == "in_progress"
+    ame.update(in_live_basket=False, parked=True)
+    payload["counts"]["parked"] = 1
+    api = FakeApi(admin_onboarding=payload)
+
+    brief = {n["ticker"]: n for n in ok(api, "get_admin_onboarding")["pending"]}
+    assert brief[ame["ticker"]]["parked"] is True
+    assert [t for t, n in brief.items() if n["parked"]] == [ame["ticker"]]
+
+    full = {n["ticker"]: n for n in ok(api, "get_admin_onboarding", section="pending")["pending"]}
+    assert full[ame["ticker"]]["parked"] is True
+    assert [t for t, n in full.items() if n["parked"]] == [ame["ticker"]]
 
 
 def test_an_admin_onboarding_queue_that_is_empty_reads_as_zero_counts():

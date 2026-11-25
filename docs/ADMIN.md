@@ -140,10 +140,11 @@ date that cannot be true"). Each row sits in one bucket judged by the same ladde
 - **Owed your decision** (loud, the only loud bucket), with why the placement rule did not place it.
 - Quiet: placed by rule, corrected by the filer, decided, dismissed, and held in a Form 4/A.
 
-Each row shows the filing's own words and a suggested date (arithmetic on the filing, never a model). Approve takes a
-date, by default only a suggestion that agrees with the period of report; the date must pass the year rule and fall
-on or before the filing's market date (422 otherwise). Dismiss needs a reason; undo returns the row to the state
-before. A decision counts from when it was made, on the public clock. `GET /admin/status` carries
+Each row shows the filing's own words and a suggested date read from the filing, never a model
+(`domain.insider_holds.suggest`; withheld with the filing's date window when contradicted). A row held under two
+securities names its copy. Approve takes a date, by default only a suggestion that agrees; the date must pass the
+year rule and fall on or before the filing's market date (422 otherwise). Dismiss needs a reason; undo returns the
+row to the state before. A decision counts from when it was made, on the public clock. `GET /admin/status` carries
 `insider_holds_owed`.
 
 ### Splits
@@ -182,7 +183,8 @@ job's newest artifact. Shown once the queue has held a name.
   checkpoint kept (409 not failed, 404 not queued).
 - **Stalled** (loud): names waiting and no run finished for `onboard_stalled_after_h`, so the sidecar's onboarding
   loop is not running. A day that hit its cap reads as quietly paused instead.
-- Waiting, loading and recently loaded names (quiet), each with its checkpoint; a name no live card holds is parked.
+- Waiting, loading and recently loaded names (quiet), each with its checkpoint; a name no live card holds is parked
+  (`parked: true` on its row in the API and in `get_admin_onboarding` / `get_onboarding`).
 
 `python -m pipeline.onboarding --status` prints the same from the CLI.
 
@@ -286,6 +288,7 @@ under `/admin/platform-values`.
 | `backup_stale_hours` | `domain/settings.py` | no |
 | `onboard_stalled_after_h`, `onboard_daily_max_names`, `onboard_max_attempts` | `domain/settings.py` | no |
 | `insider_amendment_review_horizon_days` (pins the review line) | `domain/settings.py` | no |
+| `insider_hold_one_row_por_agrees` | `domain/settings.py` | yes, backend |
 | The job time-to-live settings (`daily_job_*_ttl_s`, `backup_job_*_ttl_s`) | `domain/settings.py` | no |
 
 The feed thresholds are in [FEED_MONITORS](FEED_MONITORS.md); why "no" means the code default holds is in

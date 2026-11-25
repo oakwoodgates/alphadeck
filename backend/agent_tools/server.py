@@ -1305,7 +1305,9 @@ def build_server(
         "decided, dismissed or amendment_row pages one bucket; section=one with t reads that ticker's rows in "
         "full, with each row's history of decisions. Every row carries the date as the filing wrote it, its "
         "period of report and signature date (the filing's own text, evidence and never a correction), the "
-        "suggested date and agrees (the API's own arithmetic on the filing's fields), the filing's market "
+        "suggested date, agrees and suggestion_basis (the API's own reading of the filing's fields; with no "
+        "suggested date, window_from..window_to is the filing's own range), copies (the same row held under "
+        "another security, each decided on its own), the filing's market "
         "date, owed_why (why the rule did not place an owed row) and the EDGAR link. Reads only: a held row's "
         "date or dismissal changes only on the panel. Steward scope.",
         scope=STEWARD,

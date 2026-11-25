@@ -856,8 +856,10 @@ class PromoteOut(ThesisDetail):
 
 class OnboardingNameOut(BaseModel):
     """X1 — one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;
-    ``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it — re-adding the
-    name resumes it). ``last_error`` is the latest leg failure (on a ``done`` row: a tail leg's note).
+    ``parked`` = waiting (queued or in progress) and ``in_live_basket`` false: no live basket holds it any more,
+    so the job leaves it — re-adding the name resumes it (the readout's ``counts.parked`` counts these rows; a
+    failed or done name is never parked). ``last_error`` is the latest leg failure (on a ``done`` row: a tail
+    leg's note).
     """
 
     security_id: UUID
@@ -869,6 +871,7 @@ class OnboardingNameOut(BaseModel):
     last_error: str | None = None
     source: str
     in_live_basket: bool
+    parked: bool
     enqueued_at: datetime
     last_attempt_at: datetime | None = None
     finished_at: datetime | None = None
