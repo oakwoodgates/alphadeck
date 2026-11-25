@@ -125,6 +125,40 @@ PROMPTS: tuple[PromptSpec, ...] = (
         derived={"t_clause": lambda v: f", starting with {v['t']}" if v["t"] else ""},
         scope="steward",
     ),
+    PromptSpec(
+        "admin-triage",
+        "Everything waiting on the Admin page, in the order to work it: the held insider rows, the shared facts "
+        "queue, the price-feed repairs, the onboarding queue and the splits count, each with the review to run. "
+        "The Form 4/A panel has no tool and is named as read by hand. Steward scope.",
+        (),
+        scope="steward",
+    ),
+    PromptSpec(
+        "facts-review",
+        "The share counts and cash-and-burn values waiting on Admin > Shared facts: each candidate's own figure "
+        "beside its located filing passage. The model suggests Approve, Dismiss or the company page, never a "
+        "figure. Steward scope.",
+        (("t", False, None),),
+        derived={"t_clause": lambda v: f", starting with {v['t']}" if v["t"] else ""},
+        scope="steward",
+    ),
+    PromptSpec(
+        "insider-review",
+        "The held Form 4 rows owed on Admin > Held insider rows: the filing's dates as written, the suggested "
+        "date and whether it agrees, and why the rule did not place the row. The Form 4/A panel has no tool. "
+        "Steward scope.",
+        (("t", False, None),),
+        derived={"t_clause": lambda v: f", starting with {v['t']}" if v["t"] else ""},
+        scope="steward",
+    ),
+    PromptSpec(
+        "price-feed-review",
+        "The price-feed repairs owed on Admin > Price feed repairs: renamed names with the splice probe's "
+        "verdict, names never priced and members re-filed under a new CIK, each with its recommendation. "
+        "Steward scope.",
+        (),
+        scope="steward",
+    ),
 )
 PROMPT_NAMES = tuple(p.name for p in PROMPTS)
 # the scope each prompt needs: a prompt the caller does not hold is neither listed nor gettable (``AlphaDeckServer``)

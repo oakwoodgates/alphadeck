@@ -40,6 +40,10 @@ ARGS = {
     "card-data-check": {"thesis": "Thesis 01", "asof": "2026-11-05"},
     "discovery-review": {"thesis": "Thesis 01"},
     "splits-review": {"t": "TK01"},
+    "admin-triage": {},
+    "facts-review": {"t": "TK01"},
+    "insider-review": {"t": "TK01"},
+    "price-feed-review": {},
 }
 
 

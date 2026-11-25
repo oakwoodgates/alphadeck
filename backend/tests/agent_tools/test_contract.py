@@ -160,7 +160,13 @@ def test_prompts_list_advertises_exactly_the_table():
     listed = advertised()  # a plain caller: the steward-scoped prompt is hidden
     offered = [s for s in PROMPTS if s.scope == "read"]
     assert [p.name for p in listed] == [s.name for s in offered]
-    assert [s.name for s in PROMPTS if s.scope != "read"] == ["splits-review"]
+    assert [s.name for s in PROMPTS if s.scope != "read"] == [
+        "splits-review",
+        "admin-triage",
+        "facts-review",
+        "insider-review",
+        "price-feed-review",
+    ]
     assert list(PROMPT_NAMES) == [s.name for s in PROMPTS]
     for spec, prompt in zip(offered, listed, strict=True):
         assert prompt.description == spec.description, spec.name
@@ -176,7 +182,10 @@ def test_every_prompt_file_fills_every_placeholder(spec):
     if spec.check is not None:
         given["end"] = "2026-11-06"
     out = server_mod._prompt_handler(spec)(**given)
-    assert "{{" not in out and out != text
+    assert "{{" not in out
+    # a prompt that takes arguments has a placeholder to fill; one that takes none (the steward's admin-triage and
+    # price-feed-review) renders as its file
+    assert out != text or not spec.arguments
 
 
 def test_a8_a_contract_with_needs_text_names_it_and_one_without_falls_back_to_the_shared_wording():

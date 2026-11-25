@@ -191,3 +191,6 @@ def test_the_steward_line_adds_exactly_the_five_admin_reads_to_the_select_line()
     assert "does not list them" in text  # a plain user's session never lists them
     # the steward's recipes come from the tool, never from the skill
     assert "reads the steward recipes" in text and "`get_recipe(name)`" in text
+    # the line names every steward recipe, and the skill carries no block for any (``skill_sync.SKILL_PROMPTS``)
+    steward = [s.name for s in PROMPTS if s.scope != "read"]
+    assert len(steward) == 5 and all(f"`{name}`" in text for name in steward)

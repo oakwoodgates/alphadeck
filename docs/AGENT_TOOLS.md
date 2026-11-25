@@ -108,7 +108,8 @@ amendments panel has no tool: its GET returns every Form 4/A with its evidence (
 
 A tool or a prompt carries a scope. Every tool but five needs `read`, which every user holds; the Admin reads
 (`get_splits`, `get_admin_status`, `get_shared_facts`, `get_insider_holds` and `get_admin_onboarding`) and the
-`splits-review` prompt need `steward`. Three layers hold the line:
+five steward prompts (`splits-review`, `admin-triage`, `facts-review`, `insider-review` and `price-feed-review`)
+need `steward`. Three layers hold the line:
 
 1. The registry: a tool or prompt whose scope the caller lacks is neither listed nor callable (`forbidden` before
    any request; a prompt is refused as invalid params). `get_recipe` applies the prompt rule through the same helper
@@ -118,13 +119,13 @@ A tool or a prompt carries a scope. Every tool but five needs `read`, which ever
    its user is a super admin, and both are refused every write ([CONNECTORS](CONNECTORS.md)).
 3. The API: `/admin/*` is `require_super_admin`, and its 403 answers the tool as `forbidden` too.
 
-So a steward's session or a connector granted `read steward` lists 20 tools and 8 prompts; a plain user, or a
+So a steward's session or a connector granted `read steward` lists 20 tools and 12 prompts; a plain user, or a
 steward's app granted `read` only, lists 15 and 7. The stdio server learns its scopes once, from `GET /auth/me`
 with its token. Nothing under `agent_tools/` names a tenant: the API scopes every read to the token's workspace.
 
 ## Prompts, recipes and the Claude Code skill
 
-Eight guided reads, one prompt file each under `backend/agent_tools/prompts/`, registered from `PROMPTS`. Each
+Twelve guided reads, one prompt file each under `backend/agent_tools/prompts/`, registered from `PROMPTS`. Each
 file holds the call plan and its call and character budget; the agent's own reading goes under a separate heading
 and it says what it did not read.
 
@@ -138,9 +139,20 @@ and it says what it did not read.
 | `card-data-check` | `thesis`, `asof?` | `read` |
 | `discovery-review` | `thesis` | `read` |
 | `splits-review` | `t?` | `steward` |
+| `admin-triage` | none | `steward` |
+| `facts-review` | `t?` | `steward` |
+| `insider-review` | `t?` | `steward` |
+| `price-feed-review` | none | `steward` |
 
 `compare-rotation` refuses a broken argument rule (`prompt_args.check_compare`) before any read, as an
 invalid-params error. `test_server.py` caps each prompt file's size.
+
+**The steward's reviews.** The five steward prompts read the Admin panels through the steward tools. Each item they
+report says what waits, the evidence read, an "Agent suggestion:" naming one of the panel's own buttons and a
+"Where:" naming the Admin location. A suggestion is the model's and nothing applies it (invariant 10); a figure,
+date, symbol or CIK is never the model's. No tool reads the Insider amendments panel, so `admin-triage` and
+`insider-review` name it as read by hand. `test_card_data_check.py` bars the word "ratify" from every prompt file;
+each prompt has a call-plan test.
 
 **Recipes.** A recipe is a prompt read as a tool result, for a client that cannot run an MCP prompt (a Claude Code
 session's model cannot; a hosted client may not offer prompts). `get_recipe()` lists the recipes the caller holds,
@@ -153,7 +165,8 @@ read from the package's files: the tool makes no API request and is undated (`as
 
 **The Claude Code skill.** The skill `.claude/skills/alphadeck-agent/SKILL.md` is the generated Claude Code copy of
 the READ recipes: each block between `<!-- recipe:<name> -->` markers is the prompt file verbatim. A steward's
-recipes are in no copy, because a file cannot hold a scope: they come from `get_recipe`, which the server gates.
+recipes are in no copy, because a file cannot hold a scope: they come from `get_recipe`, which the server gates (the
+skill's setup names them).
 Edit the prompt file, never the block, then run `python -m agent_tools.skill_sync --write` (from `backend/`);
 `--check` exits 1 with a diff when a block differs, a read prompt has no block, a block names a steward prompt or
 a block names no prompt, and `tests/agent_tools/test_skill.py` runs the same check plus the skill's size and
@@ -252,7 +265,7 @@ added or removed, or a description whose meaning changes, bumps the MINOR.
 | Action | Who | Enforced by |
 |---|---|---|
 | The 15 `read` tools (`get_recipe` included) and 7 prompts | anyone signed in (session, token or OAuth app), on their own workspace | the API gate; `server.SCOPES` |
-| The 5 steward tools, `splits-review` and its recipe | the steward, or an app the steward granted `steward` | the registry (`SCOPES`, `prompt_held`), the OAuth role cap, `require_super_admin` |
+| The 5 steward tools, the 5 steward prompts and their recipes | the steward, or an app the steward granted `steward` | the registry (`SCOPES`, `prompt_held`), the OAuth role cap, `require_super_admin` |
 | Mint an MCP token (read-only) | the user (Settings > Agents) or the operator (CLI) | `/account/tokens`; `pipeline.users` |
 | Read prod from a builder agent | nobody | `.claude/agents/builder.md` |
 

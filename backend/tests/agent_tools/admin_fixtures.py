@@ -855,3 +855,164 @@ def admin_onboarding(pending: int = 116, failed: int = 3, recent: int = 20) -> d
             "history_legs": list(ONBOARD_LEGS),
         },
     )
+
+
+# --- GET /admin/status with a full Price feed repairs panel ---------------------------------------------------------
+
+
+def _probe(symbol: str, *, verified: bool, error: str | None = None) -> dict[str, Any]:
+    """One EDGAR-listed symbol as the splice probe judged it: verified = at least 5 shared dates within 1%."""
+    return {
+        "symbol": symbol,
+        "verified": verified,
+        "overlap": 0 if error else (250 if verified else 3),
+        "ratio": None if error else (1.0 if verified else 0.62),
+        "bars": 0 if error else 240,
+        "last_bar": None if error else "2026-11-05",
+        "error": error,
+    }
+
+
+def _repair_thesis(n: int) -> list[dict[str, Any]]:
+    return [{"id": uid("thesis", "repair", n), "name": "Thesis 01"}]
+
+
+def _renamed(n: int, *, verified: bool, probed: bool = True) -> dict[str, Any]:
+    ticker = f"TK{n:02d}"
+    candidates = [_probe(f"{ticker}N", verified=verified)] if probed else []
+    if probed and not verified:
+        candidates.append(_probe(f"{ticker}X", verified=False, error="vendor 404"))
+    return {
+        "security_id": uid("repair", "renamed", n),
+        "ticker": ticker,
+        "edge": "2026-10-30",
+        "theses": _repair_thesis(n),
+        "edgar_tickers": [f"{ticker}N"],
+        "edgar_name": f"Company {n:02d} Renamed Inc.",
+        "former_names": [
+            {"name": f"Company {n:02d} Inc.", "since": "2019-01-01", "until": "2026-09-30"}
+        ],
+        "name_change_filings": [{"filed": "2026-10-02", "accession": f"{n:010d}-26-000031"}],
+        "candidates": candidates,
+        "recommended": candidates[0]["symbol"] if probed and verified else None,
+        "probed": probed,
+        "price_symbol": ticker,
+        "change": None,
+    }
+
+
+def _unpriceable(n: int) -> dict[str, Any]:
+    return {
+        "security_id": uid("repair", "unpriceable", n),
+        "ticker": f"TK{n:02d}",
+        "theses": _repair_thesis(n),
+        "edgar_tickers": [] if n % 2 else [f"TK{n:02d}.TO"],
+        "vendor_error": "404 Not Found: " + text(120, n),
+        "price_symbol": None,
+        "change": None,
+    }
+
+
+def _successor(n: int, *, recommended: bool) -> dict[str, Any]:
+    cik = f"{1_000_000 + n:010d}"
+    new = f"{2_000_000 + n:010d}"
+    candidates = [
+        {
+            "cik": new,
+            "matched_on": [f"TK{n:02d}"],
+            "entity_name": f"Company {n:02d} Holdings plc",
+            "edgar_tickers": [f"TK{n:02d}"],
+            "former_names": [],
+            "succession_filings": [
+                {
+                    "form": "8-K12B",
+                    "filed": "2026-09-20",
+                    "accession": f"{n:010d}-26-000041",
+                    "items": [],
+                }
+            ],
+            "identity_read": True,
+            "recent_foreign_form": "20-F",
+            "files_domestic_forms": False,
+            "incorporation": "L3",
+            "error": None,
+        }
+    ]
+    if not recommended:  # SEC's map names two registrants: shown, never adoptable
+        candidates.append({**candidates[0], "cik": f"{3_000_000 + n:010d}", "identity_read": False})
+    return {
+        "security_id": uid("repair", "successor", n),
+        "ticker": f"TK{n:02d}",
+        "theses": _repair_thesis(n),
+        "stored_cik": cik,
+        "master_name": f"Company {n:02d} Inc.",
+        "old_entity_name": f"Company {n:02d} Inc.",
+        "old_former_names": [],
+        "deregistrations": [
+            {
+                "form": "15-12B",
+                "filed": "2026-09-15",
+                "accession": f"{n:010d}-26-000040",
+                "items": [],
+            }
+        ],
+        "candidates": candidates,
+        "recommended": new if recommended else None,
+        "current_cik": cik,
+        "change": None,
+    }
+
+
+def status_with_price_repairs(
+    renamed: int = 3, unpriceable: int = 4, successor: int = 2, closed: int = 2
+) -> dict[str, Any]:
+    """``GET /admin/status`` with a full Price feed repairs panel: ``renamed`` names (the first has a verified
+    successor symbol, the second a probe that verified none, the rest were not probed), ``unpriceable`` names never
+    priced, ``successor`` members that re-filed under a new CIK (the first has one recommended, the second an
+    ambiguous map), ``closed`` names that stopped trading, one acknowledged name and one known feed limitation.
+    """
+    body = status()
+    body["price_repairs"] = {
+        "asof": ASOF,
+        "ran_at": "2026-11-06T03:56:00Z",
+        "probe_evaluated": True,
+        "probe_error": None,
+        "renamed": [_renamed(n, verified=n == 1, probed=n <= 2) for n in range(1, renamed + 1)],
+        "unpriceable": [_unpriceable(20 + n) for n in range(unpriceable)],
+        "acknowledged": [
+            {
+                "id": uid("repair", "ack", 1),
+                "security_id": uid("repair", "ack-security", 1),
+                "ticker": "TK30",
+                "action": "acknowledge",
+                "reason": "Synthetic reason: kept unpriced.",
+                "basis": "operator:acknowledge",
+                "created_at": "2026-10-20T12:00:00Z",
+                "still_unpriceable": True,
+            }
+        ],
+        "closed": [
+            {
+                "security_id": uid("repair", "closed", n),
+                "ticker": f"TK{40 + n}",
+                "edge": "2026-09-30",
+                "thesis": "Thesis 01",
+                "kind": "price",
+                "closed_at": "2026-10-01",
+                "renamed": False,
+                "edgar_tickers": [],
+                "unpriceable": False,
+                "acknowledged": False,
+            }
+            for n in range(closed)
+        ],
+        "applied": [],
+        "expected_misses": closed + 1,
+        "successor_asof": ASOF,
+        "successor_evaluated": True,
+        "successor_error": None,
+        "successor": [_successor(50 + n, recommended=n == 0) for n in range(successor)],
+        "cik_applied": [],
+        "limitations": status()["price_repairs"]["limitations"],
+    }
+    return _dump(AdminStatusOut, body)
