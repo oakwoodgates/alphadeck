@@ -395,6 +395,7 @@ def test_the_default_status_reply_is_the_verdict_and_the_counts():
         "successor": 0,
         "limitations": 1,
         "closed": 0,
+        "deregistered": 0,  # W4-2: the unpriceable rows carrying a Form 15
     }
     assert set(reply["lines"]) == {
         "editions_nightly",

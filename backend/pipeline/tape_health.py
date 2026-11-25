@@ -124,7 +124,10 @@ UNPRICEABLE (Q8) is the third reading of a stopped price tape, beside closed and
 stored bar at all that neither explains (``is_unpriceable``). It is surfaced loudly (it pages once when new,
 through the same newly-stale diff) and stays on the Admin page until the operator ratifies it — sets a
 price symbol, acknowledges it ("keep it, unpriced": quiet thereafter, revocable), or removes it from the
-basket in the editor.
+basket in the editor. W4-2 — when EDGAR lists NO symbol for it and the company filed a Form 15, the row
+carries that DEREGISTRATION as evidence (``StaleTape.deregistered``: the Form 15 and the 8-K events before
+it, with SEC's item titles), so removing it is the recommended action. A field, never a class: the row stays
+unpriceable and loud, and nothing here removes or silences it.
 
 A closed name is NEVER dropped from the roster, the monitor, or the panel (#9) — the marker only
 RECLASSIFIES the stopped tape, and it is EXPECTED so it renders quietly and does not page as newly-stale
@@ -138,7 +141,7 @@ never a stored row to clear.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from functools import partial
 from typing import TYPE_CHECKING
@@ -148,7 +151,7 @@ from domain.feed_kinds import FUND_SHARES, PRICE, FeedKind, feed_kind
 from domain.price_feed_basis import is_rename_pin
 
 if TYPE_CHECKING:  # avoid importing the ingest module at import time (keeps the layering one-way)
-    from ingest.edgar.submissions import DelistingFiling
+    from ingest.edgar.submissions import DelistingFiling, Deregistration
     from pipeline.ingest_thesis import NameResult
 
 # The proximity window's defaults, in calendar days around the tape's last bar (``classify_stop``). The
@@ -212,7 +215,12 @@ class StaleTape:
     append-only, revocable ``price_feed_ack`` row): it goes QUIET like a closed row (no newly-stale page, a
     quiet count on Admin, still listed — #9), and its vendor 404 counts as expected (T3). Only ever set on an
     unpriceable row: an acknowledgment cannot silence a tape that has bars and then stopped (that is a feed
-    gap, whatever was acknowledged before)."""
+    gap, whatever was acknowledged before).
+
+    ``deregistered`` (W4-2) is EVIDENCE, never a class: the company's newest Form 15 and the 8-K events filed
+    before it (``ingest.edgar.submissions.deregistration``), set only on an unpriceable row whose EDGAR list
+    was read and is EMPTY (``mark_deregistered``). ``closed`` / ``quiet`` / ``unpriceable`` read exactly as
+    without it; the steward removes the name in the basket editor."""
 
     ticker: str | None
     security_id: UUID
@@ -222,6 +230,7 @@ class StaleTape:
     renamed: bool = False
     edgar_tickers: tuple[str, ...] | None = None
     acknowledged: bool = False
+    deregistered: Deregistration | None = None
 
     @property
     def label(self) -> str:
@@ -347,6 +356,17 @@ def classify_stop(
     return StopClassification(edgar_tickers=listed)
 
 
+def mark_deregistered(row: StaleTape, evidence: Deregistration | None) -> StaleTape:
+    """W4-2 — ``row`` carrying ``evidence`` (a company's Form 15 and the 8-K events before it) when it is an
+    UNPRICEABLE price row whose EDGAR list was read and is EMPTY (``edgar_tickers == ()``); else ``row``
+    unchanged. A Form 15 beside current tickers (a class deregistered while the company trades on), a stopped
+    tape that had bars, a renamed name and a name whose list was never read carry nothing. Pure; the class
+    fields are untouched (a field, never a class)."""
+    if evidence is None or not row.unpriceable or row.edgar_tickers != ():
+        return row
+    return replace(row, deregistered=evidence)
+
+
 def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:
     """Has this tape stopped? ``True`` when it has NO bars at all (``edge is None``) or its latest bar is
     ``stale_days`` or more CALENDAR days before ``asof``.
@@ -437,8 +457,16 @@ def stale_tapes(
     display label rides along for the hook's log line. The nightly pass binds it to its EDGAR client
     (``ingest.edgar.form25.delisted_class_is_other``); it runs only inside ``classify_stop``, which runs
     only for a row already judged STALE, so a live tape never costs a document read. ``None`` = the T1
-    rule (every Form 25 in the window counts)."""
-    return _stale(
+    rule (every Form 25 in the window counts).
+
+    W4-2 — each row then gets its name's ``r.deregistration`` through ``mark_deregistered`` (the first
+    result per security, the dedup's own pick), which keeps it only on a never-priced row EDGAR lists no
+    symbol for."""
+    results = list(results)
+    evidence: dict[UUID, Deregistration | None] = {}
+    for r in results:
+        evidence.setdefault(r.security_id, getattr(r, "deregistration", None))
+    rows = _stale(
         (
             (
                 r.security_id,
@@ -469,6 +497,7 @@ def stale_tapes(
         asof=asof,
         stale_days=stale_days,
     )
+    return tuple(mark_deregistered(s, evidence.get(s.security_id)) for s in rows)
 
 
 def stale_fund_shares(

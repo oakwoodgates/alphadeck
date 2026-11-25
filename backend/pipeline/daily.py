@@ -2140,6 +2140,13 @@ def _report(
             # cross-class one named with both class marks, never offered as the Adopt)
             if s.unpriceable and s.security_id in unpriced_recs:
                 unpriceable += f" · {describe_unpriced(unpriced_recs[s.security_id])}"
+            # W4-2 — EDGAR lists no symbol and the company filed a Form 15: the form, its date and the 8-K
+            # events before it with SEC's item titles, and the recommended action (the steward's click)
+            if s.deregistered is not None:
+                unpriceable += (
+                    f" · DEREGISTERED — {s.deregistered.describe()}; recommended: remove it from the "
+                    "basket (basket editor)"
+                )
             print(
                 f"  {s.label}: last {kind.edge_noun} {s.edge.isoformat() if s.edge else 'never'}"
                 f"{renamed}{unpriceable}"

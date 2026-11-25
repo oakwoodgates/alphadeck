@@ -467,10 +467,13 @@ def build_run_payload(
     duration_s, rows: [{security_id, ticker, edge, edgar_tickers, recommended, candidates: [{symbol,
     verified, overlap, ratio, bars, last_bar, error}], edgar_name, former_names, name_change_filings}]}` —
     a pending recommendation the Admin panel offers for the operator's Adopt. Each `tape_stale` row also
-    carries `unpriceable` (Q8: no stored bar ever, neither closed nor renamed) and `acknowledged` (the
-    operator's "keep it, unpriced" — quiet, never paged); each thesis carries `expected_price_misses`
-    (`[{security_id, ticker, reason, error}]` — the vendor 404s T3 excused as expected, `reason` `closed` or
-    `acknowledged`). An artifact written before these keys reads them absent / false / empty (`.get`).
+    carries `unpriceable` (Q8: no stored bar ever, neither closed nor renamed), `acknowledged` (the
+    operator's "keep it, unpriced" — quiet, never paged) and `deregistered` (W4-2: on a never-priced row
+    EDGAR lists no symbol for, the Form 15 and the 8-K events before it — `{form, filed, accession,
+    primary_doc, cik, events: [{form, filed, accession, items}]}`; else null); each thesis carries
+    `expected_price_misses` (`[{security_id, ticker, reason, error}]` — the vendor 404s T3 excused as
+    expected, `reason` `closed` or `acknowledged`). An artifact written before these keys reads them absent
+    / false / empty (`.get`).
 
     T7 — THE SUCCESSOR-CIK DETECTOR. `successor_cik` (`pipeline/successor_cik.SuccessorScan.payload`) —
     `{evaluated, error, judged, no_ticker, fetches, duration_s, rows: [{security_id, ticker, stored_cik,
@@ -737,6 +740,11 @@ def build_run_payload(
                         # acknowledged it ("keep it, unpriced" — a quiet row that never pages)
                         "unpriceable": s.unpriceable,
                         "acknowledged": s.acknowledged,
+                        # W4-2 — a never-priced row EDGAR lists no symbol for: the company's Form 15 and
+                        # the 8-K events before it (item CODES; the titles are derived on read), else null
+                        "deregistered": (
+                            s.deregistered.to_json() if s.deregistered is not None else None
+                        ),
                     }
                     for s in r.tape_stale
                 ],

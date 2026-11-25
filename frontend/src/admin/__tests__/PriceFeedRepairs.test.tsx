@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -442,6 +442,320 @@ describe("PriceFeedRepairs — the known feed limitations (0056)", () => {
   it("a limitation is NOT a handled id: a marked name that stopped stays a stale feed on the freshness card", () => {
     const ids = repairHandledIds({ ...EMPTY, limitations: [SCE_MARK] } as unknown as AdminPriceRepairsOut);
     expect(ids.has(SCE_ID)).toBe(false);
+  });
+});
+
+// W4-3 — a NEVER-PRICED name's probed candidates and its deregistration evidence. TKAAY is the backend test's
+// ADR member (SYNTHETIC METALS PLC/ADR): EDGAR lists its ordinary line TKAAF (480 bars, a cross-class listing),
+// TKAAN (30 bars, class unknown) and TKAAX (its fetch 404ed). TKBK is a company that filed a Form 15 with
+// bankruptcy / control-change 8-Ks around it, and lists no symbol.
+const TKAAY_ID = "5a1c0f0e-5a2b-4a0e-9b6e-0f6f2d5a0c01";
+const TKCC_ID = "5a1c0f0e-5a2b-4a0e-9b6e-0f6f2d5a0c02";
+const TKBK_ID = "5a1c0f0e-5a2b-4a0e-9b6e-0f6f2d5a0c03";
+const VENDOR_404 =
+  "Client error '404 Not Found' for url 'https://query1.finance.yahoo.com/v8/finance/chart/TKAAY?interval=1d&range=2y'";
+const ONLY_SYMBOLS = ["TKAAY", "TKAAF", "TKAAN", "TKAAX"];
+
+const TKAAY = {
+  security_id: TKAAY_ID,
+  ticker: "TKAAY",
+  theses: [{ id: "sm", name: "Synthetic Minerals" }],
+  edgar_tickers: ONLY_SYMBOLS,
+  vendor_error: VENDOR_404,
+  price_symbol: null,
+  change: null,
+  member_class: "adr",
+  candidates: [
+    { symbol: "TKAAF", verified: false, overlap: 0, bars: 480, last_bar: "2026-10-15", listing_class: "ordinary" },
+    { symbol: "TKAAN", verified: false, overlap: 0, bars: 30, last_bar: "2026-10-15", listing_class: null },
+    {
+      symbol: "TKAAX",
+      verified: false,
+      overlap: 0,
+      bars: 0,
+      error: "HTTPStatusError: Client error '404 Not Found' for url 'https://x.test/TKAAX'",
+      listing_class: null,
+    },
+  ],
+  recommended: null,
+  probed: true,
+  deregistered: null,
+};
+
+// the recommended shape: a candidate of the member's own class, with bars to the last pass
+const TKCC = {
+  ...TKAAY,
+  security_id: TKCC_ID,
+  ticker: "TKCCY",
+  edgar_tickers: ["TKCCY", "TKCCX"],
+  candidates: [
+    { symbol: "TKCCX", verified: false, overlap: 0, bars: 250, last_bar: "2026-10-16", listing_class: "adr" },
+  ],
+  recommended: "TKCCX",
+};
+
+const TKBK = {
+  security_id: TKBK_ID,
+  ticker: "TKBK",
+  theses: [{ id: "sc", name: "Synthetic Care" }],
+  edgar_tickers: [],
+  vendor_error: VENDOR_404,
+  price_symbol: null,
+  change: null,
+  member_class: null,
+  candidates: [],
+  recommended: null,
+  probed: false,
+  deregistered: {
+    form: "15-12G",
+    filed: "2026-05-20",
+    accession: "0009999831-26-000004",
+    filing_url: "https://www.sec.gov/Archives/edgar/data/9999831/000999983126000004/",
+    events: [
+      {
+        form: "8-K15D5",
+        filed: "2026-05-20",
+        accession: "0009999831-26-000003",
+        items: ["1.03", "3.03", "5.01"],
+        item_titles: [
+          "Bankruptcy or Receivership",
+          "Material Modification to Rights of Security Holders",
+          "Changes in Control of Registrant",
+        ],
+        filing_url: "https://www.sec.gov/Archives/edgar/data/9999831/000999983126000003/",
+      },
+      {
+        form: "8-K",
+        filed: "2026-05-07",
+        accession: "0009999831-26-000002",
+        items: ["1.03"],
+        item_titles: ["Bankruptcy or Receivership"],
+        filing_url: "https://www.sec.gov/Archives/edgar/data/9999831/000999983126000002/",
+      },
+    ],
+  },
+};
+
+const unpriced = (...rows: Record<string, unknown>[]) => show({ ...EMPTY, unpriceable: rows });
+const cand = (symbol: string) =>
+  screen.getAllByTestId("adm-unpriced-candidate").find((el) => el.textContent?.startsWith(symbol)) as HTMLElement;
+
+describe("PriceFeedRepairs — a never-priced name's candidates (W4-3)", () => {
+  it("each candidate reads symbol · bars · class mark, with the member's class when they differ", () => {
+    unpriced(TKAAY);
+    expect(screen.getAllByTestId("adm-unpriced-candidate")).toHaveLength(3);
+    expect(cand("TKAAF").textContent).toContain(
+      "TKAAF · 480 bars to 2026-10-15 · foreign ordinary by the OTC naming convention; this member is an ADR",
+    );
+    // class unknown: nothing about a class; a failed fetch says why, plainly
+    expect(cand("TKAAN").textContent).toContain("TKAAN · 30 bars to 2026-10-15");
+    expect(cand("TKAAN").textContent).not.toContain("naming convention");
+    expect(cand("TKAAX").textContent).toContain("TKAAX · fetch failed (404 Not Found)");
+    expect(screen.getByRole("button", { name: "Adopt TKAAF" })).toBeTruthy();
+  });
+
+  it("the row header does not list again the symbols its candidate lines carry", () => {
+    unpriced(TKAAY);
+    const head = screen.getByTestId("adm-unpriceable-head").textContent ?? "";
+    expect(head).toContain("TKAAY — no stored bar · vendor 404 Not Found");
+    expect(head).toContain("Synthetic Minerals");
+    expect(head).not.toContain("EDGAR");
+    expect(head).not.toContain("TKAAF");
+    // a symbol EDGAR lists that has no candidate line (not probed) is still named
+    unpriced({ ...TKAAY, edgar_tickers: [...ONLY_SYMBOLS, "TKAAZ"] });
+    expect(screen.getAllByTestId("adm-unpriceable-head")[1].textContent).toContain("EDGAR also lists TKAAZ");
+  });
+
+  it("a class-matching candidate with bars to the last pass is the recommended one, marked once", () => {
+    unpriced(TKCC);
+    const line = cand("TKCCX");
+    expect(line.textContent).toContain(
+      "TKCCX · 250 bars to 2026-10-16 · ADR by the OTC naming convention, the member's own class",
+    );
+    expect(within(line).getAllByTestId("adm-recommended")).toHaveLength(1);
+    expect(screen.getAllByTestId("adm-recommended")).toHaveLength(1);
+    const adopt = screen.getByRole("button", { name: "Adopt TKCCX" });
+    expect(adopt.className).toContain("primary");
+    expect(adopt).toBeEnabled(); // same class: no box, nothing to confirm
+    expect(within(line).queryByRole("checkbox")).toBeNull();
+  });
+
+  it("no candidate is marked recommended when the server recommends none (the cross-class line never is)", () => {
+    unpriced(TKAAY);
+    expect(screen.queryByTestId("adm-recommended")).toBeNull();
+    for (const b of screen.getAllByRole("button", { name: /^Adopt TKAA/ })) {
+      expect(b.className).not.toContain("primary");
+    }
+  });
+
+  it("an Adopt with no class conflict sends today's request, and nothing fires on mount", async () => {
+    unpriced(TKAAY, TKCC);
+    expect(h.adopt.mutate as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Adopt TKAAN" }));
+    const calls = (h.adopt.mutate as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toStrictEqual({ securityId: TKAAY_ID, symbol: "TKAAN" }); // no confirmClass key
+    await userEvent.click(screen.getByRole("button", { name: "Adopt TKCCX" }));
+    expect(calls[1][0]).toStrictEqual({ securityId: TKCC_ID, symbol: "TKCCX" });
+  });
+
+  it("an Adopt with no bars or a failed fetch is disabled: the server would refuse it", () => {
+    unpriced(TKAAY);
+    expect(screen.getByRole("button", { name: "Adopt TKAAX" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Adopt TKAAN" })).toBeEnabled();
+  });
+
+  it("a cross-class Adopt stays disabled until 'I checked the price basis' is ticked, then sends confirmClass", async () => {
+    unpriced(TKAAY);
+    const adopt = screen.getByRole("button", { name: "Adopt TKAAF" });
+    const box = within(cand("TKAAF")).getByRole("checkbox", { name: "I checked the price basis" });
+    expect(adopt).toBeDisabled();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1); // only the cross-class line asks
+    await userEvent.click(adopt); // a disabled button fires nothing
+    expect(h.adopt.mutate as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+
+    await userEvent.click(box);
+    expect(adopt).toBeEnabled();
+    await userEvent.click(box); // un-ticking closes it again
+    expect(adopt).toBeDisabled();
+    await userEvent.click(box);
+    await userEvent.click(adopt);
+    const calls = (h.adopt.mutate as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toStrictEqual({ securityId: TKAAY_ID, symbol: "TKAAF", confirmClass: true });
+  });
+
+  it("the box belongs to its candidate: ticking one line opens no other", async () => {
+    const twoOrdinary = {
+      ...TKAAY,
+      candidates: [
+        TKAAY.candidates[0],
+        { ...TKAAY.candidates[0], symbol: "TKAAG", bars: 12 },
+      ],
+    };
+    unpriced(twoOrdinary);
+    await userEvent.click(within(cand("TKAAF")).getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: "Adopt TKAAF" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Adopt TKAAG" })).toBeDisabled();
+  });
+
+  it("an unknown class on either side asks for no box (the server's rule: both known and different)", () => {
+    unpriced({ ...TKAAY, member_class: null });
+    expect(within(cand("TKAAF")).queryByRole("checkbox")).toBeNull();
+    expect(cand("TKAAF").textContent).toContain("TKAAF · 480 bars to 2026-10-15 · foreign ordinary by the OTC naming convention");
+    expect(cand("TKAAF").textContent).not.toContain("this member");
+    expect(screen.getByRole("button", { name: "Adopt TKAAF" })).toBeEnabled();
+  });
+
+  it("a refused adopt (409) shows the server's own message, once", () => {
+    const why =
+      "TKAAF is a foreign ordinary share and TKAAY is an ADR (class marks by convention: EDGAR's /ADR name, the OTC fifth letter): pricing one class on the other puts the cap off by the ADS ratio — check the price basis and send confirm_class to adopt it";
+    h.adopt = { ...m(), isError: true, error: { detail: why } };
+    unpriced(TKAAY);
+    expect(screen.getAllByText(why)).toHaveLength(1);
+  });
+
+  it("an adopted row shows what was applied and offers no candidate to adopt again", () => {
+    unpriced({ ...TKAAY, change: { ...CHANGE, security_id: TKAAY_ID, ticker: "TKAAY", new_symbol: "TKAAF", name_changed: false } });
+    expect(screen.getByTestId("adm-applied-line").textContent).toContain("set to TKAAF");
+    expect(screen.queryByTestId("adm-unpriced-candidate")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Adopt / })).toBeNull();
+  });
+
+  it("a row from an older server (none of the new fields) keeps today's display", () => {
+    unpriced(WONDF);
+    const row = screen.getByTestId("adm-unpriceable-row");
+    expect(screen.getByTestId("adm-unpriceable-head").textContent).toBe(
+      "WONDF — no stored bar · vendor 404 Not Found · EDGAR lists no symbol · The Everything Exchange",
+    );
+    expect(screen.queryByTestId("adm-unpriced-candidate")).toBeNull();
+    expect(screen.queryByTestId("adm-recommended")).toBeNull();
+    expect(screen.queryByTestId("adm-deregistered")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    // the actions in today's order, the removal link last and not labeled as a recommendation
+    const acts = within(screen.getByTestId("adm-unpriceable-actions"));
+    const order = [...row.querySelectorAll("a, button, input")].map((el) => el.getAttribute("aria-label") ?? el.textContent);
+    expect(order).toEqual([
+      "vendor symbol for WONDF",
+      "Set price symbol",
+      "reason to keep WONDF unpriced",
+      "Acknowledge — keep unpriced",
+      "Remove from basket →",
+    ]);
+    expect(acts.getByRole("link", { name: "Remove from basket →" }).getAttribute("href")).toBe("/workbench");
+  });
+});
+
+describe("PriceFeedRepairs — a deregistered never-priced name (W4-3)", () => {
+  it("shows the Form 15, its filed date, each event's SEC item titles and a link to every filing", () => {
+    unpriced(TKBK);
+    const ev = screen.getByTestId("adm-deregistered");
+    expect(ev.textContent).toContain("Deregistered");
+    expect(ev.textContent).toContain("15-12G filed 2026-05-20");
+    const events = within(ev).getAllByTestId("adm-dereg-event");
+    expect(events.map((e) => e.textContent)).toEqual([
+      "8-K15D5 filed 2026-05-20 — Bankruptcy or Receivership; Material Modification to Rights of Security Holders; Changes in Control of Registrant",
+      "8-K filed 2026-05-07 — Bankruptcy or Receivership",
+    ]);
+    const hrefs = Object.fromEntries(
+      within(ev)
+        .getAllByRole("link")
+        .map((a) => [a.textContent, a.getAttribute("href")]),
+    );
+    expect(hrefs["15-12G"]).toBe("https://www.sec.gov/Archives/edgar/data/9999831/000999983126000004/");
+    expect(within(events[0]).getByRole("link", { name: "8-K15D5" }).getAttribute("href")).toBe(
+      "https://www.sec.gov/Archives/edgar/data/9999831/000999983126000003/",
+    );
+    expect(within(events[1]).getByRole("link", { name: "8-K" }).getAttribute("href")).toBe(
+      "https://www.sec.gov/Archives/edgar/data/9999831/000999983126000002/",
+    );
+  });
+
+  it("puts 'Remove from basket →' first among the actions, labeled as the recommended one", async () => {
+    unpriced(TKBK);
+    const acts = screen.getByTestId("adm-unpriceable-actions");
+    const first = acts.querySelector("a, button, input") as HTMLElement;
+    expect(first.textContent).toBe("Remove from basket →");
+    expect(first.getAttribute("href")).toBe("/workbench"); // the basket editor the panel already links
+    expect(within(acts).getByTestId("adm-recommended").textContent).toBe("recommended");
+    expect(screen.getAllByTestId("adm-recommended")).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "Remove from basket →" })).toHaveLength(1);
+    // the other two choices stay on the row, after it
+    expect(within(acts).getByRole("button", { name: "Acknowledge — keep unpriced" })).toBeTruthy();
+    expect(within(acts).getByRole("button", { name: "Set price symbol" })).toBeTruthy();
+    expect(h.ack.mutate as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
+  it("says nothing twice: the header carries no EDGAR clause (the evidence says it) and no candidate lines show", () => {
+    unpriced(TKBK);
+    expect(screen.getByTestId("adm-unpriceable-head").textContent).toBe(
+      "TKBK — no stored bar · vendor 404 Not Found · Synthetic Care",
+    );
+    expect(screen.queryByTestId("adm-unpriced-candidate")).toBeNull();
+  });
+
+  it("an event with no evidence items is just its form and date; a filing with no link is plain words", () => {
+    const bare = {
+      ...TKBK,
+      deregistered: {
+        ...TKBK.deregistered,
+        filing_url: null,
+        events: [{ form: "8-K15D5", filed: "2026-05-20", accession: "0009999831-26-000003", items: [], item_titles: [], filing_url: null }],
+      },
+    };
+    unpriced(bare);
+    const ev = screen.getByTestId("adm-deregistered");
+    expect(within(ev).getByTestId("adm-dereg-event").textContent).toBe("8-K15D5 filed 2026-05-20");
+    expect(ev.textContent).toContain("15-12G filed 2026-05-20");
+    expect(within(ev).queryAllByRole("link")).toHaveLength(0);
+  });
+
+  it("a row without the evidence is not marked recommended, whatever else it shows", () => {
+    unpriced(TKAAY, TKBK);
+    const [aay, bk] = screen.getAllByTestId("adm-unpriceable-row");
+    expect(within(aay).queryByTestId("adm-recommended")).toBeNull();
+    expect(within(bk).getByTestId("adm-recommended")).toBeTruthy();
+    expect(within(aay).getByRole("link", { name: "Remove from basket →" })).toBeTruthy(); // still offered, unlabeled
   });
 });
 

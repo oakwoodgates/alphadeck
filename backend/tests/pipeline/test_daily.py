@@ -3129,3 +3129,40 @@ def test_report_names_the_never_priced_probe_beside_the_UNPRICEABLE_row(capsys):
     assert "ordinary" in line and "adr" in line.lower()
     line = next(x for x in out.splitlines() if x.strip().startswith("TKMM: last bar never"))
     assert "Adopt TKMMN on the Admin page" in line
+
+
+def test_report_names_a_deregistered_never_priced_rows_FORM_15_and_its_events(capsys):
+    """W4-2: an unpriceable row carrying a deregistration names the Form 15, its date, and each 8-K event
+    with SEC's item titles, and says the recommended action is removing it in the basket editor. The row
+    stays in the loud STALE block (a field, never a class)."""
+    from ingest.edgar.submissions import Deregistration, DeregistrationEvent
+
+    sid = uuid.uuid4()
+    d = Deregistration(
+        form="15-12G",
+        filed=date(2026, 6, 10),
+        accession="0009999841-26-000002",
+        events=(
+            DeregistrationEvent(
+                form="8-K",
+                filed=date(2026, 6, 4),
+                accession="0009999841-26-000001",
+                items=("2.01", "3.03", "5.01"),
+            ),
+        ),
+    )
+    res = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        tape_stale=(daily.StaleTape("TKAQ", sid, None, edgar_tickers=(), deregistered=d),),
+    )
+    daily._report([res], probe=RenameProbe(evaluated=True))
+    out = capsys.readouterr().out
+
+    assert "STALE PRICE TAPES" in out.upper()
+    line = next(x for x in out.splitlines() if x.strip().startswith("TKAQ: last bar never"))
+    assert "UNPRICEABLE" in line and "DEREGISTERED" in line
+    assert "15-12G filed 2026-06-10" in line
+    assert "8-K 2026-06-04: Completion of Acquisition or Disposition of Assets" in line
+    assert "remove it from the basket" in line
