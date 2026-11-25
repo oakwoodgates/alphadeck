@@ -150,7 +150,7 @@ never a thesis name or card content.
 | The monitors, self-audit, artifact and health page | Machine (the nightly pass) | Run only inside `run_daily_pass` |
 | `GET /admin/status`: the cron verdict, freshness, feeds, monitors, missing closes | Steward | `require_super_admin` on the admin router (`app/main.py`); `tests/app/test_auth_gate.py` |
 | Price feed repairs: `/admin/price-feed/...` adopt, set-symbol, acknowledge, limited-history, adopt-cik and their undo or revoke | Steward | Same |
-| Splits panel: `/admin/splits/...` confirm, reject, revoke, restore, jump dismiss and undo | Steward | Same |
+| Splits panel: `/admin/splits/...` confirm (a source's or cited values), reject, revoke, restore, jump dismiss and undo | Steward | Same |
 | Form 4/A and held-row queues: `/admin/insider-amendments/...`, `/admin/insider-holds/...` | Steward | Same |
 | The Cockpit data flag and the "price history limited" note | Any signed-in user, for their workspace's theses | `require_user`; display only |
 

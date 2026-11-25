@@ -1,5 +1,5 @@
 """The split list (migration 0052, split plan S1) — every version of every split, its as-of read, and the
-operator's four verbs, each with a visible inverse (WB#1).
+operator's verbs, each with a visible inverse (WB#1).
 
 **The history read (S2, the public clock).** ``current_rows`` / ``as_of_rows(clock="public")``: a split counts
 from its OWN publication (``db.public_clock.split_versions_sql``), and a view reads its newest version.
@@ -17,6 +17,10 @@ the caller names the CURRENT version — a stale click is refused, never applied
   first session. A first session still ahead lands as ``announced`` (a split is never "in effect" before
   its day). A date that differs from the key re-dates the split — still the same logical split, refused if
   another live split of the same security already sits on that date. Inverse: ``revoke``.
+- ``confirm_steward`` a needs-review split with the steward's OWN values (decision D3, migration 0215: a ratio and
+  a first session neither source states — POM's ADR termination), citing a document (``cited_url``): the same
+  refusals as ``confirm``, plus the stored tape's verdict the caller read (``tape_why``), refused unless the
+  steward overrides it (``tape_override`` records that). ``value_source`` ``steward``. Inverse: ``revoke``.
 - ``reject`` a needs-review (or announced) split. Inverse: ``restore``.
 - ``revoke`` a confirmed split, whoever confirmed it. Inverse: ``restore``.
 - ``restore`` a rejected or revoked split to EXACTLY the state the reject/revoke replaced — the version
@@ -52,6 +56,9 @@ from domain.splits import (
     SplitDecision,
     same_ratio,
 )
+
+# D3 (migration 0215): the row carries the steward's own cited values (``domain.splits`` names the other three)
+SOURCE_STEWARD = "steward"
 
 AUTHOR_BACKFILL = "system:backfill_splits"
 # S4 — the nightly detector (``pipeline/detect_splits.py``); its versions carry action ``detect`` (0061)
@@ -93,6 +100,10 @@ CONTENT_COLUMNS: tuple[str, ...] = (
     "note",
     "valid_from",
     "valid_to",
+    # D3 (0215): the steward's citation and tape override — NULL on every system version, so a system re-run's
+    # content compare is unchanged
+    "cited_url",
+    "tape_override",
 )
 
 _LIVE = (STATUS_ANNOUNCED, STATUS_CONFIRMED, STATUS_NEEDS_REVIEW)
@@ -140,6 +151,8 @@ class SplitVersion(BaseModel):
     note: str | None = None
     valid_from: date
     valid_to: date | None = None
+    cited_url: str | None = None
+    tape_override: bool | None = None
     recorded_at: datetime
     ticker: str | None = None
     name: str | None = None
@@ -479,17 +492,7 @@ def confirm(
             "split — confirm the other source, or reject it"
         )
     ratio_from, ratio_to, first_session = vals
-    if first_session != v.key_date:
-        for other in latest_versions(conn, tenant_id=tenant_id, security_ids=[v.security_id]):
-            if (
-                other.key_date != v.key_date
-                and other.status in _LIVE
-                and other.effective_date == first_session
-            ):
-                raise SplitConflict(
-                    f"another split of {v.ticker or v.security_id} is already listed on "
-                    f"{first_session.isoformat()} ({other.status}) — resolve that one first"
-                )
+    _refuse_a_redate_onto_a_live_split(conn, v, first_session, tenant_id=tenant_id)
     status = STATUS_ANNOUNCED if first_session > today else STATUS_CONFIRMED
     return append_version(
         conn,
@@ -504,6 +507,87 @@ def confirm(
             status=status,
             confirmed_via=VIA_OPERATOR,
             value_source=source,
+            cited_url=None,
+            tape_override=None,
+        ),
+        action=ACTION_CONFIRM,
+        author=author,
+    )
+
+
+def _refuse_a_redate_onto_a_live_split(
+    conn: psycopg.Connection, v: SplitVersion, first_session: date, *, tenant_id: UUID
+) -> None:
+    """A confirm that re-dates ``v`` onto a date another LIVE split of the same security holds is refused."""
+    if first_session == v.key_date:
+        return
+    for other in latest_versions(conn, tenant_id=tenant_id, security_ids=[v.security_id]):
+        if (
+            other.key_date != v.key_date
+            and other.status in _LIVE
+            and other.effective_date == first_session
+        ):
+            raise SplitConflict(
+                f"another split of {v.ticker or v.security_id} is already listed on "
+                f"{first_session.isoformat()} ({other.status}) — resolve that one first"
+            )
+
+
+def confirm_steward(
+    conn: psycopg.Connection,
+    version_id: UUID,
+    *,
+    ratio_from: Decimal,
+    ratio_to: Decimal,
+    first_session: date,
+    cited_url: str,
+    note: str | None,
+    tape_why: str | None,
+    override_tape: bool,
+    tenant_id: UUID,
+    today: date,
+    author: str = AUTHOR_OPERATOR,
+) -> SplitVersion:
+    """CONFIRM a needs-review split with the steward's own CITED values (decision D3): ``ratio_from`` old shares ->
+    ``ratio_to`` new shares, first trading on ``first_session``, as the document at ``cited_url`` states them.
+    The same refusals as ``confirm`` (unknown version, a stale card, not awaiting review, a re-date onto another
+    live split); then ``tape_why`` — why the stored tape at ``first_session`` does not support the values, read by
+    the caller (``None`` = it does) — is refused unless ``override_tape``. ``value_source`` ``steward``,
+    ``confirmed_via`` ``operator``; ``tape_override`` records whether the steward confirmed past the tape. ``note``
+    (the steward's) replaces the carried note when given. The evidence the split carried (both sources) rides on.
+    """
+    v = _current(conn, version_id, tenant_id=tenant_id)
+    if v.status != STATUS_NEEDS_REVIEW:
+        raise SplitConflict(
+            f"only a split that needs review can be confirmed (this one is {v.status})"
+        )
+    if not cited_url:
+        raise ValueError("cited values need a cited URL")
+    if ratio_from <= 0 or ratio_to <= 0 or ratio_from == ratio_to:
+        raise ValueError(f"{ratio_from} -> {ratio_to} is not a split ratio")
+    _refuse_a_redate_onto_a_live_split(conn, v, first_session, tenant_id=tenant_id)
+    if tape_why is not None and not override_tape:
+        raise SplitConflict(
+            f"{tape_why} — check the values against the cited document; confirm with the tape override if "
+            "the document is right"
+        )
+    status = STATUS_ANNOUNCED if first_session > today else STATUS_CONFIRMED
+    return append_version(
+        conn,
+        tenant_id=tenant_id,
+        security_id=v.security_id,
+        key_date=v.key_date,
+        values=_carry(
+            v,
+            ratio_from=ratio_from,
+            ratio_to=ratio_to,
+            effective_date=first_session,
+            status=status,
+            confirmed_via=VIA_OPERATOR,
+            value_source=SOURCE_STEWARD,
+            cited_url=cited_url,
+            tape_override=tape_why is not None,
+            note=note or v.note,
         ),
         action=ACTION_CONFIRM,
         author=author,

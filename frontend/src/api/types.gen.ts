@@ -2324,6 +2324,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/splits/{version_id}/tape-step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Split Tape Step
+         * @description The stored tape's STEP at ``first_session`` for the split ``version_id`` names, each bar as first served,
+         *     beside the factor ``ratio_from`` -> ``ratio_to`` the steward entered (both or neither): what ``POST
+         *     .../confirm-values`` checks. **404** unknown version, **422** one side of the ratio only. Read-only.
+         */
+        get: operations["split_tape_step_admin_splits__version_id__tape_step_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/{version_id}/confirm-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Split Values
+         * @description CONFIRM a split that needs review with the steward's OWN cited values (decision D3): ``ratio_from`` ->
+         *     ``ratio_to``, ``first_session`` and the ``cited_url`` of the document that states them become the list's
+         *     (``value_source`` ``steward``; a first session still ahead lands as ``announced``). The server reads the stored
+         *     tape's step at ``first_session`` as first served and refuses a factor outside the tape tolerance, or a session
+         *     with no bar, unless ``override_tape`` (stored as ``tape_override``). Undo with ``POST
+         *     /admin/splits/{version_id}/revoke``. **404** unknown version, **409** not the split's newest version / not
+         *     awaiting review / another split is listed on that date / the tape does not support the values, **422** a bad
+         *     ratio, date or URL.
+         */
+        post: operations["confirm_split_values_admin_splits__version_id__confirm_values_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/splits/{version_id}/reject": {
         parameters: {
             query?: never;
@@ -5955,6 +6004,34 @@ export interface components {
             runs: components["schemas"]["AdminRunOut"][];
         };
         /**
+         * AdminSplitConfirmValuesIn
+         * @description The steward's OWN values for a needs-review split (decision D3): ``ratio_from`` old shares -> ``ratio_to`` new
+         *     shares (decimal text, above 0 and at most 100,000, never equal), ``first_session`` = the first session at the
+         *     new price, ``cited_url`` = the https URL of the document that states them (required), ``note`` (optional).
+         *     ``override_tape`` = confirm although the stored tape's step at that session sits outside the tolerance of the
+         *     entered factor, or no bar can be read (the server checks it either way: ``GET .../tape-step``).
+         */
+        AdminSplitConfirmValuesIn: {
+            /** Ratio From */
+            ratio_from: string;
+            /** Ratio To */
+            ratio_to: string;
+            /**
+             * First Session
+             * Format: date
+             */
+            first_session: string;
+            /** Cited Url */
+            cited_url: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Override Tape
+             * @default false
+             */
+            override_tape: boolean;
+        };
+        /**
          * AdminSplitDefectOut
          * @description One flagged split-basis defect (T4, ``pipeline/split_basis.py``): a basket name whose STORED price
          *     tape mixes two split bases, as the pass's scan found it. ``kind``:
@@ -6083,7 +6160,9 @@ export interface components {
          *     Massive.com", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
          *     ``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state
          *     different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
-         *     both a ratio and a date).
+         *     both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the
+         *     document that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both
+         *     ``null`` on every other split).
          */
         AdminSplitListEntryOut: {
             /**
@@ -6154,6 +6233,10 @@ export interface components {
             restore_to?: string | null;
             /** Review Reason */
             review_reason?: ("sources_differ" | "extractor_abstained" | "one_source") | null;
+            /** Cited Url */
+            cited_url?: string | null;
+            /** Tape Override */
+            tape_override?: boolean | null;
         };
         /**
          * AdminSplitListOptionOut
@@ -6334,6 +6417,54 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /**
+         * AdminSplitTapeStepOut
+         * @description The stored tape at a first session, beside the factor the steward entered (D3) — what the confirm-values
+         *     route checks. Each bar is read as the vendor FIRST served it (``pipeline.detect_splits.tape_at``: the bar on
+         *     ``first_session`` and the stored bar before it, at most 14 days back). ``step`` = close / prior close;
+         *     ``volume_ratio`` = volume / prior volume. ``price_factor`` = old / new shares of the entered ratio (``null``
+         *     when none was entered); ``step_low`` .. ``step_high`` = the steps ``tolerance`` (``domain.splits.
+         *     TAPE_TOLERANCE``, in ln, either direction) accepts around it. ``within_tolerance`` = the step sits inside
+         *     (``null`` with no ratio, ``false`` when no bar can be read); ``reason`` says why not. A read.
+         */
+        AdminSplitTapeStepOut: {
+            /**
+             * First Session
+             * Format: date
+             */
+            first_session: string;
+            /** Prior Date */
+            prior_date?: string | null;
+            /** Prior Close */
+            prior_close?: number | null;
+            /** Close */
+            close?: number | null;
+            /** Prior Volume */
+            prior_volume?: number | null;
+            /** Volume */
+            volume?: number | null;
+            /** Step */
+            step?: number | null;
+            /** Volume Ratio */
+            volume_ratio?: number | null;
+            /** Prior Served Before */
+            prior_served_before?: boolean | null;
+            /** Price Factor */
+            price_factor?: number | null;
+            /**
+             * Tolerance
+             * @default 0.5
+             */
+            tolerance: number;
+            /** Step Low */
+            step_low?: number | null;
+            /** Step High */
+            step_high?: number | null;
+            /** Within Tolerance */
+            within_tolerance?: boolean | null;
+            /** Reason */
+            reason?: string | null;
         };
         /**
          * AdminStaleTapeOut
@@ -24140,6 +24271,79 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AdminSplitListConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitListEntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    split_tape_step_admin_splits__version_id__tape_step_get: {
+        parameters: {
+            query: {
+                /** @description the first session at the new price */
+                first_session: string;
+                /** @description old shares (decimal text) */
+                ratio_from?: string | null;
+                /** @description new shares (decimal text) */
+                ratio_to?: string | null;
+            };
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitTapeStepOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_split_values_admin_splits__version_id__confirm_values_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSplitConfirmValuesIn"];
             };
         };
         responses: {
