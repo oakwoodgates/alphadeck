@@ -92,7 +92,22 @@ SELECT
         ''
      )
      FROM thesis
-     WHERE tenant_id = %(workspace)s) AS thesis_tok
+     WHERE tenant_id = %(workspace)s) AS thesis_tok,
+    (SELECT count(*)::text || ':' || coalesce(max(seq)::text, '')
+     FROM calls) AS calls_tok,
+    (SELECT count(*)::text || ':' || coalesce(max(number)::text, '') || ':' ||
+            coalesce(max(created_at)::text, '')
+     FROM edition
+     WHERE tenant_id = %(workspace)s) AS edition_tok,
+    (SELECT count(*)::text || ':' || coalesce(max(asof)::text, '')
+     FROM edition_call
+     WHERE edition_id IN (SELECT id FROM edition WHERE tenant_id = %(workspace)s)) AS edition_call_tok,
+    (SELECT count(*)::text || ':' || coalesce(max(inked_at)::text, '')
+     FROM edition_outcome
+     WHERE edition_id IN (SELECT id FROM edition WHERE tenant_id = %(workspace)s)) AS edition_outcome_tok,
+    (SELECT count(*)::text || ':' || coalesce(max(at)::text, '')
+     FROM edition_event
+     WHERE edition_id IN (SELECT id FROM edition WHERE tenant_id = %(workspace)s)) AS edition_event_tok
 """
 
 # Pytest-only addendum: some integration tests insert directly into fact/master tables via raw SQL
@@ -170,12 +185,14 @@ def code_fingerprint() -> tuple[str | None, int]:
         Path(__file__).resolve(),
         backend_dir / "app" / "routers" / "theses.py",
         backend_dir / "app" / "routers" / "data_flags.py",
+        backend_dir / "app" / "routers" / "scoreboard.py",
         backend_dir / "pipeline" / "call_for_thesis.py",
         backend_dir / "pipeline" / "data_flags.py",
     )
     roots = (
         backend_dir / "calls",
         backend_dir / "signals",
+        backend_dir / "scoreboard",
     )
     max_mtime_ns = 0
     for path in single_files:

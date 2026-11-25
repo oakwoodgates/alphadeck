@@ -6,6 +6,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from app import call_cache, warm_hook
 from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.errors import SCHEDULE_SETTING_MALFORMED, fail
 from app.schemas_api import (
@@ -121,97 +122,141 @@ def get_scoreboard(
     ``include_late`` overrides per request). Every reading is available; nothing is deleted. An
     edition has none of those rows: its lists come back empty and the policy reads ``n/a``.
     """
-    chosen = _resolve_edition(conn, current_tenant, edition)
-    result = assemble_scoreboard(
-        conn,
-        asof=asof,
-        include_archived=include_archived,
-        # None = the server setting; an explicit include_late inverts into the exclude policy
-        exclude_late=None if include_late is None else not include_late,
-        edition=chosen,
-        workspace=current_tenant,
-    )
-    theses_out = []
-    for t in result.theses:
-        # Resolve tickers/CIKs/names in the DATA tenant (the master is shared, domain.scopes): episode names
-        # + the trigger evidence's names.
-        sids = (
-            {e.episode.security_id for e in t.episodes}
-            | {tr.security_id for e in t.episodes for tr in e.triggers_at_arm}
-            | {s.security_id for s in t.operator_spans if s.security_id is not None}
-        )
-        ciks = master.ciks_for(conn, sids, tenant_id=DATA_TENANT_ID)
-        tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID)
-        names = master.names_for(conn, sids, tenant_id=DATA_TENANT_ID)
-        theses_out.append(_scoreboard_thesis_out(t, ciks, tickers, names))
-    summary = result.summary  # assemble_scoreboard always fills it
-
-    # Record freshness (compute-on-read; the read still writes nothing) — the same staleness the admin
-    # page shows, surfaced where the Board-vs-Scoreboard confusion happened. record_edge is the
-    # UNCAPPED calls-log MAX(asof) ("is the record current NOW"), independent of the request asof — so
-    # it is identical whether the view is scrubbed to the past or to today; the FE shows it only on the
-    # live view (asof >= today). Measured vs the last EXPECTED Mon-Fri+RUN_AT run (never raw
-    # today - edge); edge None = the record has never begun (quiet: days_behind None, stale False).
+    warm_hook.request_warm(workspace=current_tenant, reason="session")
     run_at = _run_at(request)
     now = _now()
-    edge = calls_repo.record_edge(conn)
-    expected = last_expected_asof(now, run_at)
-    days_behind = expected_runs_behind(edge, expected)
+    return read_scoreboard(
+        conn,
+        asof=asof,
+        workspace=current_tenant,
+        include_archived=include_archived,
+        include_late=include_late,
+        edition=edition,
+        run_at=run_at,
+        now=now,
+    )
 
-    return ScoreboardResponse(
-        asof=result.asof,
-        generated_at=datetime.now(timezone.utc).isoformat(),
-        summary=ScoreboardSummaryOut(
-            n_theses=result.n_theses,
-            n_with_record=result.n_with_record,
-            n_episodes=result.n_episodes,
-            n_open=result.n_open,
-            n_matured=result.n_matured,
-            n_censored=result.n_censored,
-            n_ingest_flagged=result.n_ingest_flagged,
-            n_takes=result.n_takes,
-            n_passes=result.n_passes,
-            n_overrides=result.n_overrides,
-            n_voided=result.n_voided,
-            n_eligible=summary.n_eligible if summary else 0,
-            record_began=summary.record_began if summary else None,
-            banner=summary.banner if summary else "",
-            min_n=summary.min_n if summary else 0,
-            next_maturity=summary.next_maturity if summary else None,
-            n_maturing_30d=summary.n_maturing_30d if summary else 0,
-            projected_min_n_date=summary.projected_min_n_date if summary else None,
-            reconstructed_nights=summary.reconstructed_nights if summary else [],
-            late_policy=summary.late_policy if summary else "excluded",
-            late_nights=[
-                LateNightOut(**n.model_dump()) for n in (summary.late_nights if summary else [])
-            ],
-            metrics=[
-                ScoreboardMetricOut(
-                    name=m.name,
-                    claim=m.claim,
-                    n=m.n,
-                    insufficient_n=m.insufficient_n,
-                    summary=m.summary,
-                    detail=m.detail,
-                    note=m.note,
-                )
-                for m in (summary.metrics if summary else [])
-            ],
-            record_edge=edge,
-            expected_asof=expected,
-            days_behind=days_behind,
-            stale=bool(days_behind),  # None (never begun) and 0 (current) are both quiet
-            today=now.date(),
-        ),
-        theses=theses_out,
-        edition=(
-            _edition_out(chosen)
-            if chosen is not None
-            else _record_edition_out(
-                calls_repo.record_first(conn, tenant_id=current_tenant),
-                calls_repo.record_edge(conn, tenant_id=current_tenant),
+
+def read_scoreboard(
+    conn: psycopg.Connection,
+    *,
+    asof: date,
+    workspace: UUID,
+    include_archived: bool = True,
+    include_late: bool | None = None,
+    edition: int | None = None,
+    run_at: time | None = None,
+    now: datetime | None = None,
+) -> ScoreboardResponse:
+    """Cached Scoreboard assembly behind ``GET /scoreboard`` (and ``WarmJob``)."""
+    settings = get_settings()
+    resolved_run_at = run_at if run_at is not None else parse_run_at(settings.cron_run_at)
+    resolved_now = now if now is not None else _now()
+    expected = last_expected_asof(resolved_now, resolved_run_at)
+
+    def _compute() -> ScoreboardResponse:
+        chosen = _resolve_edition(conn, workspace, edition)
+        result = assemble_scoreboard(
+            conn,
+            asof=asof,
+            include_archived=include_archived,
+            # None = the server setting; an explicit include_late inverts into the exclude policy
+            exclude_late=None if include_late is None else not include_late,
+            edition=chosen,
+            workspace=workspace,
+        )
+        theses_out = []
+        for t in result.theses:
+            # Resolve tickers/CIKs/names in the DATA tenant (the master is shared, domain.scopes):
+            # episode names + the trigger evidence's names.
+            sids = (
+                {e.episode.security_id for e in t.episodes}
+                | {tr.security_id for e in t.episodes for tr in e.triggers_at_arm}
+                | {s.security_id for s in t.operator_spans if s.security_id is not None}
             )
+            ciks = master.ciks_for(conn, sids, tenant_id=DATA_TENANT_ID)
+            tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID)
+            names = master.names_for(conn, sids, tenant_id=DATA_TENANT_ID)
+            theses_out.append(_scoreboard_thesis_out(t, ciks, tickers, names))
+        summary = result.summary  # assemble_scoreboard always fills it
+
+        # Record freshness (compute-on-read; the read still writes nothing) — the same staleness
+        # the admin page shows, surfaced where the Board-vs-Scoreboard confusion happened.
+        edge = calls_repo.record_edge(conn)
+        days_behind = expected_runs_behind(edge, expected)
+
+        return ScoreboardResponse(
+            asof=result.asof,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            summary=ScoreboardSummaryOut(
+                n_theses=result.n_theses,
+                n_with_record=result.n_with_record,
+                n_episodes=result.n_episodes,
+                n_open=result.n_open,
+                n_matured=result.n_matured,
+                n_censored=result.n_censored,
+                n_ingest_flagged=result.n_ingest_flagged,
+                n_takes=result.n_takes,
+                n_passes=result.n_passes,
+                n_overrides=result.n_overrides,
+                n_voided=result.n_voided,
+                n_eligible=summary.n_eligible if summary else 0,
+                record_began=summary.record_began if summary else None,
+                banner=summary.banner if summary else "",
+                min_n=summary.min_n if summary else 0,
+                next_maturity=summary.next_maturity if summary else None,
+                n_maturing_30d=summary.n_maturing_30d if summary else 0,
+                projected_min_n_date=summary.projected_min_n_date if summary else None,
+                reconstructed_nights=summary.reconstructed_nights if summary else [],
+                late_policy=summary.late_policy if summary else "excluded",
+                late_nights=[
+                    LateNightOut(**n.model_dump()) for n in (summary.late_nights if summary else [])
+                ],
+                metrics=[
+                    ScoreboardMetricOut(
+                        name=m.name,
+                        claim=m.claim,
+                        n=m.n,
+                        insufficient_n=m.insufficient_n,
+                        summary=m.summary,
+                        detail=m.detail,
+                        note=m.note,
+                    )
+                    for m in (summary.metrics if summary else [])
+                ],
+                record_edge=edge,
+                expected_asof=expected,
+                days_behind=days_behind,
+                stale=bool(days_behind),  # None (never begun) and 0 (current) are both quiet
+                today=resolved_now.date(),
+            ),
+            theses=theses_out,
+            edition=(
+                _edition_out(chosen)
+                if chosen is not None
+                else _record_edition_out(
+                    calls_repo.record_first(conn, tenant_id=workspace),
+                    calls_repo.record_edge(conn, tenant_id=workspace),
+                )
+            ),
+        )
+
+    return call_cache.CACHE.get_or_compute_workspace(
+        conn,
+        kind="scoreboard",
+        workspace=workspace,
+        subkey=(
+            asof,
+            include_archived,
+            include_late,
+            edition,
+            expected,
+            resolved_now.date(),
+            settings.scoreboard_exclude_late,
+            settings.scoreboard_default_edition,
         ),
+        fn_token=id(assemble_scoreboard),
+        compute=_compute,
     )
 
 
@@ -285,33 +330,54 @@ def get_scoreboard_editions(
     names none: the newest published edition (0 only when nothing is published), unless the server's
     override pins another. ``notice`` = the quiet line for seven days after the automatic cut published the
     newest edition (null otherwise). Read-only."""
-    stored = editions_repo.list_editions(conn, tenant_id=current_tenant)
-    chosen = _default_edition(conn, current_tenant)
-    notice = editions_repo.cut_notice(
-        conn, tenant_id=current_tenant, now=datetime.now(timezone.utc)
-    )
-    return ScoreboardEditionsResponse(
-        default=chosen.number if chosen is not None else 0,
-        editions=[
-            _record_edition_out(
-                calls_repo.record_first(conn, tenant_id=current_tenant),
-                calls_repo.record_edge(conn, tenant_id=current_tenant),
+    return read_scoreboard_editions(conn, workspace=current_tenant)
+
+
+def read_scoreboard_editions(
+    conn: psycopg.Connection,
+    *,
+    workspace: UUID,
+    now: datetime | None = None,
+) -> ScoreboardEditionsResponse:
+    """Cached editions list behind ``GET /scoreboard/editions`` (and ``WarmJob``)."""
+    resolved_now = now if now is not None else datetime.now(timezone.utc)
+    default_override = get_settings().scoreboard_default_edition
+
+    def _compute() -> ScoreboardEditionsResponse:
+        stored = editions_repo.list_editions(conn, tenant_id=workspace)
+        chosen = _default_edition(conn, workspace)
+        notice = editions_repo.cut_notice(conn, tenant_id=workspace, now=resolved_now)
+        return ScoreboardEditionsResponse(
+            default=chosen.number if chosen is not None else 0,
+            editions=[
+                _record_edition_out(
+                    calls_repo.record_first(conn, tenant_id=workspace),
+                    calls_repo.record_edge(conn, tenant_id=workspace),
+                ),
+                *(_edition_out(e) for e in stored),
+            ],
+            notice=(
+                EditionCutNoticeOut(
+                    number=notice.number,
+                    previous=notice.previous,
+                    label=notice.label,
+                    line=notice.line(),
+                    published_at=notice.published_at,
+                    n_company_nights_changed=notice.n_company_nights_changed,
+                    unexplained=notice.unexplained,
+                )
+                if notice is not None
+                else None
             ),
-            *(_edition_out(e) for e in stored),
-        ],
-        notice=(
-            EditionCutNoticeOut(
-                number=notice.number,
-                previous=notice.previous,
-                label=notice.label,
-                line=notice.line(),
-                published_at=notice.published_at,
-                n_company_nights_changed=notice.n_company_nights_changed,
-                unexplained=notice.unexplained,
-            )
-            if notice is not None
-            else None
-        ),
+        )
+
+    return call_cache.CACHE.get_or_compute_workspace(
+        conn,
+        kind="scoreboard_editions",
+        workspace=workspace,
+        subkey=(resolved_now.date(), default_override),
+        fn_token=id(editions_repo.list_editions),
+        compute=_compute,
     )
 
 
@@ -357,49 +423,61 @@ def get_scoreboard_edition_diff(
             detail=f"`from` must be an earlier edition than `to` (got {before_number} -> "
             f"{after_number})",
         )
-    before = _resolve_edition(conn, current_tenant, before_number)
-    after = _resolve_edition(conn, current_tenant, after_number)
-    before_out = (
-        _edition_out(before)
-        if before is not None
-        else _record_edition_out(
-            calls_repo.record_first(conn, tenant_id=current_tenant),
-            calls_repo.record_edge(conn, tenant_id=current_tenant),
-        )
-    )
-    assert after is not None  # `to` >= 1: a stored edition, or the 404 above
-    after_out = _edition_out(after)
-    lasts = [before_out.last_night, after_out.last_night]
-    through = min(d for d in lasts if d is not None) if None not in lasts else None
-    result = edition_diff(
-        conn, before=before, after=after, through=through, workspace=current_tenant
-    )
-    theses_out = []
-    for t in result.theses:
-        sids = [c.security_id for c in t.companies]
-        tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID) if sids else {}
-        names = master.names_for(conn, sids, tenant_id=DATA_TENANT_ID) if sids else {}
-        theses_out.append(
-            EditionThesisDiffOut(
-                **t.model_dump(exclude={"companies", "tenant_id"}),
-                companies=[
-                    EditionCompanyDiffOut(
-                        **c.model_dump(),
-                        ticker=tickers.get(c.security_id),
-                        company_name=names.get(c.security_id),
-                    )
-                    for c in t.companies
-                ],
+    exclude_late_setting = get_settings().scoreboard_exclude_late
+
+    def _compute() -> ScoreboardEditionDiffResponse:
+        before = _resolve_edition(conn, current_tenant, before_number)
+        after = _resolve_edition(conn, current_tenant, after_number)
+        before_out = (
+            _edition_out(before)
+            if before is not None
+            else _record_edition_out(
+                calls_repo.record_first(conn, tenant_id=current_tenant),
+                calls_repo.record_edge(conn, tenant_id=current_tenant),
             )
         )
-    return ScoreboardEditionDiffResponse(
-        before=before_out,
-        after=after_out,
-        through=result.through,
-        first_night=result.first_night,
-        counts=EditionDiffCountsOut(**result.counts.model_dump()),
-        theses=theses_out,
-        causes=result.causes,
+        assert after is not None  # `to` >= 1: a stored edition, or the 404 above
+        after_out = _edition_out(after)
+        lasts = [before_out.last_night, after_out.last_night]
+        through = min(d for d in lasts if d is not None) if None not in lasts else None
+        result = edition_diff(
+            conn, before=before, after=after, through=through, workspace=current_tenant
+        )
+        theses_out = []
+        for t in result.theses:
+            sids = [c.security_id for c in t.companies]
+            tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID) if sids else {}
+            names = master.names_for(conn, sids, tenant_id=DATA_TENANT_ID) if sids else {}
+            theses_out.append(
+                EditionThesisDiffOut(
+                    **t.model_dump(exclude={"companies", "tenant_id"}),
+                    companies=[
+                        EditionCompanyDiffOut(
+                            **c.model_dump(),
+                            ticker=tickers.get(c.security_id),
+                            company_name=names.get(c.security_id),
+                        )
+                        for c in t.companies
+                    ],
+                )
+            )
+        return ScoreboardEditionDiffResponse(
+            before=before_out,
+            after=after_out,
+            through=result.through,
+            first_night=result.first_night,
+            counts=EditionDiffCountsOut(**result.counts.model_dump()),
+            theses=theses_out,
+            causes=result.causes,
+        )
+
+    return call_cache.CACHE.get_or_compute_workspace(
+        conn,
+        kind="scoreboard_edition_diff",
+        workspace=current_tenant,
+        subkey=(before_number, after_number, exclude_late_setting),
+        fn_token=id(edition_diff),
+        compute=_compute,
     )
 
 
