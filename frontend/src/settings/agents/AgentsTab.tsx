@@ -118,7 +118,7 @@ function ConnectSection({
       {steward && (
         <p className="steward-line">
           You are a steward: a token you create here, or an app you allow the steward scope, also reads the Admin panels
-          (shared facts, insider amendments, held insider rows, onboarding, the split list, the status). It cannot
+          (shared facts, held insider rows, onboarding, the split list, the status). It cannot
           approve, confirm or change anything.
         </p>
       )}
