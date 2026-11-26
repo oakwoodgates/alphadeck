@@ -145,6 +145,11 @@ tag lists are constants in `ingest/edgar/extract.py`, pinned by
   `quarterly_span_max_days` (`burn-span`) and end on the cited period (`burn-off-period`); the cash must be of that
   date (`stale-cash` older, `cash-after-period` newer). Each failure offers the value as found; nothing turns a flag
   into AUTO.
+- **The filing's own cash** (`_cash_candidate`, `tests/ingest/test_extract_inline_cash.py`): when companyfacts' newest
+  cash or operating cash flow predates the cited period (combined filings lag for months), the raw document's
+  undimensioned USD rows at the period end join it. The checks above run unchanged (two quarters behind is
+  `burn-span`); flag `companyfacts-behind`. A FLAG's note names uncounted debt-security tags (NVDA) and a quoted total
+  equal to the cash-equivalents fair value (AMGN).
 - **`possible-one-time`**: a non-routine reconciliation line of at least `one_time_line_fraction` of the operating
   cash use. Routine working-capital lines (`_ROUTINE_WC`) never trip it however large: category, not size. It never
   branches on a named item; backing it out is a person's call ([WORKBENCH_SCORING](WORKBENCH_SCORING.md) "The

@@ -1,0 +1,1375 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-25/26 through the steward review's sec.py), cut to the us-gaap concepts the periodic cash reader reads and to rows ending in 2025 or later plus each unit's newest; every row is verbatim.",
+ "cik": 1045810,
+ "entityName": "NVIDIA CORP",
+ "facts": {
+  "us-gaap": {
+   "AvailableForSaleSecuritiesDebtSecurities": {
+    "label": "Debt Securities, Available-for-sale",
+    "description": "Amount of investment in debt security measured at fair value with change in fair value recognized in other comprehensive income (available-for-sale).",
+    "units": {
+     "USD": [
+      {
+       "end": "2025-01-26",
+       "val": 42106000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 42106000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-04-27",
+       "val": 52136000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28",
+       "frame": "CY2025Q1I"
+      },
+      {
+       "end": "2025-07-27",
+       "val": 53304000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27",
+       "frame": "CY2025Q2I"
+      },
+      {
+       "end": "2025-10-26",
+       "val": 54952000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19",
+       "frame": "CY2025Q3I"
+      },
+      {
+       "end": "2026-01-25",
+       "val": 39520000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2025Q4I"
+      },
+      {
+       "end": "2026-04-26",
+       "val": 39233000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1I"
+      },
+      {
+       "end": "2026-07-26",
+       "val": 46900000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26",
+       "frame": "CY2026Q2I"
+      }
+     ]
+    }
+   },
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "label": "Cash and Cash Equivalents, at Carrying Value",
+    "description": "Amount of currency on hand as well as demand deposits with banks or financial institutions. Includes other kinds of accounts that have the general characteristics of demand deposits. Also includes short-term, highly liquid investments that are both readily convertible to known amounts of cash and so near their maturity that they present insignificant risk of changes in value because of changes in interest rates. Excludes cash and cash equivalents within disposal group and discontinued operation.",
+    "units": {
+     "USD": [
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-04-27",
+       "val": 15234000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28",
+       "frame": "CY2025Q1I"
+      },
+      {
+       "end": "2025-07-27",
+       "val": 11639000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27",
+       "frame": "CY2025Q2I"
+      },
+      {
+       "end": "2025-10-26",
+       "val": 11486000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19",
+       "frame": "CY2025Q3I"
+      },
+      {
+       "end": "2026-01-25",
+       "val": 10605000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25"
+      },
+      {
+       "end": "2026-01-25",
+       "val": 10605000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20"
+      },
+      {
+       "end": "2026-01-25",
+       "val": 10605000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26",
+       "frame": "CY2025Q4I"
+      },
+      {
+       "end": "2026-04-26",
+       "val": 13237000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1I"
+      },
+      {
+       "end": "2026-07-26",
+       "val": 22443000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26",
+       "frame": "CY2026Q2I"
+      }
+     ]
+    }
+   },
+   "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": {
+    "label": "Cash, Cash Equivalents, Restricted Cash and Restricted Cash Equivalents",
+    "description": "Amount of cash and cash equivalents, and cash and cash equivalents restricted to withdrawal or usage. Excludes amount for disposal group and discontinued operations. Cash includes, but is not limited to, currency on hand, demand deposits with banks or financial institutions, and other accounts with general characteristics of demand deposits. Cash equivalents include, but are not limited to, short-term, highly liquid investments that are both readily convertible to known amounts of cash and so near their maturity that they present insignificant risk of changes in value because of changes in interest rates.",
+    "units": {
+     "USD": [
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 8589000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-04-27",
+       "val": 15234000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "end": "2025-04-27",
+       "val": 15234000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2025Q1I"
+      },
+      {
+       "end": "2025-07-27",
+       "val": 11639000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "end": "2025-07-27",
+       "val": 11639000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26",
+       "frame": "CY2025Q2I"
+      },
+      {
+       "end": "2025-10-26",
+       "val": 11486000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19",
+       "frame": "CY2025Q3I"
+      },
+      {
+       "end": "2026-01-25",
+       "val": 10605000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25"
+      },
+      {
+       "end": "2026-01-25",
+       "val": 10605000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20"
+      },
+      {
+       "end": "2026-01-25",
+       "val": 10605000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26",
+       "frame": "CY2025Q4I"
+      },
+      {
+       "end": "2026-04-26",
+       "val": 13237000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1I"
+      },
+      {
+       "end": "2026-07-26",
+       "val": 22443000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26",
+       "frame": "CY2026Q2I"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInAccountsPayable": {
+    "label": "Increase (Decrease) in Accounts Payable",
+    "description": "The increase (decrease) during the reporting period in the aggregate amount of liabilities incurred (and for which invoices have typically been received) and payable to vendors for goods and services received that are used in an entity's business.",
+    "units": {
+     "USD": [
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 3357000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 3357000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 941000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 941000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2025Q1"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 2255000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 2255000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-10-26",
+       "val": 2032000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2026-01-25",
+       "val": 3096000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2025"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-04-26",
+       "val": 2210000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-07-26",
+       "val": 4125000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInAccountsReceivable": {
+    "label": "Increase (Decrease) in Accounts Receivable",
+    "description": "The increase (decrease) during the reporting period in amount due within one year (or one business cycle) from customers for the credit sale of goods and services.",
+    "units": {
+     "USD": [
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 13063000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 13063000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": -933000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": -933000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2025Q1"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 4743000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 4743000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-10-26",
+       "val": 10325000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2026-01-25",
+       "val": 15399000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2025"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-04-26",
+       "val": 2243000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-07-26",
+       "val": 24590000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInAccruedLiabilities": {
+    "label": "Increase (Decrease) in Accrued Liabilities",
+    "description": "The increase (decrease) during the reporting period in the aggregate amount of expenses incurred but not yet paid.",
+    "units": {
+     "USD": [
+      {
+       "start": "2019-01-28",
+       "end": "2019-10-27",
+       "val": -103000000,
+       "accn": "0001045810-19-000170",
+       "fy": 2020,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2019-11-14"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInAccruedLiabilitiesAndOtherOperatingLiabilities": {
+    "label": "Increase (Decrease) in Accrued Liabilities and Other Operating Liabilities",
+    "description": "Amount of increase (decrease) in accrued expenses, and obligations classified as other.",
+    "units": {
+     "USD": [
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 4278000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 4278000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 7128000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 7128000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2025Q1"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 3075000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 3075000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-10-26",
+       "val": 4204000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2026-01-25",
+       "val": 5257000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2025"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-04-26",
+       "val": 7763000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-07-26",
+       "val": 8015000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInContractWithCustomerLiability": {
+    "label": "Increase (Decrease) in Contract with Customer, Liability",
+    "description": "Amount of increase (decrease) in obligation to transfer good or service to customer for which consideration has been received or is receivable.",
+    "units": {
+     "USD": [
+      {
+       "start": "2018-01-29",
+       "end": "2019-01-27",
+       "val": 344000000,
+       "accn": "0001045810-19-000023",
+       "fy": 2019,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2019-02-21",
+       "frame": "CY2018"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInInventories": {
+    "label": "Increase (Decrease) in Inventories",
+    "description": "The increase (decrease) during the reporting period in the aggregate value of all inventory held by the reporting entity, associated with underlying transactions that are classified as operating activities.",
+    "units": {
+     "USD": [
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 4781000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 4781000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 1258000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 1258000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2025Q1"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 4880000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 4880000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-10-26",
+       "val": 9703000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2026-01-25",
+       "val": 11324000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2025"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-04-26",
+       "val": 4420000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-07-26",
+       "val": 10204000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInOtherNoncurrentLiabilities": {
+    "label": "Increase (Decrease) in Other Noncurrent Liabilities",
+    "description": "Amount of increase (decrease) in noncurrent operating liabilities classified as other.",
+    "units": {
+     "USD": [
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 1221000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 1221000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 350000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 350000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2025Q1"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 979000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 979000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-10-26",
+       "val": 1311000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2026-01-25",
+       "val": 1844000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2025"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-04-26",
+       "val": 1217000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-07-26",
+       "val": 1970000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInOtherOperatingAssets": {
+    "label": "Increase (Decrease) in Other Operating Assets",
+    "description": "Amount of increase (decrease) in operating assets classified as other.",
+    "units": {
+     "USD": [
+      {
+       "start": "2014-01-27",
+       "end": "2014-07-27",
+       "val": -1028000,
+       "accn": "0001045810-14-000158",
+       "fy": 2015,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2014-08-20"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInPrepaidDeferredExpenseAndOtherAssets": {
+    "label": "Increase (Decrease) in Prepaid Expense and Other Assets",
+    "description": "Amount of increase (decrease) in prepaid expenses, and assets classified as other.",
+    "units": {
+     "USD": [
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 395000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 395000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": -560000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": -560000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2025Q1"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": -946000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": -946000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-10-26",
+       "val": -857000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2026-01-25",
+       "val": -577000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2025"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-04-26",
+       "val": 983000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-07-26",
+       "val": 6480000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      }
+     ]
+    }
+   },
+   "MarketableSecuritiesCurrent": {
+    "label": "Marketable Securities, Current",
+    "description": "Amount of investment in marketable security, classified as current.",
+    "units": {
+     "USD": [
+      {
+       "end": "2025-01-26",
+       "val": 34621000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 34621000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 34621000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "end": "2025-01-26",
+       "val": 34621000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-04-27",
+       "val": 38457000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28",
+       "frame": "CY2025Q1I"
+      },
+      {
+       "end": "2025-07-27",
+       "val": 45152000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27",
+       "frame": "CY2025Q2I"
+      },
+      {
+       "end": "2025-10-26",
+       "val": 49122000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19",
+       "frame": "CY2025Q3I"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "label": "Net Cash Provided by (Used in) Operating Activities",
+    "description": "Amount of cash inflow (outflow) from operating activities, including discontinued operations. Operating activity cash flows include transactions, adjustments, and changes in value not defined as investing or financing activities.",
+    "units": {
+     "USD": [
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 64089000000,
+       "accn": "0001045810-25-000023",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-26"
+      },
+      {
+       "start": "2024-01-29",
+       "end": "2025-01-26",
+       "val": 64089000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 27414000000,
+       "accn": "0001045810-25-000116",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2025-05-28"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-04-27",
+       "val": 27414000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2025Q1"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 42779000000,
+       "accn": "0001045810-25-000209",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-27"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-07-27",
+       "val": 42779000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2025-10-26",
+       "val": 66530000000,
+       "accn": "0001045810-25-000230",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-19"
+      },
+      {
+       "start": "2025-01-27",
+       "end": "2026-01-25",
+       "val": 102718000000,
+       "accn": "0001045810-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-25",
+       "frame": "CY2025"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-04-26",
+       "val": 50344000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1"
+      },
+      {
+       "start": "2026-01-26",
+       "end": "2026-07-26",
+       "val": 74421000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26"
+      }
+     ]
+    }
+   },
+   "OtherLongTermInvestments": {
+    "label": "Other Long-term Investments",
+    "description": "Amount of long-term investments classified as other.",
+    "units": {
+     "USD": [
+      {
+       "end": "2024-04-28",
+       "val": 1750000000,
+       "accn": "0001045810-24-000124",
+       "fy": 2025,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2024-05-29",
+       "frame": "CY2024Q1I"
+      }
+     ]
+    }
+   },
+   "DebtSecuritiesCurrent": {
+    "label": "Debt Securities, Current",
+    "description": "Amount of investment in debt security measured at amortized cost (held-to-maturity), investment in debt security measured at fair value with change in fair value recognized in other comprehensive income (available-for-sale) and investment in debt security measured at fair value with change in fair value recognized in net income (trading); classified as current.",
+    "units": {
+     "USD": [
+      {
+       "end": "2026-01-25",
+       "val": 39065000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20"
+      },
+      {
+       "end": "2026-01-25",
+       "val": 39065000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26",
+       "frame": "CY2025Q4I"
+      },
+      {
+       "end": "2026-04-26",
+       "val": 37098000000,
+       "accn": "0001045810-26-000052",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-20",
+       "frame": "CY2026Q1I"
+      },
+      {
+       "end": "2026-07-26",
+       "val": 34143000000,
+       "accn": "0001045810-26-000075",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-26",
+       "frame": "CY2026Q2I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}
