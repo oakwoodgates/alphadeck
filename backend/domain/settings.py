@@ -573,6 +573,12 @@ class Settings(BaseSettings):
     # row with Massive.com's label). ``/v3/reference/splits`` falls back to the deprecated endpoint while it lives
     # (no label). ALPHADECK_POLYGON_SPLITS_PATH; compose passes it to the backend and the cron at this default.
     polygon_splits_path: str = "/stocks/v1/splits"
+    # W6-4 — at most this many Massive.com ticker-overview reads a night (``ingest/massive_reference.py``) for the
+    # open stale price rows not read before (newest stale first; the rest wait for a later pass): evidence on Admin,
+    # never a class. 0 = no reads (tonight's trade, off the grouped day, still shows). No MASSIVE_API_KEY = none.
+    # ALPHADECK_MASSIVE_REFERENCE_MAX_NAMES, injected into the backend AND the cron by docker-compose at this
+    # default (pinned by test).
+    massive_reference_max_names: int = 5
     # W6-3a — THE TAPE CROSS-CHECK (``pipeline/tape_crosscheck.py``): one Massive.com grouped raw-bars read a night
     # (``ingest/massive_bars.py``) compared with the stored closes — a monitor (no tape write, never paged).
     # ``tape_crosscheck`` = False turns it off (so does no MASSIVE_API_KEY); ``tape_crosscheck_tolerance`` is the

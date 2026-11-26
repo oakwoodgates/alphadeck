@@ -952,6 +952,24 @@ def _renamed(n: int, *, verified: bool, probed: bool = True) -> dict[str, Any]:
         "probed": probed,
         "price_symbol": ticker,
         "change": None,
+        # W6-4 — the first renamed name is delisted on Massive.com (INDV's measured shape); the rest carry none
+        "massive_ref": (
+            _massive_ref(ticker, active=False, delisted_utc="2026-11-03") if n == 1 else None
+        ),
+    }
+
+
+def _massive_ref(symbol: str, **kw: Any) -> dict[str, Any]:
+    """W6-4 — Massive.com's reference evidence on a stale row, as ``AdminMassiveRefOut`` serves it."""
+    return {
+        "symbol": symbol,
+        "read_on": "2026-11-05",
+        "listed": True,
+        "active": True,
+        "type": "CS",
+        "delisted_utc": None,
+        "traded_on": None,
+        **kw,
     }
 
 
@@ -1006,6 +1024,10 @@ def _unpriceable(n: int) -> dict[str, Any]:
         "recommended": None,
         "probed": adr,
         "deregistered": _deregistered(n) if n == 21 else None,
+        # W6-4 — Massive.com lists no such ticker for the third (TMRC's measured 404)
+        "massive_ref": (
+            _massive_ref(f"TK{n:02d}", listed=False, active=None, type=None) if n == 22 else None
+        ),
     }
 
 

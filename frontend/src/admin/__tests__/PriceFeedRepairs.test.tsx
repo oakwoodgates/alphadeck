@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminPriceRepairsOut } from "../../api/hooks";
 import { PriceFeedRepairs, repairHandledIds, repairVerb } from "../PriceFeedRepairs";
+import { massiveClause } from "../priceFeedWords";
 
 // The "Price feed repairs" panel over mocked mutation hooks, on the measured prod night (2026-10-16):
 // HLLK renamed (SDCO splice-verified), BRR renamed (SVIA verified, its warrants SVIAW not), WONDF never
@@ -756,6 +757,51 @@ describe("PriceFeedRepairs — a deregistered never-priced name (W4-3)", () => {
     expect(within(aay).queryByTestId("adm-recommended")).toBeNull();
     expect(within(bk).getByTestId("adm-recommended")).toBeTruthy();
     expect(within(aay).getByRole("link", { name: "Remove from basket →" })).toBeTruthy(); // still offered, unlabeled
+  });
+});
+
+// W6-4 — Massive.com's reference evidence on a row (the probe's measured shapes, 2026-11-25): INDV renamed on EDGAR and
+// delisted on Massive.com; TMRC never priced and unknown to Massive.com (404); a warrant that traded tonight.
+const REF = {
+  symbol: "INDV",
+  read_on: "2026-11-25",
+  listed: true,
+  active: false,
+  type: "CS",
+  delisted_utc: "2026-11-03",
+  traded_on: null,
+};
+
+describe("PriceFeedRepairs — Massive.com's reference evidence (W6-4)", () => {
+  it("a row says in one line what Massive.com lists: its type, whether active, the delisting, tonight's trade", () => {
+    show({
+      ...NIGHT,
+      renamed: [{ ...HLLK, massive_ref: REF }, BRR],
+      unpriceable: [{ ...WONDF, massive_ref: { ...REF, symbol: "WONDF", listed: false, active: null, type: null, delisted_utc: null } }],
+    });
+    const [hllk, brr] = screen.getAllByTestId("adm-renamed-row");
+    expect(within(hllk).getByTestId("adm-massive-ref").textContent).toBe("Massive.com: CS, inactive, delisted 2026-11-03");
+    expect(within(brr).queryByTestId("adm-massive-ref")).toBeNull(); // no evidence, no line
+    const u = screen.getByTestId("adm-unpriceable-row");
+    expect(within(u).getByTestId("adm-massive-ref").textContent).toBe("Massive.com lists no ticker WONDF");
+    expect(within(u).getByTestId("adm-massive-ref").className).toContain("adm-sub"); // evidence, never loud
+  });
+
+  it("words a warrant that traded tonight, and an overview not read yet says only the trade", () => {
+    expect(massiveClause({ ...REF, symbol: "ACLEW", active: true, type: "WARRANT", delisted_utc: null, traded_on: "2026-11-25" })).toBe(
+      "Massive.com: WARRANT, active, traded 2026-11-25",
+    );
+    expect(massiveClause({ symbol: "SNDK", read_on: null, listed: null, active: null, type: null, delisted_utc: null, traded_on: "2026-11-25" })).toBe(
+      "Massive.com: traded 2026-11-25",
+    );
+    expect(massiveClause({ symbol: "SNDK", read_on: null, listed: null, active: null, type: null, delisted_utc: null, traded_on: null })).toBe("");
+    expect(massiveClause(null)).toBe("");
+    expect(massiveClause(undefined)).toBe("");
+  });
+
+  it("a row from an older server (no massive_ref) shows no line", () => {
+    show(NIGHT);
+    expect(screen.queryByTestId("adm-massive-ref")).toBeNull();
   });
 });
 

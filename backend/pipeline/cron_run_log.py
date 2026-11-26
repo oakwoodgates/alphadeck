@@ -480,7 +480,9 @@ def build_run_payload(
     carries `unpriceable` (Q8: no stored bar ever, neither closed nor renamed), `acknowledged` (the
     operator's "keep it, unpriced" — quiet, never paged) and `deregistered` (W4-2: on a never-priced row
     EDGAR lists no symbol for, the Form 15 and the 8-K events before it — `{form, filed, accession,
-    primary_doc, cik, events: [{form, filed, accession, items}]}`; else null); each thesis carries
+    primary_doc, cik, events: [{form, filed, accession, items}]}`; else null) and `massive_ref` (W6-4: on an
+    open price row, Massive.com's `{symbol, read_on, listed, active, type, delisted_utc, traded_on}`; else
+    null); each thesis carries
     `expected_price_misses` (`[{security_id, ticker, reason, error}]` — the vendor 404s T3 excused as
     expected, `reason` `closed` or `acknowledged`). An artifact written before these keys reads them absent
     / false / empty (`.get`).
@@ -764,6 +766,12 @@ def build_run_payload(
                         # the 8-K events before it (item CODES; the titles are derived on read), else null
                         "deregistered": (
                             s.deregistered.to_json() if s.deregistered is not None else None
+                        ),
+                        # W6-4 — an open price row's Massive.com reference evidence (listed, active, type,
+                        # delisted date, tonight's trade, the market day read), else null; the next pass carries
+                        # a read from here instead of reading it again (`pipeline/massive_evidence.py`)
+                        "massive_ref": (
+                            s.massive_ref.to_json() if s.massive_ref is not None else None
                         ),
                     }
                     for s in r.tape_stale

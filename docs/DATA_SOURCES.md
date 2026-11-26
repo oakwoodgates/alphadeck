@@ -18,7 +18,7 @@ this before you add a vendor call, a fetch client or a cache. What each SEC fili
 | Prices: source seam, Yahoo fetch, request gate | `ingest/prices/source.py`, `ingest/prices/eod_loader.py`, `ingest/http.py` |
 | Company list, fund tickers, successor CIK | `securities/sec_tickers.py`, `securities/master_refresh.py`, `pipeline/populate_master.py`, `securities/fund_tickers.py`, `pipeline/successor_cik.py` |
 | USASpending (DOE awards) | `ingest/doe/` |
-| Massive.com | `ingest/funds/polygon.py`, `ingest/polygon_splits.py`, `ingest/massive_bars.py` |
+| Massive.com | `ingest/funds/polygon.py`, `ingest/polygon_splits.py`, `ingest/massive_bars.py`, `ingest/massive_reference.py` |
 
 ## Sources
 
@@ -32,7 +32,7 @@ this before you add a vendor call, a fetch client or a cache. What each SEC fili
 | SEC ticker files | `company_tickers_exchange.json` (companies), `company_tickers_mf.json` (funds) | The company list, fund resolution, the successor-CIK scan |
 | SEC browse-edgar feed | N-PORT filings of one fund series | ETF holdings |
 | Yahoo chart API | End-of-day bars, symbol search | The price leg, benchmarks, the rename probe |
-| Massive.com | Fund shares by date; the market's splits; raw bars | ETF net flow, the split list, the tape cross-check |
+| Massive.com | Fund shares by date; the market's splits; raw bars; ticker overviews | ETF net flow, the split list, the tape cross-check, stale-row evidence |
 | Issuer and aggregator fund pages | Fund shares outstanding (fallback) | ETF net flow |
 | Nasdaq Trader symbol directory | Listed ETF symbols | The fund launch radar (`radar/funds.py`) |
 | OpenFIGI | Ticker to identifier mapping | `securities/master.resolve` |
@@ -224,8 +224,8 @@ no announcement date. `UsaSpendingClient` is cache-first like the EDGAR client, 
 
 ## Massive.com
 
-Read with `MASSIVE_API_KEY`; its absence is the off switch: nothing keyless is sent. The adapters use the
-vendor's legacy host (`Settings.polygon_base`); the older files keep its name.
+Read with `MASSIVE_API_KEY`; without it nothing is sent. The adapters use the vendor's legacy host
+(`Settings.polygon_base`), as older file names do.
 
 - **Fund shares outstanding by date** (`ingest/funds/polygon.py`): the primary `fact_fund_shares` source
   when keyed, with real history for `pipeline.backfill_fund_shares`. A sample takes the queried date; a

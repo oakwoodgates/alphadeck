@@ -31,6 +31,18 @@ def pytest_configure(config):
     # outcome depends on the hour it happens to run; the window's own tests set it (and a clock) explicitly.
     os.environ.setdefault("ALPHADECK_ONBOARD_WINDOW_BEFORE_MIN", "0")
     os.environ.setdefault("ALPHADECK_ONBOARD_WINDOW_AFTER_MIN", "0")
+    # W6-4 — NO LIVE MASSIVE.COM KEY in the suite. A host with MASSIVE_API_KEY set (the one free-plan key prod's
+    # jobs share) would otherwise let a test that runs the daily pass send live requests: the split detector,
+    # the tape cross-check, the reference reads. Removed for the whole session — before any settings are built —
+    # with every ALPHADECK_POLYGON_* override (the vendor host, the split path); a test that needs a key sets a
+    # fake one itself (`monkeypatch.setenv`). Guarded by tests/test_suite_env.py.
+    for name in [n for n in os.environ if n.upper() == "MASSIVE_API_KEY"]:
+        del os.environ[name]
+    for name in [n for n in os.environ if n.upper().startswith("ALPHADECK_POLYGON_")]:
+        del os.environ[name]
+    from domain.settings import get_settings
+
+    get_settings.cache_clear()  # nothing built before this hook keeps the key
     try:
         ensure_test_db(url)  # create the per-worktree DB if absent (idempotent, race-tolerant)
     except psycopg.OperationalError:
