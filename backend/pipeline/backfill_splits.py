@@ -28,7 +28,9 @@ every non-archived thesis):
    restatement screen; one that agrees exactly confirms it by the same rule, otherwise the note names them.
    A forward split under x1.5 that Massive.com alone lists, with no SEC filing in its window stating it or
    mentioning a split, is SET ASIDE as a distribution (D2, ``distribution_cap``: the settings
-   ``split_distribution_*``) — after the wide forms had their look, which can still confirm it.
+   ``split_distribution_*``) — after the wide forms had their look, which can still confirm it. So is one
+   Massive.com labels a stock dividend whose filing mentions a split without a ratio (W6-2,
+   ``distribution_label_overrides_abstain``).
 4. **Plan** against the stored list: a split not on it yet is APPENDED; one whose newest version the
    backfill wrote and whose content is unchanged is left alone (``unchanged``); one whose evidence changed
    gets a new backfill version; one whose newest version the OPERATOR wrote is never touched
@@ -179,6 +181,13 @@ def distribution_cap() -> Decimal | None:
         if s.split_distribution_auto_set_aside
         else None
     )
+
+
+def distribution_label_overrides_abstain() -> bool:
+    """W6-2 (decision W6-a): whether Massive.com's ``stock_dividend`` label settles a distribution whose filing
+    mentions a split but states no ratio (the setting ``split_distribution_label_overrides_abstain``). Read beside
+    ``distribution_cap`` by the same three edges and passed down with it."""
+    return get_settings().split_distribution_label_overrides_abstain
 
 
 # How each filing is read (``screen_of``): the catch-all 8-K screen (8.01 / 7.01 only, 2026-10-23), the
@@ -764,18 +773,24 @@ def decide_polygon_group(
     *,
     asof: date,
     distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
 ) -> GroupDecision:
     """S1's verdict for one member's Massive.com rows on one date: every SEC filing in the row's window read,
-    ``domain.splits.decide`` (with D2's ``distribution_max_factor``, ``distribution_cap``), and the notes for a
-    missing index / CIK and for Massive.com listing different ratios on the date. When the window holds no agreeing
-    filing, the TARGETED WIDE-FORM READER looks once more (``WIDE_FORMS`` filed in ``wide_window``): a wide form
-    that agrees exactly settles it by the same rule; otherwise the decision stands and its note names what the
-    wide forms said (``with_wide``)."""
+    ``domain.splits.decide`` (with D2's ``distribution_max_factor``, ``distribution_cap``, and W6-2's
+    ``label_overrides_abstain``), and the notes for a missing index / CIK and for Massive.com listing different ratios
+    on the date. When the window holds no agreeing filing, the TARGETED WIDE-FORM READER looks once more
+    (``WIDE_FORMS`` filed in ``wide_window``): a wide form that agrees exactly settles it by the same rule; otherwise
+    the decision stands and its note names what the wide forms said (``with_wide``)."""
     poly = group[0]
     lo, hi = _window(poly.execution_date)
     read, unread = reader.read(m, reader.refs(conn, m, lo, hi))
     d = decide(
-        poly, read, asof=asof, unread=unread, distribution_max_factor=distribution_max_factor
+        poly,
+        read,
+        asof=asof,
+        unread=unread,
+        distribution_max_factor=distribution_max_factor,
+        label_overrides_abstain=label_overrides_abstain,
     )
     wide_read: list[SecEvidence] = []
     wide_unread = 0
@@ -860,6 +875,7 @@ def plan_members(
     *,
     asof: date,
     distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
 ) -> list[PlannedSplit]:
     """S1's decision for every Massive.com date of every member in ``matched`` (``decide_polygon_group``), each a
     ``PlannedSplit`` still to be planned against the stored list (``plan_against_stored``). Reads only.
@@ -870,7 +886,13 @@ def plan_members(
             reader.index(m)
         for group in _group(matched[m]):
             g = decide_polygon_group(
-                conn, reader, m, group, asof=asof, distribution_max_factor=distribution_max_factor
+                conn,
+                reader,
+                m,
+                group,
+                asof=asof,
+                distribution_max_factor=distribution_max_factor,
+                label_overrides_abstain=label_overrides_abstain,
             )
             planned.append(
                 PlannedSplit(
@@ -984,7 +1006,12 @@ def backfill_splits(
     fetches_before = edgar.live_fetches
     reader = SecReader(edgar)
     planned = plan_members(
-        conn, reader, matched, asof=asof, distribution_max_factor=distribution_cap()
+        conn,
+        reader,
+        matched,
+        asof=asof,
+        distribution_max_factor=distribution_cap(),
+        label_overrides_abstain=distribution_label_overrides_abstain(),
     )
     result.submissions_failed = dict(reader.submissions_failed)
     result.sec_live_fetches = edgar.live_fetches - fetches_before

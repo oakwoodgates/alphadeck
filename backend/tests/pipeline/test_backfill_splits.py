@@ -48,6 +48,7 @@ from tests.split_fixtures import (
     list_polygon_source,
     polygon_source,
     seed_union,
+    v1_row,
     v1_source,
 )
 
@@ -667,3 +668,199 @@ def test_a_list_the_v1_reader_fills_carries_the_label(db, tmp_path):
     # a v3 fallback night over it: the label is not content either way
     again, _ = _run(db, tmp_path, apply=True)
     assert again.appended == 0 and split_repo.count_rows(db) == 7
+
+
+# --- W6-2 (decision W6-a): Massive.com's stock-dividend label, through the backfill's plan ---------------------------
+#
+# GPUS 2024-12-13 as the v1 reader serves it (1 -> 1.139, labelled ``stock_dividend``) and the filing its stored note
+# names: an 8-K that mentions a split the extractor could not read. Prod lists it ``needs_review`` (the backfill's).
+
+_GPUS_8K = SecEvidence(
+    "0001214659-24-019590",
+    "8-K",
+    date(2024, 11, 26),
+    "u",
+    abstain_reason="a ratio is stated but not whether the split is reverse or forward",
+    about_a_split=True,
+)
+
+
+class _GpusReader:
+    """The S1 window holds GPUS's abstaining 8-K; the wide forms hold nothing. No I/O."""
+
+    def __init__(self, cik: str):
+        self.submissions = {cik: {"read": True}}
+
+    def index(self, m):
+        return None
+
+    def refs(self, conn, m, lo, hi):
+        return [_GPUS_8K.accession]
+
+    def wide_refs(self, m, lo, hi):
+        return []
+
+    def read(self, m, refs):
+        return ([_GPUS_8K] if refs else []), 0
+
+
+def _gpus_member(sid=None) -> bf.Member:
+    import uuid
+
+    return bf.Member(DEFAULT_TENANT_ID, sid or uuid.uuid4(), "GPUS", None, "0000000001")
+
+
+def test_the_label_override_is_read_from_the_settings(monkeypatch):
+    var = "ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN"
+    monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+    try:
+        assert bf.distribution_label_overrides_abstain() is True
+        monkeypatch.setenv(var, "false")
+        get_settings.cache_clear()
+        assert bf.distribution_label_overrides_abstain() is False
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+
+
+def test_the_plan_sets_gpus_aside_by_its_label_and_keeps_its_8k_as_the_evidence():
+    row = v1_row("GPUS", "2024-12-13")
+    m = _gpus_member()
+    for flag, status in ((True, STATUS_REJECTED), (False, STATUS_NEEDS_REVIEW)):
+        (p,) = bf.plan_members(
+            None,
+            _GpusReader(m.cik),
+            {m: [row]},
+            asof=ASOF,
+            distribution_max_factor=Decimal("1.5"),
+            label_overrides_abstain=flag,
+        )
+        assert (p.decision.status, p.decision.sec, p.filings_read) == (status, _GPUS_8K, 1), flag
+        assert p.decision.polygon.adjustment_type == "stock_dividend"
+    # D2 off: nothing is set aside, labelled or not
+    (p,) = bf.plan_members(
+        None,
+        _GpusReader(m.cik),
+        {m: [row]},
+        asof=ASOF,
+        distribution_max_factor=None,
+        label_overrides_abstain=True,
+    )
+    assert p.decision.status == STATUS_NEEDS_REVIEW
+
+
+def test_the_backfill_passes_the_label_setting_to_its_plan(db, tmp_path, monkeypatch):
+    from tests.pipeline.test_detect_splits import _backfill_scco
+
+    seen: list[bool] = []
+    plan = bf.plan_members
+
+    def spy(*a, **kw):
+        seen.append(kw["label_overrides_abstain"])
+        return plan(*a, **kw)
+
+    monkeypatch.setattr(bf, "plan_members", spy)
+    seed_member(db, "SCCO", None, [])
+    var = "ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN"
+    monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+    try:
+        _backfill_scco(db, tmp_path, asof=date(2026, 11, 5))
+        monkeypatch.setenv(var, "false")
+        get_settings.cache_clear()
+        _backfill_scco(db, tmp_path, asof=date(2026, 11, 6))
+    finally:
+        get_settings.cache_clear()
+    assert seen == [True, False]
+
+
+def test_a_backfill_rerun_sets_gpus_aside_once_and_never_touches_an_operator_rejection(db):
+    """The measured effect (plan §0.13, §3 W6-2): GPUS 2024-12-13, listed ``needs_review`` by the backfill, is
+    re-versioned once as a set-aside (its status and note change; its evidence stays); CYCU 2025-12-15, which the
+    steward rejected, is the steward's: ``OPERATOR_KEPT``, never re-decided."""
+    row = v1_row("GPUS", "2024-12-13")
+    cap = Decimal("1.5")
+    before = decide(row, [_GPUS_8K], asof=ASOF, distribution_max_factor=cap)  # W2-3's verdict
+    assert before.status == STATUS_NEEDS_REVIEW
+    gpus = seed_member(db, "GPUS", None, [])
+    stored = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=gpus,
+        key_date=row.execution_date,
+        values=split_repo.decision_values(before),
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+    after = decide(
+        row, [_GPUS_8K], asof=ASOF, distribution_max_factor=cap, label_overrides_abstain=True
+    )
+    p = bf.PlannedSplit(member=_gpus_member(gpus), decision=after, stored=None, action=bf.APPEND)
+    bf.plan_against_stored([p], {gpus: [stored]})
+    assert (p.action, p.stored.id, p.changed) == (bf.APPEND, stored.id, ("status", "note"))
+    # once: the set-aside version, stored, plans UNCHANGED on the next run
+    aside = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=gpus,
+        key_date=row.execution_date,
+        values=p.values,
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+    assert split_repo.is_auto_set_aside(aside) and aside.sec_accession == _GPUS_8K.accession
+    again = bf.PlannedSplit(
+        member=_gpus_member(gpus), decision=after, stored=None, action=bf.APPEND
+    )
+    bf.plan_against_stored([again], {gpus: [aside]})
+    assert again.action == bf.UNCHANGED
+    # CYCU: the steward's rejection stands, whatever the label rule now says
+    cycu_row = PolygonEvidence(
+        "E-CYCU-2025-12-15",
+        "CYCU",
+        date(2025, 12, 15),
+        Decimal(1),
+        Decimal("1.008"),
+        "stock_dividend",
+    )
+    cycu_8k = SecEvidence(
+        "0001493152-25-016033",
+        "8-K",
+        date(2025, 9, 29),
+        "u",
+        abstain_reason="only an authorized range of ratios (3:1) — no ratio set",
+        about_a_split=True,
+    )
+    cycu = seed_member(db, "CYCU", None, [])
+    listed = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=cycu,
+        key_date=cycu_row.execution_date,
+        values=split_repo.decision_values(
+            decide(cycu_row, [cycu_8k], asof=ASOF, distribution_max_factor=cap)
+        ),
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+    rejected = split_repo.reject(db, listed.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    tonight = decide(
+        cycu_row, [cycu_8k], asof=ASOF, distribution_max_factor=cap, label_overrides_abstain=True
+    )
+    assert (
+        tonight.status == STATUS_REJECTED
+    )  # the rule now agrees with the steward, and still writes nothing
+    kept = bf.PlannedSplit(
+        member=bf.Member(DEFAULT_TENANT_ID, cycu, "CYCU", None, "0000000002"),
+        decision=tonight,
+        stored=None,
+        action=bf.APPEND,
+    )
+    bf.plan_against_stored([kept], {cycu: [rejected]})
+    assert (kept.action, kept.stored.id) == (bf.OPERATOR_KEPT, rejected.id)
+    assert split_repo.count_rows(db) == 4

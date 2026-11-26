@@ -33,7 +33,10 @@ itself, when the caller passes ``distribution_max_factor`` (the settings ``split
 that Massive.com alone lists, with no SEC filing in its window stating it or mentioning a split
 (``distribution_reason``). Every one the steward reviewed was a stock dividend or another distribution (SCCO, PHG,
 GREH, GPUS, ENVX; the 2026-10-23/24 rejections). It is ``rejected`` with Massive.com's values and the reason on its
-note, never applied; a restore returns it to review.
+note, never applied; a restore returns it to review. W6-2 (decision W6-a, ``label_overrides_abstain``; the setting
+``split_distribution_label_overrides_abstain``): when Massive.com LABELS such a row a stock dividend, a filing that
+mentions a split but states no ratio (the extractor abstained) no longer keeps it for review; a filing that states
+it still does. The label only ever adds that case: without it the rule above holds exactly.
 """
 
 from __future__ import annotations
@@ -84,10 +87,13 @@ SESSION_TOLERANCE = 2
 
 
 # Massive.com's own word for a split row (``/stocks/v1/splits`` ``adjustment_type``, W6-1). EVIDENCE beside the
-# row, never a verdict: no rule here reads it yet, and a word outside these three reads as ``None``. MEASURED on the
-# 2026-11-25 pull from 2024-10-01 (3,521 rows): 596 forward_split, 2,527 reverse_split, 398 stock_dividend; the
-# label is not a factor band (HON's 1000 -> 1061 is ``forward_split``, MTH's 1 -> 2 ``stock_dividend``).
+# row, never a verdict alone, and a word outside these three reads as ``None``. MEASURED on the 2026-11-25 pull from
+# 2024-10-01 (3,521 rows): 596 forward_split, 2,527 reverse_split, 398 stock_dividend; the label is not a factor band
+# (HON's 1000 -> 1061 is ``forward_split``, MTH's 1 -> 2 ``stock_dividend``). One rule reads it: W6-2's
+# ``distribution_reason`` lets ``stock_dividend`` stand in for a reading the extractor could not make, inside D2's
+# bound only; a ``forward_split`` label (61 rows under x1.5: LEN, FTV, ITUB 10 -> 11, ...) never narrows D2.
 ADJUSTMENT_TYPES = ("forward_split", "reverse_split", "stock_dividend")
+LABEL_STOCK_DIVIDEND = "stock_dividend"
 
 
 @dataclass(frozen=True)
@@ -418,10 +424,13 @@ def decide(
     asof: date,
     unread: int = 0,
     distribution_max_factor: Decimal | None = None,
+    label_overrides_abstain: bool = False,
 ) -> SplitDecision:
     """The verdict for one Massive.com row given every SEC filing read in its window (the module docstring).
     ``distribution_max_factor`` (D2; ``None`` = off): a Massive.com-only row that ``distribution_reason`` names a
-    distribution is SET ASIDE (``rejected``) instead of waiting for review."""
+    distribution is SET ASIDE (``rejected``) instead of waiting for review. ``label_overrides_abstain`` (W6-2):
+    so is one Massive.com labels a stock dividend whose filing mentions a split without a ratio, when no filing
+    states it; that filing stays the row's SEC evidence."""
     tail = f" {unread} SEC filing(s) in the window could not be read." if unread else ""
     readable = [s for s in sec if s.has_ratio]
     confirming = []
@@ -492,6 +501,17 @@ def decide(
             f"mentions a split but the extractor abstained — {chosen.abstain_reason}."
         )
         valid_from = polygon.execution_date
+        if distribution_max_factor is not None:
+            # W6-2: Massive.com's stock-dividend label can settle what the abstaining filing could not
+            why = distribution_reason(
+                polygon,
+                sec,
+                max_factor=distribution_max_factor,
+                label_overrides_abstain=label_overrides_abstain,
+            )
+            if why is not None:
+                status = STATUS_REJECTED
+                note = f"{why} {note}"
     else:
         note = (
             f"Massive.com only — no SEC filing read in the window states this split "
@@ -502,7 +522,12 @@ def decide(
             note += f" Nearest split filing: {_sec_said(near)} — a different split?"
         valid_from = polygon.execution_date
         if distribution_max_factor is not None:
-            why = distribution_reason(polygon, sec, max_factor=distribution_max_factor)
+            why = distribution_reason(
+                polygon,
+                sec,
+                max_factor=distribution_max_factor,
+                label_overrides_abstain=label_overrides_abstain,
+            )
             if why is not None:
                 status = STATUS_REJECTED
                 note = f"{why} {note}"
@@ -533,7 +558,11 @@ def _abstained(sec: Sequence[SecEvidence]) -> list[SecEvidence]:
 
 
 def distribution_reason(
-    polygon: PolygonEvidence, sec: Sequence[SecEvidence], *, max_factor: Decimal | float | int
+    polygon: PolygonEvidence,
+    sec: Sequence[SecEvidence],
+    *,
+    max_factor: Decimal | float | int,
+    label_overrides_abstain: bool = False,
 ) -> str | None:
     """D2's rule (the module docstring): why this Massive.com row is a distribution set aside automatically — or
     ``None``. All of: a FORWARD split (new shares > old), new / old strictly under ``max_factor`` (x1.5: a
@@ -541,13 +570,27 @@ def distribution_reason(
     the window states it (the same ratio, or a date that agrees: ``related``) and none mentions a split the
     extractor abstained on. A filing that states a DIFFERENT split (MOVE's 1-for-10 months earlier) does not
     count; one that confirms it confirms it, one that disagrees sends it to the steward. Exact arithmetic.
+
+    W6-2 (``label_overrides_abstain``, decision W6-a): when Massive.com labels the row ``stock_dividend``, a filing
+    the extractor abstained on no longer keeps it (GPUS 2024-12-13: 1 -> 1.139, its 8-K restating a split it could
+    not read); a ``related`` filing still does, and the reason names the label. Any other label, or none, changes
+    nothing.
     """
     old, new = Decimal(polygon.split_from), Decimal(polygon.split_to)
     bound = Decimal(str(max_factor))
     if not (0 < old < new) or Fraction(new) / Fraction(old) >= Fraction(bound):
         return None
-    if any(related(s, polygon) for s in sec) or _abstained(sec):
+    if any(related(s, polygon) for s in sec):
         return None
+    if _abstained(sec):
+        if not (label_overrides_abstain and polygon.adjustment_type == LABEL_STOCK_DIVIDEND):
+            return None
+        return (
+            f"Set aside automatically: a {_fmt(new)}-for-{_fmt(old)} forward 'split' listed by Massive.com only, "
+            f"under x{_fmt(bound)}, that Massive.com labels a stock dividend (an SEC filing in its window mentions "
+            "a split but states no ratio) — a stock dividend or distribution, not a split (the 2026-10-23/24 rule). "
+            "Restore returns it to review."
+        )
     return (
         f"Set aside automatically: a {_fmt(new)}-for-{_fmt(old)} forward 'split' listed by Massive.com only, "
         f"under x{_fmt(bound)} — a stock dividend or distribution, not a split (the 2026-10-23/24 rule). "

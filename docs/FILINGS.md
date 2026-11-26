@@ -228,7 +228,9 @@ the located passage verbatim.
   run nightly for every company.
 - **Distributions.** A forward split under x1.5 that only Massive.com lists, with no filing in its window
   stating it or mentioning a split, is set aside as a distribution (`distribution_reason`; settings
-  `split_distribution_auto_set_aside`, `split_distribution_max_factor`). A wide form can still confirm it.
+  `split_distribution_auto_set_aside`, `split_distribution_max_factor`). A wide form can still confirm it. So
+  is one Massive.com labels a stock dividend whose filing mentions a split without a ratio
+  (`split_distribution_label_overrides_abstain`); a filing that states it still sends it to review.
 - **Who runs it.** `pipeline/detect_splits.py` checks each company nightly inside its ingest, before its price
   leg; the stored price tape can confirm a split one documentary source states, never alone.
   `pipeline/split_history.py` gives a company that joins a basket its history from the onboarding job.
