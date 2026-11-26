@@ -32,7 +32,7 @@ from app.auth import CurrentUser, require_super_admin
 from app.deps import get_conn
 from app.errors import RETRY_AFTER_S, fail
 from app.oauth import store as oauth_store
-from app.routers.admin_price_feed import price_repairs_out
+from app.routers.admin_price_feed import massive_ref_out, price_repairs_out
 from app.routers.admin_splits import count_needs_review as splits_needs_review_count
 from app.schemas_api import (
     AdminArrivedCloseOut,
@@ -493,6 +493,10 @@ def _tape_out(payloads: list[dict], names: _NameGuard | None = None) -> AdminTap
                         acknowledged=bool(s.get("acknowledged")),
                         # W6-3a — the same pass's Massive.com cross-check: this symbol traded that session
                         **(traded.get(str(s["security_id"]), {}) if kind == PRICE.key else {}),
+                        # W6-4 — what Massive.com says of the symbol (evidence; an older artifact reads null)
+                        massive_ref=(
+                            massive_ref_out(s.get("massive_ref")) if kind == PRICE.key else None
+                        ),
                     )
                 except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
                     continue

@@ -127,6 +127,8 @@ from pipeline.insider_amendment_scan import (
 from pipeline.insider_amendment_scan import report_lines as amendment_report_lines
 from pipeline.insider_hold_scan import HoldScan, previous_hold_keys, run_hold_scan
 from pipeline.insider_hold_scan import report_lines as hold_report_lines
+from pipeline.massive_evidence import ReferenceRun, run_massive_reference
+from pipeline.massive_evidence import report_lines as massive_reference_report_lines
 from pipeline.missing_closes import MissingCloses, run_missing_closes
 from pipeline.missing_closes import report_lines as missing_close_report_lines
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
@@ -1183,6 +1185,10 @@ class DailyPassOutcome:
     # raw grouped day (disagreements, closes Massive.com traded that we lack, stale rows that traded tonight) —
     # computed ONCE in the pass, so the artifact, the printed report and the Admin poll agree. Never paged.
     tape_crosscheck: TapeCrossCheck = field(default_factory=TapeCrossCheck)
+    # W6-4 — the Massive.com reference reads for the stale price rows (``pipeline/massive_evidence.py``): the
+    # evidence itself rides each row (``StaleTape.massive_ref``, in the artifact); this is the reads' count for
+    # the one report line. Not an artifact field.
+    massive_reference: ReferenceRun = field(default_factory=ReferenceRun)
     # V2 W3c — the platform-extraction step's block (``pipeline/nightly_extraction.py``): the LAST thing in the pass,
     # added to the FINISHED artifact afterwards (``cron_run_log.amend_run_block``). Not a ``payload_kwargs`` field:
     # it does not exist yet when the artifact is written. None = the step did not report (a direct caller).
@@ -1670,6 +1676,19 @@ def _run_daily_pass_locked(
         clock=perf_counter,
         tolerance=settings.tape_crosscheck_tolerance,
     )
+    # W6-4 — MASSIVE.COM'S WORD ON THE STALE PRICE ROWS (`pipeline/massive_evidence.py`): each open stale price row
+    # carries what Massive.com says of its symbol (listed, active, type, delisted date) and whether it traded
+    # tonight (off the grouped day above: no request). EVIDENCE, never a class. The overview is read only for a row
+    # no earlier pass read (carried from the artifacts), at most `massive_reference_max_names` a night, newest
+    # stale first. AFTER `run_daily` (it reads the rows the loop judged) and BEFORE the artifact (the rows carry
+    # it). Fail-open: off (no key, a cap of 0), a failed read or a fault is a status, never a failed pass.
+    massive_reference = timed("massive_reference")(run_massive_reference)(
+        results=results,
+        asof=asof,
+        allow_live=allow_live,
+        grouped=grouped,
+        payloads=list_run_logs,
+    )
     # S5 — THE SPLIT-NIGHT HOLD's ESCALATION (`pipeline/split_jumps.py`): a split-shaped jump the hold has
     # released (three sessions on) that no source ever listed goes to the operator — one quiet report line,
     # never a page (#7). The hold itself is on tonight's cards. Its own read-only connection; fail-open.
@@ -1815,6 +1834,7 @@ def _run_daily_pass_locked(
         jumps=jumps,
         missing_closes=missing_closes,
         tape_crosscheck=tape_crosscheck,
+        massive_reference=massive_reference,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -2175,6 +2195,9 @@ def _report(
                     f" · DEREGISTERED — {s.deregistered.describe()}; recommended: remove it from the "
                     "basket (basket editor)"
                 )
+            # W6-4 — what Massive.com says of the symbol (evidence: listed, active, type, delisted, traded)
+            if s.massive_ref is not None and s.massive_ref.describe():
+                unpriceable += f" · {s.massive_ref.describe()}"
             print(
                 f"  {s.label}: last {kind.edge_noun} {s.edge.isoformat() if s.edge else 'never'}"
                 f"{renamed}{unpriceable}"
@@ -2500,6 +2523,10 @@ def main(argv: list[str] | None = None) -> None:
     # W6-3a — the Massive.com cross-check: one quiet line, the disagreements named, one line per stale row that
     # traded tonight (a vendor gap, not a rename); a failed check loud. Never paged.
     for line in tape_crosscheck_report_lines(outcome.tape_crosscheck):
+        print(line)
+    # W6-4 — the Massive.com reference reads for the stale rows: one quiet line when any was read, failed or left
+    # for a later pass (the evidence itself is on each stale row's line above)
+    for line in massive_reference_report_lines(outcome.massive_reference):
         print(line)
     # X5 — ONE timings line: the total, the three slowest legs, the slowest thesis, the peak RSS
     timings_line = pass_timings.summary_line(outcome.timings)

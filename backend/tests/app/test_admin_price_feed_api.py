@@ -862,3 +862,103 @@ def test_the_item_words_come_from_SECs_titles_only_never_from_the_artifact(clien
     first, second = u["deregistered"]["events"]
     assert first["items"] == ["1.03"] and first["item_titles"] == ["Bankruptcy or Receivership"]
     assert second["filing_url"] is None
+
+
+# --- W6-4: Massive.com's reference evidence rides the stale rows (evidence, never a class) ------------------
+#
+# The measured shapes (probe of 2026-11-25): INDV renamed on EDGAR (SUPN) and delisted on Massive.com 11-03; TMRC
+# never priced and 404 on Massive.com; ACLEW a plain stale row that Massive.com lists as an OTC WARRANT, active.
+
+
+def _massive_night(db) -> dict:
+    from ingest.massive_reference import MassiveRef
+
+    ids = {t: uuid.uuid4() for t in ("INDV", "TMRC", "ACLEW")}
+    with db.cursor() as cur:
+        for t, sid in ids.items():
+            cur.execute(
+                "INSERT INTO security_master (id, tenant_id, ticker, name, valid_from) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (sid, DEFAULT_TENANT_ID, t, f"SYNTHETIC {t}", "2026-01-01"),
+            )
+    db.commit()
+    read = date(2026, 11, 25)
+    rows = (
+        StaleTape(
+            "INDV",
+            ids["INDV"],
+            date(2026, 11, 2),
+            renamed=True,
+            edgar_tickers=("SUPN",),
+            massive_ref=MassiveRef(
+                "INDV", read, True, active=False, type="CS", delisted_utc=date(2026, 11, 3)
+            ),
+        ),
+        StaleTape(
+            "TMRC", ids["TMRC"], None, edgar_tickers=(), massive_ref=MassiveRef("TMRC", read, False)
+        ),
+        StaleTape(
+            "ACLEW",
+            ids["ACLEW"],
+            date(2025, 10, 15),
+            edgar_tickers=("ALCE", "ACLEW", "ADIS"),
+            massive_ref=MassiveRef("ACLEW", read, True, active=True, type="WARRANT"),
+        ),
+    )
+    at = datetime(2026, 11, 26, 3, 30, tzinfo=timezone.utc)
+    path = write_cron_run_log(
+        [ThesisRunResult(thesis_id=uuid.uuid4(), name="Thesis 01", recorded=True, tape_stale=rows)],
+        asof=read,
+        allow_live=True,
+        started_at=at,
+        finished_at=at + timedelta(minutes=30),
+        tape_evaluated=True,
+        tape_stale_days=5,
+        rename_probe=RenameProbe(evaluated=True),
+    )
+    return {**ids, "path": path}
+
+
+def test_the_repair_rows_and_the_tape_rows_carry_massive_coms_reference_evidence(client, db):
+    _massive_night(db)
+    body = client.get("/admin/status").json()
+    repairs = body["price_repairs"]
+
+    (indv,) = repairs["renamed"]
+    assert indv["massive_ref"] == {
+        "symbol": "INDV",
+        "read_on": "2026-11-25",
+        "listed": True,
+        "active": False,
+        "type": "CS",
+        "delisted_utc": "2026-11-03",
+        "traded_on": None,
+    }
+    (tmrc,) = repairs["unpriceable"]
+    assert tmrc["massive_ref"]["listed"] is False and tmrc["massive_ref"]["type"] is None
+    # the plain stale row lives on the tape panel (the vendor symbol is its repair): the evidence rides there
+    stale = {r["ticker"]: r for r in body["tape"]["stale"]}
+    assert stale["ACLEW"]["massive_ref"]["type"] == "WARRANT"
+    assert stale["ACLEW"]["massive_ref"]["active"] is True
+    assert stale["INDV"]["massive_ref"]["delisted_utc"] == "2026-11-03"
+    # a field, never a class: the rows sit in the lists they sit in without it
+    assert stale["ACLEW"]["renamed"] is False and stale["ACLEW"]["closed_at"] is None
+    assert tmrc["deregistered"] is None
+
+
+def test_an_older_or_malformed_massive_block_reads_null_and_never_blanks_the_panel(client, db):
+    night = _massive_night(db)
+    path = Path(night["path"])
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    indv, tmrc, aclew = doc["theses"][0]["tape_stale"]
+    del indv["massive_ref"]  # an artifact written before W6-4
+    tmrc["massive_ref"] = {"symbol": "../TMRC", "listed": "no"}  # not a symbol: dropped
+    aclew["massive_ref"] = "WARRANT"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+    body = client.get("/admin/status").json()
+    repairs = body["price_repairs"]
+    assert repairs["renamed"][0]["massive_ref"] is None
+    assert repairs["unpriceable"][0]["massive_ref"] is None
+    assert all(r["massive_ref"] is None for r in body["tape"]["stale"])
+    assert {r["ticker"] for r in body["tape"]["stale"]} == {"INDV", "TMRC", "ACLEW"}

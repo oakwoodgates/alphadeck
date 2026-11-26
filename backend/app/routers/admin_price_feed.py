@@ -27,7 +27,8 @@ What the operator can do here, and its inverse:
 - **Remove from basket** is NOT here: the panel links to the existing basket editor (no second delete path).
   A never-priced name EDGAR lists no symbol for and whose company filed a Form 15 (W4-2) carries that filing
   and the 8-K events before it (``deregistered``, SEC's item titles only), making removal the recommended
-  action; nothing here removes or silences it.
+  action; nothing here removes or silences it. Every open row also carries what Massive.com says of its symbol
+  (W6-4, ``massive_ref``: listed, active, type, delisted date, traded tonight) — evidence, never a class.
 - **Mark limited history** (0056) — a KNOWN FEED LIMITATION on a name the vendor prices but serves no
   HISTORY for (its chart returns only the current bar under every range — SCE-PG): its tape builds one bar
   per night and can never be restated, repaired or backfilled from the vendor. Evidenced by ONE vendor pull
@@ -79,6 +80,7 @@ from app.schemas_api import (
     AdminFeedLimitationOut,
     AdminFilingRefOut,
     AdminFormerNameOut,
+    AdminMassiveRefOut,
     AdminNameChangeFilingOut,
     AdminPriceFeedAckOut,
     AdminPriceRepairsOut,
@@ -98,6 +100,7 @@ from domain.links import filing_index_url
 from domain.security import SecurityIdentity
 from domain.settings import get_settings
 from ingest.edgar.submissions import Deregistration
+from ingest.massive_reference import MassiveRef
 from ingest.prices.source import DEFAULT_RANGE, PriceSource, YahooPriceSource
 from pipeline import successor_cik
 from pipeline.cron_run_log import carried_inventory, is_finished, list_run_logs
@@ -155,6 +158,7 @@ class _Row:
     first_thesis: str = ""
     vendor_error: str | None = None
     deregistered: Deregistration | None = None
+    massive_ref: MassiveRef | None = None
 
 
 def inventory_doc(payloads: list[dict]) -> dict | None:
@@ -248,6 +252,8 @@ def _inventory(doc: dict) -> dict[UUID, _Row]:
                         vendor_error=errors.get(str(sid)),
                         # W4-2 — the Form 15 evidence (absent on an older artifact: None)
                         deregistered=Deregistration.from_json(s.get("deregistered")),
+                        # W6-4 — Massive.com's evidence (absent on an older artifact, or malformed: None)
+                        massive_ref=MassiveRef.from_json(s.get("massive_ref")),
                     )
                     rows[sid] = row
                 if ref is not None and all(x.id != ref.id for x in row.theses):
@@ -308,6 +314,24 @@ def _deregistration_out(d: Deregistration | None) -> AdminDeregistrationOut | No
             )
             for e in d.events
         ],
+    )
+
+
+def massive_ref_out(raw: object) -> AdminMassiveRefOut | None:
+    """W6-4 — an artifact row's ``massive_ref`` (or a parsed ``MassiveRef``) as the wire block; ``None`` for an
+    older artifact or a malformed block (``MassiveRef.from_json`` keeps only Massive.com symbols, real booleans,
+    type codes and dates)."""
+    ref = raw if isinstance(raw, MassiveRef) else MassiveRef.from_json(raw)
+    if ref is None:
+        return None
+    return AdminMassiveRefOut(
+        symbol=ref.symbol,
+        read_on=ref.read_on,
+        listed=ref.listed,
+        active=ref.active,
+        type=ref.type,
+        delisted_utc=ref.delisted_utc,
+        traded_on=ref.traded_on,
     )
 
 
@@ -559,6 +583,7 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
                     kind=PRICE.key,
                     closed_at=row.closed_at,
                     edgar_tickers=row.edgar_tickers,
+                    massive_ref=massive_ref_out(row.massive_ref),
                 )
             )
         elif row.renamed:
@@ -586,6 +611,7 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
                     probed=bool(p),
                     price_symbol=current,
                     change=change,
+                    massive_ref=massive_ref_out(row.massive_ref),
                 )
             )
         elif row.unpriceable and sid not in acked:
@@ -604,6 +630,7 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
                     recommended=u.get("recommended"),
                     probed=bool(u),
                     deregistered=_deregistration_out(row.deregistered),
+                    massive_ref=massive_ref_out(row.massive_ref),
                 )
             )
     acknowledged = [

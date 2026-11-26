@@ -33,6 +33,7 @@ import {
   edgarClause,
   eventTitles,
   isCrossClass,
+  massiveClause,
   vendorShort,
 } from "./priceFeedWords";
 
@@ -145,6 +146,12 @@ function DeregistrationEvidence({ d }: { d: AdminDeregistrationOut }) {
       )}
     </div>
   );
+}
+
+/** W6-4 — what Massive.com says of the row's symbol, one quiet line (evidence; nothing is decided by it). */
+function MassiveLine({ m }: { m: AdminUnpriceableRowOut["massive_ref"] | undefined }) {
+  const words = massiveClause(m);
+  return words ? <div className="adm-sub" data-testid="adm-massive-ref">{words}</div> : null;
 }
 
 /** One known feed limitation (0056): what the operator marked and why, the vendor pull that evidenced it,
@@ -399,6 +406,7 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
                     {r.edgar_name && <> ({r.edgar_name}{former ? <>; formerly {former}</> : null})</>}
                     {filing && <> · 8-K item 5.03 filed {filing.filed}</>}
                   </div>
+                  <MassiveLine m={r.massive_ref} />
                   {r.change ? (
                     <AppliedLine
                       change={r.change}
@@ -470,6 +478,7 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
                       .filter(Boolean)
                       .join(" · ")}
                   </div>
+                  <MassiveLine m={u.massive_ref} />
                   {u.change ? (
                     <AppliedLine
                       change={u.change}

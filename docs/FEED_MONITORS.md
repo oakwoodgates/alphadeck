@@ -50,6 +50,7 @@ Every monitor here follows one discipline, and a new one must too:
 | Split-shaped jumps | `pipeline/split_jumps.py` | A jump the split-night hold released with no split listed | Admin Splits panel and one quiet line; never a page |
 | Missing closes | `pipeline/missing_closes.py` | A company with no close for the night's session | Quiet nightly; loud on Admin once still missing after the next session's pass; never a page |
 | Tape cross-check | `pipeline/tape_crosscheck.py`, `ingest/massive_bars.py` | Tonight's stored closes against Massive.com's raw bars; a stale price row whose symbol traded tonight | One quiet line, one line per stale row that traded; on Admin beside missing closes; never a page |
+| Stale-row reference | `pipeline/massive_evidence.py`, `ingest/massive_reference.py` | What Massive.com says of an open stale price row's symbol | Evidence on the row; one quiet line; never a page |
 | Form 4/A inventory | `pipeline/insider_amendment_scan.py` | Amendments owed a steward decision; amendments the system applied | New owed items page, named; system applications are one quiet count |
 | Held insider rows | `pipeline/insider_hold_scan.py` | Rows held for an impossible transaction date, by bucket | New rows the read does not count page; the rest are quiet |
 | SEC freshness | `pipeline/edgar_coverage.py` | Fewer than `freeze_completed_floor` of the EDGAR-eligible companies got a completed SEC fetch | Pages (the freeze alarm) |
@@ -103,6 +104,17 @@ rename", naming the split on the list after its edge: Yahoo nulls sessions aroun
 the stale advice to look for a rename is wrong there. No key, `ALPHADECK_TAPE_CROSSCHECK=false`, a session
 Massive.com has not served yet (a 403) or a failed read is a status on the block; nothing is judged. It never
 writes the tape.
+
+#### Massive.com's word on a stale row
+
+Each open stale price row (closed rows excluded) carries `massive_ref`: whether Massive.com lists its symbol,
+`active`, its `type` code and delisting date from the ticker overview (`/v3/reference/tickers/{T}`), and
+`traded_on` from tonight's grouped day (no request). The overview is read once per row an earlier pass did not
+read, at most `massive_reference_max_names` (5) a night, newest stale first, cached per symbol and market day;
+the next pass carries the read from the artifact. Evidence, never a class: OTC warrants (ACLEW), a delisting
+(INDV) or a vendor gap (SNDK) leave each row in its list. A failed read stops the night's reads; the rest wait.
+Shown on Admin's stopped-feed and Price feed repairs rows and through the steward MCP (the tape row's
+`massive_traded` is the cross-check's).
 
 #### Known feed limitations
 
@@ -184,6 +196,7 @@ Every steward decision here is an append-only row with an undo; nothing is appli
 | `ALPHADECK_TAPE_CLOSED_BEFORE_DAYS`, `ALPHADECK_TAPE_CLOSED_AFTER_DAYS` | `domain/settings.py` | No |
 | `ALPHADECK_FREEZE_COMPLETED_FLOOR` | `domain/settings.py` | No |
 | `ALPHADECK_TAPE_CROSSCHECK`, `ALPHADECK_TAPE_CROSSCHECK_TOLERANCE` | `domain/settings.py` | Yes, and to the backend |
+| `ALPHADECK_MASSIVE_REFERENCE_MAX_NAMES` | `domain/settings.py` | Yes, and to the backend |
 
 ## Known limits
 

@@ -11084,6 +11084,89 @@
         "title": "AdminLateOnlyNightOut",
         "description": "One (thesis, night) recorded ONLY LATE (operator decision 2026-10-17): it holds at least one\nnon-reconstructed call-of-record recorded at/after the night's on-time window closed (the next weekday's\n06:00 ET EDGAR open \u2014 ``pipeline.night_coverage.is_late``) and NO row the Scoreboard would score (no\nnon-late, non-reconstructed row \u2014 on-time or daytime). The coverage readout counts the late row as\ncovering the night (the pass did record it), but the Scoreboard sets late rows aside (L1 \u2014 they never\ndefine an episode), so there the night is a GAP: listed so \"covered\" here and the gap there reconcile.\nINFORMATIONAL \u2014 never an alarm, never the verdict, never paged.\n\n``recorded_at`` = the first late row's stamp and ``edgar_open`` = the window end it missed, both in\nmarket time; ``n_rows`` = late rows on the night. A reconstructed row is never scored, so it does not\nfill the gap beside a late row; a reconstructed-only night holds no late row and is never listed (its\nown marker, ``reconstructed_nights``)."
       },
+      "AdminMassiveRefOut": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "read_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read On"
+          },
+          "listed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listed"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "delisted_utc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delisted Utc"
+          },
+          "traded_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traded On"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "AdminMassiveRefOut",
+        "description": "What Massive.com says of a stale price row's symbol (W6-4) \u2014 EVIDENCE for the steward, never a class: the\nrow sits in the list it sits in without it. ``symbol`` = the Massive.com symbol it is about; ``read_on`` = the\nmarket day its ticker overview was read (``null`` = not read yet: at most a few a night, newest stale first);\n``listed`` = Massive.com lists the symbol (``false`` = \"Ticker not found.\"; ``null`` = not read); ``active``,\n``type`` (Massive.com's code: ``CS``, ``ADRC``, ``WARRANT`` ...) and ``delisted_utc`` = the overview's;\n``traded_on`` = the pass's session when Massive.com's grouped bars show the symbol traded (volume > 0).\nMassive.com's words, never paraphrased."
+      },
       "AdminMasterRefreshOut": {
         "properties": {
           "line": {
@@ -12091,6 +12174,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/AdminPriceSymbolChangeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "massive_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminMassiveRefOut"
               },
               {
                 "type": "null"
@@ -13891,6 +13984,16 @@
               }
             ],
             "title": "Massive Close"
+          },
+          "massive_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminMassiveRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -14830,6 +14933,16 @@
                 "type": "null"
               }
             ]
+          },
+          "massive_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminMassiveRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -14837,7 +14950,7 @@
           "security_id"
         ],
         "title": "AdminUnpriceableRowOut",
-        "description": "An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)\n\u2014 WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor\nfetch), acknowledge it (\"keep it, unpriced\"), or remove it from the basket in the editor (``theses``).\n``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists\n(``[]`` = none). ``change`` = a standing operator Set or Adopt (waiting for the next pass, with its\nUndo).\n\nW4-1 \u2014 when EDGAR lists another symbol for the name, the nightly probe fetched each one once\n(``probed``): ``candidates`` carry what the vendor serves and each one's ``listing_class``;\n``member_class`` is the member's own mark (``adr`` when EDGAR's entity name ends \"/ADR\" or the symbol\nends Y, ``ordinary`` when it ends F, ``null`` unknown). ``recommended`` = the first candidate with bars,\nno fetch error, a fresh last bar and the member's own class (``null`` = none). Adopt takes a probed\ncandidate with bars; one whose class is known to differ from the member's (the foreign ordinary line\nfor an ADR member) needs the request's ``confirm_class``.\n\nW4-2 \u2014 ``deregistered``: when EDGAR lists no symbol for the name and the company filed a Form 15, that\nfiling and the 8-K events before it (``AdminDeregistrationOut``); removing the name in the basket editor\nis then the recommended action. ``null`` otherwise."
+        "description": "An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)\n\u2014 WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor\nfetch), acknowledge it (\"keep it, unpriced\"), or remove it from the basket in the editor (``theses``).\n``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists\n(``[]`` = none). ``change`` = a standing operator Set or Adopt (waiting for the next pass, with its\nUndo).\n\nW4-1 \u2014 when EDGAR lists another symbol for the name, the nightly probe fetched each one once\n(``probed``): ``candidates`` carry what the vendor serves and each one's ``listing_class``;\n``member_class`` is the member's own mark (``adr`` when EDGAR's entity name ends \"/ADR\" or the symbol\nends Y, ``ordinary`` when it ends F, ``null`` unknown). ``recommended`` = the first candidate with bars,\nno fetch error, a fresh last bar and the member's own class (``null`` = none). Adopt takes a probed\ncandidate with bars; one whose class is known to differ from the member's (the foreign ordinary line\nfor an ADR member) needs the request's ``confirm_class``.\n\nW4-2 \u2014 ``deregistered``: when EDGAR lists no symbol for the name and the company filed a Form 15, that\nfiling and the 8-K events before it (``AdminDeregistrationOut``); removing the name in the basket editor\nis then the recommended action. ``null`` otherwise.\n\nW6-4 \u2014 ``massive_ref``: what Massive.com says of the symbol (``AdminMassiveRefOut``; evidence only)."
       },
       "AdoptionCardOut": {
         "properties": {
