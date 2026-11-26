@@ -6427,7 +6427,9 @@ export interface components {
         };
         /**
          * AdminSplitListPolygonOut
-         * @description Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares.
+         * @description Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares. ``adjustment_type`` is
+         *     Massive.com's own label (``forward_split``, ``reverse_split`` or ``stock_dividend``), evidence only; null on a row
+         *     stored before the label was read or from the v3 endpoint.
          */
         AdminSplitListPolygonOut: {
             /** Id */
@@ -6442,6 +6444,8 @@ export interface components {
             split_to?: string | null;
             /** Ratio Label */
             ratio_label?: string | null;
+            /** Adjustment Type */
+            adjustment_type?: string | null;
         };
         /**
          * AdminSplitListSecOut

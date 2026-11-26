@@ -111,7 +111,9 @@ class AdminSplitListSecOut(BaseModel):
 
 
 class AdminSplitListPolygonOut(BaseModel):
-    """Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares."""
+    """Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares. ``adjustment_type`` is
+    Massive.com's own label (``forward_split``, ``reverse_split`` or ``stock_dividend``), evidence only; null on a row
+    stored before the label was read or from the v3 endpoint."""
 
     id: str
     ticker: str | None = None
@@ -119,6 +121,7 @@ class AdminSplitListPolygonOut(BaseModel):
     split_from: str | None = None
     split_to: str | None = None
     ratio_label: str | None = None
+    adjustment_type: str | None = None
 
 
 class AdminSplitListOptionOut(BaseModel):
@@ -496,6 +499,7 @@ def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitLi
                 if v.polygon_split_from is not None and v.polygon_split_to is not None
                 else None
             ),
+            adjustment_type=v.polygon_adjustment_type,
         )
         if v.polygon_id
         else None

@@ -20,7 +20,7 @@ from pipeline import backfill_splits as bf
 from repositories import split_repo
 from tests.split_801_fixtures import ENHA_8K, OLD_ITEMS, enha_polygon, seed_enha
 from tests.split_801_fixtures import SINCE as SINCE_8_01
-from tests.split_fixtures import edgar_cache, polygon_source, seed_union
+from tests.split_fixtures import edgar_cache, polygon_source, seed_union, v1_source
 
 BASE = "/admin/splits"
 
@@ -897,3 +897,30 @@ def test_the_hints_are_read_once_for_the_whole_list(db, pinned, monkeypatch):
     out = admin_splits.splits_out(db, tenant_id=DEFAULT_TENANT_ID, asof=TODAY)
     assert calls == {"bars": [{treo, pom}], "shares": [{treo, pom}]}
     assert [e.first_bar for e in out.needs_review] == [date(2026, 10, 16), TREO_SESSION]
+
+
+def test_massives_label_rides_the_polygon_block(client, db, tmp_path):
+    """W6-1: a list the v1 reader filled carries Massive.com's label beside its ratio (evidence: the verdicts are the
+    v3 fill's, checked in ``test_backfill_splits``); a row stored without one shows null."""
+    seed_union(db)
+    polygon, _ = v1_source(tmp_path)
+    bf.backfill_splits(
+        db,
+        polygon=polygon,
+        edgar=EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False),
+        since=date(2025, 8, 1),
+        asof=date(2026, 10, 20),
+        apply=True,
+    )
+    body = client.get(BASE).json()
+    _, btoc = _find(body, "BTOC", "2026-10-15")
+    assert btoc["polygon"]["adjustment_type"] == "reverse_split"
+    assert btoc["polygon"]["split_from"] == "16" and btoc["decided_by"] == "auto: SEC + Massive.com"
+    _, mi = _find(body, "MI", "2026-05-18")
+    assert (mi["status"], mi["polygon"]["adjustment_type"]) == ("needs_review", "reverse_split")
+
+
+def test_a_row_stored_without_a_label_shows_null(client, db, tmp_path):
+    _fill(db, tmp_path)
+    _, btoc = _find(client.get(BASE).json(), "BTOC", "2026-10-15")
+    assert "adjustment_type" in btoc["polygon"] and btoc["polygon"]["adjustment_type"] is None

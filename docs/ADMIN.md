@@ -68,8 +68,8 @@ The first card, from `GET /admin/status`.
   tapes in a quiet block. A plain gap is repaired by setting `security_master.price_symbol` ([DATA_SOURCES](DATA_SOURCES.md),
   "Prices (Yahoo)"); renamed, never-priced and closed names move to Price feed repairs.
 - **Missing closes:** one quiet line each night; loud only for a close still missing after the next session's pass;
-  never a page and never the verdict. Beside it, `crosscheck`: the Massive.com tape cross-check, and on stopped
-  feeds `massive_traded` marks a price row Massive.com shows traded, a vendor gap ([FEED_MONITORS](FEED_MONITORS.md)).
+  never a page and never the verdict. Beside it, `crosscheck` (the Massive.com
+  cross-check); `massive_traded` marks a stopped feed's vendor gap ([FEED_MONITORS](FEED_MONITORS.md)).
 - **Split-basis defects:** loud rows per name and kind, marking those that paged; flaps no reader sees are one
   quiet settled line. They never change the verdict.
 
@@ -150,7 +150,8 @@ row to the state before. A decision counts from when it was made, on the public 
 ### Splits
 
 The split list, filled from Massive.com and each company's SEC filing
-(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings").
+(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings"). Massive.com's side names its own label (forward split,
+reverse split or stock dividend), evidence only.
 
 - **Needs review** (loud, the only loud list): a split one source cannot settle, the SEC passage beside
   Massive.com's row: confirm a source's values, or reject. When neither is right (POM's ADR termination: 10 ADSs

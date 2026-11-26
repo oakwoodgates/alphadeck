@@ -569,6 +569,10 @@ class Settings(BaseSettings):
     # The adapters were measured against this legacy host. Verify live requests before repointing it here
     # or via ALPHADECK_POLYGON_BASE.
     polygon_base: str = "https://api.polygon.io"
+    # W6-1 — the split reference's path (``ingest/polygon_splits.py``): ``/stocks/v1/splits`` (one page a night, each
+    # row with Massive.com's label). ``/v3/reference/splits`` falls back to the deprecated endpoint while it lives
+    # (no label). ALPHADECK_POLYGON_SPLITS_PATH; compose passes it to the backend and the cron at this default.
+    polygon_splits_path: str = "/stocks/v1/splits"
     # W6-3a — THE TAPE CROSS-CHECK (``pipeline/tape_crosscheck.py``): one Massive.com grouped raw-bars read a night
     # (``ingest/massive_bars.py``) compared with the stored closes — a monitor (no tape write, never paged).
     # ``tape_crosscheck`` = False turns it off (so does no MASSIVE_API_KEY); ``tape_crosscheck_tolerance`` is the
