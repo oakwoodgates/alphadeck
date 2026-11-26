@@ -103,6 +103,7 @@ from pipeline.backfill_splits import (
     _group,
     decide_polygon_group,
     distribution_cap,
+    distribution_label_overrides_abstain,
     match_polygon,
     match_stored,
     union_members,
@@ -286,14 +287,22 @@ def detect_security(
     asof: date,
     sec_since: date,
     distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
 ) -> SecurityDetection:
     """Every split tonight's evidence states for ONE company (the module docstring). Reads only.
-    ``distribution_max_factor``: D2's bound (``backfill_splits.distribution_cap``)."""
+    ``distribution_max_factor``: D2's bound (``backfill_splits.distribution_cap``); ``label_overrides_abstain``:
+    W6-2's label rule (``backfill_splits.distribution_label_overrides_abstain``)."""
     out = SecurityDetection(member=m)
     absorbed: set[str] = set()
     for group in _group(list(polygon_rows)):
         g = decide_polygon_group(
-            conn, reader, m, group, asof=asof, distribution_max_factor=distribution_max_factor
+            conn,
+            reader,
+            m,
+            group,
+            asof=asof,
+            distribution_max_factor=distribution_max_factor,
+            label_overrides_abstain=label_overrides_abstain,
         )
         d = g.decision
         absorbed.update(s.accession for s in g.read if related(s, group[0]))
@@ -442,13 +451,14 @@ def plan_against(
     *,
     asof: date,
     distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
 ) -> list[Planned]:
     """Each decision against the stored list (the module docstring's rule). Pure: no I/O.
 
     One refinement of the rule: a filing that arrives AFTER its split's Massive.com row left tonight's pull (a late
     8-K, filed weeks after the split — FDCT's came 47 days later, outside S1's window) is decided against the
-    Massive.com row the stored split already carries, by S1's own ``decide`` (with D2's ``distribution_max_factor``)
-    — so the two sources still meet.
+    Massive.com row the stored split already carries, by S1's own ``decide`` (with D2's ``distribution_max_factor``
+    and W6-2's ``label_overrides_abstain``) — so the two sources still meet.
     """
     vs = list(stored)
     claimed: set[date] = set()
@@ -465,7 +475,11 @@ def plan_against(
             poly = _stored_polygon(v)
             if poly is not None:
                 d = decide(
-                    poly, [d.sec], asof=asof, distribution_max_factor=distribution_max_factor
+                    poly,
+                    [d.sec],
+                    asof=asof,
+                    distribution_max_factor=distribution_max_factor,
+                    label_overrides_abstain=label_overrides_abstain,
                 )
         d = replace(d, key_date=v.key_date)
         if v.key_date in claimed:
@@ -661,6 +675,8 @@ class SplitDetector:
         self._former: dict[UUID, tuple[str, ...]] | None = None
         # D2's bound, read once a pass (``None`` = the auto set-aside is off)
         self.distribution_max_factor = distribution_cap()
+        # W6-2's label rule, read beside it
+        self.label_overrides_abstain = distribution_label_overrides_abstain()
         self.planned: list[Planned] = []
         self.detections: list[SecurityDetection] = []
 
@@ -738,6 +754,7 @@ class SplitDetector:
                 asof=self.asof,
                 sec_since=self.sec_since,
                 distribution_max_factor=self.distribution_max_factor,
+                label_overrides_abstain=self.label_overrides_abstain,
             )
             self.detections.append(det)
             self.result.checked += 1
@@ -746,7 +763,11 @@ class SplitDetector:
             self.result.unplaced.extend(det.unplaced)
             stored = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[sec.id])
             plan = plan_against(
-                det, stored, asof=self.asof, distribution_max_factor=self.distribution_max_factor
+                det,
+                stored,
+                asof=self.asof,
+                distribution_max_factor=self.distribution_max_factor,
+                label_overrides_abstain=self.label_overrides_abstain,
             )
             self.planned.extend(plan)
             for p in plan:

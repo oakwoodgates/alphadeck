@@ -263,3 +263,27 @@ def test_the_migration_seeds_what_the_s1_backfill_covered(db, tmp_path):
     assert set(seeded) == {early, enha}
     assert {m.source for m in seeded.values()} == {split_history_repo.SOURCE_SEED}
     assert {m.security_id for m in split_history.needing(db)} == {late}
+
+
+def test_the_fill_passes_the_label_setting_to_its_plan(db, tmp_path, monkeypatch):
+    """W6-2: the newcomer fill decides as the backfill and the nightly do (``split_distribution_*``)."""
+    seen: list[bool] = []
+    plan = split_history.plan_members
+
+    def spy(*a, **kw):
+        seen.append(kw["label_overrides_abstain"])
+        return plan(*a, **kw)
+
+    monkeypatch.setattr(split_history, "plan_members", spy)
+    seed_enha(db)
+    var = "ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN"
+    monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+    try:
+        _fill(db, tmp_path, apply=False)
+        monkeypatch.setenv(var, "false")
+        get_settings.cache_clear()
+        _fill(db, tmp_path, apply=False)
+    finally:
+        get_settings.cache_clear()
+    assert seen == [True, False]

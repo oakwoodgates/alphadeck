@@ -671,6 +671,8 @@ def test_compose_injects_the_extraction_dials_into_BOTH_services_at_the_settings
 _SPLIT_DISTRIBUTION_DIALS = {
     "ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE": "split_distribution_auto_set_aside",
     "ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR": "split_distribution_max_factor",
+    # W6-2 (decision W6-a): Massive.com's stock-dividend label settles what an abstaining filing could not
+    "ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN": "split_distribution_label_overrides_abstain",
 }
 
 
@@ -781,3 +783,15 @@ def test_the_split_reader_path_defaults_to_v1_and_compose_passes_it_to_both_serv
         assert m.group(1) == s.polygon_splits_path, f"{service}: {m.group(1)}"
     monkeypatch.setenv("ALPHADECK_POLYGON_SPLITS_PATH", "/v3/reference/splits")
     assert Settings().polygon_splits_path == "/v3/reference/splits"
+
+
+def test_the_split_label_override_defaults_on_and_false_turns_it_off(monkeypatch):
+    """W6-2 (decision W6-a): a Massive.com row labelled a stock dividend, under the distribution bound, is set aside
+    even when a filing in its window mentions a split without a ratio. On by default; ``false`` restores W2-3's
+    rule exactly. (Compose passes it to both services at this default: the dials test above.)"""
+    var = "ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN"
+    monkeypatch.delenv(var, raising=False)
+    assert Settings().split_distribution_label_overrides_abstain is True
+    assert Settings.model_fields["split_distribution_label_overrides_abstain"].default is True
+    monkeypatch.setenv(var, "false")
+    assert Settings().split_distribution_label_overrides_abstain is False

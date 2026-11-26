@@ -24,6 +24,7 @@ from domain.splits import (
     VIA_AUTO,
     VIA_SEC_TAPE,
     PolygonEvidence,
+    SecEvidence,
     decide,
 )
 from ingest.edgar.client import EdgarClient
@@ -584,3 +585,114 @@ def test_an_open_split_re_versioned_for_another_reason_takes_the_label(db, tmp_p
     assert split_repo.count_rows(db) == 2 and det.result.appended[0].verb == "updated"
     (v,) = _latest(db, ids["GAME"])
     assert (v.status, v.polygon_adjustment_type) == (STATUS_CONFIRMED, "reverse_split")
+
+
+# --- W6-2 (decision W6-a): Massive.com's stock-dividend label; the steward's CYCU rejection is never re-decided ------
+#
+# CYCU 2025-12-15 as Massive.com lists it (1 -> 1.008), labelled a stock dividend, and its proxy 8-K (an authorized
+# range only: the extractor abstained). The steward REJECTED it on prod (an operator version): the label rule now
+# agrees with the steward, and still the nightly appends nothing to it.
+
+CYCU_DAY = date(2025, 12, 15)
+CYCU_ROW = PolygonEvidence(
+    "E-CYCU-2025-12-15", "CYCU", CYCU_DAY, Decimal(1), Decimal("1.008"), "stock_dividend"
+)
+CYCU_8K = SecEvidence(
+    "0001493152-25-016033",
+    "8-K",
+    date(2025, 9, 29),
+    "u",
+    abstain_reason="only an authorized range of ratios (3:1) — no ratio set",
+    about_a_split=True,
+)
+
+
+def _cycu_source(tmp_path, *, today: date) -> PolygonSplitSource:
+    """CYCU's row on the v1 endpoint's shape (its label), behind a fake socket."""
+    row = {
+        "adjustment_type": "stock_dividend",
+        "execution_date": CYCU_DAY.isoformat(),
+        "id": CYCU_ROW.id,
+        "split_from": 1.0,
+        "split_to": 1.008,
+        "ticker": "CYCU",
+    }
+    body = json.dumps({"results": [row], "status": "OK"})
+    return PolygonSplitSource(
+        api_key="test-key-not-real",
+        cache_dir=tmp_path / f"polygon_cycu_{today.isoformat()}",
+        fetch=lambda url: body,
+        today=lambda: today,
+    )
+
+
+def test_the_detector_reads_the_label_setting_once_a_pass(monkeypatch, tmp_path):
+    var = "ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN"
+    monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+    try:
+        on = ds.SplitDetector.start(
+            asof=CYCU_DAY, allow_live=True, source=_cycu_source(tmp_path, today=CYCU_DAY)
+        )
+        assert on.label_overrides_abstain is True
+        monkeypatch.setenv(var, "false")
+        get_settings.cache_clear()
+        off = ds.SplitDetector.start(
+            asof=CYCU_DAY, allow_live=True, source=_cycu_source(tmp_path, today=CYCU_DAY)
+        )
+        assert off.label_overrides_abstain is False
+    finally:
+        get_settings.cache_clear()
+
+
+def test_cycus_operator_rejection_is_never_re_decided(db, tmp_path):
+    sid = seed_member(db, "CYCU", None, [])
+    cap = Decimal("1.5")
+    # the version the backfill listed before W6-2: waiting for review, the proxy 8-K as its evidence
+    listed = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=CYCU_DAY,
+        values=split_repo.decision_values(
+            decide(CYCU_ROW, [CYCU_8K], asof=CYCU_DAY, distribution_max_factor=cap)
+        ),
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+    assert listed.status == STATUS_NEEDS_REVIEW
+    rejected = split_repo.reject(db, listed.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    # tonight's verdict with the label rule: set aside — the steward's own answer, re-decided by no one
+    tonight = decide(
+        CYCU_ROW,
+        [CYCU_8K],
+        asof=CYCU_DAY,
+        distribution_max_factor=cap,
+        label_overrides_abstain=True,
+    )
+    assert tonight.status == STATUS_REJECTED and tonight.sec == CYCU_8K
+    m = bf.Member(DEFAULT_TENANT_ID, sid, "CYCU", None, None)
+    (p,) = ds.plan_against(
+        ds.SecurityDetection(member=m, decisions=[tonight]),
+        [rejected],
+        asof=CYCU_DAY,
+        distribution_max_factor=cap,
+        label_overrides_abstain=True,
+    )
+    assert (p.action, p.stored.id) == (
+        ds.UNCHANGED,
+        rejected.id,
+    )  # the same values: nothing to tell
+    assert p.reason == "the operator's decision stands"
+    # the whole nightly, twice: the TABLE does not grow
+    for night in (date(2025, 12, 16), date(2025, 12, 17)):
+        det = ds.SplitDetector.start(
+            asof=night, allow_live=True, source=_cycu_source(tmp_path, today=night)
+        )
+        ds.run_over_union(db, det, EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False))
+        assert det.result.appended == [] and det.planned[0].action == ds.UNCHANGED
+    assert split_repo.count_rows(db) == 2
+    (now,) = _latest(db, sid)
+    assert (now.id, now.status, now.author) == (rejected.id, STATUS_REJECTED, "operator")

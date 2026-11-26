@@ -657,6 +657,11 @@ class Settings(BaseSettings):
     # the backend AND the cron by docker-compose at these defaults (pinned by test).
     split_distribution_auto_set_aside: bool = True
     split_distribution_max_factor: float = 1.5
+    # W6-2 (decision W6-a, 2026-11-25): such a row Massive.com LABELS a stock dividend (the v1 reader's
+    # ``adjustment_type``) is set aside even when a filing in its window mentions a split but states no ratio (the
+    # extractor abstained; GPUS 2024-12-13); a filing that states it still keeps it for review. False = W2-3's rule
+    # exactly. ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN, injected into both services like the two above.
+    split_distribution_label_overrides_abstain: bool = True
 
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These two are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL; an LLM

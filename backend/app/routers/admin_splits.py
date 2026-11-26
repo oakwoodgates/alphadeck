@@ -21,7 +21,8 @@ What the operator can do, and its inverse:
 - **Revoke** any confirmed split, auto-confirmed or not. Inverse: **Restore** (back to confirmed).
 - A forward split under x1.5 that only Massive.com lists, with no SEC filing about it, arrives SET ASIDE as a
   distribution (D2, ``domain.splits.distribution_reason``; ``decided_by`` "set aside automatically: a
-  distribution"). **Restore** returns it to review, and neither the backfill nor the nightly touches it again.
+  distribution"); so does one Massive.com labels a stock dividend whose filing mentions a split without a ratio
+  (W6-2). **Restore** returns it to review, and neither the backfill nor the nightly touches it again.
 
 Rejected and revoked splits stay listed, grayed (WB#2). Every action appends one version naming the operator
 (``repositories/split_repo.py``) and names the version it acts on, so a stale card is refused (409), never
