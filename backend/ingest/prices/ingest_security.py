@@ -55,6 +55,16 @@ implementation means the invariants can't fork:
   unlisted later split, always lands (the B1 review fix). ``BarsResult.split_normalized`` counts the bars read
   that way per reason (most write nothing), into the run artifact and the pass summary; the summary names a
   divide-back (and logs it at WARNING) only when it changes from the last pass, and every first night.
+- **A vendor's missing close, filled (W6-3b)** — with a ``gap_source`` (the nightly's; the Workbench passes none),
+  a session the vendor served NO close for is filled from Massive.com's raw bar under ``gap_fill``'s rule (on or
+  after the newest split in force's first session, never on/after a pending split's, only where Massive.com
+  traded, never over a vendor or a stored bar). The fills join the vendor's settled pull right after
+  ``withhold_closed_days`` and BEFORE ``normalize``, so the normalizer reads them as the vendor's post-split tail
+  (bars on/after the last split are never rescaled); a fill after the stored edge rides the tail append, one
+  inside it the hole path. The trailing exact-compare window and T5's covered dates are still the VENDOR's own
+  bars, so no vendor bar is compared differently. Each filled bar's provenance is a ``price_bar_fill`` row written
+  in the same transaction (``bar_recorded_at`` = the bar's ``recorded_at``); a later vendor close for the date
+  re-versions it through the ordinary compare. A Massive.com fault never costs the vendor's bars (``fill_error``).
 
 Price bars are FEED data (like Form 4s), not operator-ratified facts — the recommend→confirm seam does
 not apply to them; what they feed (the market cap) stays display until the operator acts.
@@ -67,6 +77,7 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from uuid import UUID
 
 import psycopg
@@ -74,7 +85,9 @@ import psycopg
 from domain.market_time import market_tz
 from domain.security import Security
 from domain.splits import ListedSplit, applicable, listed_from_row
+from domain.splits import pending as pending_splits
 from ingest.prices.eod_loader import bar_versions, ingest_prices, latest_bar_date, stored_bars
+from ingest.prices.gap_fill import SOURCE_MASSIVE, FillBar, FillPlan, GapSource
 from ingest.prices.restatement import (
     HeldRevert,
     classify,
@@ -115,6 +128,14 @@ class BarsResult:
     split_normalized: dict[str, int] = field(default_factory=dict)
     # the splits applied to the stored history for the FIRST time this pass (``Normalized.first_night``)
     split_first_night: tuple[str, ...] = ()
+    # W6-3b — sessions the vendor served no close for, filled from Massive.com's raw bar and WRITTEN this pass
+    # (``gap_fill``; part of ``appended`` / ``reversioned``, never extra): the dates, the newest split in force
+    # (``FillPlan.split_label``), ``fill_deferred`` = a range read past the night's cap (filled a later night),
+    # ``fill_error`` = a Massive.com read that failed or a fault in the fill step (the vendor's bars still landed)
+    filled_dates: tuple[date, ...] = ()
+    fill_split: str | None = None
+    fill_deferred: bool = False
+    fill_error: str | None = None
 
     @property
     def total(self) -> int:
@@ -123,6 +144,10 @@ class BarsResult:
     @property
     def normalized(self) -> int:
         return sum(self.split_normalized.values())
+
+    @property
+    def filled(self) -> int:
+        return len(self.filled_dates)
 
 
 def _num(x: object) -> float | None:
@@ -166,12 +191,19 @@ class OverlapPlan:
     old: list[dict]
 
 
-def plan_overlap(fresh: list[dict], stored: dict[date, dict], *, last: date) -> OverlapPlan:
+def plan_overlap(
+    fresh: list[dict],
+    stored: dict[date, dict],
+    *,
+    last: date,
+    window_rows: list[dict] | None = None,
+) -> OverlapPlan:
     """PURE: split the fresh settled pull's OVERLAP (``d <= last``, the latest stored date) against the
     latest stored version per date. The trailing window is the pull's newest ``RECENT_SESSIONS`` session
     dates (``restatement.trailing_window_start`` — D1's count): a bar on/after its first date is compared
-    exactly, an older one under the T6 tolerance."""
-    window = trailing_window_start(fresh)
+    exactly, an older one under the T6 tolerance. ``window_rows`` (default ``fresh``) are the rows that window
+    is counted over — the vendor's own bars when ``fresh`` carries W6-3b fills."""
+    window = trailing_window_start(fresh if window_rows is None else window_rows)
     holes: list[dict] = []
     recent: list[dict] = []
     old: list[dict] = []
@@ -248,6 +280,7 @@ def ingest_bars_for_security(
     force_refresh: bool = False,
     source: PriceSource | None = None,
     now: datetime | None = None,
+    gap_source: GapSource | None = None,
 ) -> BarsResult:
     """Ingest this security's EOD bars: the incremental tail (newer than the latest stored bar) plus
     the RE-VERSION pass over the overlap (restated bars get a new version; see the module docstring).
@@ -261,7 +294,10 @@ def ingest_bars_for_security(
     revert is confirmed only by a pull on a later market date. ``recorded_at`` still comes from the DB
     default ``now()``, unchanged. Only a pull that really re-fetched (``force_refresh`` with
     ``allow_live``) may start, confirm or clear a hold — a cache-served read re-reads a pull that already
-    happened."""
+    happened.
+
+    ``gap_source`` (W6-3b; ``None`` = no fill, the Workbench's and the onboarding job's call) fills a session the
+    vendor served no close for from Massive.com's raw bar (the module docstring)."""
     if not sec.ticker:
         return BarsResult(0, 0)
     now = now or datetime.now(timezone.utc)
@@ -288,9 +324,31 @@ def ingest_bars_for_security(
     # unadjusted basis as no change at all (``split_normalize``)
     split_normalized: dict[str, int] = {}
     split_first_night: tuple[str, ...] = ()
-    in_force = splits_in_force(
-        conn, sec.id, tenant_id=tenant_id, on=now.astimezone(market_tz()).date()
-    )
+    day = now.astimezone(market_tz()).date()
+    listed = listed_splits(conn, sec.id, tenant_id=tenant_id)
+    in_force = applicable(listed, on=day)
+    # W6-3b — a session the vendor served no close for, filled from Massive.com's raw bar, joins the vendor's
+    # settled pull HERE: after the settle / closed-day guards, BEFORE the normalizer (which reads it as the
+    # vendor's post-split tail and never rescales it). ``vendor`` keeps the vendor's own bars for the compare's
+    # trailing window and T5's covered dates. Fail-open: a Massive.com fault costs only the fill.
+    vendor = fresh
+    fill = FillPlan()
+    fill_error: str | None = None
+    if gap_source is not None:
+        try:
+            fill = gap_source.plan(
+                fresh,
+                stored,
+                in_force,
+                symbol=price_symbol,
+                now=now,
+                pending=pending_splits(listed, on=day),
+            )
+        except Exception as e:  # noqa: BLE001 — a fill fault never costs the vendor's bars
+            fill, fill_error = FillPlan(), f"{type(e).__name__}: {e}"[:200]
+        if fill.fills:
+            fresh = sorted([*fresh, *(f.bar() for f in fill.fills)], key=lambda r: r["d"])
+        fill_error = fill_error or fill.note
     if in_force:
         norm = normalize(fresh, stored, in_force)
         fresh, split_normalized, split_first_night = (
@@ -315,17 +373,26 @@ def ingest_bars_for_security(
     # the re-version pass: only meaningful when the fresh pull overlaps stored history (a cache-first
     # re-click returns the very series already ingested → zero diffs → a no-op)
     reversioned = held = 0
-    if last is not None and any(r["d"] <= last for r in fresh):
-        plan = plan_overlap(fresh, stored, last=last)
+    filled_dates = {f.d for f in fill.fills}
+    if last is not None and any(r["d"] <= last for r in vendor):
+        own = [r for r in fresh if r["d"] not in filled_dates]  # the vendor's bars, normalized
+        plan = plan_overlap(fresh, stored, last=last, window_rows=own)
         refreshed = force_refresh and allow_live
         old: list[dict] = []
         if plan.old or refreshed:
             old, held = _resolve_older(
-                conn, sec, plan.old, fresh, tenant_id=tenant_id, now=now, refreshed=refreshed
+                conn, sec, plan.old, own, tenant_id=tenant_id, now=now, refreshed=refreshed
             )
         reversioned = ingest_prices(
             conn, sec.id, plan.holes + plan.recent + old, tenant_id=tenant_id
         )
+    elif last is not None and fill.fills:
+        # the vendor served nothing inside the stored window: a fill there is a hole, stored as one
+        reversioned = ingest_prices(
+            conn, sec.id, [f.bar() for f in fill.fills if f.d <= last], tenant_id=tenant_id
+        )
+    if fill.fills:
+        record_fills(conn, sec.id, fill.fills, tenant_id=tenant_id)
 
     return BarsResult(
         appended,
@@ -335,17 +402,61 @@ def ingest_bars_for_security(
         closed_day=closed_day,
         split_normalized=split_normalized,
         split_first_night=split_first_night,
+        filled_dates=tuple(sorted(filled_dates)),
+        fill_split=fill.split_label if fill.fills else None,
+        fill_deferred=fill.deferred,
+        fill_error=fill_error,
     )
+
+
+def record_fills(
+    conn: psycopg.Connection, security_id: UUID, fills: list[FillBar], *, tenant_id: UUID
+) -> int:
+    """W6-3b — one ``price_bar_fill`` row per filled bar, in the caller's transaction, AFTER the bar was
+    written: ``bar_recorded_at`` is read off that bar (its ``recorded_at``, the transaction's ``now()``), so the
+    row names exactly the version it explains; an INSERT that finds no such bar fails the transaction (NOT NULL),
+    never a fill without its provenance."""
+    with conn.cursor() as cur:
+        for f in fills:
+            cur.execute(
+                "INSERT INTO price_bar_fill (tenant_id, security_id, d, bar_recorded_at, source, "
+                "vendor_symbol, raw_close, raw_volume, factor, reason) "
+                "SELECT %s, %s, %s, (SELECT recorded_at FROM fact_price_eod WHERE tenant_id = %s "
+                "AND security_id = %s AND d = %s AND recorded_at = now()), %s, %s, %s, %s, %s, %s",
+                (
+                    tenant_id,
+                    security_id,
+                    f.d,
+                    tenant_id,
+                    security_id,
+                    f.d,
+                    SOURCE_MASSIVE,
+                    f.vendor_symbol,
+                    f.raw_close,
+                    f.raw_volume,
+                    Decimal(f.factor.numerator) / Decimal(f.factor.denominator),
+                    f.reason,
+                ),
+            )
+    return len(fills)
+
+
+def listed_splits(
+    conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID
+) -> list[ListedSplit]:
+    """The split list for one security: the newest version of each split (``split_repo.latest_versions``, as of
+    the database clock now), every status."""
+    rows = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[security_id])
+    return [listed_from_row(v.model_dump()) for v in rows]
 
 
 def splits_in_force(
     conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID, on: date
 ) -> list[ListedSplit]:
     """The split list's splits IN FORCE for one security on market day ``on`` — the newest version of each
-    (``split_repo.latest_versions``, as of the database clock now) that is confirmed, or announced with its
-    first session arrived (``domain.splits.applicable``)."""
-    rows = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[security_id])
-    return applicable([listed_from_row(v.model_dump()) for v in rows], on=on)
+    that is confirmed, or announced with its first session arrived (``domain.splits.applicable``).
+    """
+    return applicable(listed_splits(conn, security_id, tenant_id=tenant_id), on=on)
 
 
 def _resolve_older(

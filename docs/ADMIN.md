@@ -149,14 +149,15 @@ row to the state before. A decision counts from when it was made, on the public 
 
 ### Splits
 
-The split list `pipeline.backfill_splits` filled from Massive.com and each company's SEC filing
+The split list, filled from Massive.com and each company's SEC filing
 (`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings").
 
 - **Needs review** (loud, the only loud list): a split one source cannot settle, the SEC passage beside
   Massive.com's row: confirm a source's values, or reject. When neither is right (POM's ADR termination: 10 ADSs
   -> 3 shares), confirm cited values: a ratio, the first session, a required https URL, an optional note. Unless
   the steward overrides, the server refuses a factor outside the tape tolerance of the stored step at that session
-  (bars as first served), or a session with no bar; the version records the URL and the override.
+  (bars as first served, never a Massive.com fill), or a session with no bar; the version records the URL and the
+  override.
 - **Auto-confirmed, announced and set aside** (quiet; set-aside ones grayed). Revoke any confirmed split; Restore
   undoes a reject or a revoke.
 - **Split-shaped jumps with no split listed** (quiet): jumps the split-night hold released that no source lists.

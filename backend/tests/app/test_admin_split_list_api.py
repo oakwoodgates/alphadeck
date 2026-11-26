@@ -733,6 +733,25 @@ def test_the_tape_window_shows_both_closes_either_side_of_the_first_session(clie
     assert split_repo.count_rows(db) == n
 
 
+def test_the_tape_window_marks_a_massive_fill_and_the_step_never_reads_it(client, db):
+    """W6-3b: the first session's bar recorded as Massive.com's fill (``price_bar_fill``) is shown, marked ``filled``,
+    and the step at it reads nothing (a fill is never split evidence)."""
+    version_id = _seed_gns(db)
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO price_bar_fill (tenant_id, security_id, d, bar_recorded_at, source, vendor_symbol, "
+            "raw_close, raw_volume, factor, reason) SELECT tenant_id, security_id, d, recorded_at, 'massive', "
+            "'GNS', close, volume, 1, 'split_window' FROM fact_price_eod WHERE d = %s AND close = 0.499",
+            (GNS_SESSION,),
+        )
+    db.commit()
+    w = client.get(f"{BASE}/{version_id}/tape").json()
+    bars = {b["d"]: b for b in w["bars"]}
+    assert (bars["2026-11-20"]["close"], bars["2026-11-20"]["filled"]) == (0.499, True)
+    assert not any(b["filled"] for d, b in bars.items() if d != "2026-11-20")
+    assert (w["prior_date"], w["step"]) == (None, None)
+
+
 def test_the_tape_window_clips_at_the_tapes_ends_and_is_bounded(client, db):
     version_id = _seed_gns(db)
     url = f"{BASE}/{version_id}/tape"

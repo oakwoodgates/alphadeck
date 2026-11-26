@@ -102,7 +102,8 @@ Massive.com shows no trade: a halt placeholder, or a symbol it writes differentl
 rename", naming the split on the list after its edge: Yahoo nulls sessions around some splits (SNDK, SCNI), so
 the stale advice to look for a rename is wrong there. No key, `ALPHADECK_TAPE_CROSSCHECK=false`, a session
 Massive.com has not served yet (a 403) or a failed read is a status on the block; nothing is judged. It never
-writes the tape.
+writes the tape; the price leg's fill does, from the same grouped day, around a split ([INGEST](INGEST.md)), and
+the pass prints one quiet line naming the sessions it filled.
 
 #### Known feed limitations
 
