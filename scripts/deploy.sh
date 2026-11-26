@@ -2,12 +2,17 @@
 # deploy.sh — take MERGED code live on the PROD stack, with the procedure's guards built in.
 #
 # Wraps the deploy skill's prod steps, whose by-hand form stays the fallback: refuse unless it is safe to deploy, take
-# a labeled backup, rebuild ONLY the named services from the merged main (GIT_SHA is read from the
-# checkout, never taken as an argument), apply the frontend-restart rule, then VERIFY the real artifact.
+# a labeled backup, rebuild the named services from the merged main (naming `backend` brings `cron` along: both
+# images from one sha; GIT_SHA is read from the checkout, never taken as an argument), apply the
+# frontend-restart rule, then VERIFY the real artifact.
 #
 # Usage:
 #   scripts/deploy.sh --label <label> <service>... [--dry-run]
 #       services: frontend | backend | cron (one or more). backup -> build -> restart rule -> verify.
+#       Naming backend also rebuilds cron from the same sha (the cron's image carries the nightly code, and
+#       /admin/status alarms "one image is stale" when the two shas differ), unless --backend-only or --hold-cron.
+#   scripts/deploy.sh --label <label> --backend-only backend [--dry-run]
+#       the backend ALONE: the cron keeps its image, so the two run different code until the cron is rebuilt too.
 #   scripts/deploy.sh --label <label> --hold-cron <service>... [--dry-run]
 #       the same build with the cron sidecar HELD STOPPED (the V2 cutover): services frontend | backend only.
 #   scripts/deploy.sh --env-only cron [--label <label>] [--dry-run]
@@ -17,6 +22,9 @@
 #
 #   --label L    names the pre-deploy backup (labeled = prune-exempt). Letters, digits, '.', '_', '-'.
 #                REQUIRED for a build.
+#   --backend-only  rebuild the backend without the cron: refuses (exit 2) unless backend is named, with `cron`
+#                named, and with --env-only or --hold-cron. Prints a warning up front: backend and cron will
+#                run different code.
 #   --hold-cron  deploy with alphadeck-cron-1 kept STOPPED: refuses (exit 2) with `cron` named or with
 #                --env-only, and (exit 3) unless the cron is already stopped (`docker compose -f
 #                docker-compose.yml -f docker-compose.prod.yml stop cron`). The build never starts it, and
@@ -28,7 +36,9 @@
 # Refuses, changing nothing (exit 3), unless: this is the MAIN checkout (not a worktree) and has its
 # .env; the tree is clean; the branch is main; HEAD == origin/main after a fetch (deploy what is merged);
 # the America/New_York clock is outside 22:20-22:50 (the 22:30 nightly pass); no pass is running
-# (/admin/status) and the call-of-record lock is free (pipeline/run_lock.py).
+# (/admin/status) and the call-of-record lock is free (pipeline/run_lock.py); and, whenever the cron will be
+# recreated (a build that names cron or backend without --backend-only/--hold-cron, or --env-only), the editions
+# lock is free (an editions job, the nightly page job or a hand `editions.run cut`, dies with the cron).
 #
 # Verifies: the backend is healthy; :8080/api/health answers 200 (the /api PROXY); ALPHADECK_IMAGE_SHA
 # in each rebuilt backend/cron container equals the sha built; the cron container runs and printed its
@@ -83,10 +93,16 @@ unset GIT_SHA
 # string crosses MSYS into docker.exe on Windows.
 STATUS_PY="import json,sys; d=json.load(sys.stdin); c=d.get('cron') or {}; u=d.get('unfinished_run') or {}; run=c.get('status')=='running' or (u.get('status')=='running' and not u.get('past_timeout')); print('status=%s' % c.get('status')); print('running=%d' % run); [print('alarm=' + ' '.join(str(a).split())) for a in (c.get('alarms') or [])]"
 
-# Is the call-of-record advisory lock held (a daily pass, an Admin "Run daily now", or a backfill)? A
-# READ of pg_locks, never pipeline.run_lock.probe_pass_lock: that one TAKES the lock for an instant and
-# could make a pass starting in that instant refuse itself. Prints `free` or `held: <who>`.
-LOCK_PY="from db.session import connect; from pipeline.run_lock import LOCK_NAMESPACE as k1, LOCK_ID_CALL_OF_RECORD as k2, describe_holder; c=connect(); n=c.execute('SELECT count(*) AS n FROM pg_locks WHERE locktype = %s AND granted AND classid = %s AND objid = %s AND objsubid = 2 AND database = (SELECT oid FROM pg_database WHERE datname = current_database())', ('advisory', k1, k2)).fetchone()['n']; print(('held: ' + (describe_holder(c) or 'an unnamed session')) if n else 'free'); c.close()"
+# Is an advisory lock held in the pass-lock namespace (pipeline/run_lock.py)? $1 names the lock id constant:
+# LOCK_ID_CALL_OF_RECORD (a daily pass, an Admin "Run daily now", or a backfill) or LOCK_ID_EDITIONS (the nightly
+# editions page job, or a hand `editions.run cut`: both take it through acquire_editions_lock). A READ of
+# pg_locks, never pipeline.run_lock.probe_pass_lock: that one TAKES the lock for an instant and could make a pass
+# starting in that instant refuse itself. Prints `free` or `held: <who>`.
+lock_py() {
+  printf '%s' "from db.session import connect; from pipeline.run_lock import LOCK_NAMESPACE as k1, LOCK_ID_$1 as k2, describe_holder; c=connect(); n=c.execute('SELECT count(*) AS n FROM pg_locks WHERE locktype = %s AND granted AND classid = %s AND objid = %s AND objsubid = 2 AND database = (SELECT oid FROM pg_database WHERE datname = current_database())', ('advisory', k1, k2)).fetchone()['n']; print(('held: ' + (describe_holder(c, lock_id=k2) or 'an unnamed session')) if n else 'free'); c.close()"
+}
+LOCK_PY="$(lock_py CALL_OF_RECORD)"
+EDITIONS_LOCK_PY="$(lock_py EDITIONS)"
 
 # --- helpers -----------------------------------------------------------------------------------------
 say()  { echo "--> $*"; }
@@ -295,6 +311,7 @@ image_sha() { # ALPHADECK_IMAGE_SHA inside container $1 ("" when unset or unread
 LABEL=""
 ENV_ONLY=0
 HOLD_CRON=0
+BACKEND_ONLY=0
 DRY_RUN=0
 SERVICES=()
 while [ $# -gt 0 ]; do
@@ -303,6 +320,7 @@ while [ $# -gt 0 ]; do
     --label=*) LABEL="${1#--label=}" ;;
     --env-only) ENV_ONLY=1 ;;
     --hold-cron) HOLD_CRON=1 ;;
+    --backend-only) BACKEND_ONLY=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --help|-h) usage; exit 0 ;;
     -*)        usage_refuse "unknown option: $1" ;;
@@ -318,6 +336,17 @@ for _s in frontend backend cron; do has "$_s" && _want+=("$_s"); done
 SERVICES=(${_want[@]+"${_want[@]}"})
 [ ${#SERVICES[@]} -gt 0 ] || usage_refuse "name at least one service: frontend, backend, cron"
 
+if [ "$BACKEND_ONLY" -eq 1 ]; then
+  [ "$ENV_ONLY" -eq 0 ] \
+    || usage_refuse "--backend-only cannot be combined with --env-only: an env-only deploy recreates the cron, and --backend-only keeps it out of the deploy"
+  [ "$HOLD_CRON" -eq 0 ] \
+    || usage_refuse "--backend-only cannot be combined with --hold-cron: --hold-cron already deploys without the cron (and keeps it stopped)"
+  has backend \
+    || usage_refuse "--backend-only needs backend named — it opts out of the cron that a backend deploy brings along"
+  if has cron; then
+    usage_refuse "--backend-only keeps the cron out of the deploy, so it cannot also deploy cron — drop --backend-only to rebuild both from one sha"
+  fi
+fi
 if [ "$HOLD_CRON" -eq 1 ]; then
   [ "$ENV_ONLY" -eq 0 ] \
     || usage_refuse "--hold-cron cannot be combined with --env-only: an env-only deploy recreates (starts) the cron, and --hold-cron keeps it stopped"
@@ -336,6 +365,19 @@ if [ -n "$LABEL" ] && ! [[ "$LABEL" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; the
   usage_refuse "--label '$LABEL' must be letters, digits, '.', '_', '-' (start alphanumeric, at most 64): pipeline.backup slugs anything else, and a label with no letters or digits makes an UNLABELED, prunable dump"
 fi
 
+# A backend deploy brings the cron: the cron image carries the nightly code, and /admin/status alarms when its last
+# pass ran a different sha than the backend. Not with --backend-only (the explicit opt-out) or --hold-cron (the cron
+# stays stopped); not for --env-only (no build). The cron is last in the canonical order, so appending keeps it.
+CRON_WITH_BACKEND=0
+if [ "$ENV_ONLY" -eq 0 ] && [ "$HOLD_CRON" -eq 0 ] && [ "$BACKEND_ONLY" -eq 0 ] && has backend && ! has cron; then
+  SERVICES+=(cron)
+  CRON_WITH_BACKEND=1
+fi
+# Will this deploy recreate the cron container? (A build naming it, or --env-only, whose one service is the cron.)
+# A recreate kills a running editions job, so the editions lock is checked exactly then.
+RECREATES_CRON=0
+if has cron; then RECREATES_CRON=1; fi
+
 cd "$REPO_ROOT" || step_fail "cannot cd to the repo root: $REPO_ROOT"
 
 if [ "$ENV_ONLY" -eq 1 ]; then
@@ -348,6 +390,12 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "deploy PLAN for $what — DRY RUN: no backup, no build, no restart, no Docker or endpoint touched"
 else
   echo "deploy $what — PROD, from $REPO_ROOT"
+fi
+if [ "$CRON_WITH_BACKEND" -eq 1 ]; then
+  echo "    note: cron rebuilt with the backend: one sha for both images; /admin/status alarms on a mismatch (--backend-only opts out)"
+fi
+if [ "$BACKEND_ONLY" -eq 1 ]; then
+  echo "    warning: --backend-only rebuilds the backend alone: backend and cron will run different code, and /admin/status alarms \"one image is stale\" once a cron pass runs after the backend starts, until the cron is rebuilt from the same commit"
 fi
 
 # ===================================== CHECKS (nothing changes) ======================================
@@ -419,6 +467,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
   say "stack checks — a dry-run touches no stack; the real run makes these READS before it changes anything:"
   echo "    would read: curl -fsS -g --connect-timeout 5 --max-time 60 $ADMIN_URLS $OPS_NOTE ($TRY_NOTE; refuse only if every address fails) | docker exec -i $BACKEND_C python -c <parse> — refuse if a pass is running (cron.status running, or unfinished_run running inside its timeout)"
   echo "    would read: docker exec $BACKEND_C python -c <pg_locks read> — refuse if the call-of-record lock is held (pipeline/run_lock.py)"
+  if [ "$RECREATES_CRON" -eq 1 ]; then
+    echo "    would read: docker exec $BACKEND_C python -c <pg_locks read> — refuse if the editions lock is held (LOCK_ID_EDITIONS: the nightly editions job or a hand editions cut; recreating the cron kills it)"
+  fi
   if [ "$HOLD_CRON" -eq 1 ]; then
     echo "    would read: docker inspect --format '{{.State.Status}}' $CRON_C — refuse unless it is stopped (--hold-cron)"
   fi
@@ -448,6 +499,21 @@ else
     esac
   else
     refuse "cannot read the call-of-record lock (${lock##*$'\n'}) — a running pass or backfill cannot be ruled out"
+  fi
+  if [ "$RECREATES_CRON" -eq 1 ]; then
+    # Read like the call-of-record lock: both editions jobs (the nightly page job, `editions.run cut`) take
+    # LOCK_ID_EDITIONS, and recreating the cron container kills whichever is running in it.
+    if lock="$(docker exec "$BACKEND_C" python -c "$EDITIONS_LOCK_PY" 2>&1)"; then
+      lock="${lock//$'\r'/}"
+      lock="${lock##*$'\n'}"
+      case "$lock" in
+        free)   ok "the editions lock is free" ;;
+        held:*) refuse "the editions lock is ${lock} — an editions job (the nightly page job or a hand editions cut) is running, and recreating the cron would kill it; wait for it to finish" ;;
+        *)      refuse "the editions lock read gave '${lock}' — a running editions job cannot be ruled out" ;;
+      esac
+    else
+      refuse "cannot read the editions lock (${lock##*$'\n'}) — a running editions job cannot be ruled out, and recreating the cron would kill it"
+    fi
   fi
   if [ "$HOLD_CRON" -eq 1 ]; then
     cron_up || true
@@ -505,8 +571,7 @@ else
 fi
 
 # ==================================== VERIFY (the real artifact) =====================================
-recreated_cron=0
-if has cron; then recreated_cron=1; fi
+recreated_cron="$RECREATES_CRON"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   say "verify (each check would poll up to ${WAIT_S}s where it waits on startup)"
@@ -582,7 +647,7 @@ for svc in backend cron; do
   fi
 done
 if [ -n "$backend_sha" ] && [ -n "$cron_sha" ] && [ "$backend_sha" != "$cron_sha" ]; then
-  echo "    note: backend and cron run different code (${backend_sha:0:12} vs ${cron_sha:0:12}) — right only if the change is off the nightly pipeline.daily path (docs/OPERATIONS.md §What a deploy changes)"
+  echo "    note: backend and cron run different code (${backend_sha:0:12} vs ${cron_sha:0:12}) — /admin/status alarms \"one image is stale\" once a cron pass runs after the backend's start; rebuild the cron from the same commit (docs/OPERATIONS.md §What a deploy changes)"
 fi
 
 if [ "$recreated_cron" -eq 1 ]; then

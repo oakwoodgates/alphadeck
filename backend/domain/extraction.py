@@ -93,8 +93,13 @@ class ExtractedFact(DomainModel):
     # basis) rides the note as provenance, never a flag — a flag true of ~every filer carries no
     # information (the re-tier; honest loudness):
     # shares -> "dual-class" | "stale-cover" | "no-companyfacts"
-    #           | "cover-after-filing" (a companyfacts cover row dated after its own filing was refused;
-    #             it rides beside the condition label, on any tier — the note names the row)
+    #           | "cover-after-filing" (a companyfacts cover row, or the filing's own inline cover count,
+    #             dated after its own filing was refused; it rides beside the condition label, on any
+    #             tier — the note names the row)
+    #           | "companyfacts-behind" (the filing's own inline-XBRL cover count, one count newer than
+    #             companyfacts' newest cover row, is offered: CEG's Q3 cover behind a Q2 companyfacts)
+    #           | "class-outside-eps" (beside "dual-class": the filing's EPS share base leaves a cover class
+    #             out; the sum of every class is still offered and the note carries both figures)
     # cash   -> "ytd-raw" | "possible-one-time" | "stale-cash"
     #           | "cash-tags-disagree" (two balance-sheet cash tags of one date contradict each other: a
     #             narrower line exceeds a wider one, SOAR's zero cash-and-equivalents beside 8.4M of cash)
@@ -105,11 +110,17 @@ class ExtractedFact(DomainModel):
     #             cash equivalents or restricted; the steward adds the eligible part)
     #           | "investments-off-date" (an investment tag sits on a NEWER balance sheet than the cash and
     #             not on the cash date: the composition at one date is not established)
+    #           | "investments-unconfirmed" (the raw document tags a counted investment outside its statement
+    #             tables and only in a deferred-tax table: it is quoted, not counted, and the figure offered is lower)
     #           | "burn-span" (the burn covers fewer than quarterly_span_min_days or more than
     #             quarterly_span_max_days, native or derived: not established as one quarter; offered as found)
     #           | "burn-off-period" (the burn does not end on the cited filing's period of report)
     #           | "cash-after-period" (the cash is dated after the cited filing's period of report; an older
     #             cash date is "stale-cash")
+    #           | "companyfacts-behind" (companyfacts' newest cash or operating cash flow ends before the cited
+    #             period: the filing's own inline-XBRL rows at the period end are read beside it, CEG's Q3)
+    #           | "ytd-derived-across-filings" (no earlier year to date of the same start: one of the same tag
+    #             starting a few days off is subtracted and the quarter offered, FUBO's 52/53-week 10-K)
     #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant"  (missing-data: value None)
     # annual cash (``annual-statements``, always FLAG; PR 4 adds the last six):
     #           "annual-statements" | "unit-scale-unread" | "column-ambiguous" | "stale-runway"

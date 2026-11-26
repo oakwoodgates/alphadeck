@@ -11,6 +11,8 @@ free, the machine writer, exactly one attempt row. Nothing here is a call input.
     python -m pipeline.extract_values --apply                 # extract every due company (live, recurring lane)
     python -m pipeline.extract_values --apply --no-live       # cache only (the fork rehearsal): never reaches SEC
     python -m pipeline.extract_values --apply --max-names 200 --budget-s 1800 --ticker OKLO --ticker LEU
+    python -m pipeline.extract_values --rescan awaiting          # DRY RUN of the rescan (W1-R, below)
+    python -m pipeline.extract_values --rescan awaiting --apply [--since 2026-11-27T15:04:05+00:00]
 
 THE DRY RUN (the default) reads the work list and the EDGAR cache ON DISK, nothing else: it builds no client,
 makes no SEC request, opens its database session read-only and writes no file. Per company and in total it says
@@ -41,6 +43,18 @@ only what is left. ``--max-names`` and ``--budget-s`` bound it (checked between 
 (a ticker on no live card refuses the run). It uses ONE recurring-dial ``EdgarClient``, which places every request
 in the global SEC budget's recurring lane (X2). It writes a run artifact (``data/extraction_runs/``, through
 ``pipeline.extraction_run_log``) and prints a summary.
+
+THE RESCAN (W1-R), ``--rescan awaiting``: the same run over another list, ``platform_values.extraction.rescan_list``:
+every company whose newest candidate of either value is an undecided flag the steward's queue lists (awaiting, or
+pending beside a value), re-extracted WHATEVER ``due`` SAYS. Never an ETF, a company on no live card, or one whose
+other value's newest candidate a standing steward decision closes (approved, corrected or dismissed: a changed
+candidate would re-queue over it; Extract now takes it by hand); the dry run names those. The machine writer keeps
+every decision standing: an identical candidate writes nothing, a steward's value of the same filing is
+``already_on_file``, a pinned company gets a ``pinned`` candidate. Attempts carry run kind ``backfill`` (migration
+0207's set). Everything else is the backfill's: the dry run's plan, lock 7, the refusals, the bounds, ``--ticker``,
+``--no-live``, the run file (its ``rescan`` block). A re-extracted company still waits, so a rescan resumes with
+``--since`` (a company with a ``done`` attempt at or after that instant is skipped); a stopped or bounded rescan
+prints the instant to pass.
 
 DECISION B4 (tightened 2026-11-15). The nightly leg and the onboarding step take no never-extracted company until
 a backfill has EXTRACTED at least one company: a ``backfill`` attempt with status ``done`` (applied, a candidate
@@ -91,9 +105,11 @@ from pipeline.run_lock import (
 from pipeline.schedule import parse_run_at
 from platform_values.extraction import (
     ExtractionRun,
+    RescanList,
     WorkItem,
     backfill_applied,
     extractable,
+    rescan_list,
     run_extraction,
     work_list,
 )
@@ -103,6 +119,10 @@ NAME = "extract-values"
 RUN_KIND = "backfill"
 EXIT_FAILED = 1
 EXIT_USAGE = 2
+# ``--rescan`` modes (W1-R): ``awaiting`` = the steward's queue.
+RESCAN_MODES: tuple[str, ...] = ("awaiting",)
+# Companies the rescan's dry run names as left out for a standing decision (the rest are counted).
+_NAMED_MAX = 30
 
 # What the dry run cannot know without fetching (printed with every plan, so the estimate is never mistaken for
 # a measurement).
@@ -417,12 +437,13 @@ def _print_plan(
     *,
     live: bool,
     out: Callable[[str], None],
+    all_label: str = "every due company",
 ) -> None:
     for p in plans:
         out(_plan_line(p, live=live))
     rate = get_settings().sec_global_rate_per_sec
-    for label, ps in (("this run", plans), ("every due company", all_plans)):
-        if label == "every due company" and len(all_plans) == len(plans):
+    for n, (label, ps) in enumerate((("this run", plans), (all_label, all_plans))):
+        if n == 1 and len(all_plans) == len(plans):
             continue
         t = PlanTotals.of(ps)
         paths = ", ".join(f"{n} {k}" for k, n in sorted(t.by_path.items())) or "none"
@@ -520,6 +541,30 @@ def _scope(
     return scoped, unknown, not_due
 
 
+def _rescan_left_out(rl: RescanList, since: datetime | None) -> str:
+    """What the rescan left out of the queue's companies, in one parenthesis."""
+    parts = [
+        f"{len(rl.decided):,} with a steward decision standing on the other value",
+        f"{rl.etf:,} ETF",
+        f"{rl.off_card:,} on no live card",
+    ]
+    if since is not None:
+        parts.append(f"{rl.done_since:,} re-extracted since {since.isoformat()}")
+    return f"the queue lists {rl.waiting:,} companies; left out: " + ", ".join(parts)
+
+
+def _decided_line(rl: RescanList) -> str | None:
+    """The companies left out for a standing decision, by ticker (Extract now takes one by hand)."""
+    if not rl.decided:
+        return None
+    named = ", ".join(rl.decided[:_NAMED_MAX])
+    more = f" and {len(rl.decided) - _NAMED_MAX:,} more" if len(rl.decided) > _NAMED_MAX else ""
+    return (
+        f"{NAME}: left out, a steward decision stands on the other value (Extract now takes one by hand): "
+        f"{named}{more}"
+    )
+
+
 def _db_now(conn: psycopg.Connection) -> datetime:
     with conn.cursor() as cur:
         cur.execute("SELECT now() AS t")
@@ -539,13 +584,19 @@ def _errors_since(conn: psycopg.Connection, since: datetime) -> dict[str, int]:
 
 
 def _print_summary(
-    r: ExtractionRun, errors: Mapping[str, int], stop: str | None, out: Callable[[str], None]
+    r: ExtractionRun,
+    errors: Mapping[str, int],
+    stop: str | None,
+    out: Callable[[str], None],
+    *,
+    noun: str = "due",
+    left: str = f"stay due (re-run to resume; exit {EXIT_ALREADY_RUNNING})",
 ) -> None:
     c = r.companies
     reasons = ", ".join(f"{why} {n}" for why, n in errors.items())
     out(f"{NAME}: {r.admin_line()}")
     out(
-        f"{NAME}: attempted {r.attempted:,} of {r.due_total:,} due · applied {c['applied']:,} · candidates "
+        f"{NAME}: attempted {r.attempted:,} of {r.due_total:,} {noun} · applied {c['applied']:,} · candidates "
         f"{c['to_steward'] + c['nothing_found']:,} ({c['to_steward']:,} flagged to the steward, "
         f"{c['nothing_found']:,} nothing found) · unchanged {c['unchanged']:,} · skipped {r.skipped:,} · busy "
         f"{r.busy:,} · failed {r.failed:,}" + (f" ({reasons})" if reasons else "") + f" · deferred "
@@ -562,8 +613,7 @@ def _print_summary(
             out(f"  {ft}: {per}")
     if stop:
         out(
-            f"{NAME}: STOPPED: {stop}. The companies already extracted are kept; the {r.deferred:,} left stay due "
-            f"(re-run to resume; exit {EXIT_ALREADY_RUNNING})"
+            f"{NAME}: STOPPED: {stop}. The companies already extracted are kept; the {r.deferred:,} left {left}"
         )
 
 
@@ -580,10 +630,21 @@ def run(
     now: Callable[[], datetime] = _now_utc,
     connect_fn: Callable[[], psycopg.Connection] = connect,
     out: Callable[[str], None] = print,
+    rescan: str | None = None,
+    since: datetime | None = None,
 ) -> int:
     """ONE invocation (the module docstring); returns the exit code. ``cache_dir`` defaults to the client's EDGAR
     cache; ``client`` (tests) replaces the recurring ``EdgarClient`` an applied run builds; a dry run never uses
-    either beyond reading ``cache_dir`` from disk."""
+    either beyond reading ``cache_dir`` from disk. ``rescan`` (one of ``RESCAN_MODES``) walks the rescan list
+    instead of the due companies; ``since`` (rescan only, an aware instant) resumes it."""
+    if (rescan is not None and rescan not in RESCAN_MODES) or (
+        since is not None and rescan is None
+    ):
+        out(
+            f"{NAME}: REFUSED: --rescan takes {', '.join(RESCAN_MODES)}, and --since only goes with it; nothing "
+            f"fetched, nothing written (exit {EXIT_USAGE})"
+        )
+        return EXIT_USAGE
     cache = (
         Path(cache_dir)
         if cache_dir is not None
@@ -601,7 +662,9 @@ def run(
             return EXIT_ALREADY_RUNNING
         try:
             lock = acquire_job_lock(
-                lock_id=LOCK_ID_EXTRACTION, holder=NAME, what="platform-value backfill"
+                lock_id=LOCK_ID_EXTRACTION,
+                holder=NAME,
+                what="platform-value rescan" if rescan else "platform-value backfill",
             )
         except JobAlreadyRunning as e:
             out(f"{NAME}: REFUSED: {e}; nothing written (exit {EXIT_ALREADY_RUNNING})")
@@ -636,6 +699,8 @@ def run(
             connect_fn=connect_fn,
             lock=lock,
             out=out,
+            rescan=rescan,
+            since=since,
         )
     finally:
         if lock is not None:
@@ -657,14 +722,28 @@ def _run(
     connect_fn: Callable[[], psycopg.Connection],
     lock: JobLock | None,
     out: Callable[[str], None],
+    rescan: str | None = None,
+    since: datetime | None = None,
 ) -> int:
     conn = connect_fn()
     try:
         if not apply:
             conn.read_only = True  # structurally a look: the dry run cannot write a row
         at = now()
-        wl = work_list(conn, now=at, include_never=True)
-        items = list(wl.items)
+        rl: RescanList | None = None
+        if rescan:
+            rl = rescan_list(conn, now=at, since=since)
+            items = list(rl.items)
+            left_out = _rescan_left_out(rl, since)
+            not_listed = (
+                "is not rescanned (nothing of it waits for the steward, a steward decision stands on its other "
+                "value, or it was re-extracted since --since)"
+            )
+        else:
+            wl = work_list(conn, now=at, include_never=True)
+            items = list(wl.items)
+            left_out = f"held {wl.held}, waiting {wl.waiting}"
+            not_listed = "is not due (up to date, held for a new filing, or waiting)"
         if tickers:
             items, unknown, not_due = _scope(conn, items, tickers)
             if unknown:
@@ -675,7 +754,7 @@ def _run(
                 )
                 return EXIT_USAGE
             for t in not_due:
-                out(f"{NAME}: {t} is not due (up to date, held for a new filing, or waiting)")
+                out(f"{NAME}: {t} {not_listed}")
         applied_before = backfill_applied(conn)
         started_db = _db_now(conn)
         conn.rollback()  # end the reads' transaction: never idle in one while SEC answers
@@ -683,11 +762,17 @@ def _run(
         for i in items:
             by_reason[i.reason] = by_reason.get(i.reason, 0) + 1
         reasons = ", ".join(f"{k} {n}" for k, n in sorted(by_reason.items())) or "none"
-        left_out = f"held {wl.held}, waiting {wl.waiting}"
         this_run = items[:max_names] if max_names is not None else items
+        tag = f"RESCAN {rescan} · " if rl is not None else ""
+        noun = "to rescan" if rl is not None else "due"
+        listed = (
+            f"{len(items):,} to rescan, whatever due says ({left_out})"
+            if rl is not None
+            else f"{len(items):,} due ({reasons}; not due: {left_out})"
+        )
         if not apply:
             out(
-                f"{NAME}: DRY RUN · {mode} · {len(items):,} due ({reasons}; not due: {left_out})"
+                f"{NAME}: DRY RUN · {tag}{mode} · {listed}"
                 + (
                     f" · --max-names {max_names}: this run takes the first {len(this_run):,}"
                     if max_names
@@ -696,8 +781,17 @@ def _run(
                 + (f" · --budget-s {budget_s:g} may stop it sooner" if budget_s else "")
                 + f" · cache {cache}"
             )
+            decided = _decided_line(rl) if rl is not None else None
+            if decided:
+                out(decided)
             all_plans = plan_work(items, cache_dir=cache, now=at)
-            _print_plan(all_plans[: len(this_run)], all_plans, live=live, out=out)
+            _print_plan(
+                all_plans[: len(this_run)],
+                all_plans,
+                live=live,
+                out=out,
+                all_label="every company to rescan" if rl is not None else "every due company",
+            )
             out(_b4_before(applied_before))
             out(
                 f"{NAME}: DRY RUN: no SEC request, nothing written (re-run with --apply to extract"
@@ -707,7 +801,9 @@ def _run(
             return 0
         if not items:
             out(
-                f"{NAME}: APPLY · {mode} · nothing due (not due: {left_out}); nothing fetched, nothing written"
+                f"{NAME}: APPLY · {tag}{mode} · nothing to rescan ({left_out}); nothing fetched, nothing written"
+                if rl is not None
+                else f"{NAME}: APPLY · {mode} · nothing due (not due: {left_out}); nothing fetched, nothing written"
             )
             out(_b4_before(applied_before))
             return 0
@@ -717,7 +813,9 @@ def _run(
                 allow_live=live, cache_ttl_s=RECURRING_CACHE_TTL_S, cache_dir=cache
             )
         out(
-            f"{NAME}: APPLY · {mode} · {len(items):,} due ({reasons}) · run kind {RUN_KIND}"
+            f"{NAME}: APPLY · {tag}{mode} · {len(items):,} {noun} ("
+            + (left_out if rl is not None else reasons)
+            + f") · run kind {RUN_KIND}"
             + (f" · --max-names {max_names}" if max_names is not None else "")
             + (f" · --budget-s {budget_s:g}" if budget_s is not None else "")
         )
@@ -758,11 +856,40 @@ def _run(
                 "stop_detail": detail,
                 "backfill_applied_before": applied_before,
                 "backfill_applied_after": applied_after,
-                "not_due": {"held": wl.held, "waiting": wl.waiting},
             }
         )
+        # a rescan resumes from its first run's start: every attempt it made is recorded after that instant
+        resume = (since or started_db).astimezone(timezone.utc).isoformat()
+        if rl is not None:
+            payload["rescan"] = {
+                "mode": rescan,
+                "since": since.isoformat() if since is not None else None,
+                "resume_since": resume,
+                "waiting": rl.waiting,
+                "decided": list(rl.decided),
+                "etf": rl.etf,
+                "off_card": rl.off_card,
+                "done_since": rl.done_since,
+            }
+        else:
+            payload["not_due"] = {"held": wl.held, "waiting": wl.waiting}
         path = write_extraction_run(payload, base_dir=runs_dir)
-        _print_summary(result, errors, detail, out)
+        if rl is not None:
+            _print_summary(
+                result,
+                errors,
+                detail,
+                out,
+                noun=noun,
+                left=f"still wait (re-run with --since {resume} to resume; exit {EXIT_ALREADY_RUNNING})",
+            )
+            if result.deferred and detail is None:
+                out(
+                    f"{NAME}: RESCAN: {result.deferred:,} left ({result.stopped_by}); to take only them, re-run "
+                    f"with --since {resume}"
+                )
+        else:
+            _print_summary(result, errors, detail, out)
         out(
             f"{NAME}: run artifact {path}" if path else f"{NAME}: run artifact NOT written (logged)"
         )
@@ -774,6 +901,19 @@ def _run(
         return 0
     finally:
         conn.close()
+
+
+def _instant(text: str) -> datetime:
+    """``--since``: an ISO 8601 instant WITH a UTC offset (a bare time would be read in some zone silently)."""
+    try:
+        at = datetime.fromisoformat(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"not an ISO 8601 instant: {text!r}") from e
+    if at.tzinfo is None:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} has no UTC offset (e.g. 2026-11-27T15:04:05+00:00)"
+        )
+    return at
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -812,7 +952,24 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="scope to these companies (repeatable or comma-separated); an unknown ticker refuses the run",
     )
+    p.add_argument(
+        "--rescan",
+        choices=RESCAN_MODES,
+        default=None,
+        help="awaiting: re-extract every company with a candidate waiting for the steward (awaiting, or pending "
+        "beside a value), whatever 'due' says; never an ETF, a company on no live card, or one with a steward "
+        "decision standing on its other value (still a dry run without --apply)",
+    )
+    p.add_argument(
+        "--since",
+        type=_instant,
+        default=None,
+        help="with --rescan: skip every company with a done attempt at or after this instant (ISO 8601 with a "
+        "UTC offset); a stopped or bounded rescan prints the one to resume with",
+    )
     a = p.parse_args(argv)
+    if a.since is not None and a.rescan is None:
+        p.error("--since goes with --rescan")
     if a.max_names is not None and a.max_names < 1:
         p.error("--max-names must be at least 1")
     if a.budget_s is not None and a.budget_s <= 0:
@@ -824,11 +981,14 @@ def main(argv: list[str] | None = None) -> int:
         tickers=tickers,
         max_names=a.max_names,
         budget_s=a.budget_s,
+        rescan=a.rescan,
+        since=a.since,
     )
 
 
 __all__ = [
     "CANNOT_KNOW",
+    "RESCAN_MODES",
     "CompanyPlan",
     "DocPlan",
     "PlanTotals",

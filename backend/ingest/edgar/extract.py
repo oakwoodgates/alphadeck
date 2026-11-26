@@ -10,15 +10,23 @@ Given a company's SEC ``companyfacts`` + its latest 10-Q/10-K text, produce cand
   ``stale-cover`` (a single count older than the period — offered, dated by its own as-of date), or
   ``no-companyfacts`` (nothing observed — located-only). One condition, one label; never a catch-all.
   A cover row dated after its own filing is refused first (``cover_after_filing``) and named by the
-  ``cover-after-filing`` flag + the note.
+  ``cover-after-filing`` flag + the note. Given the values filing's RAW document, a FLAG count is then re-read from
+  its own inline XBRL (``ingest.edgar.inline_xbrl``): a multi-class cover offers the per-class sum dated by the
+  cover's own as-of instant, flagged ``class-outside-eps`` when the filing's EPS share base leaves a class out; a
+  single count newer than companyfacts' is offered flagged ``companyfacts-behind``. Either is AUTO when the same
+  filing's EPS share base agrees within ``ExtractorConfig.cover_eps_tolerance`` (A1, ``_cover_applies``).
 - **cash_burn** (runway): cash = cash+equiv + the same-dated short-term investments + long-term MARKETABLE
   securities (never the generic long-term investments line), the cash read under its most current label (the
   restricted-cash total says so in the note) and every component named in the note; a clean ~quarter of
   operating cash flow (read under its most current label, plain or continuing operations) ending on the cited
   filing's period, with cash of that date -> ``AUTO``; a burn spanning more or less than about a quarter, a burn
-  or cash dated off the cited period, an underivable year-to-date column, a large one-time reconciliation line,
-  or a composition that cannot be established (cash tags that disagree, a combined line that does not
-  reconcile, investments only on a later balance sheet) -> ``FLAG`` (raw + locate).
+  or cash dated off the cited period, an underivable year-to-date column (or one derived across filings whose
+  fiscal-year starts differ by days), a large one-time reconciliation line (named, with its printed line), or a
+  composition that cannot be established (cash tags that disagree, a combined line that does not
+  reconcile, investments only on a later balance sheet) -> ``FLAG`` (raw + locate). Given the values filing's RAW
+  document, a companyfacts whose newest cash or operating cash flow ends before the cited period is read beside the
+  document's own inline XBRL at the period end (``companyfacts-behind``; AUTO when every check passes on those figures,
+  A2), and a FLAG's note names what the document shows that the reader does not count (``_cash_candidate``).
 - **revenue_mix** (purity): ALWAYS ``HUMAN`` — locate the segment footnote (revenue names) or Item-1
   (pre-revenue); NEVER auto-valued (purity is the operator's exposure-concentration edge).
 
@@ -40,6 +48,7 @@ from domain.burn_pace import YtdPace, pace_caveat, pace_segment
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 from domain.settings import get_settings
+from ingest.edgar import inline_xbrl
 from ingest.edgar.acceptance import (
     filing_date_bound,
     parse_filing_date,
@@ -277,14 +286,27 @@ def refused_cover_note(refused: list[RefusedCover]) -> str:
     )
 
 
-def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> ExtractedFact:
+def _shares(
+    facts: dict,
+    tenq_text: str,
+    ref: str,
+    period_end: date,
+    *,
+    raw: str | None = None,
+    filed: date | None = None,
+    cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+) -> ExtractedFact:
     """The shares candidate over the cover rows ``screen_cover_rows`` keeps; a refused row rides the candidate as
     the ``cover-after-filing`` flag and a sentence in its note (visible on the Workbench card, and stored with the
-    fact when it is applied or ratified)."""
+    fact when it is applied or ratified). With the filing's ``raw`` document a FLAG candidate is re-read from its
+    inline XBRL (``_inline_shares``); without it (or on AUTO) the candidate is exactly the companyfacts one.
+    """
     rows, refused = screen_cover_rows(
         _rows(facts, "dei", "EntityCommonStockSharesOutstanding", "shares")
     )
     fact = _shares_candidate(rows, tenq_text, ref, period_end)
+    if raw is not None and fact.tier is Tier.FLAG:
+        fact = _inline_shares(fact, rows, raw, tenq_text, ref, period_end, filed, cfg)
     if not refused:
         return fact
     note = fact.note
@@ -295,10 +317,14 @@ def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> Extracte
         )
     return fact.model_copy(
         update={
-            "flags": [*fact.flags, COVER_AFTER_FILING],
+            "flags": _with(fact.flags, COVER_AFTER_FILING),
             "note": f"{note} {refused_cover_note(refused)}",
         }
     )
+
+
+def _with(flags: list[str], flag: str) -> list[str]:
+    return flags if flag in flags else [*flags, flag]
 
 
 def _shares_candidate(
@@ -379,6 +405,233 @@ def _shares_candidate(
     )
 
 
+# THE FILING'S OWN COVER (W1-1, 2026-11-26; docs/EXTRACTOR.md "Shares on the periodic path"). companyfacts drops
+# the class dimension (every per-class cover count) and misses combined multi-registrant filings for months (CEG's
+# Q3 10-Q: its Q2 count under the Q3 link), while the cited document tags the cover itself. The two flags the inline
+# re-read adds: the EPS share base leaves a cover class out (the sum is still offered); the filing's single count is
+# newer than companyfacts' newest cover row.
+CLASS_OUTSIDE_EPS = "class-outside-eps"
+COMPANYFACTS_BEHIND = "companyfacts-behind"
+# The cleaned-text span the cover's counts may occupy for one located passage: a retrieval window, not a cutoff (a
+# cover too wide to locate keeps the old passage).
+_COVER_SPAN = 1500
+
+
+def _inline_shares(
+    fact: ExtractedFact,
+    rows: list[dict],
+    raw: str,
+    text: str,
+    ref: str,
+    period_end: date,
+    filed: date | None,
+    cfg: ExtractorConfig,
+) -> ExtractedFact:
+    """A FLAG share-count candidate re-read from the filing's inline XBRL: FLAG unless the A1 rule below applies, and
+    ``fact`` unchanged when the document tags no usable cover, or tags one count no newer than companyfacts'.
+
+    - **multi-class** (two or more classes of common stock on the cover): the per-class sum (or the total the filing
+      tags beside its parts), dated by the cover's own as-of instant, flag ``dual-class``; plus
+      ``class-outside-eps`` when the EPS share base of the cited period leaves a class out
+      (``inline_xbrl.classes_outside_eps``). The sum is still offered and the note carries both figures.
+    - **one count** newer than companyfacts' newest cover row (or with no row): that count, dated by its instant,
+      flag ``companyfacts-behind`` (it replaces ``stale-cover`` / ``no-companyfacts``: the offer is no longer the
+      stale or missing one).
+    - **AUTO** (A1, operator decision D4): either reading, when ``_cover_applies`` (the EPS share base agrees within
+      ``cfg.cover_eps_tolerance``, plain classes, one as-of date between the period end and the filing date): no flag,
+      the note states both figures. Within the tolerance a cover above the base is not ``class-outside-eps``.
+
+    Never a ``dei:LegalEntityAxis`` member (another registrant of a combined filing: EXC's parent count only), an ADR
+    line, a preferred class or warrants (``inline_xbrl.read_cover``). An inline instant after the filing date is
+    refused like a companyfacts row (``cover_after_filing``): the candidate is kept, flagged and named in the note.
+    """
+    contexts = inline_xbrl.read_contexts(raw)
+    cover = inline_xbrl.read_cover(raw, contexts)
+    if cover is None:
+        return fact
+    if filed is not None and cover_after_filing(cover.asof, filed):
+        return fact.model_copy(
+            update={
+                "flags": _with(fact.flags, COVER_AFTER_FILING),
+                "note": f"{fact.note} Refused the filing's inline cover count {cover.figure:,.0f} as of "
+                f"{cover.asof.isoformat()}, dated after its filing date {filed.isoformat()} — a cover count is never "
+                "dated after its filing.",
+            }
+        )
+    latest_end = max((r["end"] for r in rows), default=None)
+    behind = latest_end is None or date.fromisoformat(latest_end) < cover.asof
+    if not cover.multi_class and not behind:
+        return fact
+    eps = inline_xbrl.eps_share_base(
+        raw, period_end, cfg.quarterly_span_min_days, cfg.pace_ytd_max_days, contexts
+    )
+    gap, tol = _eps_gap(cover, eps), cfg.cover_eps_tolerance
+    applied = _cover_applies(cover, gap, period_end, filed, tol)
+    passage = _inline_cover_passage(text, ref, cover)
+    cf_vals = sorted({float(r["val"]) for r in rows if r["end"] == latest_end})
+    cf_row = (
+        f"companyfacts' newest cover row: {', '.join(f'{v:,.0f}' for v in cf_vals)} as of {latest_end}"
+        if latest_end
+        else "companyfacts has no cover-shares row"
+    )
+    if cover.multi_class:
+        outside = inline_xbrl.classes_outside_eps(cover, eps)
+        if outside is not None and tol is not None and gap is not None and gap <= tol:
+            outside = None  # a cover at most the tolerance above the base: not evidence of a class outside (A1)
+        flags = ["dual-class", CLASS_OUTSIDE_EPS] if outside else ["dual-class"]
+        parts = " + ".join(f"{c.label} {c.value:,.0f}" for c in cover.counted)
+        total = (
+            f" ({cover.total.label} {cover.total.value:,.0f} is their total, not added again)"
+            if cover.total
+            else ""
+        )
+        note = (
+            f"Multiple share classes on the cover's inline XBRL as of {cover.asof.isoformat()}: {parts} = "
+            f"{cover.figure:,.0f}{total}. Total economic = the sum of all classes; confirm against the cover (the "
+            f"A/B split is usually voting).{_set_aside_note(cover)} {_eps_note(eps)}"
+            f"{_outside_note(outside, eps, cover)} {cf_row} (not used)."
+        )
+    else:
+        flags = [COMPANYFACTS_BEHIND]
+        note = (
+            f"The filing's own cover count (inline XBRL): {cover.figure:,.0f} as of {cover.asof.isoformat()}; "
+            f"companyfacts is behind the filing ({cf_row}).{_set_aside_note(cover)} {_eps_note(eps)} Confirm "
+            "against the located cover."
+        )
+    if applied:
+        assert gap is not None and tol is not None
+        flags = []
+        what = "sum" if cover.multi_class else "count"
+        note = (
+            f"Cover shares from the filing's own inline XBRL as of {cover.asof.isoformat()}: "
+            f"{' + '.join(f'{c.label} {c.value:,.0f}' for c in cover.counted)}"
+            f"{f' = {cover.figure:,.0f}' if cover.multi_class else ''}.{_set_aside_note(cover)} {_eps_note(eps)} The "
+            f"{what} is {gap:+.2%} from it, within {tol:.0%}: applied automatically (plain classes of common stock, one "
+            f"as-of date between the period end and the filing date). {cf_row} (not used)."
+        )
+    return fact.model_copy(
+        update={
+            "tier": Tier.AUTO if applied else fact.tier,
+            "value": cover.figure,
+            "event_date": cover.asof,
+            "flags": flags,
+            "located_passages": [passage] if passage else fact.located_passages,
+            "note": note,
+        }
+    )
+
+
+def _eps_gap(cover: inline_xbrl.CoverReading, eps: inline_xbrl.EpsBase | None) -> float | None:
+    """How far the cover figure is from the EPS share base, as a fraction of the base (+ above it); None without a
+    positive base."""
+    if eps is None or eps.figure is None or eps.figure <= 0:
+        return None
+    return (cover.figure - eps.figure) / eps.figure
+
+
+def _cover_applies(
+    cover: inline_xbrl.CoverReading,
+    gap: float | None,
+    period_end: date,
+    filed: date | None,
+    tol: float | None,
+) -> bool:
+    """THE A1 RULE (operator decision D4, 2026-11-26): an inline cover reading is AUTO when the cover tags its counts at
+    ONE as-of date, on or after the period end and not after the filing date; every count is a plain class of common
+    stock (``CoverReading.plain``: no ADR line, preferred class, warrants, total beside its parts or class-less member
+    beside classes; another registrant's count set aside is fine); and the figure is within ``tol`` of the same
+    filing's EPS share base for the cited period (the independent reading: the cover and its printed text are one).
+    ``tol`` None (the dial off) or no filing date: never."""
+    if tol is None or gap is None or filed is None:
+        return False
+    if not cover.plain or len(cover.instants) != 1:
+        return False
+    return period_end <= cover.asof <= filed and abs(gap) <= tol
+
+
+def _set_aside_note(cover: inline_xbrl.CoverReading) -> str:
+    """One sentence per reason a cover count was not counted, plus the ADS caution when an ADR line is set aside."""
+    if not cover.set_aside:
+        return ""
+    by_why: dict[str, list[str]] = {}
+    for c, why in cover.set_aside:
+        by_why.setdefault(why, []).append(f"{c.label} {c.value:,.0f}")
+    out = "".join(f" Not counted, {why}: {', '.join(items)}." for why, items in by_why.items())
+    if any("ADR" in why for why in by_why):
+        out += " The count is of ordinary shares: check the ADS ratio before approving (the price may be per ADS)."
+    return out
+
+
+def _eps_note(eps: inline_xbrl.EpsBase | None) -> str:
+    if eps is None or eps.figure is None:
+        return "No EPS share base for the period is tagged in the document."
+    per_class = (
+        f" (per class: {', '.join(f'{inline_xbrl.member_label(m)} {v:,.0f}' for m, v in eps.by_class)})"
+        if eps.by_class
+        else ""
+    )
+    return (
+        f"EPS share base (basic weighted average, {eps.start.isoformat()} to {eps.end.isoformat()}): "
+        f"{eps.figure:,.0f}{per_class}."
+    )
+
+
+def _outside_note(
+    outside: inline_xbrl.OutsideEps | None,
+    eps: inline_xbrl.EpsBase | None,
+    cover: inline_xbrl.CoverReading,
+) -> str:
+    if outside is None or eps is None or eps.figure is None:
+        return ""
+    if outside.how == "per-class":
+        names = " and ".join(f"{c.label} ({c.value:,.0f})" for c in outside.outside)
+        verb = "is" if len(outside.outside) == 1 else "are"
+        found = (
+            f" {names} {verb} outside the EPS share base: its per-class facts name no such class (the other "
+            f"classes sum to {outside.inside_sum:,.0f})."
+        )
+    else:
+        inside = " + ".join(f"{c.label} {c.value:,.0f}" for c in outside.inside)
+        found = (
+            f" The EPS share base {eps.figure:,.0f} is nearer part of the cover ({inside}) than its sum "
+            f"{cover.figure:,.0f}: a class may be outside earnings."
+        )
+    return f"{found} The sum is offered; confirm which classes carry economics before approving."
+
+
+def _shown_re(shown: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![\d.,]){re.escape(shown)}(?![\d]|[.,]\d)")
+
+
+def _inline_cover_passage(
+    text: str, ref: str, cover: inline_xbrl.CoverReading
+) -> LocatedPassage | None:
+    """The cover passage: the first place in the cleaned text where the cover's counts, as printed, appear in
+    document order within ``_COVER_SPAN`` (``_locate``'s first anchor hit was not the cover in 7 of 8 checked
+    filings: a convertible-notes or SAFE note). None when they are not found together."""
+    counts = sorted(
+        [*cover.counted, *([cover.total] if cover.total else [])], key=lambda c: c.offset
+    )
+    first, rest = counts[0].shown, [c.shown for c in counts[1:]]
+    for m in _shown_re(first).finditer(text):
+        last = m.end()
+        for shown in rest:
+            hit = _shown_re(shown).search(text, m.start(), m.start() + _COVER_SPAN)
+            if hit is None:
+                break
+            last = max(last, hit.end())
+        else:
+            excerpt = re.sub(r"\s+", " ", text[max(0, m.start() - 110) : last + 110]).strip()
+            return LocatedPassage(
+                kind="cover",
+                source_ref=ref,
+                anchor=first,
+                excerpt=f"… {excerpt} …",
+                offset=m.start(),
+            )
+    return None
+
+
 # ---------------------------------------------------------------------------------------------------------
 # cash + burn (runway)
 # ---------------------------------------------------------------------------------------------------------
@@ -417,6 +670,9 @@ _STI = [
     ("us-gaap", "OtherShortTermInvestments"),
     ("us-gaap", "CertificatesOfDepositAtCarryingValue"),
     ("us-gaap", "TimeDepositsAtCarryingValue"),
+    # A3 (operator decision D4, 2026-11-26): a balance-sheet line of debt securities, current (NVDA's 34,143M of
+    # marketable securities). ``ExtractorConfig.debt_securities_counted`` off leaves it out (``_counted``).
+    ("us-gaap", "DebtSecuritiesCurrent"),
 ]
 # Long-term MARKETABLE securities: noncurrent lines that are explicitly debt securities, which the written rule
 # counts (D2 keeps them: CRSP's long-dated Treasuries).
@@ -427,7 +683,52 @@ _LT_MARKETABLE = [
     # the noncurrent sibling of the short-term ex-accrued-interest tag (the 2026-11-16 re-audit: CRUS's 324.4M)
     ("us-gaap", "DebtSecuritiesAvailableForSaleExcludingAccruedInterestNoncurrent"),
     ("us-gaap", "HeldToMaturitySecuritiesNoncurrent"),
+    ("us-gaap", "DebtSecuritiesNoncurrent"),  # A3, its noncurrent sibling
 ]
+# The A3 tags: counted only while ``ExtractorConfig.debt_securities_counted`` is on, else named in a FLAG's note.
+_DEBT_SECURITIES = ("DebtSecuritiesCurrent", "DebtSecuritiesNoncurrent")
+
+
+def _counted(tags: list[tuple[str, str]], cfg: ExtractorConfig) -> list[tuple[str, str]]:
+    """An investment list as the composition reads it: the A3 tags only while their dial is on."""
+    return (
+        tags if cfg.debt_securities_counted else [t for t in tags if t[1] not in _DEBT_SECURITIES]
+    )
+
+
+# THE COMPOSITION GUARDS (2026-11-26; the fork audit of the 18 AUTO-applied cash values found two wrong, both through a
+# cash-like tag on a line that is not a cash-like investment). Equity securities are never counted; their balances are
+# also the evidence that an investment tag of EQUAL value on the same date is that equity line under a cash-like tag
+# (``investments_equity_guard``; CNP's "Investment in equity securities", AT&T, Charter and WBD stock, tagged both
+# ``MarketableSecuritiesCurrent`` and ``EquitySecuritiesFvNiCurrentAndNoncurrent`` at 425M).
+_EQUITY_SECURITIES = (
+    "EquitySecuritiesFvNi",
+    "EquitySecuritiesFvNiCurrent",
+    "EquitySecuritiesFVNINoncurrent",
+    "EquitySecuritiesFvNiCurrentAndNoncurrent",
+    "EquitySecuritiesFvNiAndWithoutReadilyDeterminableFairValue",
+    "EquitySecuritiesWithoutReadilyDeterminableFairValueAmount",
+    "AvailableForSaleSecuritiesEquitySecurities",
+    "AvailableForSaleSecuritiesEquitySecuritiesCurrent",
+    "AvailableForSaleSecuritiesEquitySecuritiesNoncurrent",
+    "MarketableSecuritiesEquitySecurities",
+    "TradingSecuritiesEquity",
+)
+# The statement tables (``investments_statement_guard``): a table of the raw document holding the registrant's own cash
+# fact, or one of these balance-sheet totals, on the cash date. A counted investment tagged on that date outside them
+# and only in a DEFERRED-TAX table (one holding a ``_DEFERRED_TAX`` fact) is a tax-note line, never a balance (LEXX:
+# ``MarketableSecuritiesNoncurrent`` 349,120 on the "Marketable securities" deferred-tax row). Narrowed from "anywhere
+# outside the statements": on the fork's applied population that also moved 18 of 100 replayed values (13 to FLAG),
+# mostly debt securities a filer tags only in its investments note or in prose, the balance sheet printing them inside
+# a broader line.
+_STATEMENT_TOTALS = frozenset(
+    {"Assets", "AssetsCurrent", "AssetsNoncurrent", "LiabilitiesAndStockholdersEquity"}
+)
+_DEFERRED_TAX = ("DeferredTax", "DeferredIncomeTax")
+# the annual path's flag: an investment seen, quoted, not counted
+_UNCONFIRMED = "investments-unconfirmed"
+
+
 # UNSPLIT debt-security TOTALS (the 2026-11-16 re-audit: GKOS keeps 174.4M of short-term investments only under
 # ``AvailableForSaleSecuritiesDebtSecurities``), each mapped to its own (current, noncurrent) parts. Debt only:
 # ``AvailableForSaleSecurities`` and ``MarketableSecurities`` can hold equity stakes and are never read. A total
@@ -495,22 +796,38 @@ _ROUTINE_WC = (
     "otheroperatingcapital",
     "operatinglease",
     "accountspayable",
+    # A6 (operator decision D4, 2026-11-26): the AGGREGATE working-capital line, a sum of routine lines and not a line
+    # item (FEIM's "Net changes in operating assets and liabilities"); routine only while
+    # ``ExtractorConfig.operating_capital_routine`` is on
+    "increasedecreaseinoperatingcapital",
 )
+_OPERATING_CAPITAL = "increasedecreaseinoperatingcapital"
+# The reconciliation lines' tag prefix (the one-time check reads every such us-gaap line).
+_LINE_PREFIX = "IncreaseDecreaseIn"
 
 
-def _is_routine_wc(concept: str) -> bool:
+def _is_routine_wc(concept: str, cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG) -> bool:
     c = concept.lower()
     if "accrued" in c or "settlement" in c or "milestone" in c:
         return False  # an accrued/settlement line can carry a one-time obligation (SMR's ENTRA1)
-    return any(s in c for s in _ROUTINE_WC)
+    return any(
+        s in c for s in _ROUTINE_WC if s != _OPERATING_CAPITAL or cfg.operating_capital_routine
+    )
 
 
-def _is_one_time_candidate(concept: str) -> bool:
+def _is_one_time_candidate(concept: str, cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG) -> bool:
     """A NON-ROUTINE operating-activities reconciliation line — an accrued/settlement change, not routine
     working capital and not a non-cash add-back (SBC/D&A don't start with ``IncreaseDecreaseIn``). This is
     where a one-time settlement PAYMENT lands (SMR's ENTRA1 in AccountsPayableAndAccruedLiabilities).
     """
-    return concept.startswith("IncreaseDecreaseIn") and not _is_routine_wc(concept)
+    return concept.startswith(_LINE_PREFIX) and not _is_routine_wc(concept, cfg)
+
+
+# A QUARTER DERIVED ACROSS FILINGS (W1-4, 2026-11-26; docs/EXTRACTOR.md "The burn"). Two filings can date one fiscal
+# year's start days apart (a 52/53-week year: FUBO's 10-K from 2025-09-28, its 10-Qs from 2025-10-01), so no earlier
+# year to date has the same start. One of the same tag starting at most ``ExtractorConfig.ytd_start_slack_days`` away
+# is subtracted and the quarter offered flagged, never AUTO (operator decision A5, 2026-11-26).
+YTD_DERIVED_ACROSS_FILINGS = "ytd-derived-across-filings"
 
 
 @dataclass(frozen=True)
@@ -519,7 +836,9 @@ class _Quarter:
 
     ``start`` is the native column's start, or the subtracted prior year to date's END for a derived quarter (what
     the note prints, ``burn over start → end``); ``days`` is the span between the two, the figure the
-    ``quarterly_span_*_days`` window judges (a calendar quarter reads 90 native, 91 or 92 derived).
+    ``quarterly_span_*_days`` window judges (a calendar quarter reads 90 native, 91 or 92 derived). A derived quarter's
+    ``ytd_start`` is the year to date's own start; derived across filings, ``prior_start`` and ``prior_accn`` are the
+    subtracted one's.
     """
 
     value: float
@@ -527,6 +846,9 @@ class _Quarter:
     end: str
     basis: str
     concept: str
+    ytd_start: str = ""
+    prior_start: str = ""
+    prior_accn: str = ""
 
     @property
     def days(self) -> int:
@@ -542,6 +864,8 @@ def _quarter(facts: dict, cfg: ExtractorConfig) -> _Quarter | None:
 
     - ``"quarter"`` — a native quarterly column (span <= quarterly_span_max_days).
     - ``"derived"`` — the quarter computed as YTD − the prior same-start YTD.
+    - ``"ytd-derived-across-filings"`` — no same-start prior, but an earlier YTD of the same tag starting within
+      ``cfg.ytd_start_slack_days`` (``_near_start_prior``): YTD − that one, always flagged.
     - ``"ytd-raw"`` — a long-span column with NO prior to subtract: the value IS the raw YTD, not a quarter.
 
     The derivation subtracts within ONE tag: a total minus a continuing-operations part is not a quarter of
@@ -568,9 +892,60 @@ def _quarter(facts: dict, cfg: ExtractorConfig) -> _Quarter | None:
         default=None,
     )
     if prior is None:
+        near = _near_start_prior(durations, row, cfg.ytd_start_slack_days)
+        if near is not None:
+            return _Quarter(
+                float(row["val"]) - float(near["val"]),
+                near["end"],
+                row["end"],
+                YTD_DERIVED_ACROSS_FILINGS,
+                concept,
+                ytd_start=row["start"],
+                prior_start=near["start"],
+                prior_accn=near.get("accn") or "",
+            )
         return _Quarter(float(row["val"]), row["start"], row["end"], "ytd-raw", concept)
     return _Quarter(
-        float(row["val"]) - float(prior["val"]), prior["end"], row["end"], "derived", concept
+        float(row["val"]) - float(prior["val"]),
+        prior["end"],
+        row["end"],
+        "derived",
+        concept,
+        ytd_start=row["start"],
+    )
+
+
+def _start_gap(a: str, b: str) -> int:
+    return abs((date.fromisoformat(a) - date.fromisoformat(b)).days)
+
+
+def _near_start_prior(durations: list[dict], row: dict, slack: int) -> dict | None:
+    """The latest-ending earlier year to date of ``row``'s tag whose start lies 1 to ``slack`` days from ``row``'s (on a
+    tie: the nearest start, then the earliest filed), or None. Never a start further off: AMSC's six months tagged
+    from January 1, 90 days before its fiscal year's April start, cannot be told from a real one.
+    """
+    near = [
+        r
+        for r in durations
+        if row["start"] < r["end"] < row["end"]
+        and 0 < _start_gap(r["start"], row["start"]) <= slack
+    ]
+    if not near:
+        return None
+    end = max(r["end"] for r in near)
+    return min(
+        (r for r in near if r["end"] == end),
+        key=lambda r: (_start_gap(r["start"], row["start"]), r.get("filed", ""), r["start"]),
+    )
+
+
+def _across_sentence(q: _Quarter) -> str:
+    """The note's sentence for a quarter derived across filings."""
+    accn = f" ({q.prior_accn})" if q.prior_accn else ""
+    return (
+        f"no earlier year to date starts on {q.ytd_start}: the quarter is this year to date {q.ytd_start} → {q.end} "
+        f"minus the previous filing's{accn} {q.prior_start} → {q.start} (same tag), starts "
+        f"{_start_gap(q.ytd_start, q.prior_start)} days apart, so it is off by those days' cash flow"
     )
 
 
@@ -603,41 +978,247 @@ def _ytd_pace(facts: dict, q: _Quarter, cfg: ExtractorConfig) -> YtdPace | None:
     return YtdPace(burn_usd=-float(first["val"]), start=first["start"], end=first["end"])
 
 
+# NAMING WHAT TRIPPED IT (W1-4, 2026-11-26): the flag used to locate the first place a bare figure appeared and name
+# no line, and the steward review misread two of them (FEIM's working-capital aggregate as a financing item, COHR's
+# accrued compensation as an inventory build). Lines named at most (the note counts the rest); how far back a printed
+# line's words are read; the scale word a sentence prints after its figure.
+_ONE_TIME_NAMED = 3
+_LINE_SPAN = 120
+_LINE_WORDS_RE = re.compile(r"[A-Za-z][^\d]*$")  # the words after the last figure before this one
+_SCALE_WORD_RE = re.compile(r"\s*(million|billion|thousand)\b", re.IGNORECASE)
+# zero-width characters some filers print between cells; how far back a parenthetical's opening is looked for
+_INVISIBLE_RE = re.compile("[\u200b-\u200d\u2060\ufeff]")
+_PAREN_SPAN = 400
+
+
+@dataclass(frozen=True)
+class _OneTime:
+    """What tripped ``possible-one-time``: a passage on each named line as printed, and the note's sentence."""
+
+    passages: list[LocatedPassage]
+    stated: str
+
+
 def _detect_one_time(
-    facts: dict, text: str, ref: str, start: str, end: str, op_cash_use: float, cfg: ExtractorConfig
-) -> LocatedPassage | None:
+    facts: dict,
+    text: str,
+    ref: str,
+    start: str,
+    end: str,
+    op_cash_use: float,
+    cfg: ExtractorConfig,
+    raw: str | None = None,
+    ytd_start: str | None = None,
+) -> _OneTime | None:
     """A NON-ROUTINE operating line whose magnitude is a large fraction of |op-cash-use| is anomalous ->
-    flag. Generic (never names a specific item); the filing text supplies the located passage — the flagged
+    flag. Generic (never branches on a specific item); the filing text supplies the located passage — the flagged
     AMOUNT in the cash-flow statement (or a one-time keyword). The operator decides whether to back it out.
+
+    It names what tripped it (W1-4): every such line, largest first, by tag and figure in the note, and a passage on
+    each as printed, anchored by its words and figure ("Net changes in operating assets and liabilities (4,102)").
+    Given the ``raw`` document, the passage sits on the tagged figure itself; else on its first whole-number print.
+
+    ``ytd_start`` (A2: a derived quarter read beside a lagging companyfacts): each line's quarter is derived like the
+    quarter's own, its year to date ``ytd_start`` → ``end`` minus its year to date ``ytd_start`` → ``start`` (a side
+    not tagged counts 0), and the passage sits on the year to date's printed line.
     """
     threshold = cfg.one_time_line_fraction * abs(op_cash_use)
-    flagged: float | None = None
+    lines: list[tuple[str, float]] = []
     for concept in facts.get("us-gaap", {}):
-        if not _is_one_time_candidate(concept):
+        if not _is_one_time_candidate(concept, cfg):
             continue
-        v = _value_for_period(facts, concept, start, end)
-        if v is not None and abs(v) >= threshold:
-            flagged = v
-            break
-    if flagged is None:
-        return None
-    n = abs(int(flagged))
-    amounts = [
-        f"{n:,}",
-        f"{n // 1000:,}",
-        f"{n / 1e6:.1f}",
-    ]  # the line, as full $, thousands, or $M
-    return (
-        _locate(text, ref, "cash-flow", amounts)
-        or _locate(text, ref, "cash-flow", list(cfg.one_time_keywords))
-        or LocatedPassage(
-            kind="cash-flow",
-            source_ref=ref,
-            anchor="operating cash flow",
-            excerpt="… a single non-routine operating line dominates operating cash use — review the "
-            "cash-flow statement for a one-time item …",
+        v = (
+            _value_for_period(facts, concept, start, end)
+            if ytd_start is None
+            else _derived_line(facts, concept, ytd_start, start, end)
         )
+        if v is not None and abs(v) >= threshold:
+            lines.append((concept, v))
+    if not lines:
+        return None
+    lines.sort(key=lambda cv: (-abs(cv[1]), cv[0]))
+    named = lines[:_ONE_TIME_NAMED]
+    contexts = inline_xbrl.read_contexts(raw) if raw else None
+    passages: list[LocatedPassage] = []
+    for concept, v in named:
+        at_v, at_start = (
+            (v, start)
+            if ytd_start is None
+            else (_ytd_line(facts, concept, ytd_start, end), ytd_start)
+        )
+        hit = (
+            _tagged_figure(raw, contexts, text, concept, at_v, at_start, end)
+            if raw and contexts and at_v is not None
+            else None
+        ) or (_printed_figure(text, at_v) if at_v is not None else None)
+        if hit is not None and all(p.offset != hit[0] for p in passages):
+            passages.append(_line_passage(text, ref, *hit))
+    if not passages:
+        passages.append(
+            _locate(text, ref, "cash-flow", list(cfg.one_time_keywords))
+            or LocatedPassage(
+                kind="cash-flow",
+                source_ref=ref,
+                anchor="operating cash flow",
+                excerpt="… a single non-routine operating line dominates operating cash use — review the "
+                "cash-flow statement for a one-time item …",
+            )
+        )
+    more = len(lines) - len(named)
+    listed = ", ".join(f"{c} {_m(abs(v))}" for c, v in named) + (
+        f" and {more} more" if more else ""
     )
+    each = "each " if len(lines) > 1 else ""
+    return _OneTime(
+        passages,
+        f"possible-one-time: {listed}, {each}at least {cfg.one_time_line_fraction:g} of the operating cash flow's "
+        f"{_m(abs(op_cash_use))}",
+    )
+
+
+def _ytd_line(facts: dict, concept: str, ytd_start: str, end: str) -> float | None:
+    return _value_for_period(facts, concept, ytd_start, end)
+
+
+def _derived_line(facts: dict, concept: str, ytd_start: str, start: str, end: str) -> float | None:
+    """A reconciliation line's derived quarter: its year to date to ``end`` minus its year to date to ``start`` (same
+    start); a side not tagged counts 0; None when neither is."""
+    ytd, prior = _ytd_line(facts, concept, ytd_start, end), _ytd_line(
+        facts, concept, ytd_start, start
+    )
+    if ytd is None and prior is None:
+        return None
+    return (ytd or 0.0) - (prior or 0.0)
+
+
+def _lines_tagged(facts: dict, start: str, end: str) -> bool:
+    """Whether any reconciliation line (``IncreaseDecreaseIn*``) is tagged for ``start`` → ``end``."""
+    return any(
+        r.get("start") == start and r["end"] == end
+        for concept, node in facts.get("us-gaap", {}).items()
+        if concept.startswith(_LINE_PREFIX)
+        for r in node.get("units", {}).get("USD", [])
+    )
+
+
+def _one_time_runs(facts: dict, q: _Quarter) -> bool:
+    """Whether the one-time check has lines to read for the offered quarter (A2): a native quarter's own lines; a
+    derived quarter's on both years to date it is derived from. Never on any other basis (they are FLAGs already).
+    """
+    if q.basis == "quarter":
+        return _lines_tagged(facts, q.start, q.end)
+    if q.basis == "derived":
+        return _lines_tagged(facts, q.ytd_start, q.end) and _lines_tagged(
+            facts, q.ytd_start, q.start
+        )
+    return False
+
+
+def _tagged_figure(
+    raw: str,
+    contexts: dict[str, inline_xbrl.Context],
+    text: str,
+    concept: str,
+    v: float,
+    start: str,
+    end: str,
+) -> tuple[int, str] | None:
+    """Where the filing prints the line's own tagged fact (undimensioned, of the burn's period, the same value) in the
+    cleaned text ``clean_filing_text(raw)``, and its printed figure; None when it is not found there.
+    """
+    s, e = date.fromisoformat(start), date.fromisoformat(end)
+    for f in inline_xbrl.read_facts(raw, frozenset({concept}), contexts):
+        if not (_own(f) and f.context.start == s and f.context.end == e and f.value is not None):
+            continue
+        if abs(abs(f.value) - abs(v)) >= 0.5:
+            continue
+        at = len(clean_filing_text(raw[: f.offset]))
+        m = _shown_re(f.shown).search(text, max(0, at - 2))
+        if m and m.start() <= at + 2:
+            return m.start(), f.shown
+    return None
+
+
+def _printed_figure(text: str, v: float) -> tuple[int, str] | None:
+    """The line's figure as first printed whole in the text: full dollars, thousands, or millions to one decimal
+    (with or without a thousands comma; never inside a longer number: "4,102" is not the end of "14,102").
+    """
+    n = abs(int(v))
+    printed = (f"{n:,}", f"{n // 1000:,}", f"{n / 1e6:.1f}", f"{n / 1e6:,.1f}")
+    for shown in dict.fromkeys(printed):
+        if shown in ("0", "0.0"):
+            continue
+        m = _shown_re(shown).search(text)
+        if m:
+            return m.start(), shown
+    return None
+
+
+def _line_passage(text: str, ref: str, at: int, shown: str) -> LocatedPassage:
+    excerpt = re.sub(r"\s+", " ", text[max(0, at - 110) : at + 110]).strip()
+    return LocatedPassage(
+        kind="cash-flow",
+        source_ref=ref,
+        anchor=_printed_line(text, at, shown),
+        excerpt=f"… {excerpt} …",
+        offset=at,
+    )
+
+
+def _printed_line(text: str, at: int, shown: str) -> str:
+    """The figure printed at ``at`` with its line's words (those since the previous figure) and its parentheses,
+    "$" and scale word as printed: "Net changes in operating assets and liabilities (4,102)", "we recognized $4.0
+    million". Words ending a parenthetical that prints figures of its own are replaced by the words before it
+    (SMCI: "Accrued liabilities (including changes in related party balances of $(65) and $554 ..., respectively)
+    445,557" reads "Accrued liabilities (…) 445,557"). The figure alone when no words precede it."""
+    lo = max(0, at - _LINE_SPAN)
+    m = _LINE_WORDS_RE.search(text, lo, at)
+    start = at if m is None else m.start()
+    if m is not None and start == lo and lo > 0:
+        start = text.find(" ", start, at) + 1 or at  # the window cut a word in two: drop it
+    words = text[start:at]
+    close = _unbalanced_close(words)
+    opened = None if close is None else _opening_paren(text, start + close)
+    if close is not None and opened is not None:
+        before = _LINE_WORDS_RE.search(text, max(0, opened - _LINE_SPAN), opened)
+        if before is not None:
+            words = text[before.start() : opened].rstrip() + " (…)" + words[close + 1 :]
+    words = re.sub(r"\s+", " ", _INVISIBLE_RE.sub("", words))
+    lead = re.search(r"[\s$(]*$", words).group(0)  # type: ignore[union-attr]
+    label = words[: len(words) - len(lead)].strip()
+    after = text[at + len(shown) : at + len(shown) + 20]
+    figure = f"({shown})" if "(" in lead and after.lstrip().startswith(")") else shown
+    figure = ("$" if "$" in lead else "") + figure
+    scale = _SCALE_WORD_RE.match(after)
+    if scale:
+        figure += f" {scale.group(1)}"
+    return f"{label} {figure}".strip()
+
+
+def _unbalanced_close(words: str) -> int | None:
+    """The index of the first ")" in ``words`` with no "(" before it in ``words``, or None."""
+    depth = 0
+    for i, ch in enumerate(words):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                return i
+            depth -= 1
+    return None
+
+
+def _opening_paren(text: str, close: int) -> int | None:
+    """The "(" that the ")" at ``close`` closes, at most ``_PAREN_SPAN`` characters back, or None."""
+    depth = 0
+    for i in range(close - 1, max(-1, close - _PAREN_SPAN), -1):
+        if text[i] == ")":
+            depth += 1
+        elif text[i] == "(":
+            if depth == 0:
+                return i
+            depth -= 1
+    return None
 
 
 def _at(facts: dict, concept: str, end: str) -> float | None:
@@ -677,6 +1258,10 @@ class _Composition:
     totals: list[tuple[str, float]] = field(default_factory=list)
     # (total tag, total, its own current + noncurrent parts on the cash date, "reconciles" | "short" | "exceeds")
     total_checks: list[tuple[str, float, float, str]] = field(default_factory=list)
+    # (tag, value, why, "sti" | "lt") of each investment tag on the cash date a guard left out (the note's sentence)
+    excluded: list[tuple[str, float, str, str]] = field(default_factory=list)
+    # the statement guard lowered the figure: a counted investment is tagged only in a deferred-tax table
+    unconfirmed: bool = False
 
     @staticmethod
     def _largest(seen: list[tuple[str, float]]) -> tuple[str, float] | None:
@@ -696,7 +1281,7 @@ class _Composition:
     def unsplit(self) -> list[tuple[str, float]]:
         """The unsplit debt totals standing ALONE: no current or noncurrent investment tag is on the cash date
         (beside one, a total may restate it — a check or a name, never an addend)."""
-        return [] if self.sti or self.lt_marketable else self.totals
+        return [] if self.sti or self.lt_marketable or self.excluded else self.totals
 
     @property
     def unsplit_value(self) -> float | None:
@@ -738,18 +1323,30 @@ class _Composition:
         return (self.sti_value or 0.0) + (self.lt_value or 0.0) + (counted or 0.0)
 
 
-def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Composition:
+def _compose(
+    facts: dict,
+    cash: float,
+    end: str,
+    cfg: ExtractorConfig,
+    outside: frozenset[str] = frozenset(),
+) -> _Composition:
     """The cash composition on ONE balance-sheet date (``end``, the cash instant's): the investments read AT that
     date (the largest per role, never a sum of overlapping tags), the never-cash lines named, the cash tags'
-    nesting checked, and the combined line used only as a reconciliation."""
+    nesting checked, and the combined line used only as a reconciliation.
+
+    The guards leave out a non-zero investment tag whose value equals a same-dated equity-securities balance
+    (``investments_equity_guard``) or that the raw document tags outside its statement tables and only in a
+    deferred-tax table (``outside``, ``_outside_statements``); each is named in the note, and the second sets
+    ``unconfirmed`` when it lowers a role's figure."""
 
     def seen(lst: list[tuple[str, str]]) -> list[tuple[str, float]]:
         out = [(c, _at(facts, c, end)) for _, c in lst]
         return [(c, v) for c, v in out if v is not None]
 
+    sti_tags, lt_tags = _counted(_STI, cfg), _counted(_LT_MARKETABLE, cfg)
     older: list[tuple[str, str]] = []
     newer: list[tuple[str, str]] = []
-    for _, c in _STI + _LT_MARKETABLE:
+    for _, c in sti_tags + lt_tags:
         rows = _rows(facts, "us-gaap", c, "USD")
         if rows and _at(facts, c, end) is None:
             newest = max(r["end"] for r in rows)
@@ -757,8 +1354,40 @@ def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Compo
     cash_tags = seen(_CASH)
     vals = dict(cash_tags)
     disagree = any(n in vals and w in vals and vals[n] > vals[w] for n, w in _CASH_NESTING)
-    sti = seen(_STI)
-    lt_marketable = seen(_LT_MARKETABLE)
+    sti = seen(sti_tags)
+    lt_marketable = seen(lt_tags)
+    equity = (
+        [(c, v) for c in _EQUITY_SECURITIES if (v := _at(facts, c, end))]
+        if cfg.investments_equity_guard
+        else []
+    )
+    excluded: list[tuple[str, float, str, str]] = []
+
+    def guard(role: list[tuple[str, float]], name: str) -> tuple[list[tuple[str, float]], bool]:
+        """The role's tags the guards keep, and whether the statement guard lowered its figure."""
+        kept: list[tuple[str, float]] = []
+        not_equity: list[tuple[str, float]] = []
+        for t, v in role:
+            eq = next((e for e, ev in equity if v and abs(v - ev) < 0.5), None)
+            if eq is not None:
+                why = f"equals the same-dated equity securities {eq} {_m(v)} (equity securities are never cash)"
+                excluded.append((t, v, why, name))
+                continue
+            not_equity.append((t, v))
+            if v and t in outside:
+                why = (
+                    "is tagged in the filing only outside the statement tables that present its cash, in a"
+                    " deferred-tax table (a tax-note line, not a balance), so it is quoted, not counted"
+                )
+                excluded.append((t, v, why, name))
+                continue
+            kept.append((t, v))
+        before = _Composition._largest(not_equity)
+        after = _Composition._largest(kept)
+        return kept, (before[1] if before else 0.0) > (after[1] if after else 0.0)
+
+    sti, sti_lowered = guard(sti, "sti")
+    lt_marketable, lt_lowered = guard(lt_marketable, "lt")
     totals = seen([("us-gaap", t) for t in _DEBT_TOTALS])
     tol = cfg.investments_reconcile_tolerance
 
@@ -802,6 +1431,8 @@ def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Compo
         reconciled=reconciled,
         totals=totals,
         total_checks=total_checks,
+        excluded=excluded,
+        unconfirmed=sti_lowered or lt_lowered,
     )
 
 
@@ -821,16 +1452,19 @@ def _composition_note(c: _Composition, cash_label: str) -> str:
     total = c.cash + (c.investments or 0.0)
     parts = [f"{cash_label} {_m(c.cash)}"]
     missing: list[str] = []
+    left_out = {role for _, _, _, role in c.excluded}
     if c.sti:
         parts.append(f"short-term investments {_m(c.sti_value or 0.0)} ({tags(c.sti)})")
     else:
-        missing.append("no short-term investments tagged on the cash date")
+        what = "counted" if "sti" in left_out else "tagged on the cash date"
+        missing.append(f"no short-term investments {what}")
     if c.lt_marketable:
         parts.append(
             f"long-term marketable securities {_m(c.lt_value or 0.0)} ({tags(c.lt_marketable)})"
         )
     else:
-        missing.append("no long-term marketable securities tagged on the cash date")
+        what = "counted" if "lt" in left_out else "tagged on the cash date"
+        missing.append(f"no long-term marketable securities {what}")
     if c.counted_unsplit:
         # the only investment tag on the cash date is an unsplit debt total the combined line confirms: counted
         parts.append(
@@ -842,6 +1476,8 @@ def _composition_note(c: _Composition, cash_label: str) -> str:
     out = f"cash_usd {_m(total)} = " + " + ".join(parts)
     if missing:
         out += "; " + "; ".join(missing)
+    for t, v, why, _ in c.excluded:
+        out += f"; not counted: {t} {_m(v)} {why}"
     if c.quoted_unsplit:
         confirm = (
             f"no same-dated {_COMBINED} line confirms it"
@@ -903,6 +1539,9 @@ def _cash_burn(
     period_end: date,
     cfg: ExtractorConfig,
     source: str = "10-q",
+    *,
+    behind: str | None = None,
+    raw: str | None = None,
 ) -> ExtractedFact:
     """Cash + quarterly burn. A FLAG marks an EXCEPTION needing judgment (the re-tier — honest loudness:
     ``ytd-derived`` fired on ~3 of 4 filings [GAAP 10-Q cash-flow statements are YTD] and
@@ -929,6 +1568,14 @@ def _cash_burn(
     period of report (``burn-off-period``), and the cash is dated that period (older: ``stale-cash``; newer:
     ``cash-after-period``). A failure offers the value as found with its flag; it never turns a flag into AUTO.
     The note states the burn's start, end, days and tag, and the filing it is cited to.
+
+    ``behind`` (``_cash_candidate``, W1-2): ``facts`` carries the cited filing's own rows beside a lagging
+    companyfacts, and this sentence says so; it flags ``companyfacts-behind`` and rides the note. With
+    ``cfg.cash_auto_companyfacts_behind`` (A2) it is AUTO instead when no other flag stands and the one-time check
+    had the offered quarter's own lines to read (``_one_time_runs``; a derived quarter's lines derived like it).
+    ``raw`` (W1-4): the values filing's raw document, where a one-time line's passage is found by its tagged fact,
+    and where a counted investment tagged only in a deferred-tax table is found (``_outside_statements``,
+    ``investments-unconfirmed``).
     """
     cash_pick = _pick_instant(facts, _CASH)
     cash_at = None if cash_pick is None else (cash_pick[0], cash_pick[1])
@@ -970,7 +1617,12 @@ def _cash_burn(
     # eight-year-old balances into current cash). An OLDER one is excluded + named, never summed (conservative:
     # runway reads shorter); one only on a NEWER balance sheet means the composition at one date is not
     # established — ``investments-off-date``.
-    comp = _compose(facts, cash_at[0], cash_at[1], cfg) if cash_at else None
+    outside = (
+        _outside_statements(raw, cash_at[1], cash_pick[2], cfg)
+        if raw is not None and cash_pick is not None and cash_at and cfg.investments_statement_guard
+        else frozenset()
+    )
+    comp = _compose(facts, cash_at[0], cash_at[1], cfg, outside) if cash_at else None
     investments = comp.investments if comp else None
     cash_usd = (cash_at[0] + (investments or 0.0)) if cash_at else None
     asofs: list[str] = []
@@ -1018,6 +1670,13 @@ def _cash_burn(
             # arithmetic, not a judgment fork — stated, never alarmed. As a FLAG it fired on ~3 of 4
             # filings (GAAP 10-Qs report cash flow YTD), marking the RULE instead of the exception.
             basis_suffix = ", derived (YTD − prior YTD)"
+        elif basis == YTD_DERIVED_ACROSS_FILINGS:
+            # FLAG-only (W1-4): the quarter subtracts a year to date read from a start days apart; offered, flagged
+            flags.append(YTD_DERIVED_ACROSS_FILINGS)
+            basis_suffix = (
+                ", derived across filings (YTD − the previous filing's YTD, see the flag)"
+            )
+            checks.append(_across_sentence(q))
         elif basis == "ytd-raw":
             flags.append("ytd-raw")
             basis_suffix = " — the RAW year-to-date, NOT a quarter (see the flag)"
@@ -1050,10 +1709,15 @@ def _cash_burn(
             checks.append(
                 f"the burn ends {end}, not on the cited filing's period of report {period_end.isoformat()}"
             )
-        ot = _detect_one_time(facts, tenq_text, ref, start, end, qval, cfg)
+        # A2: a derived quarter read beside a lagging companyfacts checks its own lines, derived like the quarter
+        derive = behind is not None and cfg.cash_auto_companyfacts_behind and basis == "derived"
+        ot = _detect_one_time(
+            facts, tenq_text, ref, start, end, qval, cfg, raw, q.ytd_start if derive else None
+        )
         if ot:
             flags.append("possible-one-time")
-            passages.append(ot)
+            passages.extend(ot.passages)
+            checks.append(ot.stated)
         # THE PACE CHECK (V2 extractor correctness PR 3, operator decision D3): the year-to-date quarterly pace
         # rides the fact and the note, and a quarter far off it carries a CAVEAT. Never a flag, never the tier.
         ytd = _ytd_pace(facts, q, cfg)
@@ -1091,15 +1755,43 @@ def _cash_burn(
             flags.append("investments-unreconciled")
         if comp.newer:
             flags.append("investments-off-date")
+        if comp.unconfirmed:
+            flags.append(_UNCONFIRMED)
+    if behind is not None:
+        # A2 (operator decision D4): AUTO when no other flag stands and the one-time check had lines to read for the
+        # offered quarter; else W1-2's flag
+        auto = (
+            cfg.cash_auto_companyfacts_behind
+            and not flags
+            and q is not None
+            and _one_time_runs(facts, q)
+        )
+        if not auto:
+            flags.append(COMPANYFACTS_BEHIND)
+        checks.append(behind)
+        if auto:
+            checks.append(
+                "applied: the period, span, composition and one-time checks pass on the filing's own figures"
+            )
+        elif cfg.cash_auto_companyfacts_behind and flags == [COMPANYFACTS_BEHIND]:
+            checks.append(
+                "the one-time check cannot run: no reconciliation line is tagged for the offered quarter's own "
+                "period(s), so the value is not applied"
+            )
 
     # a period or citation flag points at the statement it concerns (located, never interpreted)
     for kind, keys, raised in (
         (
             "cash-flow",
             ["operating activities", "cash flows"],
-            {"burn-span", "burn-off-period"} & set(flags),
+            {"burn-span", "burn-off-period", COMPANYFACTS_BEHIND, YTD_DERIVED_ACROSS_FILINGS}
+            & set(flags),
         ),
-        ("balance-sheet", ["cash and cash equivalents"], {"cash-after-period"} & set(flags)),
+        (
+            "balance-sheet",
+            ["cash and cash equivalents"],
+            {"cash-after-period", COMPANYFACTS_BEHIND, _UNCONFIRMED} & set(flags),
+        ),
     ):
         if raised and not any(p.kind == kind for p in passages):
             p = _locate(tenq_text, ref, kind, keys)
@@ -1157,8 +1849,8 @@ def _cash_burn(
         cash_usd=cash_usd,
         quarterly_burn_usd=burn,
         # every figure on this value was read from companyfacts' USD unit (``_pick_instant``, ``_compose``,
-        # ``_quarter`` and ``_ytd_pace`` read no other unit), so the value says so explicitly (D4); the
-        # nothing-read return above claims no currency
+        # ``_quarter`` and ``_ytd_pace`` read no other unit; ``_filing_cash`` adds only the filing's USD facts), so
+        # the value says so explicitly (D4); the nothing-read return above claims no currency
         statement_currency="USD",
         investments_usd=investments,
         ytd_quarterly_burn_usd=None if ytd is None else round(ytd.quarterly_burn_usd),
@@ -1171,6 +1863,354 @@ def _cash_burn(
         located_passages=passages,
         note=note,
     )
+
+
+# THE FILING'S OWN CASH (W1-2, 2026-11-26; docs/EXTRACTOR.md "The burn"). companyfacts misses combined multi-registrant
+# filings for months (CEG's Q3 10-Q: its Q2 cash and burn under the Q3 link; 17 of the 27 waiting stale-cash or
+# burn-off-period candidates on 2026-11-25), while the cited document tags its own statements. What is read from it:
+# the concepts the reader reads from companyfacts, the registrant's own facts only (undimensioned, in USD), at the
+# period end. Never another registrant of a combined filing (``dei:LegalEntityAxis``), never a subsidiary's.
+def _filing_instants(cfg: ExtractorConfig) -> frozenset[str]:
+    return frozenset(
+        [c for _, c in _CASH + _counted(_STI, cfg) + _counted(_LT_MARKETABLE, cfg) + _NOT_CASH]
+        + [*_DEBT_TOTALS, _COMBINED]
+        + list(_EQUITY_SECURITIES if cfg.investments_equity_guard else ())
+    )
+
+
+_FILING_DURATIONS = frozenset(c for _, c in _OCF_TAGS)
+# The reconciliation lines a document tags (A2 reads the registrant's own beside its cash, for the one-time check).
+_LINE_TAG_RE = re.compile(r"name=\"us-gaap:(IncreaseDecreaseIn\w+)\"")
+# Debt securities under tags the composition does not count while ``debt_securities_counted`` (A3) is off (NVDA:
+# 34,143M of ``DebtSecuritiesCurrent`` beside 22,443M of cash): a FLAG's note names them, never adds them.
+_DEBT_UNCOUNTED = _DEBT_SECURITIES
+# A quoted lone debt total EQUAL to the same-dated cash-equivalents fair value sits inside cash already (AMGN: 12,621M
+# both; operator decision A4, 2026-11-26: note evidence only). Only equality: a larger disclosure is no evidence (EBAY).
+_CE_FAIR_VALUE = "CashAndCashEquivalentsFairValueDisclosure"
+_USD = "iso4217:usd"
+
+
+def _usd_facts(
+    raw: str, contexts: dict[str, inline_xbrl.Context], concepts: frozenset[str]
+) -> list[inline_xbrl.InlineFact]:
+    """The document's numeric facts of ``concepts`` in USD (any context; the caller screens the dimensions)."""
+    units = {k: v.lower() for k, v in inline_xbrl.read_units(raw).items()}
+    return [
+        f
+        for f in inline_xbrl.read_facts(raw, concepts, contexts)
+        if f.value is not None and units.get(f.unit) == _USD
+    ]
+
+
+def _own(f: inline_xbrl.InlineFact) -> bool:
+    """The registrant's own fact: no dimension at all."""
+    return not f.context.members and not f.context.other_axis
+
+
+def _outside_statements(
+    raw: str, end: str, cash_concept: str, cfg: ExtractorConfig
+) -> frozenset[str]:
+    """The counted investment tags the raw document tags on the cash date (``end``) outside its statement tables (a
+    table holding the registrant's own ``cash_concept`` fact or a ``_STATEMENT_TOTALS`` fact on that date) and only in
+    deferred-tax tables (``_DEFERRED_TAX``). Empty when the guard cannot run: no table holds the cash fact (statements
+    laid out without tables, or a cash date the document does not tag). A tag the document never tags on that date, or
+    tags in prose or another note, is not judged."""
+    on = date.fromisoformat(end)
+    tags = {c for _, c in _counted(_STI, cfg) + _counted(_LT_MARKETABLE, cfg)}
+    spans = inline_xbrl.table_spans(raw)
+    contexts = inline_xbrl.read_contexts(raw)
+    tax = {
+        inline_xbrl.table_of(spans, f.offset)
+        for f in inline_xbrl.read_facts(raw, None, contexts)
+        if f.concept.startswith(_DEFERRED_TAX)
+    } - {None}
+    read = frozenset({*tags, cash_concept, *_STATEMENT_TOTALS})
+    at = [
+        (f.concept, inline_xbrl.table_of(spans, f.offset))
+        for f in _usd_facts(raw, contexts, read)
+        if _own(f) and f.context.instant == on
+    ]
+    cash_tables = {t for c, t in at if c == cash_concept and t is not None}
+    if not cash_tables or not tax:
+        return frozenset()
+    statements = cash_tables | {t for c, t in at if c in _STATEMENT_TOTALS and t is not None}
+    where: dict[str, set[int | None]] = {}
+    for c, t in at:
+        if c in tags:
+            where.setdefault(c, set()).add(t)
+    return frozenset(c for c, ts in where.items() if not ts & statements and ts <= tax)
+
+
+def _companyfacts_late(facts: dict, period_end: date, cfg: ExtractorConfig) -> list[str]:
+    """What companyfacts is behind on: its newest cash instant, its newest operating-cash-flow column, each named
+    when it ends before the cited period (empty: not behind)."""
+    pe = period_end.isoformat()
+    cash, q = _pick_instant(facts, _CASH), _quarter(facts, cfg)
+    late = [f"its newest cash is as of {cash[1]}"] if cash is not None and cash[1] < pe else []
+    if q is not None and q.end < pe:
+        late.append(f"its newest operating cash flow ends {q.end}")
+    return late
+
+
+@dataclass(frozen=True)
+class _FilingCash:
+    """companyfacts' facts with the cited filing's own rows at the period end beside them, and the sentence the
+    note states."""
+
+    facts: dict
+    stated: str
+
+
+@dataclass(frozen=True)
+class PriorFiling:
+    """The previous 10-Q of a values filing whose companyfacts is two quarters behind (A2): its document URL, raw
+    document and period of report. ``extract_for_security`` reads it only when the quarter needs it.
+    """
+
+    ref: str
+    raw: str
+    period_end: date
+
+
+def _filing_cash(
+    facts: dict,
+    raw: str,
+    contexts: dict[str, inline_xbrl.Context],
+    period_end: date,
+    filed: date | None,
+    late: list[str],
+    cfg: ExtractorConfig,
+    prior: PriorFiling | None = None,
+) -> _FilingCash | None:
+    """``late`` (companyfacts is behind the cited period): the cited document's own cash, investment and
+    operating-cash-flow rows at the period end, added beside companyfacts' (a concept and period companyfacts carries
+    is never replaced; one concept and period tagged with two values is not read). None when the document tags
+    neither a cash instant nor an operating cash flow of its own at the period end: today's candidate stands.
+
+    ``_cash_burn`` then runs unchanged on the result: the year to date minus companyfacts' same-start prior is a
+    derived quarter (one quarter behind: CEG); with that prior missing the latest earlier one is subtracted and the
+    span is flagged ``burn-span`` (two behind: DUK, FE).
+
+    With ``cfg.cash_auto_companyfacts_behind`` (A2) the document's own reconciliation lines (``IncreaseDecreaseIn*``)
+    at the period end are read too (the one-time check's), and the ``prior`` 10-Q's own operating cash flow and lines
+    of the same year-to-date start at its period end (two behind: the quarter is then the year to date minus that).
+    """
+    pe = period_end.isoformat()
+    a2 = cfg.cash_auto_companyfacts_behind
+    durations = _FILING_DURATIONS | (frozenset(_LINE_TAG_RE.findall(raw)) if a2 else frozenset())
+    found: dict[tuple[str, str | None], set[float]] = {}
+    for f in _usd_facts(raw, contexts, _filing_instants(cfg) | durations):
+        c = f.context
+        if not _own(f):
+            continue
+        if f.concept in durations:
+            if c.end != period_end or c.start is None:
+                continue
+            k: tuple[str, str | None] = (f.concept, c.start.isoformat())
+        elif c.instant == period_end:
+            k = (f.concept, None)
+        else:
+            continue
+        found.setdefault(k, set()).add(f.value)  # type: ignore[arg-type]
+    us = dict(facts.get("us-gaap", {}))
+    added = _add_rows(facts, us, found, pe, filed.isoformat() if filed else "")
+    if not any(c in _FILING_DURATIONS or c in {x for _, x in _CASH} for c, _, _ in added):
+        return None
+    from_prior: list[tuple[str, str | None, float]] = []
+    if a2 and prior is not None:
+        starts = {s for c, s, _ in added if c in _FILING_DURATIONS and s}
+        from_prior = _add_rows(
+            facts, us, _prior_durations(prior, starts), prior.period_end.isoformat(), ""
+        )
+    merged = {**facts, "us-gaap": us}
+    # an equity balance is read only for the composition's guard, which names it when it applies
+    shown = [
+        x for x in added if not x[0].startswith(_LINE_PREFIX) and x[0] not in _EQUITY_SECURITIES
+    ]
+    read = "; ".join(
+        f"{c} {start} → {pe} {_m(v)}" if start else f"{c} {_m(v)}" for c, start, v in shown
+    )
+    n_lines = sum(1 for x in added if x[0].startswith(_LINE_PREFIX))
+    stated = (
+        f"companyfacts is behind the cited filing ({' and '.join(late)}): read from the filing's own inline XBRL at "
+        f"{pe}, the registrant's undimensioned USD facts only: {read}"
+        + (f"; and {n_lines} reconciliation line(s) for the one-time check" if n_lines else "")
+    )
+    q = _quarter(merged, cfg)
+    if q is not None and q.end == pe and q.basis == "derived":
+        sub = next(
+            (
+                v
+                for c, _, v in from_prior
+                if prior is not None and c == q.concept and q.start == prior.period_end.isoformat()
+            ),
+            None,
+        )
+        if sub is not None and prior is not None:
+            stated += (
+                f"; the quarter subtracts the previous 10-Q's own year to date ending {q.start} ({prior.ref}: "
+                f"{q.concept} {_m(sub)})"
+            )
+        else:
+            stated += f"; the quarter subtracts companyfacts' year to date ending {q.start}"
+    return _FilingCash(merged, stated)
+
+
+def _add_rows(
+    facts: dict,
+    us: dict,
+    found: dict[tuple[str, str | None], set[float]],
+    end: str,
+    filed: str,
+) -> list[tuple[str, str | None, float]]:
+    """Add each (concept, start) -> value read from a document to ``us`` as a companyfacts-shaped row ending ``end``,
+    unless companyfacts carries that concept and period already or the document tags it with two values.
+    """
+    added: list[tuple[str, str | None, float]] = []
+    for (concept, start), vals in found.items():
+        on_file = _rows(facts, "us-gaap", concept, "USD")
+        if len(vals) != 1 or any(r["end"] == end and r.get("start") == start for r in on_file):
+            continue
+        row: dict[str, Any] = {"end": end, "val": vals.pop(), "accn": "", "form": ""}
+        row["filed"] = filed
+        if start is not None:
+            row["start"] = start
+        node = us.get(concept, {})
+        units = dict(node.get("units", {}))
+        units["USD"] = [*units.get("USD", []), row]
+        us[concept] = {**node, "units": units}
+        added.append((concept, start, row["val"]))
+    return added
+
+
+def _prior_durations(
+    prior: PriorFiling, starts: set[str]
+) -> dict[tuple[str, str | None], set[float]]:
+    """The previous 10-Q's own (undimensioned, USD) operating cash flow and reconciliation lines ending at its period
+    end and starting on one of ``starts`` (the cited year to date's start): the prior year to date (A2).
+    """
+    concepts = _FILING_DURATIONS | frozenset(_LINE_TAG_RE.findall(prior.raw))
+    found: dict[tuple[str, str | None], set[float]] = {}
+    for f in _usd_facts(prior.raw, inline_xbrl.read_contexts(prior.raw), concepts):
+        c = f.context
+        if _own(f) and c.end == prior.period_end and c.start and c.start.isoformat() in starts:
+            found.setdefault((f.concept, c.start.isoformat()), set()).add(f.value)  # type: ignore[arg-type]
+    return found
+
+
+def _needs_previous_quarter(facts: dict, raw: str, period_end: date, cfg: ExtractorConfig) -> bool:
+    """A2's one more document: whether the values filing's quarter can be derived only with the previous 10-Q's own
+    year to date (companyfacts behind by two quarters: the cited year to date minus companyfacts' latest same-start
+    one is not about a quarter, or there is none). Pure; ``extract_for_security`` then reads that 10-Q.
+    """
+    if not cfg.cash_auto_companyfacts_behind:
+        return False
+    late = _companyfacts_late(facts, period_end, cfg)
+    if not late:
+        return False
+    filing = _filing_cash(facts, raw, inline_xbrl.read_contexts(raw), period_end, None, late, cfg)
+    q = None if filing is None else _quarter(filing.facts, cfg)
+    return (
+        q is not None
+        and q.end == period_end.isoformat()
+        and q.basis in ("derived", "ytd-raw")
+        and not cfg.quarterly_span_min_days <= q.days <= cfg.quarterly_span_max_days
+    )
+
+
+def _cash_evidence(
+    facts: dict, raw: str, contexts: dict[str, inline_xbrl.Context], cfg: ExtractorConfig
+) -> str:
+    """A FLAG note's evidence from the filing's own inline XBRL on the cash date, never a figure: the debt securities
+    under a tag the composition does not count (``_DEBT_UNCOUNTED``: NVDA), and a quoted lone debt total equal to
+    the same-dated cash-equivalents fair value (``_CE_FAIR_VALUE``, any dimension but another registrant's: AMGN).
+    The empty string when there is none."""
+    cash = _pick_instant(facts, _CASH)
+    if cash is None:
+        return ""
+    on = date.fromisoformat(cash[1])
+    facts_on = [
+        f
+        for f in _usd_facts(raw, contexts, frozenset({*_DEBT_UNCOUNTED, _CE_FAIR_VALUE}))
+        if f.context.instant == on
+    ]
+    out: list[str] = []
+    named = []
+    for concept in () if cfg.debt_securities_counted else _DEBT_UNCOUNTED:
+        vals = {f.value for f in facts_on if f.concept == concept and _own(f)}
+        if len(vals) == 1:
+            named.append(f"{concept} {_m(vals.pop())}")  # type: ignore[arg-type]
+    if named:
+        out.append(
+            "The filing's inline XBRL tags debt securities on the cash date under a tag the reader does not count: "
+            f"{', '.join(named)}; add the eligible part unless a figure above already holds it."
+        )
+    comp = _compose(facts, cash[0], cash[1], cfg)
+    for tag, total in comp.quoted_unsplit:
+        hit = next(
+            (
+                f
+                for f in facts_on
+                if f.concept == _CE_FAIR_VALUE
+                and not f.context.other_axis
+                and all(a != "LegalEntityAxis" for a, _ in f.context.members)
+                and abs(f.value - total) < 0.5  # type: ignore[operator]
+            ),
+            None,
+        )
+        if hit is not None:
+            where = ", ".join(f"{a} {m}" for a, m in hit.context.members) or "undimensioned"
+            out.append(
+                f"The quoted {tag} {_m(total)} equals the filing's {_CE_FAIR_VALUE} on the cash date ({where}): "
+                "the total looks already inside cash and equivalents, so adding it would count it twice."
+            )
+    return " ".join(out)
+
+
+def _cash_candidate(
+    facts: dict,
+    tenq_text: str,
+    ref: str,
+    period_end: date,
+    cfg: ExtractorConfig,
+    source: str,
+    *,
+    raw: str | None,
+    filed: date | None,
+    prior: PriorFiling | None = None,
+) -> ExtractedFact:
+    """The cash candidate (W1-2): ``_cash_burn`` over companyfacts; given the values filing's ``raw`` document, over
+    companyfacts plus the document's own rows when companyfacts is behind the cited period (``_filing_cash``,
+    ``companyfacts-behind``; AUTO when every check passes on them, A2; ``prior``: the previous 10-Q, two quarters
+    behind), and a FLAG's note carries ``_cash_evidence``. An AUTO candidate of companyfacts is never re-read, and no
+    figure, flag or tier comes from the evidence.
+    """
+    if raw is None:
+        return _cash_burn(facts, tenq_text, ref, period_end, cfg, source)
+    late = _companyfacts_late(facts, period_end, cfg)
+    contexts = inline_xbrl.read_contexts(raw) if late else None
+    filing = (
+        _filing_cash(facts, raw, contexts, period_end, filed, late, cfg, prior)
+        if contexts is not None
+        else None
+    )
+    read = facts if filing is None else filing.facts
+    fact = _cash_burn(
+        read,
+        tenq_text,
+        ref,
+        period_end,
+        cfg,
+        source,
+        behind=None if filing is None else filing.stated,
+        raw=raw,
+    )
+    if fact.tier is not Tier.FLAG:
+        return fact
+    evidence = _cash_evidence(
+        read, raw, contexts if contexts is not None else inline_xbrl.read_contexts(raw), cfg
+    )
+    return fact.model_copy(update={"note": f"{fact.note} {evidence}"}) if evidence else fact
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1275,19 +2315,39 @@ def extract_facts(
     tenk_date: date,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
     values_form: str = "10-Q",
+    tenq_raw: str | None = None,
+    tenq_filed: date | None = None,
+    tenq_prior: PriorFiling | None = None,
 ) -> list[ExtractedFact]:
     """Pure, deterministic: (companyfacts + the two filing texts) -> the three candidate facts. Testable
     offline against cached fixtures (the form4-parser precedent — the caller owns fetching).
 
     ``values_form`` is the form of the VALUES filing (the ``tenq_*`` arguments, which since B1 can be a 10-K):
     the cash candidate's stored provenance kind names it (``10-k`` for a 10-K; it said ``10-q`` for every
-    value, the 18 audited 10-K citations included)."""
+    value, the 18 audited 10-K citations included).
+
+    ``tenq_raw`` is the values filing's RAW document (the one ``tenq_text`` was cleaned from) and ``tenq_filed`` its
+    filing date: a FLAG share count is re-read from its inline XBRL (``_inline_shares``), and so are cash and burn
+    when companyfacts is behind, a FLAG's note naming what it shows uncounted (``_cash_candidate``). None (a
+    text-only caller): the candidates are exactly the companyfacts-and-text ones. ``tenq_prior`` is the previous
+    10-Q (``PriorFiling``), passed only when ``_needs_previous_quarter`` (A2, two quarters behind).
+    """
     facts = companyfacts["facts"]
     cash_source = "10-k" if values_form == "10-K" else "10-q"
     return [
         _purity(facts, tenk_text, tenk_ref, tenk_date),
-        _shares(facts, tenq_text, tenq_ref, tenq_date),
-        _cash_burn(facts, tenq_text, tenq_ref, tenq_date, cfg, source=cash_source),
+        _shares(facts, tenq_text, tenq_ref, tenq_date, raw=tenq_raw, filed=tenq_filed, cfg=cfg),
+        _cash_candidate(
+            facts,
+            tenq_text,
+            tenq_ref,
+            tenq_date,
+            cfg,
+            cash_source,
+            raw=tenq_raw,
+            filed=tenq_filed,
+            prior=tenq_prior,
+        ),
     ]
 
 
@@ -1301,19 +2361,42 @@ def companyfacts_url(cik: str | int) -> str:
     return f"{get_settings().sec_data_base}/api/xbrl/companyfacts/CIK{int(cik):010d}.json"
 
 
-def _read_filing(client: EdgarClient, cik: int, f: dict[str, str]) -> tuple[str, str, date]:
-    """One submissions row (``filings_of``'s shape) -> (document URL, cleaned text, period of report). The ONE
-    document request of a filing (cache-first, ``forms/`` = cached forever)."""
+@dataclass(frozen=True)
+class _Document:
+    """One read filing: its URL, the raw document (its inline XBRL), the cleaned text, the period of report and the
+    filing date (None when the submissions row has none readable)."""
+
+    url: str
+    raw: str
+    text: str
+    period_end: date
+    filed: date | None
+
+
+def _read_document(client: EdgarClient, cik: int, f: dict[str, str]) -> _Document:
+    """One submissions row (``filings_of``'s shape) -> the read document. The ONE document request of a filing
+    (cache-first, ``forms/`` = cached forever); the raw text is kept for the inline-XBRL reads (shares, cash).
+    """
     url = _doc_url(cik, f["accession"], f["primary_doc"])
-    text = clean_filing_text(
-        client.get_text(url, f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}")
-    )
+    raw = client.get_text(url, f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}")
     # The date threaded to the extractors is the PERIOD OF REPORT (quarter/year end), NOT the filing
     # date — their staleness gates and event_date stamps are period semantics. Threading the filing
     # date here made the shares AUTO gate unreachable live (a cover's "as of" date is always BEFORE
     # the filing date), mis-flagging every single-class name "dual-class". Falls back to the filing
     # date only when a submissions row carries no reportDate.
-    return url, text, date.fromisoformat(f.get("report_date") or f["filed"])
+    return _Document(
+        url,
+        raw,
+        clean_filing_text(raw),
+        date.fromisoformat(f.get("report_date") or f["filed"]),
+        parse_filing_date(f.get("filed")),
+    )
+
+
+def _read_filing(client: EdgarClient, cik: int, f: dict[str, str]) -> tuple[str, str, date]:
+    """``_read_document`` as (document URL, cleaned text, period of report)."""
+    d = _read_document(client, cik, f)
+    return d.url, d.text, d.period_end
 
 
 def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, date] | None:
@@ -1418,23 +2501,50 @@ def extract_for_security(
     purity_row = tenk or tenq  # purity / segment source (prefer the 10-K; fall back to the 10-Q)
     if values_only:
         purity_row = values_row
-    v = _read_filing(client, cik, values_row)
+    v = _read_document(client, cik, values_row)
+    prior = _previous_quarter(client, cik, subs, cf["facts"], v, cfg)
     p = (
-        v
+        (v.url, v.text, v.period_end)
         if purity_row["accession"] == values_row["accession"]
         else _read_filing(client, cik, purity_row)
     )
     return extract_facts(
         cf,
-        v[1],
+        v.text,
         p[1],
-        tenq_ref=v[0],
+        tenq_ref=v.url,
         tenk_ref=p[0],
-        tenq_date=v[2],
+        tenq_date=v.period_end,
         tenk_date=p[2],
         cfg=cfg,
         values_form="10-K" if values_row is tenk else "10-Q",
+        tenq_raw=v.raw,
+        tenq_filed=v.filed,
+        tenq_prior=prior,
     )
+
+
+def _previous_quarter(
+    client: EdgarClient,
+    cik: int,
+    subs: dict[str, Any],
+    facts: dict,
+    v: _Document,
+    cfg: ExtractorConfig,
+) -> PriorFiling | None:
+    """A2's one more document (cache-first, like every document): the newest 10-Q whose period of report precedes the
+    values filing's, read only when ``_needs_previous_quarter``; None otherwise or when there is none.
+    """
+    if not _needs_previous_quarter(facts, v.raw, v.period_end, cfg):
+        return None
+    pe = v.period_end.isoformat()
+    row = next(
+        (r for r in filings_of(subs, "10-Q") if r["report_date"] and r["report_date"] < pe), None
+    )
+    if row is None:
+        return None
+    d = _read_document(client, cik, row)
+    return PriorFiling(d.url, d.raw, d.period_end)
 
 
 def extract_with_annual_fallback(
@@ -1497,8 +2607,12 @@ def extract_purity_for_security(client: EdgarClient, cik: str | int) -> Extracti
 
 
 __all__ = [
+    "CLASS_OUTSIDE_EPS",
+    "COMPANYFACTS_BEHIND",
     "COVER_AFTER_FILING",
+    "PriorFiling",
     "RefusedCover",
+    "YTD_DERIVED_ACROSS_FILINGS",
     "cover_after_filing",
     "extract_facts",
     "extract_for_security",

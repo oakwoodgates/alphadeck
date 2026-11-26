@@ -1,0 +1,134 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-25/26 through the steward review's sec.py), cut to the dei taxonomy; every row is verbatim.",
+ "cik": 1704292,
+ "entityName": "Zai Lab Limited",
+ "facts": {
+  "dei": {
+   "EntityCommonStockSharesOutstanding": {
+    "label": "Entity Common Stock, Shares Outstanding",
+    "description": "Indicate number of shares or other units outstanding of each of registrant's classes of capital or common stock or other ownership interests, if and as stated on cover of related periodic report. Where multiple classes or units exist define each class/interest by adding class of stock items such as Common Class A [Member], Common Class B [Member] or Partnership Interest [Member] onto the Instrument [Domain] of the Entity Listings, Instrument.",
+    "units": {
+     "shares": [
+      {
+       "end": "2017-12-31",
+       "val": 50555903,
+       "accn": "0001564590-18-009692",
+       "fy": 2017,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2018-04-30",
+       "frame": "CY2017Q4I"
+      },
+      {
+       "end": "2018-12-31",
+       "val": 58355903,
+       "accn": "0001564590-19-010185",
+       "fy": 2018,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2019-03-29",
+       "frame": "CY2018Q4I"
+      },
+      {
+       "end": "2019-12-31",
+       "val": 68375511,
+       "accn": "0001564590-20-019745",
+       "fy": 2019,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2020-04-29",
+       "frame": "CY2019Q4I"
+      },
+      {
+       "end": "2021-02-26",
+       "val": 88592343,
+       "accn": "0001193125-21-062279",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2021-03-01",
+       "frame": "CY2021Q1I"
+      }
+     ]
+    }
+   },
+   "EntityPublicFloat": {
+    "label": "Entity Public Float",
+    "description": "The aggregate market value of the voting and non-voting common equity held by non-affiliates computed by reference to the price at which the common equity was last sold, or the average bid and asked price of such common equity, as of the last business day of the registrant's most recently completed second fiscal quarter.",
+    "units": {
+     "USD": [
+      {
+       "end": "2020-06-30",
+       "val": 6200000000,
+       "accn": "0001193125-21-062279",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2021-03-01",
+       "frame": "CY2020Q2I"
+      },
+      {
+       "end": "2021-06-30",
+       "val": 16900000000,
+       "accn": "0001193125-22-061312",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-03-01",
+       "frame": "CY2021Q2I"
+      },
+      {
+       "end": "2022-06-30",
+       "val": 3200000000,
+       "accn": "0001628280-23-005832",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-03-01"
+      },
+      {
+       "end": "2022-06-30",
+       "val": 3200000000,
+       "accn": "0001628280-23-042643",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K/A",
+       "filed": "2023-12-22",
+       "frame": "CY2022Q2I"
+      },
+      {
+       "end": "2023-06-30",
+       "val": 2700000000,
+       "accn": "0001628280-24-007235",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2024-02-27",
+       "frame": "CY2023Q2I"
+      },
+      {
+       "end": "2024-06-30",
+       "val": 1700000000,
+       "accn": "0001628280-25-008409",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-27",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2025-06-30",
+       "val": 3800000000,
+       "accn": "0001704292-26-000015",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-26",
+       "frame": "CY2025Q2I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

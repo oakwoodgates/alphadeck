@@ -543,3 +543,105 @@ def test_no_adr_evidence_reads_not_applicable():
         assert f.ads_ratio is None and f.ads_ratio_status is None, fname
         assert "No ADS/ADR evidence" in f.note, fname
         assert "ads-ratio-unread" not in f.flags, fname
+
+
+# ---------------------------------------------------------------------------------------------------------
+# the inline per-class cover (W1-3, decision D5): an annual cover whose inline XBRL tags two or more classes
+# of common stock offers their SUM, still flagged multi-value-cover (the steward ratifies; the machine never
+# applies a multi-value cover). Real 20-F covers, cut down: fixtures/sec_extractor/annual/steward-2026-11-25/.
+# ---------------------------------------------------------------------------------------------------------
+
+_SR = _FX / "steward-2026-11-25"
+_SR_TODAY = date(2026, 11, 25)
+_SR_DOC = {
+    "NVO": ("nvo-20251231.htm", "0000353278-26-000012"),
+    "AZN": ("azn-20251231x20f.htm", "0001104659-26-019130"),
+    "KEP": ("d86100d20f.htm", "0001193125-26-190113"),
+}
+
+
+def _sr_client(name: str) -> _FakeClient:
+    """The wrapper's view of a real 20-F: its submissions row (an F-6 on file, as on EDGAR for all three), the
+    cut document as served raw, and its companyfacts' dei facts."""
+    doc, accession = _SR_DOC[name]
+    subs = {
+        "filings": {
+            "recent": {
+                "form": ["20-F", "F-6"],
+                "accessionNumber": [accession, "0000000000-20-000001"],
+                "primaryDocument": [doc, "f6.htm"],
+                "filingDate": ["2026-02-04", "2020-01-02"],
+                "reportDate": ["2025-12-31", ""],
+            }
+        }
+    }
+    cover = (_SR / f"{name}-20f-cover.htm").read_text(encoding="utf-8")
+    cf = json.loads((_SR / f"cf-{name}.json").read_text(encoding="utf-8"))
+    return _FakeClient(subs=subs, texts={doc: cover}, cf=cf)
+
+
+def _sr_shares(name: str):
+    res = annual_shares_for_security(_sr_client(name), 1234, today=_SR_TODAY)
+    assert res.empty_reason is None and len(res.facts) == 1, name
+    f = res.facts[0]
+    assert f.tier is Tier.FLAG and f.source == "annual-cover", name
+    return f
+
+
+def test_nvo_inline_classes_offer_their_sum_and_keep_the_flag():
+    """NVO's cover prints "A shares ... 1,074,872,000 B shares ... 3,390,128,000", each tagged in its inline
+    XBRL on the IFRS class axis. Before: the FIRST number (the A shares, about a quarter of the company) was
+    offered, which understates the market cap about fourfold. After: the inline classes' sum, 4,465,000,000,
+    dated by the cover, still flagged multi-value-cover so it waits for the steward."""
+    f = _sr_shares("NVO")
+    assert f.value == 4_465_000_000  # was 1,074,872,000
+    assert f.event_date == date(2025, 12, 31)
+    assert f.flags == ["annual-cover", "stale-cover", "multi-value-cover"]  # unchanged
+    assert (
+        "1,074,872,000" in f.note and "3,390,128,000" in f.note
+    )  # both classes named where ratified
+    assert f.ads_ratio == 1 and f.ads_ratio_status == "known"  # unchanged
+
+
+def test_azn_preference_shares_are_never_summed():
+    """AZN's cover tags its 1,550,907,927 ordinary shares and 50,000 redeemable preference shares on the class
+    axis: a preferred class is never part of a common share count, so one class remains and the first number
+    stands.
+    """
+    f = _sr_shares("AZN")
+    assert f.value == 1_550_907_927  # never + 50,000
+    assert f.flags == ["annual-cover", "stale-cover", "multi-value-cover", "ads-ratio-unread"]
+
+
+def test_kep_single_inline_count_is_unchanged():
+    """KEP's cover prints 641,964,077 shares "par value of Won 5,000": the second number is a par value, and
+    the inline XBRL tags one undimensioned count, so nothing is summed and the candidate is exactly today's.
+    """
+    f = _sr_shares("KEP")
+    text = clean_filing_text((_SR / "KEP-20f-cover.htm").read_text(encoding="utf-8"))
+    without_raw = extract_annual_shares(
+        json.loads((_SR / "cf-KEP.json").read_text(encoding="utf-8")),
+        text,
+        annual_ref=f.source_ref,
+        annual_form="20-F",
+        report_date=date(2025, 12, 31),
+        today=_SR_TODAY,
+        has_f6_filing=True,
+    )
+    assert f.value == 641_964_077
+    assert [f.model_dump()] == [x.model_dump() for x in without_raw]
+
+
+def test_nvo_without_its_raw_document_keeps_the_first_number():
+    """The cleaned text alone (no inline XBRL) reads as before: the first number, never a sum of printed
+    numbers."""
+    text = clean_filing_text((_SR / "NVO-20f-cover.htm").read_text(encoding="utf-8"))
+    (f,) = extract_annual_shares(
+        None,
+        text,
+        annual_ref="x",
+        annual_form="20-F",
+        report_date=date(2025, 12, 31),
+        today=_SR_TODAY,
+    )
+    assert f.value == 1_074_872_000 and "multi-value-cover" in f.flags

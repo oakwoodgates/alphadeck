@@ -1,0 +1,117 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-25/26 through the steward review's sec.py), cut to the dei taxonomy; every row is verbatim.",
+ "cik": 1571996,
+ "entityName": "Dell Technologies Inc.",
+ "facts": {
+  "dei": {
+   "EntityPublicFloat": {
+    "label": "Entity Public Float",
+    "description": "The aggregate market value of the voting and non-voting common equity held by non-affiliates computed by reference to the price at which the common equity was last sold, or the average bid and asked price of such common equity, as of the last business day of the registrant's most recently completed second fiscal quarter.",
+    "units": {
+     "USD": [
+      {
+       "end": "2016-07-29",
+       "val": 0,
+       "accn": "0001571996-17-000004",
+       "fy": 2017,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2017-03-31",
+       "frame": "CY2016Q2I"
+      },
+      {
+       "end": "2017-08-04",
+       "val": 13072939343,
+       "accn": "0001571996-18-000004",
+       "fy": 2018,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2018-03-29",
+       "frame": "CY2017Q2I"
+      },
+      {
+       "end": "2018-08-03",
+       "val": 18600000000,
+       "accn": "0001571996-19-000008",
+       "fy": 2019,
+       "fp": "Q4",
+       "form": "10-K",
+       "filed": "2019-03-29",
+       "frame": "CY2018Q2I"
+      },
+      {
+       "end": "2019-08-02",
+       "val": 12000000000,
+       "accn": "0001571996-20-000017",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2020-03-27",
+       "frame": "CY2019Q2I"
+      },
+      {
+       "end": "2020-07-31",
+       "val": 15100000000,
+       "accn": "0001571996-21-000007",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2021-03-26",
+       "frame": "CY2020Q2I"
+      },
+      {
+       "end": "2021-07-30",
+       "val": 27400000000,
+       "accn": "0001571996-22-000009",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-03-24",
+       "frame": "CY2021Q2I"
+      },
+      {
+       "end": "2022-07-29",
+       "val": 11400000000,
+       "accn": "0001571996-23-000007",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-03-30",
+       "frame": "CY2022Q2I"
+      },
+      {
+       "end": "2023-08-04",
+       "val": 13200000000,
+       "accn": "0001571996-24-000036",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2024-03-25",
+       "frame": "CY2023Q2I"
+      },
+      {
+       "end": "2024-08-02",
+       "val": 29200000000,
+       "accn": "0001571996-25-000034",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-03-25",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2025-08-01",
+       "val": 39200000000,
+       "accn": "0001571996-26-000008",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-03-16",
+       "frame": "CY2025Q2I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

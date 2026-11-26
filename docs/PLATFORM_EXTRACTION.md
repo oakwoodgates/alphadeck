@@ -20,7 +20,8 @@ replay or editions engine names it
 | The backfill CLI | `pipeline/extract_values.py` |
 | Run files in `data/extraction_runs/` | `pipeline/extraction_run_log.py` |
 
-The code lives under `platform_values/`, not `domain/`, so it never moves the editions fingerprint.
+The code lives under `platform_values/`, not `domain/`, so it never moves the editions fingerprint; the extractor's
+dials (`ExtractorConfig` in `domain/config.py`) do.
 
 ## Who runs it
 
@@ -105,6 +106,46 @@ to `ingest_lock_request_wait_s`, so one busy company cannot spend the budget. It
 (`to_json()`, `admin_line()`, `attention`). Under the kill switch a `nightly` or `onboarding` run is `off`: nothing
 fetched, nothing written (`KILL_SWITCHED`).
 
+## What the machine applies from a filing's own inline XBRL
+
+The extractor re-reads a flagged share count or cash value from the cited 10-Q or 10-K's own inline XBRL when
+companyfacts cannot give it ([EXTRACTOR](EXTRACTOR.md)). Four of those cases are AUTO (the operator's decision of
+2026-11-26): the machine writer applies them like any AUTO value. Each has its own `ExtractorConfig` dial; a dial off
+gives back the flagged offer (`tests/ingest/test_extract_auto_cases.py`).
+
+| Case | Dial (default) | AUTO when |
+|---|---|---|
+| Cover count | `cover_eps_tolerance` (0.02) | the cover tags its counts at one as-of date, on or after the period end and not after the filing date; every count is a plain class of common stock (no ADR line, preferred class, warrants, total beside its parts or class-less member beside classes; another registrant's count is set aside); the sum is within 2% of the same filing's EPS share base for the cited period |
+| Cash behind companyfacts | `cash_auto_companyfacts_behind` (on) | the figures are the registrant's own undimensioned facts and every cash check passes on them, the one-time check on the offered quarter's own reconciliation lines (a derived quarter's derived the same way) |
+| Debt-securities tags | `debt_securities_counted` (on) | `DebtSecuritiesCurrent` and `DebtSecuritiesNoncurrent` count like the other investment tags: per role the largest, never a sum |
+| Aggregate working capital | `operating_capital_routine` (on) | `IncreaseDecreaseInOperatingCapital` is routine working capital, never `possible-one-time` |
+
+- **Why the EPS share base:** an inline fact wraps the printed number, so the cover and its text are one reading;
+  the basic weighted-average count is the filing's independent one. Within the tolerance, a cover above the base is
+  not `class-outside-eps`. An applied count is dated by its cover, after the period-end candidate the same filing
+  queued, so that candidate stops waiting (`tests/platform_values/test_machine.py`).
+- **Cash two quarters behind:** the quarter needs the previous 10-Q's own year to date. `extract_for_security` reads
+  that document (one more request, cache-first) only when `_needs_previous_quarter` says so. A check that cannot run,
+  such as no reconciliation line tagged for the offered quarter, keeps `companyfacts-behind`. This is stricter than a
+  current company's derived quarter, whose one-time check has no lines of its own span to read.
+- **The debt-securities tags were measured first** on the fork's 1,341 applied cash values (2026-11-26): one
+  changed, AUPH (45.8M to 486.5M, its short-term investments line), and no double count.
+- **Changing a dial** moves the editions fingerprint (`domain/config.py` is an engine source): the next editions
+  nightly runs a trial.
+
+Two guards keep a cash-like tag on a line that is not cash out of any cash value, AUTO or not (the fork audit of the
+18 applied on 2026-11-26 found two such; `tests/ingest/test_extract_cash_guards.py`):
+
+| Guard | Dial (default) | Not counted |
+|---|---|---|
+| Equity | `investments_equity_guard` (on) | a counted investment tag whose non-zero value equals a same-dated equity-securities balance of the registrant (`_EQUITY_SECURITIES`); the note names both. CNP: 425M of AT&T, Charter and WBD stock tagged `MarketableSecuritiesCurrent` |
+| Statement | `investments_statement_guard` (on) | with the raw document, a counted investment tagged outside the statement tables (those holding the cash fact or a balance-sheet total on the cash date) and only in a deferred-tax table; flagged `investments-unconfirmed` when that lowers the figure. LEXX: 349,120 on a deferred-tax row |
+
+- **Why the statement guard is narrow:** "anywhere outside the statements" moved 18 of 100 replayed applied values
+  (13 to FLAG), mostly debt securities a filer tags only in its investments note or in prose while the balance sheet
+  prints them inside a broader line. A deferred-tax row is never a balance.
+- **It cannot run** when no table holds the cash fact (statements laid out without tables): the value is as before.
+
 ## The nightly step
 
 `pipeline/nightly_extraction.run_nightly_extraction` is the last thing in the nightly pass
@@ -159,6 +200,15 @@ company gets its values from the next onboarding run or the nightly.
 - **`--no-live`** is cache only: the client never reaches SEC and serves stale copies. A company whose documents are
   not all cached gets an `error` attempt, `not cached`, and stays due until `retry_max` such attempts. This is how a
   fork, which holds prod's EDGAR cache but no SEC User-Agent, rehearses.
+- **The rescan** (`--rescan awaiting`) walks `extraction.rescan_list` instead: every company whose newest candidate
+  of either value is an undecided flag the steward's queue lists (`state.awaiting`: awaiting, or pending beside a
+  value), whatever `due` says. It leaves out, and counts, ETFs, companies on no live card, and a company whose other
+  value's newest candidate a standing steward decision closes (approve, correct or dismiss), since a changed
+  candidate would re-queue over it; the dry run names those for Extract now. The machine writer keeps every other
+  decision standing: an identical candidate writes nothing, a steward's value of the same filing is
+  `already_on_file`, and a pinned company gets a `pinned` candidate. Attempts carry run kind `backfill`. A
+  re-extracted company still waits, so a rescan resumes with `--since`, which skips a company with a `done` attempt
+  since that instant; a stopped or bounded rescan prints the instant.
 
 | Exit | Meaning |
 |---|---|

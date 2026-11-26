@@ -221,11 +221,18 @@ the located passage verbatim.
 
 - **Screens.** A date more than `HISTORICAL_GAP_DAYS` before the filing is a past split's, never this
   filing's. A 6-K or charter 8-K goes through the restatement screen (`extract_split_screened`), which only
-  removes readings, so a report restating an old split never lists it as new.
+  removes readings, so a report restating an old split never lists it as new. Each filing is read knowing the
+  company's splits already confirmed on the list (`backfill_splits.known_for`): a ratio equal to one, stated as
+  done, is that past split's whatever its age.
 - **The wide-form reader.** A Massive.com split with no agreeing filing in its window gets one more look at the
   company's periodic reports, ADR registrations, prospectuses and information statements around its first
   session (`WIDE_FORMS`; a periodic report from its primary document only). It is a confirmation search, never
   run nightly for every company.
+- **Distributions.** A forward split under x1.5 that only Massive.com lists, with no filing in its window
+  stating it or mentioning a split, is set aside as a distribution (`distribution_reason`; settings
+  `split_distribution_auto_set_aside`, `split_distribution_max_factor`). A wide form can still confirm it. So
+  is one Massive.com labels a stock dividend whose filing mentions a split without a ratio
+  (`split_distribution_label_overrides_abstain`); a filing that states it still sends it to review.
 - **Who runs it.** `pipeline/detect_splits.py` checks each company nightly inside its ingest, before its price
   leg; the stored price tape can confirm a split one documentary source states, never alone.
   `pipeline/split_history.py` gives a company that joins a basket its history from the onboarding job.
@@ -268,6 +275,7 @@ out of the replay mirror (`db.bitemporal.DISPLAY_ONLY_FACT_TABLES`), and its fai
 | `insider_hold_on_time_days`, `insider_10b5_1_buy_weight`, `corporate_event_items`, `activist_stake_enabled` | `domain/config.py` (`CallConfig`) | No (config, not environment) |
 | `ALPHADECK_INSIDER_AMENDMENT_REVIEW_HORIZON_DAYS` | `domain/settings.py` | No |
 | `MASSIVE_API_KEY` (the split reference) | `domain/settings.py` | Yes |
+| `ALPHADECK_POLYGON_SPLITS_PATH` (`/stocks/v1/splits`; `/v3/reference/splits` = the deprecated fallback) | `domain/settings.py` | Yes |
 
 ## Known limits
 

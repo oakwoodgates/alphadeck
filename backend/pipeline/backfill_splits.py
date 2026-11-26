@@ -18,7 +18,8 @@ every non-archived thesis):
    its declared User-Agent, its cache — and the pure extractor (``ingest/edgar/split_filing.py``) reads the
    ratio, the first session and the located passage, as ``screen_of`` says (a 6-K or a charter 8-K through the
    RESTATEMENT screen, a catch-all 8-K through the catch-all screen). The request carries a CIK and an
-   accession only.
+   accession only. Each is read KNOWING the company's splits already confirmed on the list (``known_for``): a
+   ratio equal to one of them, stated as done, is that past split's whatever its age (GCTK, PBM, GPUS, TRT).
 3. **Match** — ``domain.splits.decide``: confirmed (``auto:sec+polygon``) only when both sources agree
    exactly on the ratio and on the date; announced when that agreement points to a future session; every
    other case ``needs_review`` with both sources' evidence on the row. Never a guessed value. A split whose
@@ -26,6 +27,11 @@ every non-archived thesis):
    company's periodic reports, ADR registrations, prospectuses and information statements filed
    ``[first session - 60, + 120]`` days — a periodic report from its primary document alone — each through the
    restatement screen; one that agrees exactly confirms it by the same rule, otherwise the note names them.
+   A forward split under x1.5 that Massive.com alone lists, with no SEC filing in its window stating it or
+   mentioning a split, is SET ASIDE as a distribution (D2, ``distribution_cap``: the settings
+   ``split_distribution_*``) — after the wide forms had their look, which can still confirm it. So is one
+   Massive.com labels a stock dividend whose filing mentions a split without a ratio (W6-2,
+   ``distribution_label_overrides_abstain``).
 4. **Plan** against the stored list: a split not on it yet is APPENDED; one whose newest version the
    backfill wrote and whose content is unchanged is left alone (``unchanged``); one whose evidence changed
    gets a new backfill version; one whose newest version the OPERATOR wrote is never touched
@@ -74,13 +80,16 @@ from domain.settings import get_settings
 from domain.splits import (
     AUTO_VIA_LABELS,
     SOURCE_POLYGON,
+    STATUS_CONFIRMED,
     STATUS_NEEDS_REVIEW,
+    STATUS_REJECTED,
     STATUSES,
     PolygonEvidence,
     SecEvidence,
     SplitDecision,
     decide,
     ratio_label,
+    related,
     same_ratio,
 )
 from ingest import CacheMiss
@@ -89,6 +98,7 @@ from ingest.edgar.client import EdgarClient
 from ingest.edgar.form8k import filing_index_url
 from ingest.edgar.split_filing import (
     FilingDocument,
+    KnownSplit,
     SplitExtraction,
     extract_split,
     extract_split_screened,
@@ -161,6 +171,28 @@ PRIMARY_ONLY_FORMS = frozenset(
     {"10-Q", "10-Q/A", "10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"}
 )
 
+
+def distribution_cap() -> Decimal | None:
+    """D2 (2026-11-25): the bound under which ``domain.splits.decide`` sets a forward split Massive.com alone lists
+    aside as a distribution (the setting ``split_distribution_max_factor``), or ``None`` when
+    ``split_distribution_auto_set_aside`` is off. Read once per run by its edges — this backfill, the newcomer fill
+    (``pipeline/split_history.py``), the nightly detector — and passed down: the pure rule reads no settings.
+    """
+    s = get_settings()
+    return (
+        Decimal(str(s.split_distribution_max_factor))
+        if s.split_distribution_auto_set_aside
+        else None
+    )
+
+
+def distribution_label_overrides_abstain() -> bool:
+    """W6-2 (decision W6-a): whether Massive.com's ``stock_dividend`` label settles a distribution whose filing
+    mentions a split but states no ratio (the setting ``split_distribution_label_overrides_abstain``). Read beside
+    ``distribution_cap`` by the same three edges and passed down with it."""
+    return get_settings().split_distribution_label_overrides_abstain
+
+
 # How each filing is read (``screen_of``): the catch-all 8-K screen (8.01 / 7.01 only, 2026-10-23), the
 # RESTATEMENT screen (6-Ks, charter 8-Ks, an 8-K whose items are not resolved, every wide form — 2026-10-24), or
 # no screen (Reg A).
@@ -218,6 +250,51 @@ class FilingRef:
     )
 
 
+# THE KNOWN SPLITS (2026-11-25): a filing restating a split the list already CONFIRMED for the company is no news,
+# however recent — GCTK's 8-K of 2026-10-22 restated its 1-for-15 of 08-31 beside its new 1-for-2 and abstained on
+# the two; GPUS's of 2024-11-26 restated the 1-for-35 of the day before, and its abstain kept a distribution in
+# review. So each filing is read knowing those splits (``split_filing.KnownSplit``; the rule is the extractor's).
+@dataclass(frozen=True)
+class ConfirmedSplit:
+    """A split CONFIRMED on the list for one security (its newest version), with the SEC filing it rests on."""
+
+    ratio_from: Decimal
+    ratio_to: Decimal
+    first_session: date
+    sec_accession: str | None = None
+
+
+def confirmed_of(versions: Iterable[SplitVersion]) -> tuple[ConfirmedSplit, ...]:
+    """The CONFIRMED splits among a security's newest versions (announced, open, rejected or revoked ones are
+    not known splits). Pure."""
+    return tuple(
+        ConfirmedSplit(v.ratio_from, v.ratio_to, v.effective_date, v.sec_accession)
+        for v in versions
+        if v.status == STATUS_CONFIRMED
+    )
+
+
+def confirmed_splits(conn: psycopg.Connection, m: Member) -> tuple[ConfirmedSplit, ...]:
+    """The member's splits CONFIRMED on the list now (``confirmed_of`` over its newest versions). Reads only."""
+    return confirmed_of(
+        split_repo.latest_versions(conn, tenant_id=m.tenant_id, security_ids=[m.security_id])
+    )
+
+
+def known_for(ref: FilingRef, confirmed: Iterable[ConfirmedSplit]) -> tuple[KnownSplit, ...]:
+    """The confirmed splits a filing may restate as PAST: in effect by its filing date (first session on or
+    before it) — and never the split whose own SEC evidence this filing is (re-reading it changes nothing). Sorted,
+    so one filing read with the same list is one reading (``_known_tag``). Pure."""
+    out = {
+        KnownSplit(c.ratio_from, c.ratio_to, c.first_session)
+        for c in confirmed
+        if c.first_session <= ref.filed and c.sec_accession != ref.accession
+    }
+    return tuple(
+        sorted(out, key=lambda k: (k.first_session, Decimal(k.ratio_from), Decimal(k.ratio_to)))
+    )
+
+
 @dataclass
 class PlannedSplit:
     """One split this run produced, the stored newest version it was compared to, and the outcome."""
@@ -245,6 +322,9 @@ class BackfillResult:
     polygon_rows: int = 0
     polygon_pages: int = 0
     polygon_skipped: int = 0
+    polygon_unlabeled: int = (
+        0  # W6-1: rows with no known Massive.com label (kept; 0 on the v3 fallback)
+    )
     polygon_matched: int = 0
     planned: list[PlannedSplit] = field(default_factory=list)
     stored_not_seen: int = 0
@@ -518,14 +598,19 @@ def screen_of(ref: FilingRef) -> str:
     return SCREEN_NONE
 
 
-def extract_for(documents: list[FilingDocument], ref: FilingRef) -> SplitExtraction:
-    """The extraction of one filing's documents, read as ``screen_of`` says. Pure."""
+def extract_for(
+    documents: list[FilingDocument], ref: FilingRef, *, known: tuple[KnownSplit, ...] = ()
+) -> SplitExtraction:
+    """The extraction of one filing's documents, read as ``screen_of`` says, knowing the company's confirmed
+    splits in effect by then (``known``, ``known_for``). Pure."""
     screen = screen_of(ref)
     if screen == SCREEN_CATCH_ALL:
-        return extract_split(documents, filed=ref.filed)
+        return extract_split(documents, filed=ref.filed, known=known)
     if screen in (SCREEN_RESTATED, SCREEN_WIDE):
-        return extract_split_screened(documents, filed=ref.filed, wide=screen == SCREEN_WIDE)
-    return extract_split(documents)
+        return extract_split_screened(
+            documents, filed=ref.filed, wide=screen == SCREEN_WIDE, known=known
+        )
+    return extract_split(documents, known=known)
 
 
 # the extraction memo's tag per screen (a catch-all reading is keyed apart: its items may resolve after a first
@@ -538,8 +623,25 @@ _MEMO_TAG = {
 }
 
 
+def _known_tag(known: tuple[KnownSplit, ...]) -> str:
+    """The memo / reader key's part for the known splits a filing is read with (``""`` with none: the key is
+    then what it always was)."""
+    if not known:
+        return ""
+    key = ";".join(
+        f"{Decimal(k.ratio_from).normalize()}:{Decimal(k.ratio_to).normalize()}@{k.first_session.isoformat()}"
+        for k in known
+    )
+    return ".known-" + hashlib.sha1(key.encode()).hexdigest()[:10]
+
+
 def read_filing(
-    client: EdgarClient, cik: str, ref: FilingRef, *, memo_dir: Path | None = None
+    client: EdgarClient,
+    cik: str,
+    ref: FilingRef,
+    *,
+    memo_dir: Path | None = None,
+    known: tuple[KnownSplit, ...] = (),
 ) -> SecEvidence:
     """Fetch one filing's full submission through the EDGAR client and extract its split statement, read as
     ``screen_of`` says (``extract_for``).
@@ -547,8 +649,9 @@ def read_filing(
     ``memo_dir`` (the nightly, S4): the extraction of an immutable filing by this exact extractor
     (``EXTRACTOR_VERSION``) is kept as a small JSON there and served instead of re-reading the document —
     MEASURED 2026-10-22: re-reading 953 cached filings took ~150 s of a pass. Each screen's reading is keyed
-    apart (``_MEMO_TAG``)."""
-    tag = _MEMO_TAG[screen_of(ref)]
+    apart (``_MEMO_TAG``), and a reading with known splits by them (``_known_tag``): a split confirmed later
+    re-reads the filing."""
+    tag = _MEMO_TAG[screen_of(ref)] + _known_tag(known)
     memo = memo_dir / f"{ref.accession}.{EXTRACTOR_VERSION}{tag}.json" if memo_dir else None
     x = _memo_load(memo) if memo is not None and memo.exists() else None
     if x is None:
@@ -564,7 +667,7 @@ def read_filing(
                 _filing_url(cik, ref.accession), f"forms/{ref.accession}/{ref.accession}.txt"
             )
             docs = submission_documents(raw)
-        x = extract_for(docs, ref)
+        x = extract_for(docs, ref, known=known)
         if memo is not None:
             _memo_save(memo, x)
     return SecEvidence(
@@ -586,9 +689,10 @@ def read_filing(
 
 class SecReader:
     """The SEC side of one run (the backfill, or one nightly pass — S4): each company's submissions index read
-    once, each filing read once (``evidence`` = accession -> what the extractor read, ``None`` = unread), every
-    read through the run's EDGAR client (its rate limit, User-Agent and cache). A failure that is one filing's
-    or one index's own (``_tolerable``) is skipped and counted; anything else raises."""
+    once, each filing read once (``evidence`` = accession -> what the extractor read, ``None`` = unread; the
+    accession carries ``_known_tag`` when the filing was read knowing confirmed splits), every read through the
+    run's EDGAR client (its rate limit, User-Agent and cache). A failure that is one filing's or one index's own
+    (``_tolerable``) is skipped and counted; anything else raises."""
 
     def __init__(self, edgar: EdgarClient, *, memo_dir: Path | None = None) -> None:
         self.edgar = edgar
@@ -637,23 +741,36 @@ class SecReader:
             return {}
         return {r.accession: r for r in _wide_filings(subs, lo, hi)}
 
-    def read(self, m: Member, refs: dict[str, FilingRef]) -> tuple[list[SecEvidence], int]:
-        """``(read, unread)`` over ``refs`` in accession order."""
+    def read(
+        self,
+        m: Member,
+        refs: dict[str, FilingRef],
+        *,
+        confirmed: tuple[ConfirmedSplit, ...] = (),
+    ) -> tuple[list[SecEvidence], int]:
+        """``(read, unread)`` over ``refs`` in accession order, each read knowing the member's ``confirmed``
+        splits (``known_for``)."""
         read: list[SecEvidence] = []
         unread = 0
         for acc in sorted(refs):
-            self.read_here.add(acc)
-            if acc not in self.evidence:
+            known = known_for(refs[acc], confirmed)
+            key = acc + _known_tag(known)
+            self.read_here.add(key)
+            if key not in self.evidence:
                 try:
-                    self.evidence[acc] = read_filing(
-                        self.edgar, m.cik, refs[acc], memo_dir=self.memo_dir  # type: ignore[arg-type]
+                    self.evidence[key] = read_filing(
+                        self.edgar,
+                        m.cik,  # type: ignore[arg-type]
+                        refs[acc],
+                        memo_dir=self.memo_dir,
+                        known=known,
                     )
                 except Exception as e:
                     if not _tolerable(e):
                         raise
                     _log.warning("split filing: %s %s unread (%s)", m.ticker, acc, type(e).__name__)
-                    self.evidence[acc] = None
-            ev = self.evidence[acc]
+                    self.evidence[key] = None
+            ev = self.evidence[key]
             if ev is None:
                 unread += 1
             else:
@@ -716,14 +833,20 @@ def with_wide(
     *,
     asof: date,
 ) -> SplitDecision:
-    """THE CONFIRMATION SEARCH (pure): a needs-review decision re-decided with the wide forms added — kept when
-    a wide form now agrees exactly (confirmed / announced by S1's own ``decide``); otherwise the decision its
-    own window gave, with the wide forms' readings named in the note."""
-    if d.status != STATUS_NEEDS_REVIEW or not (wide_read or wide_unread):
+    """THE CONFIRMATION SEARCH (pure): a needs-review decision — or one set aside as a distribution (D2) —
+    re-decided with the wide forms added — kept when a wide form now agrees exactly (confirmed / announced by S1's
+    own ``decide``); otherwise the decision its own window gave, with the wide forms' readings named in the note.
+    A set-aside whose wide forms state its ratio or a date that agrees (``domain.splits.related``) without
+    agreeing exactly goes back to review instead: a filing states it, so it is not Massive.com's alone.
+    """
+    if d.status not in (STATUS_NEEDS_REVIEW, STATUS_REJECTED) or not (wide_read or wide_unread):
         return d
     settled = decide(poly, read + wide_read, asof=asof, unread=unread)
     if settled.status != STATUS_NEEDS_REVIEW:
         return settled
+    if d.status == STATUS_REJECTED and any(related(s, poly) for s in wide_read):
+        # the window's own verdict without the set-aside: needs review
+        d = decide(poly, read, asof=asof, unread=unread)
     return replace(d, note=d.note + _wide_note(wide_read, wide_unread))
 
 
@@ -734,22 +857,34 @@ def decide_polygon_group(
     group: list[PolygonEvidence],
     *,
     asof: date,
+    distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
+    confirmed: tuple[ConfirmedSplit, ...] = (),
 ) -> GroupDecision:
-    """S1's verdict for one member's Massive.com rows on one date: every SEC filing in the row's window read,
-    ``domain.splits.decide``, and the notes for a missing index / CIK and for Massive.com listing different ratios
-    on the date. When the window holds no agreeing filing, the TARGETED WIDE-FORM READER looks once more
-    (``WIDE_FORMS`` filed in ``wide_window``): a wide form that agrees exactly settles it by the same rule;
-    otherwise the decision stands and its note names what the wide forms said."""
+    """S1's verdict for one member's Massive.com rows on one date: every SEC filing in the row's window read
+    (knowing the member's ``confirmed`` splits: ``known_for``), ``domain.splits.decide`` (with D2's
+    ``distribution_max_factor``, ``distribution_cap``, and W6-2's ``label_overrides_abstain``), and the notes for
+    a missing index / CIK and for Massive.com listing different ratios on the date. When the window holds no
+    agreeing filing, the TARGETED WIDE-FORM READER looks once more (``WIDE_FORMS`` filed in ``wide_window``): a
+    wide form that agrees exactly settles it by the same rule; otherwise the decision stands and its note names
+    what the wide forms said (``with_wide``)."""
     poly = group[0]
     lo, hi = _window(poly.execution_date)
-    read, unread = reader.read(m, reader.refs(conn, m, lo, hi))
-    d = decide(poly, read, asof=asof, unread=unread)
+    read, unread = reader.read(m, reader.refs(conn, m, lo, hi), confirmed=confirmed)
+    d = decide(
+        poly,
+        read,
+        asof=asof,
+        unread=unread,
+        distribution_max_factor=distribution_max_factor,
+        label_overrides_abstain=label_overrides_abstain,
+    )
     wide_read: list[SecEvidence] = []
     wide_unread = 0
-    if d.status == STATUS_NEEDS_REVIEW and m.cik:
+    if d.status in (STATUS_NEEDS_REVIEW, STATUS_REJECTED) and m.cik:
         wide = reader.wide_refs(m, *wide_window(poly.execution_date))
         if wide:
-            wide_read, wide_unread = reader.read(m, wide)
+            wide_read, wide_unread = reader.read(m, wide, confirmed=confirmed)
             d = with_wide(d, poly, read, unread, wide_read, wide_unread, asof=asof)
     if m.cik and reader.submissions.get(m.cik) is None:
         d = replace(d, note=d.note + " The company's SEC filing index could not be read.")
@@ -826,16 +961,29 @@ def plan_members(
     matched: dict[Member, list[PolygonEvidence]],
     *,
     asof: date,
+    distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
 ) -> list[PlannedSplit]:
-    """S1's decision for every Massive.com date of every member in ``matched`` (``decide_polygon_group``), each a
-    ``PlannedSplit`` still to be planned against the stored list (``plan_against_stored``). Reads only.
+    """S1's decision for every Massive.com date of every member in ``matched`` (``decide_polygon_group``, each
+    member's filings read knowing its splits confirmed on the list: ``confirmed_splits``), each a ``PlannedSplit``
+    still to be planned against the stored list (``plan_against_stored``). Reads only.
     """
     planned: list[PlannedSplit] = []
     for m in sorted(matched, key=lambda m: ((m.ticker or ""), str(m.security_id))):
         if m.cik:
             reader.index(m)
+        confirmed = confirmed_splits(conn, m)
         for group in _group(matched[m]):
-            g = decide_polygon_group(conn, reader, m, group, asof=asof)
+            g = decide_polygon_group(
+                conn,
+                reader,
+                m,
+                group,
+                asof=asof,
+                distribution_max_factor=distribution_max_factor,
+                label_overrides_abstain=label_overrides_abstain,
+                confirmed=confirmed,
+            )
             planned.append(
                 PlannedSplit(
                     member=m,
@@ -941,12 +1089,20 @@ def backfill_splits(
         pull.pages,
         pull.skipped,
     )
+    result.polygon_unlabeled = pull.unlabeled
     matched = match_polygon(pull.rows, members)
     result.polygon_matched = sum(len(v) for v in matched.values())
 
     fetches_before = edgar.live_fetches
     reader = SecReader(edgar)
-    planned = plan_members(conn, reader, matched, asof=asof)
+    planned = plan_members(
+        conn,
+        reader,
+        matched,
+        asof=asof,
+        distribution_max_factor=distribution_cap(),
+        label_overrides_abstain=distribution_label_overrides_abstain(),
+    )
     result.submissions_failed = dict(reader.submissions_failed)
     result.sec_live_fetches = edgar.live_fetches - fetches_before
 
@@ -1032,9 +1188,10 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
             f"session {d.effective_date.isoformat()}  {d.status.upper()}{via}  -> {verb}\n"
         )
         poly = d.polygon
+        label = f" ({poly.adjustment_type})" if poly.adjustment_type else ""
         w(
             f"      Massive.com {poly.ticker} {poly.id[:14]}…: {poly.split_from} -> {poly.split_to} on "
-            f"{poly.execution_date.isoformat()}\n"
+            f"{poly.execution_date.isoformat()}{label}\n"
         )
         s = d.sec
         if s is not None:
@@ -1060,7 +1217,9 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
     st = result.by_status()
     w(
         f"MASSIVE.COM: {result.polygon_rows} rows in {result.polygon_pages} page(s) since "
-        f"{result.since.isoformat()} ({result.polygon_skipped} unreadable) · {result.polygon_matched} on the "
+        f"{result.since.isoformat()} ({result.polygon_skipped} unreadable"
+        + (f", {result.polygon_unlabeled} unlabeled" if result.polygon_unlabeled else "")
+        + f") · {result.polygon_matched} on the "
         f"{result.members} union member(s) -> {len(result.planned)} split(s)\n"
     )
     w(

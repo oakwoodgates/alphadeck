@@ -1,0 +1,350 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-26 through the steward review's sec.py), cut to the dei taxonomy; every row is verbatim.",
+ "cik": 872589,
+ "entityName": "REGENERON PHARMACEUTICALS, INC.",
+ "facts": {
+  "dei": {
+   "EntityCommonStockSharesOutstanding": {
+    "label": "Entity Common Stock, Shares Outstanding",
+    "description": "Indicate number of shares or other units outstanding of each of registrant's classes of capital or common stock or other ownership interests, if and as stated on cover of related periodic report. Where multiple classes or units exist define each class/interest by adding class of stock items such as Common Class A [Member], Common Class B [Member] or Partnership Interest [Member] onto the Instrument [Domain] of the Entity Listings, Instrument.",
+    "units": {
+     "shares": [
+      {
+       "end": "2010-07-15",
+       "val": 79931305,
+       "accn": "0001206774-10-001689",
+       "fy": 2010,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2010-07-28",
+       "frame": "CY2010Q2I"
+      },
+      {
+       "end": "2010-10-15",
+       "val": 80111128,
+       "accn": "0001206774-10-002228",
+       "fy": 2010,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2010-10-28",
+       "frame": "CY2010Q3I"
+      },
+      {
+       "end": "2011-02-11",
+       "val": 87777008,
+       "accn": "0001206774-11-000263",
+       "fy": 2010,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2011-02-17",
+       "frame": "CY2010Q4I"
+      },
+      {
+       "end": "2011-04-13",
+       "val": 88739294,
+       "accn": "0001206774-11-001105",
+       "fy": 2011,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2011-05-03",
+       "frame": "CY2011Q1I"
+      },
+      {
+       "end": "2011-07-15",
+       "val": 89499900,
+       "accn": "0001206774-11-001639",
+       "fy": 2011,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2011-07-28",
+       "frame": "CY2011Q2I"
+      },
+      {
+       "end": "2011-10-19",
+       "val": 90466178,
+       "accn": "0001206774-11-002300",
+       "fy": 2011,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2011-10-27",
+       "frame": "CY2011Q3I"
+      },
+      {
+       "end": "2012-02-10",
+       "val": 91779465,
+       "accn": "0001206774-12-000709",
+       "fy": 2011,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2012-02-21",
+       "frame": "CY2011Q4I"
+      },
+      {
+       "end": "2012-04-11",
+       "val": 93032889,
+       "accn": "0001206774-12-001689",
+       "fy": 2012,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2012-04-26",
+       "frame": "CY2012Q1I"
+      },
+      {
+       "end": "2012-07-13",
+       "val": 93955110,
+       "accn": "0001206774-12-003062",
+       "fy": 2012,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2012-07-25",
+       "frame": "CY2012Q2I"
+      }
+     ]
+    }
+   },
+   "EntityPublicFloat": {
+    "label": "Entity Public Float",
+    "description": "The aggregate market value of the voting and non-voting common equity held by non-affiliates computed by reference to the price at which the common equity was last sold, or the average bid and asked price of such common equity, as of the last business day of the registrant's most recently completed second fiscal quarter.",
+    "units": {
+     "USD": [
+      {
+       "end": "2009-06-30",
+       "val": 1355426000,
+       "accn": "0001206774-10-001689",
+       "fy": 2010,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2010-07-28"
+      },
+      {
+       "end": "2009-06-30",
+       "val": 1355426000,
+       "accn": "0001206774-10-002228",
+       "fy": 2010,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2010-10-28",
+       "frame": "CY2009Q2I"
+      },
+      {
+       "end": "2010-12-31",
+       "val": 1726149000,
+       "accn": "0001206774-11-000263",
+       "fy": 2010,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2011-02-17",
+       "frame": "CY2010Q4I"
+      },
+      {
+       "end": "2011-03-31",
+       "val": 1726149000,
+       "accn": "0001206774-11-001105",
+       "fy": 2011,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2011-05-03",
+       "frame": "CY2011Q1I"
+      },
+      {
+       "end": "2011-06-30",
+       "val": 1726149000,
+       "accn": "0001206774-11-001639",
+       "fy": 2011,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2011-07-28"
+      },
+      {
+       "end": "2011-06-30",
+       "val": 4913223000,
+       "accn": "0001206774-12-000709",
+       "fy": 2011,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2012-02-21"
+      },
+      {
+       "end": "2011-06-30",
+       "val": 4913223000,
+       "accn": "0001206774-12-001689",
+       "fy": 2012,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2012-04-26"
+      },
+      {
+       "end": "2011-06-30",
+       "val": 4913223000,
+       "accn": "0001206774-12-003062",
+       "fy": 2012,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2012-07-25"
+      },
+      {
+       "end": "2011-06-30",
+       "val": 4913223000,
+       "accn": "0001532176-12-000004",
+       "fy": 2012,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2012-10-24",
+       "frame": "CY2011Q2I"
+      },
+      {
+       "end": "2011-09-30",
+       "val": 1726149000,
+       "accn": "0001206774-11-002300",
+       "fy": 2011,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2011-10-27",
+       "frame": "CY2011Q3I"
+      },
+      {
+       "end": "2012-06-30",
+       "val": 10364000000,
+       "accn": "0001532176-13-000004",
+       "fy": 2012,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2013-02-15",
+       "frame": "CY2012Q2I"
+      },
+      {
+       "end": "2013-06-28",
+       "val": 21192000000,
+       "accn": "0001532176-14-000008",
+       "fy": 2013,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2014-02-13",
+       "frame": "CY2013Q2I"
+      },
+      {
+       "end": "2014-06-30",
+       "val": 27323000000,
+       "accn": "0001532176-15-000008",
+       "fy": 2014,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2015-02-12",
+       "frame": "CY2014Q2I"
+      },
+      {
+       "end": "2015-06-30",
+       "val": 50626000000,
+       "accn": "0001532176-16-000045",
+       "fy": 2015,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2016-02-11",
+       "frame": "CY2015Q2I"
+      },
+      {
+       "end": "2016-06-30",
+       "val": 35224000000,
+       "accn": "0001532176-17-000008",
+       "fy": 2016,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2017-02-09",
+       "frame": "CY2016Q2I"
+      },
+      {
+       "end": "2017-06-30",
+       "val": 50337000000,
+       "accn": "0001532176-18-000013",
+       "fy": 2017,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2018-02-08",
+       "frame": "CY2017Q2I"
+      },
+      {
+       "end": "2018-06-29",
+       "val": 35741000000,
+       "accn": "0001532176-19-000009",
+       "fy": 2018,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2019-02-07",
+       "frame": "CY2018Q2I"
+      },
+      {
+       "end": "2019-06-28",
+       "val": 32929000000,
+       "accn": "0001532176-20-000008",
+       "fy": 2019,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2020-02-07",
+       "frame": "CY2019Q2I"
+      },
+      {
+       "end": "2020-06-30",
+       "val": 63344000000,
+       "accn": "0001804220-21-000008",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2021-02-08",
+       "frame": "CY2020Q2I"
+      },
+      {
+       "end": "2021-06-30",
+       "val": 57065000000,
+       "accn": "0001804220-22-000007",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-02-07",
+       "frame": "CY2021Q2I"
+      },
+      {
+       "end": "2022-06-30",
+       "val": 62000000000,
+       "accn": "0001804220-23-000008",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-02-06",
+       "frame": "CY2022Q2I"
+      },
+      {
+       "end": "2023-06-30",
+       "val": 76700000000,
+       "accn": "0001804220-24-000009",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2024-02-05",
+       "frame": "CY2023Q2I"
+      },
+      {
+       "end": "2024-06-28",
+       "val": 113800000000,
+       "accn": "0001804220-25-000011",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-05",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2025-06-30",
+       "val": 54800000000,
+       "accn": "0000872589-26-000008",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-04",
+       "frame": "CY2025Q2I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

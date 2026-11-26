@@ -25,7 +25,7 @@ own window agrees with — the WIDE forms (``WIDE_KEEP_TYPES``: a 10-Q / 10-K / 
 
 - ``N-for-M`` / ``N for M`` in digits or words, with an optional parenthesized digit restatement —
   "1-for-16", "one-for-sixteen (1-for-16)", "one (1) for nine (9)", "twenty five (25) -for- one (1)",
-  "15 for 1 Share Consolidation", "1-for-6.25";
+  "15 for 1 Share Consolidation", "1-for-6.25" — and ``N-to-M`` right before "basis" ("on a 9-to-1 basis", DFSC);
 - ``N:M`` when it sits next to the word "ratio" or a split word — "fixed the split ratio at 8:1", "a 1:300
   reverse stock split" (a clock time such as "5:00 p.m." never qualifies);
 - ``N share(s) for every M`` — "one (1) share for every sixteen (16)", "1 post-split ordinary share for every
@@ -35,16 +35,20 @@ own window agrees with — the WIDE forms (``WIDE_KEEP_TYPES``: a 10-Q / 10-K / 
   received two additional shares for every one" reads "two … for every one", ZCSH);
 - ``A additional share(s) … for every B`` — a split paid as extra shares, B old shares becoming A + B: "one
   additional share of common stock for every two shares owned" (SNEX's three-for-two, 2 -> 3), "two additional
-  shares for every one pre-split share" (ZCSH's 3-for-1), "nine (9) additional shares … for every" one (KLA);
+  shares for every one pre-split share" (ZCSH's 3-for-1), "nine (9) additional shares … for every" one (KLA) —
+  and with no number after "for each / every", one old share: "four additional shares for each share" (NOW's
+  5-for-1), "three additional ADSs for every ADS held" (EMBJ; read even with no split word in the sentence);
 - ``every/each M … combined/consolidated/converted … into N`` — "every fifteen (15) … consolidated into one
   (1)", "each nine (9) pre-split shares … combine into one (1) new share", "every twenty-eight and one half …
   combined into one" (SMX; a word number may end "and one half").
 
 The last two state the direction themselves. The ``N-for-M`` and ``N:M`` forms do not —
 filings write a 1-for-16 reverse split as "1-for-16" and a 25-for-1 consolidation as "25-for-1" — so they (and a
-"for every" with no pre/post words) are oriented by the filing's own words: "reverse … split" / "consolidation"
-/ "combined" make it a reverse split (old = the larger number), "forward … split" / "stock dividend" /
-"subdivision" a forward one. A ratio is only ever read inside a sentence that talks about a split (a "business
+"for every" with no pre/post words) are oriented by the filing's own words: "reverse … split" / a consolidation
+OF SHARES / "combined" make it a reverse split (old = the larger number), "forward … split" / "stock dividend" /
+"subdivision" a forward one — and, in the ratio's own sentence when it names neither, "with a proportionate
+increase in … authorized" shares or "additional shares" (NOW). An accounting "consolidated financial statements"
+is no consolidation of shares. A ratio is only ever read inside a sentence that talks about a split (a "business
 combination" is a merger, not shares combined), and "1-for-1" (a share exchange) is not a split. An ADS RATIO
 CHANGE counts as a split of the ADS — "the same effect
 as a one-for-thirty reverse ADS split" (NIPG) — because it moves the ADS price exactly like one, and Massive.com
@@ -65,14 +69,28 @@ the real filings forced (named so the rule stays checkable):
   2026-10-05 restates "the 1-for-20 reverse stock split effected on February 6, 2026", and NAKA's and CURLD's
   restate theirs (MEASURED 2026-10-23: four such 8.01 / 7.01 readings on the basket, 123 to 266 days back).
 
+Both hold whether or not the filing says which way the ratio points (since 2026-11-25: a 10-Q's covenant "no more
+than 4.0:1.0" is a ceiling, NEE's 10-Q restating its 2020 "four-for-one stock split" a past split, with no
+direction word left once "consolidated financial statements" stopped reading as a reverse split).
+
 - a SUPERSEDED ratio (2026-10-24): when a filing states EXACTLY ONE ratio in a sentence that revises one
   ("has determined to increase the amount of the reverse stock split … at a ratio of 1-for-125") and every
   other ratio only in sentences citing an earlier disclosure ("… at a ratio of 1-for-50 as disclosed on the
   Current Report on Form 8-K filed … on July 13, 2026") — DFNS's 8-K of 2026-07-16 — the revised one stands.
+- a KNOWN split (2026-11-25): the caller passes the security's splits already CONFIRMED on the list and in
+  effect by the filing's date (``known``, ``KnownSplit``). A ratio equal to one of them, in a sentence that
+  states it as DONE ("implemented", "effected", "completed", "restated to reflect", "as previously disclosed";
+  never "to be effected"), is that past split's WHATEVER ITS AGE: GCTK's 8-K of 2026-10-22 restates "On August
+  28, 2026, the Company implemented a 1-for-15 reverse stock split" (55 days back) beside its new 1-for-2. Not
+  when that sentence dates it away from the known split (another split of the same ratio), nor when the filing's
+  own date is the known split's (the filing is that split's evidence).
 
 After those, **exactly one** distinct ratio must remain, or the extractor ABSTAINS and says why: none found,
 only a range, only a past split, two different ratios, a word and its digit restatement disagreeing, or no
-direction stated. It never picks between two values.
+direction stated. It never picks between two values. A filing that ENDS its ADR program (``ADS_TERMINATION``)
+always abstains: the ADS's price moves by the exchange's factor, not the ordinary shares' ratio it states (POM:
+"every ten (10) ordinary shares … consolidated into one (1)", while "each holder of ten (10) ADSs will receive
+three (3)" shares).
 
 **The date** is the first session at the new price. A TRADING sentence (one about trading, carrying a cue
 such as "split-adjusted basis", "post-consolidation basis", "market open", "opening of trading",
@@ -89,6 +107,16 @@ CATCH-ALL filing a date more than ``HISTORICAL_GAP_DAYS`` before its filing date
 from 27 July 2026" is a legal cue (ZNB's 6-K of 2026-08-25), and a date a MEETING was held on ("extraordinary
 general meeting of shareholders … held on 10 September 2026", ZNB's charter exhibit) never dates a split — read
 anywhere, as a trading, legal or past date.
+
+The date sentences the split list misread until 2026-11-25 (W2-5), each MEASURED on its real filing: a SESSION
+cue names the first session without the word "trade" in a sentence about the split ("effective on the OTC
+Markets at the open of business on December 15, 2025", COPR); "the first day of trading … is expected to be
+October 29, 2025" is a trading cue (NVA); a sentence naming the LAST session at the old price ("the last trading
+day of the prior ISIN", QGEN) states no first session. A date that NAMES SOMETHING ELSE never dates a split: a
+period end ("the year ended December 31, 2025", IMCC), an accounting standard "not yet effective" (PBM), the
+release's own date (its dateline "Nanjing, China, October 22, 2026 /PRNewswire/", SCAG; "On <date>, the Company
+issued a press release"), a deadline ("the June 10, 2026 compliance deadline", EZRA). A date may carry a space
+before its comma or suffix ("August 31 , 2026", VEEA; "December 15 th , 2025", COPR).
 
 **The restatement screen** (``extract_split_screened`` — 6-Ks, charter 8-Ks, the wide forms) only ever
 REMOVES: a reading whose date is current stands exactly as read; a date more than ``HISTORICAL_GAP_DAYS``
@@ -108,6 +136,7 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -124,14 +153,7 @@ _SPLIT_CUE = re.compile(
     r"revers|split|consolidat|subdivi|(?<!business\s)combin|reclassif|ratio\s+change|ADS\s+ratio",
     re.I,
 )
-_REVERSE_CUE = re.compile(
-    r"reverse\s+(?:[\w-]+\s+)?split|reverse-split|share\s+consolidation|consolidat|combined\s+into|"
-    r"combine\s+into|reclassified\s+into",
-    re.I,
-)
-_FORWARD_CUE = re.compile(
-    r"forward\s+(?:[\w-]+\s+)?split|stock\s+dividend|share\s+subdivision|subdivi", re.I
-)
+# the DIRECTION cues (``_REVERSE_CUE``, ``_FORWARD_CUE``, ``_FORWARD_SENTENCE_CUE``) follow the number words
 
 # a ratio this close after one of these words is an authorized RANGE / ceiling ("shall not effect … splits
 # that, in the aggregate, exceeds 1-for-12", ASNS) — or a HYPOTHETICAL ("assuming an Approved Consolidation
@@ -202,6 +224,54 @@ def _num(name: str) -> str:
     )
 
 
+_REVERSE_CUE_CORE = (
+    r"reverse\s+(?:[\w-]+\s+)?split|reverse-split|(?:share|stock)\s+consolidat|"
+    r"combined\s+into|combine\s+into"
+)
+# "consolidat…" is a reverse split only in its SHARE sense — "a consolidation of its common shares", "consolidated
+# into one (1)", "the shares will be consolidated", "post-consolidation", "the Consolidation" — never in the
+# accounting one: "consolidated financial statements", "eliminated upon consolidation" run all through a 10-Q /
+# 10-K, and so does "reclassified into earnings" (a reverse cue only before a number: "reclassified into one (1)
+# share"). They made NOW's 5-for-1 read 5 -> 1 in its 10-Q and its 10-K until 2026-11-25.
+_SHARE_WORD = r"(?:shares?|stock|ADSs?|ADRs?)\b"
+# the words between "consolidat…" and the shares it consolidates: "a consolidation of its common shares", "the
+# Corporation consolidated all of its issued and outstanding Class A Multiple Voting Shares" (QNTM's 20-F)
+_SHARE_QUALIFIER = (
+    r"(?:the|its|our|their|all|every|each|of|issued|and|outstanding|existing|common|ordinary|class\s+\w|\w+['’]s|"
+    rf"(?-i:[A-Z][\w-]*)|[\d,.]+|\(\s*[\d,.]+\s*\)|{_WORD})"
+)
+_ACCOUNTING_NOUN = (
+    r"(?:condensed\s+)?(?:financial|statements?|balance|results|interim|net|income|subsidiar\w*)\b"
+)
+_CONSOLIDATION_OF_SHARES = (
+    rf"\bconsolidat\w*\s+(?:into\b|at\s+(?:a|the)\s+ratio\b|on\s+an?\s+(?:{_WORD}|\d)|"
+    rf"(?!{_ACCOUNTING_NOUN})(?:{_SHARE_QUALIFIER}\s+){{0,8}}?{_SHARE_WORD})|"
+    rf"\b{_SHARE_WORD}\s+"
+    r"(?:(?:will|would|shall|to|be|been|being|is|are|was|were|has|have|had|then|automatically)\s+){0,4}"
+    r"consolidat|\b(?:pre|post)[\s-]*consolidat|\bconsolidation\s+ratio\b|"
+    # a ratio right before it: "completed a 201:1 consolidation", "a 1-for-10 consolidation" (QNTM)
+    rf"(?:\d\s*:\s*\d+|\bfor[\s-]+(?:[\d.]+|{_WORD}))\s*\)?\s*(?:-\s*)?consolidat|"
+    # the defined term: (the "Consolidation"), "the 2024 Consolidation" (QNTM)
+    r"(?-i:\b[Tt]he\s+[“\"]?\s*(?:\d{4}\s+)?Consolidation\b)"
+)
+_REVERSE_CUE = re.compile(
+    rf"{_REVERSE_CUE_CORE}|{_CONSOLIDATION_OF_SHARES}|reclassified\s+into\s+(?:{_WORD}|\d|a\s+single)\b",
+    re.I,
+)
+_FORWARD_CUE = re.compile(
+    r"forward\s+(?:[\w-]+\s+)?split|stock\s+dividend|share\s+subdivision|subdivi", re.I
+)
+# In the ratio's OWN sentence only (never the document's direction), and only when that sentence names no
+# direction itself: a split "with a proportionate increase in the number of shares of authorized common stock"
+# (NOW's 8-K, 10-Q and 10-K; "a proportional increase" too), or one paid as "additional shares", is a forward
+# split — but not "without a proportionate increase"
+_FORWARD_SENTENCE_CUE = re.compile(
+    r"\bproportion(?:ate|al)(?:ly)?\s+increase[sd]?\b[^.;]{0,60}?\bauthori[sz]ed\b|"
+    r"\badditional\s+(?:shares|ADSs)\b",
+    re.I,
+)
+_NEGATED_BEFORE = re.compile(r"\b(?:without|no|not|never)\s+(?:an?\s+|any\s+)?$", re.I)
+
 # "1-for-16", "one-for-sixteen", "one (1) for nine (9)", "twenty five (25) -for- one (1)", "15 for 1"
 _FOR = re.compile(
     rf"(?<![\w$.,]){_num('a')}\s*(?P<sep>-\s*for\s*-|-\s*for\s+|\s+for\s*-|\s+for\s+)\s*{_num('b')}"
@@ -230,6 +300,24 @@ _FOR_EVERY = re.compile(
 # dividend), "two additional shares for every one pre-split share" (ZCSH's 3-for-1): the shares a holder
 # RECEIVES on top of the ones held — B old shares become A + B
 _ADDITIONAL = re.compile(r"\badditional\b", re.I)
+# … and with NO number after "for each / every": "will receive four additional shares for each share of Common
+# Stock held" (NOW's 5-for-1), "three additional ADSs for every ADS held on the record date" (EMBJ's ADS ratio
+# change) — one old share becomes 1 + A. The words themselves state a split (a holder receives more of what it
+# holds), so the sentence is read with no split word in it (EMBJ's has none).
+_ADS_WORD = r"(?:ADSs?|ADRs?|American\s+Depositary\s+(?:Shares?|Receipts?))"
+_HELD_UNIT = rf"(?:shares?|{_ADS_WORD})\b"
+_ADDITIONAL_EACH = re.compile(
+    rf"(?<![\w$.,]){_num('a')}\s+additional\s+(?:(?!for\b)[A-Za-z][\w'-]*\s+){{0,3}}?{_HELD_UNIT}"
+    rf"(?:\s+(?!for\b)(?!{_WORD}\b)[A-Za-z][\w'-]*){{0,6}}?\s+for\s+(?:each|every)\s+"
+    rf"(?:(?!{_WORD}\b)[A-Za-z][\w'-]*\s+){{0,2}}?{_HELD_UNIT}",
+    re.I,
+)
+# "a consolidation of its common shares on a 9-to-1 basis" (DFSC's two 6-Ks of 2026-11): "N-to-M" is read only
+# right before "basis" (elsewhere "1-to-5 to 1-to-50" is a range); oriented like "N-for-M"
+_TO_BASIS = re.compile(
+    rf"(?<![\w$.,]){_num('a')}(?P<sep>\s*-\s*to\s*-\s*|\s+to\s+){_num('b')}(?=\s+basis\b)",
+    re.I,
+)
 # "every fifteen (15) ... consolidated into one (1)" — OLD shares first, then NEW
 _EVERY_INTO = re.compile(
     rf"\b(?:each|every)\s+{_num('a')}(?![\w]|[.,]\d)(?P<fill>[^;]{{0,250}}?)\b(?:into|become|becomes)\s+"
@@ -258,19 +346,47 @@ _MONTH = (
     r"(?:January|February|March|April|May|June|July|August|September|October|November|December|"
     r"Jan\.?|Feb\.?|Mar\.?|Apr\.?|Jun\.?|Jul\.?|Aug\.?|Sept?\.?|Oct\.?|Nov\.?|Dec\.?)"
 )
+# "August 31 , 2026" (VEEA's press release) and "December 15 th , 2025" (COPR's) are dates too: a space may
+# sit before the comma or the ordinal suffix
 _DATE = re.compile(
-    rf"\b(?P<m1>{_MONTH})\s+(?P<d1>\d{{1,2}})(?:st|nd|rd|th)?,?\s+(?P<y1>(?:19|20)\d\d)\b|"
+    rf"\b(?P<m1>{_MONTH})\s+(?P<d1>\d{{1,2}})(?:\s?(?:st|nd|rd|th))?\s?,?\s+(?P<y1>(?:19|20)\d\d)\b|"
     rf"\b(?P<d2>\d{{1,2}})(?:st|nd|rd|th)?\s+(?P<m2>{_MONTH}),?\s+(?P<y2>(?:19|20)\d\d)\b|"
     r"\b(?P<y3>(?:19|20)\d\d)-(?P<m3>\d\d)-(?P<d3>\d\d)\b",
     re.I,
 )
 
 _TRADING_WORD = re.compile(r"\btrad(?:e|es|ed|ing)\b", re.I)
+# A SESSION cue names the first session's own moment, so in a sentence about the split it is a trading date
+# without the word "trade": "the Reverse Stock Split, which was effective on the OTC Markets at the open of
+# business on December 15, 2025" (COPR's 8.01 8-K of 2025-12-18, read as a LEGAL date until 2026-11-25)
+_SESSION = (
+    r"market\s+opens?\b|markets\s+open|market\s+opening|opening\s+of\s+(?:the\s+)?(?:market|trading|business)|"
+    r"open\s+of\s+(?:the\s+)?(?:market|business|trading)|commencement\s+of\s+trading"
+)
+_SESSION_CUE = re.compile(_SESSION, re.I)
+# … but never a plan the sentence says was changed: "… a reverse stock split at a ratio of 1-for-6.25, which was
+# intended to become effective at the opening of the market on January 20, 2026, however, … the Company … elected
+# to delay the effectiveness …" (PBM's 6-K of 2026-01-29; its first session is the 02-02 its next sentence states)
+_PLAN_CHANGED = re.compile(
+    r"\b(?:delay(?:s|ed|ing)?|postpon\w*|intended\s+to|originally\s+(?:scheduled|expected|planned|intended))\b",
+    re.I,
+)
+# "The first day of trading under the new ratio is expected to be October 29, 2025" (NVA's 6-K of 2025-10-15)
+_FIRST_SESSION = (
+    r"\bfirst\s+(?:trading\s+)?(?:day|date|session)\s+of\s+trading\b(?=[^.;]{0,160}?\b(?:(?:is|are)\s+"
+    r"(?:expected|anticipated|scheduled|planned)\s+to\s+be|will\s+be)\b)"
+)
 _TRADING_CUE = re.compile(
     r"split[\s-]*adjusted|adjusted\s+basis|post[\s-]+(?:reverse[\s-]+)?(?:stock[\s-]+)?split|"
-    r"post[\s-]+consolidat\w*|consolidated\s+basis|split\s+basis|market\s+opens?\b|markets\s+open|"
-    r"market\s+opening|opening\s+of\s+(?:the\s+)?(?:market|trading|business)|"
-    r"open\s+of\s+(?:the\s+)?(?:market|business|trading)|commencement\s+of\s+trading",
+    rf"post[\s-]+consolidat\w*|consolidated\s+basis|split\s+basis|{_SESSION}|{_FIRST_SESSION}",
+    re.I,
+)
+# The LAST session at the old price is never the first at the new one: "The last day of trading of the pre-split
+# shares … is planned to be Tuesday, January 28, 2025", "… January 28, 2025 (the “Effective Date” and the last
+# trading day of the prior ISIN / CUSIP / WKN)" (QGEN's 6-K of 2025-01-16) — a sentence naming it gives no trading
+# date
+_LAST_SESSION = re.compile(
+    r"\b(?:last|final)\s+(?:trading\s+(?:day|date|session)|(?:day|date|session)\s+(?:of|for)\s+trading)\b",
     re.I,
 )
 # "the first date when the Company's ordinary shares will begin trading … after implementation of the reverse
@@ -298,6 +414,50 @@ _MEETING_BEFORE = re.compile(
 )
 _MEETING_LOOKBACK = 120
 
+# A date that NAMES SOMETHING ELSE never dates a split (``_dates(dating=True)``) — each was read as one until
+# 2026-11-25:
+# - a period end: "… annual report for the year ended December 31, 2025" (IMCC's risk factors, beside its first
+#   session), "not yet effective for the period ended September 30, 2026" (PBM's interim notes), each date of
+#   "the three months ended September 30, 2026 and September 30, 2025";
+_DATE_WORDS = (
+    rf"(?:{_MONTH}\s+\d{{1,2}}(?:\s?(?:st|nd|rd|th))?\s?,?\s+(?:19|20)\d\d|"
+    rf"\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH},?\s+(?:19|20)\d\d)"
+)
+_PERIOD_END_BEFORE = re.compile(
+    r"\b(?:years?|quarters?|periods?|months|weeks|half[\s-]years?)\s+(?:then\s+)?(?:ended|ending)\s+(?:on\s+)?"
+    rf"(?:{_DATE_WORDS}\s*,?\s*(?:and\s+)?)*$",
+    re.I,
+)
+# - the release's own date: its dateline — a place, the date, then a wire service and/or a dash before the
+#   issuer's name: "Nanjing, China, October 22, 2026 /PRNewswire/ -- Scage Future" (SCAG's 6-K, in a headline
+#   naming the "Effective Date"), "Boise, Idaho, December 16, 2025 (GLOBE NEWSWIRE) — Idaho Copper" (COPR),
+#   "LAKEWOOD, N.J., May 14, 2026 — Reliance" — and "On August 26, 2026, the Company issued a press release",
+#   "Press Release dated December 16, 2025";
+_DATELINE_BEFORE = re.compile(r"(?:,|\s[-–—]{1,2})\s*$")
+_WEEKDAY_BEFORE = re.compile(r"\b(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day,?\s*$", re.I)
+_WIRE = r"[(/]\s*(?:[A-Z][A-Za-z]*\s+)*?(?:[A-Za-z]*(?:WIRE|[Ww]ire)|Newsfile|CNW|EQS[\w-]*)(?:[-\s][A-Za-z]+)?\s*[)/]"
+_DATELINE_AFTER = re.compile(
+    rf"\s*(?:{_WIRE}|[-–—]{{1,2}}\s*(?:{_WIRE}\s*[-–—]{{0,2}}\s*)?(?=[A-Z]))"
+)
+_PRESS_RELEASE_DATED = re.compile(r"\bpress\s+release\b[^;]{0,80}?\bdated\s+(?:as\s+of\s+)?$", re.I)
+_ON_BEFORE = re.compile(r"\b[Oo]n\s+$")
+_ISSUED_A_RELEASE = re.compile(
+    r",?\s+[^;]{0,120}?\b(?:issued|released|published|disseminated|distributed)\s+(?:a|its|the)\s+press\s+release\b",
+    re.I,
+)
+# - a deadline: "… the ability to regain compliance … prior to the June 10, 2026 compliance deadline" (EZRA's press
+#   release, in a forward-looking statement beside "post-split trading price");
+_DEADLINE_AFTER = re.compile(r"\s*(?:[\w-]+\s+){0,2}?deadline\b", re.I)
+_DEADLINE_BEFORE = re.compile(r"\bdeadline\s+(?:of|on|is|was|date\s+(?:of|is))\s+$", re.I)
+# - an accounting standard NOT YET EFFECTIVE — the whole sentence dates nothing: "Accounting Standards Issued But
+#   Not Yet Effective A number of new standards … are not yet effective for the period ended September 30, 2026"
+#   (PBM's 6-K of 2026-11-19: read as its split's legal date).
+_NOT_YET_EFFECTIVE = re.compile(r"\bnot\s+yet\s+effective\b", re.I)
+_STANDARD = re.compile(
+    r"\b(?:accounting|standards?|pronouncements?|ASUs?|IFRSs?|IAS|GAAP|ASC|interpretations?)\b",
+    re.I,
+)
+
 # The SUPERSEDED ratio (DFNS's 8-K of 2026-07-16): a filing that REVISES a ratio it disclosed before restates
 # the old one beside the new — "approved a reverse stock split … at a ratio of 1-for-50 as disclosed on the
 # Current Report on Form 8-K filed … on July 13, 2026" then "has determined to increase the amount of the reverse
@@ -321,6 +481,63 @@ _PRIOR_DISCLOSURE = re.compile(
 _FUTURE = re.compile(
     r"\b(?:will|shall)\b|\bexpect(?:s|ed)?\s+to\b|\banticipat\w*\s+to\b|\bintends?\s+to\b", re.I
 )
+
+# A KNOWN split (2026-11-25) — one the caller holds as CONFIRMED on the split list for this security, in effect by
+# the filing's date (``KnownSplit``). A filing restating it is no news, however recent: GCTK's 8-K of 2026-10-22
+# says "On August 28, 2026, the Company implemented a 1-for-15 reverse stock split" (55 days back, inside
+# ``HISTORICAL_GAP_DAYS``) beside its new 1-for-2 and abstained on the two; GPUS's 8-K of 2024-11-26 restates
+# "… the one-for-thirty-five reserve stock split that was effectuated on November 25, 2024" (the day before), and
+# its abstain kept a distribution from being set aside; PBM's interim 6-K of 2026-11-19 ("Comparative loss per
+# share has been restated to reflect the 6.25:1 share consolidation completed on February 2, 2026", a run-on
+# table sentence whose other dates are current) and Trio-Tech's 10-Q ("On January 5, 2026, the Company effected a
+# two-for-one forward stock split", in its tables) read as splits with no date. So a mention of a known ratio
+# (exactly, either way round), in a sentence — a run-on one: the window around the ratio — that states it as DONE,
+# is that past split's. Never when the sentence dates it more than ``KNOWN_DATE_TOLERANCE_DAYS`` from the known
+# split's first session (another split of the same ratio), nor when the filing's own date is within that of it
+# (the filing IS that split's evidence: re-reading it changes nothing). GCTK's "August 28" is its legal date; the
+# first session was August 31.
+KNOWN_DATE_TOLERANCE_DAYS = 10
+_DONE = re.compile(
+    r"\b(?:implemented|effected|effectuated|completed|consummated|became\s+effective|took\s+effect|"
+    r"restated\s+to\s+reflect|(?:retroactively|retrospectively)\s+(?:adjusted|restated|applied)|"
+    r"adjusted\s+to\s+reflect|as\s+adjusted\s+for|"
+    r"giving\s+(?:retroactive\s+|retrospective\s+)?effect\s+to|"
+    r"giv(?:e|es|en)\s+(?:retroactive|retrospective)\s+effect\s+to|"
+    r"(?:as\s+)?(?:previously|earlier)\s+(?:disclosed|reported|announced))\b",
+    re.I,
+)
+# … never what is still to come: "to be effected through the filing of an amendment" (Trio-Tech's 8-K of
+# 2025-12-19, announcing the split), "will be implemented", "being effected", "will be proportionately adjusted" —
+# nor any clause that says what WILL happen (``_FUTURE``: "after giving effect to the reverse split, the Company
+# will have …" announces one)
+_NOT_YET_BEFORE = re.compile(
+    r"\b(?:(?:to|will|shall|would|may|might|can|could|must)\s+(?:not\s+)?be|being)\s+(?:\w+ly\s+)?$",
+    re.I,
+)
+
+# An ADS TERMINATION (2026-11-25): the depositary cancels the ADSs and hands each holder ordinary shares — "each
+# holder of ten (10) ADSs will receive three (3) post-Share Consolidation Class A ordinary shares" (POM's 6-K of
+# 2026-10-19, beside its ordinary shares' own 10-for-1 consolidation). The listed price then moves by the
+# EXCHANGE's factor (10/3), never the ordinary shares' ratio, so a filing that terminates its ADR program
+# abstains: the operator confirms the ADS factor from cited values. A termination stated only as a possibility
+# ("if we terminate our ADR program") is not one.
+ADS_TERMINATION = (
+    "ADS termination: the exchange sets the ADS price factor — confirm it with cited values"
+)
+_ADS_PROGRAM_ENDS = re.compile(
+    r"\bterminat(?:e|es|ed|ing|ion)\s+(?:of\s+)?(?:the\s+|its\s+|our\s+|their\s+)?"
+    rf"(?:(?:sponsored|related)\s+)?{_ADS_WORD}\s+(?:program|programme|facility)\b",
+    re.I,
+)
+_ADS_EXCHANGE = re.compile(
+    rf"\beach\s+holder\s+of\s+{_num('a')}\s+{_ADS_WORD}\s+(?:will|shall|would)\s+receive\s+"
+    rf"{_num('b')}(?![\w]|[.,]\d)",
+    re.I,
+)
+# the defined term, in a sentence about ADSs
+_MANDATORY_EXCHANGE = re.compile(r"\bMandatory\s+Exchange\b")
+_ADS_MENTION = re.compile(r"\bADSs?\b|\bADRs?\b|\bAmerican\s+Depositary\b", re.I)
+_CONDITIONAL = re.compile(r"\b(?:if|may|might|could|whether|in\s+the\s+event)\b", re.I)
 
 # sentence ends that are NOT sentence ends: clock times, corporate suffixes, initials, the usual abbreviations
 _ABBREV = re.compile(
@@ -407,6 +624,17 @@ class SplitExtraction:
     def about_a_split(self) -> bool:
         """Did the filing talk about a split at all (any ratio mention, operative or not)?"""
         return bool(self.mentions) or self.has_ratio
+
+
+@dataclass(frozen=True)
+class KnownSplit:
+    """A split the caller holds as CONFIRMED on the split list for the filing's security, its first session on or
+    before the filing's date (``extract_split(known=...)``; the module docstring's KNOWN split). ``ratio_from`` ->
+    ``ratio_to`` is old -> new shares, as the list stores it."""
+
+    ratio_from: Decimal
+    ratio_to: Decimal
+    first_session: date
 
 
 # --- documents ----------------------------------------------------------------------------------------------
@@ -523,18 +751,38 @@ def _parse_date(m: re.Match) -> date | None:
         return None
 
 
-def _dates(text: str) -> list[tuple[int, date]]:
+def _dates(text: str, *, dating: bool = False) -> list[tuple[int, date]]:
     """``(where, date)`` for every date in ``text`` — except a date a MEETING was held on (``_MEETING_BEFORE``),
-    which never dates a split."""
+    which never dates a split. ``dating`` (the dates a cued sentence may give the split) also drops a date that
+    names something else (``_names_something_else``)."""
     out = []
     for m in _DATE.finditer(text):
         d = _parse_date(m)
         if d is None:
             continue
-        if _MEETING_BEFORE.search(text[max(0, m.start() - _MEETING_LOOKBACK) : m.start()]):
+        before = text[max(0, m.start() - _MEETING_LOOKBACK) : m.start()]
+        if _MEETING_BEFORE.search(before):
+            continue
+        if dating and _names_something_else(before, text[m.end() : m.end() + 160]):
             continue
         out.append((m.start(), d))
     return out
+
+
+def _names_something_else(before: str, after: str) -> bool:
+    """Is the date between ``before`` and ``after`` a period end, the release's own date or a deadline — never
+    a split's date?"""
+    if _PERIOD_END_BEFORE.search(before) or _PRESS_RELEASE_DATED.search(before):
+        return True
+    if _DEADLINE_BEFORE.search(before) or _DEADLINE_AFTER.match(after):
+        return True
+    if _ON_BEFORE.search(before) and _ISSUED_A_RELEASE.match(after):
+        return True
+    return bool(
+        _DATELINE_BEFORE.search(before)
+        and not _WEEKDAY_BEFORE.search(before)
+        and _DATELINE_AFTER.match(after)
+    )
 
 
 # --- sentences ----------------------------------------------------------------------------------------------
@@ -593,7 +841,18 @@ def _direction(sentence: str, doc_direction: str | None) -> str | None:
         return "reverse"
     if fwd and not rev:
         return "forward"
+    if not rev and _forward_in_sentence(sentence):
+        return "forward"  # "… with a proportionate increase in … authorized" (NOW)
     return doc_direction
+
+
+def _forward_in_sentence(sentence: str) -> bool:
+    """Does the sentence say its split is a forward one without the words "forward split"
+    (``_FORWARD_SENTENCE_CUE``, never negated: "without a proportionate increase")?"""
+    return any(
+        not _NEGATED_BEFORE.search(sentence[max(0, m.start() - 30) : m.start()])
+        for m in _FORWARD_SENTENCE_CUE.finditer(sentence)
+    )
 
 
 def _doc_direction(texts: list[str]) -> str | None:
@@ -651,11 +910,20 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
     for di, d in enumerate(docs):
         for s, e in d.spans:
             sent = d.match[s:e]
-            if not _SPLIT_CUE.search(sent):
+            about = _SPLIT_CUE.search(sent) is not None
+            if not about and not _ADDITIONAL_EACH.search(sent):
                 continue
             direction = _direction(sent, doc_direction)
             found: list[tuple[int, int, Decimal | None, Decimal | None, str, str]] = []
-            for m in _EVERY_INTO.finditer(sent):
+            for m in _ADDITIONAL_EACH.finditer(sent):
+                # "A additional shares for each share": one old share -> 1 + A new (a forward split)
+                a, ca = _side(m, "a")
+                if not _plausible(a, plain_for=False):
+                    continue
+                kind = "conflict" if ca else "explicit"
+                found.append((m.start(), m.end(), Decimal(1), a + 1, kind, m.group(0)))  # type: ignore[operator]
+            scan = sent if about else ""  # a sentence with no split word states only that form
+            for m in _EVERY_INTO.finditer(scan):
                 if not _COMBINE_VERB.search(m.group("fill")):
                     continue
                 (a, ca), (b, cb) = _side(m, "a"), _side(m, "b")
@@ -667,7 +935,7 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                     # one (1)" (MTEK's proxy 6-K) — the low end of an authorized range, not the ratio set
                     kind = "range"
                 found.append((m.start(), m.end(), a, b, kind, m.group(0)))
-            for m in _FOR_EVERY.finditer(sent):
+            for m in _FOR_EVERY.finditer(scan):
                 (a, ca), (b, cb) = _side(m, "a"), _side(m, "b")
                 if not (_plausible(a, plain_for=False) and _plausible(b, plain_for=False)):
                     continue
@@ -684,10 +952,10 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                     found.append((m.start(), m.end(), a, b, "undirected", m.group(0)))
                 else:
                     found.append((m.start(), m.end(), o[0], o[1], "explicit", m.group(0)))
-            for m in _FOR.finditer(sent):
+            for m in [*_FOR.finditer(scan), *_TO_BASIS.finditer(scan)]:
                 if any(fs <= m.start() < fe for fs, fe, *_ in found):
                     continue  # already read as "N share for every M"
-                plain = m.group("sep").strip().lower() == "for"
+                plain = m.group("sep").strip().lower() in ("for", "to")
                 (a, ca), (b, cb) = _side(m, "a"), _side(m, "b")
                 if not (_plausible(a, plain_for=plain) and _plausible(b, plain_for=plain)):
                     continue
@@ -699,7 +967,7 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                     found.append((m.start(), m.end(), a, b, "undirected", m.group(0)))
                 else:
                     found.append((m.start(), m.end(), o[0], o[1], "explicit", m.group(0)))
-            for m in _COLON.finditer(sent):
+            for m in _COLON.finditer(scan):
                 before = sent[max(0, m.start() - 40) : m.start()]
                 after = sent[m.end() : m.end() + 30]
                 if not (re.search(r"ratio", before, re.I) or _COLON_AFTER.match(after)):
@@ -716,7 +984,8 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                 if old is None or new is None or old == new:
                     continue  # unreadable, or "one-for-one" (an exchange, not a split)
                 look = sent[max(0, start - _RANGE_LOOKBACK) : start]
-                if kind == "explicit" and _RANGE_CUE.search(look):
+                if kind in ("explicit", "undirected") and _RANGE_CUE.search(look):
+                    # a ceiling is one whichever way it points ("no more than 4.0:1.0")
                     kind = "range"
                 elif kind == "explicit":
                     kind = "operative"
@@ -738,21 +1007,32 @@ def _cued_dates(
     docs: list[_Doc], cue: re.Pattern, *, need_trading: bool
 ) -> list[tuple[date, int, tuple[int, int], int]]:
     """``(date, doc, sentence, where)`` for every sentence carrying ``cue`` (and, for a trading sentence, a word
-    about trading): its only date, or the first date after the cue when it has several."""
+    about trading — or, in a sentence about the split, a SESSION cue): its only date, or the first date after the
+    cue when it has several. A date that names something else is none (``_dates(dating=True)``); a sentence
+    about an accounting standard not yet effective gives no date, one naming the LAST session no trading date.
+    """
     out = []
     for di, d in enumerate(docs):
         for s, e in d.spans:
             sent = d.match[s:e]
+            about = _SPLIT_CUE.search(sent) is not None
             cm = cue.search(sent)
-            if cm is None and need_trading and _SPLIT_CUE.search(sent):
+            if cm is None and need_trading and about:
                 cm = _TRADING_START.search(sent)  # "begin trading … after … the reverse split"
             if cm is None:
                 continue
-            if need_trading and not _TRADING_WORD.search(sent):
+            if need_trading and not (
+                _TRADING_WORD.search(sent)
+                or (about and _SESSION_CUE.search(sent) and not _PLAN_CHANGED.search(sent))
+            ):
                 continue
-            if not need_trading and not _SPLIT_CUE.search(sent):
+            if need_trading and _LAST_SESSION.search(sent):
+                continue  # the last session at the old price (QGEN)
+            if not need_trading and not about:
                 continue
-            ds = _dates(sent)
+            if _NOT_YET_EFFECTIVE.search(sent) and _STANDARD.search(sent):
+                continue  # an accounting standard's effective date (PBM)
+            ds = _dates(sent, dating=True)
             if not ds:
                 continue
             if len({x for _, x in ds}) == 1:
@@ -884,13 +1164,97 @@ def _superseded(docs: list[_Doc], distinct: dict[Fraction, list[_Mention]]) -> F
     return None
 
 
+def _ads_termination(docs: list[_Doc]) -> _Part | None:
+    """Where a filing states that its ADR program ENDS (``ADS_TERMINATION``): the exchange sentence ("each holder
+    of N ADSs will receive M …") when it has one, else the first sentence terminating the program or naming the
+    "Mandatory Exchange" of ADSs — never one that only supposes it ("if", "may")."""
+    first: _Part | None = None
+    for di, d in enumerate(docs):
+        for s, e in d.spans:
+            sent = d.match[s:e]
+            m = _ADS_EXCHANGE.search(sent)
+            if m:
+                return (di, (s, e), s + m.start())
+            if first is not None or _CONDITIONAL.search(sent):
+                continue
+            m = _ADS_PROGRAM_ENDS.search(sent) or (
+                _MANDATORY_EXCHANGE.search(sent) if _ADS_MENTION.search(sent) else None
+            )
+            if m:
+                first = (di, (s, e), s + m.start())
+    return first
+
+
+def _states_done(clause: str) -> bool:
+    """Does the clause state a split as DONE (``_DONE``; never "to be effected", ``_NOT_YET_BEFORE``, and never in
+    a clause about what WILL happen, ``_FUTURE``)?"""
+    if _FUTURE.search(clause):
+        return False
+    return any(
+        not _NOT_YET_BEFORE.search(clause[max(0, m.start() - 40) : m.start()])
+        for m in _DONE.finditer(clause)
+    )
+
+
+def _set_known_aside(
+    docs: list[_Doc],
+    mentions: list[_Mention],
+    known: tuple[KnownSplit, ...],
+    effective: date | None,
+) -> None:
+    """Mark ``historical`` the mentions of a KNOWN split's ratio (the module docstring) its filing states as DONE
+    (``_states_done``; in a run-on sentence, the window around the ratio) — and, in a filing that dates nothing
+    current of its own (``effective`` is None: it only restates), every other mention of that ratio not about what
+    WILL happen too: CMND's interim 6-K restates its 1-for-40 as "effected" in one sentence and as "holders …
+    received 0.025 of a common share for every one" in another. A filing announcing a NEW split of the same ratio
+    keeps every mention it does not state as done. Never a mention whose sentence dates it away from the known
+    split (another split of the same ratio), nor any when the filing's own date is the known split's
+    (``KNOWN_DATE_TOLERANCE_DAYS`` either way: the filing is its evidence).
+    """
+
+    def near(a: date, b: date) -> bool:
+        return abs((a - b).days) <= KNOWN_DATE_TOLERANCE_DAYS
+
+    def clause(mt: _Mention) -> str:
+        s, e = mt.sentence
+        if e - s > _LONG_SENTENCE:
+            s, e = max(s, mt.pos - _WINDOW_BEFORE), min(e, mt.pos + _WINDOW_AFTER)
+        return docs[mt.doc].match[s:e]
+
+    for k in known:
+        if Decimal(k.ratio_from) <= 0 or Decimal(k.ratio_to) <= 0 or k.ratio_from == k.ratio_to:
+            continue
+        if effective is not None and near(effective, k.first_session):
+            continue  # the filing dates THIS split as its own event: it is its evidence, not a restatement
+        factor = Fraction(k.ratio_from) / Fraction(k.ratio_to)
+        same: list[tuple[_Mention, str]] = []
+        for mt in mentions:
+            if mt.kind not in ("operative", "undirected") or mt.key() not in (factor, 1 / factor):
+                continue
+            c = clause(mt)
+            ds = [x for _, x in _dates(c)]
+            if ds and not any(near(x, k.first_session) for x in ds):
+                continue  # dated, but away from the known split: another split of the same ratio
+            same.append((mt, c))
+        if not any(_states_done(c) for _, c in same):
+            continue  # the filing never says the known split is done: it is not restating it
+        for mt, c in same:
+            if _states_done(c) or (effective is None and not _FUTURE.search(c)):
+                mt.kind = "historical"
+
+
 def _read(
-    documents: list[FilingDocument], *, filed: date | None, wide: bool, strict: bool
+    documents: list[FilingDocument],
+    *,
+    filed: date | None,
+    wide: bool,
+    strict: bool,
+    known: tuple[KnownSplit, ...] = (),
 ) -> _Read:
     """The extraction (``extract_split`` / ``extract_split_screened``). ``filed`` screens dates against the
     filing date; ``strict`` (the restatement screen's second reading) also dates a ratio stated in an undated
     sentence by the date sentence beside it, and never reads a sentence about what WILL happen as a past
-    split's."""
+    split's. ``known``: the KNOWN splits (``_set_known_aside``)."""
     docs = _documents(documents, wide=wide)
     if not docs:
         return _Read(SplitExtraction(abstain_reason="no readable document"), [], [], None, 0)
@@ -937,8 +1301,8 @@ def _read(
     anchors = [a for a in (effective, filed) if a is not None]
     index = {(di, sp): i for di, d in enumerate(docs) for i, sp in enumerate(d.spans)}
     for mt in mentions:
-        if mt.kind != "operative":
-            continue
+        if mt.kind not in ("operative", "undirected"):
+            continue  # a past split's ratio is past whichever way it points (NEE's 2020 four-for-one)
         s, e = mt.sentence
         own = docs[mt.doc].match[s:e]
         if strict and _FUTURE.search(own):
@@ -958,14 +1322,20 @@ def _read(
                     ds.extend(near)
         if ds and any(all((a - x).days > HISTORICAL_GAP_DAYS for x in ds) for a in anchors):
             mt.kind = "historical"
+    _set_known_aside(docs, mentions, known, effective)
     if strict and past and not trading and not legal:
         # the filing dates NOTHING currently — every split date it states is a past one — so a ratio it also
         # dates in the past somewhere is that past split's, wherever else it is restated undated: KXIN's interim
         # results of 2025-09-12 ("On October 25, 2024, the Group effected a share consolidation at a ratio of
         # one-for-sixty" beside an undated "(iii) share consolidation at a ratio of one-for-sixty")
         dated_past = {m.key() for m in mentions if m.kind == "historical"}
+        # an undirected mention by its two numbers, either way round (NUCL's 10-Q restating its 2-for-1 of
+        # 2026-07-06, dated in one sentence and undated in another, with no direction word)
+        past_pairs = {frozenset((m.old, m.new)) for m in mentions if m.kind == "historical"}
         for mt in mentions:
             if mt.kind == "operative" and mt.key() in dated_past:
+                mt.kind = "historical"
+            elif mt.kind == "undirected" and frozenset((mt.old, mt.new)) in past_pairs:
                 mt.kind = "historical"
 
     conflicts = [m for m in mentions if m.kind == "conflict"]
@@ -994,13 +1364,19 @@ def _read(
         "mentions": seen_labels,
     }
 
-    def abstain(reason: str, at: list[_Mention]) -> _Read:
-        parts = [(m.doc, m.sentence, m.pos) for m in at[:2]]
+    def abstain(reason: str, at: list[_Mention], first: _Part | None = None) -> _Read:
+        parts = ([first] if first is not None else []) + [
+            (m.doc, m.sentence, m.pos) for m in at[: 1 if first is not None else 2]
+        ]
         all_parts = parts + ([date_at] if date_at is not None else [])
         passage, label = _passage(docs, all_parts) if all_parts else ("", None)
         x = SplitExtraction(abstain_reason=reason, passage=passage, document=label, **base)
         return _Read(x, docs, parts, date_at, len(distinct))
 
+    ended = _ads_termination(docs)
+    if ended is not None:
+        # the ADS's price factor is the exchange's, never the ordinary shares' ratio read here (POM)
+        return abstain(ADS_TERMINATION, [*distinct.values(), *conflicts, *undirected], first=ended)
     if conflicts:
         return abstain(
             "a ratio's words and its digits disagree: " + "; ".join(m.raw for m in conflicts[:3]),
@@ -1053,7 +1429,11 @@ def _read(
 
 
 def extract_split(
-    documents: list[FilingDocument], *, filed: date | None = None, wide: bool = False
+    documents: list[FilingDocument],
+    *,
+    filed: date | None = None,
+    wide: bool = False,
+    known: Iterable[KnownSplit] = (),
 ) -> SplitExtraction:
     """Read one filing's split ratio, effective date and located passage (see the module docstring for every
     rule). Pure: the documents in, a ``SplitExtraction`` out — an abstain is a result, never a raise.
@@ -1061,13 +1441,19 @@ def extract_split(
     ``filed`` — the filing date, given for a CATCH-ALL filing (an 8-K read only for its Item 8.01 / 7.01): a
     date more than ``HISTORICAL_GAP_DAYS`` before it is a PAST split's (the filing restates it), never this
     filing's first session, and a ratio stated only beside such dates is a past split's too. ``wide`` keeps the
-    wide forms' own documents (``relevant_documents``).
+    wide forms' own documents (``relevant_documents``). ``known`` — the security's splits already CONFIRMED on
+    the list and in effect by the filing's date (``KnownSplit``): a ratio equal to one, stated as done, is that
+    past split's whatever its age (the module docstring). Empty, the reading is exactly what it was without it.
     """
-    return _read(documents, filed=filed, wide=wide, strict=False).x
+    return _read(documents, filed=filed, wide=wide, strict=False, known=tuple(known)).x
 
 
 def extract_split_screened(
-    documents: list[FilingDocument], *, filed: date, wide: bool = False
+    documents: list[FilingDocument],
+    *,
+    filed: date,
+    wide: bool = False,
+    known: Iterable[KnownSplit] = (),
 ) -> SplitExtraction:
     """THE RESTATEMENT SCREEN (2026-10-24) — for a filing that may restate OLD splits: a 6-K (interim results
     restate the company's past consolidations), a charter 8-K, and every wide form (a 10-Q / 10-K / 20-F does it
@@ -1090,12 +1476,15 @@ def extract_split_screened(
       reading (KXIN's 6-K of 2026-09-16 restates 60 -> 1 undated beside the 15 -> 1 of 2026-03-13 — with the 15
       set aside the 60 would read as its split); the reason becomes ``PAST_RATIO_ONLY`` only when EVERY ratio
       was set aside.
+
+    ``known`` (the KNOWN splits, as ``extract_split``) is applied to both of its readings.
     """
-    bare = _read(documents, filed=None, wide=wide, strict=False)
+    known = tuple(known)
+    bare = _read(documents, filed=None, wide=wide, strict=False, known=known)
     b = bare.x
     if b.effective_date is not None and not _past(b.effective_date, filed):
         return b
-    scr = _read(documents, filed=filed, wide=wide, strict=True)
+    scr = _read(documents, filed=filed, wide=wide, strict=True, known=known)
     s = scr.x
     docs = scr.docs
     # the date: dropped, never replaced

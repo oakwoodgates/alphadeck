@@ -48,7 +48,10 @@ statement set (the first qualifying cash-flow statement after the chosen balance
 NEITHER SOURCE DOMINATES — later-as-of-wins per quantity (the shares rule): companyfacts often LAGS
 the filing by a full year (annual XBRL ingests slowly — the reason the filing is read at all), and is
 sometimes FRESHER (a 6-K interim landing after the last annual). The statement rows carry the located
-passages either way. THE CROSS-CHECK is exact at the statement's printed precision (a 1% tolerance
+passages either way. When every figure offered comes from one later filing's companyfacts rows, the
+candidate cites that filing (ARM's Q2 6-K, never its March 20-F), and a fresher interim year to date (six or
+nine months) becomes its quarter when the same tag's prior year to date is on file (1,109 - 902), never
+pro-rated. THE CROSS-CHECK is exact at the statement's printed precision (a 1% tolerance
 passed a wrong column within 0.4%): ``figures-disagree`` fires only on a SAME-DATE contradiction and
 states both numbers; no same-date row is a stated condition ("not cross-checked"), never a pass; a
 cross-date difference is a lag, stated in the note, not an alarm (annual XBRL lag is the RULE here,
@@ -56,7 +59,8 @@ and a flag true of every name carries no information).
 
 CASH MEANS CASH PLUS SHORT-TERM DEPOSITS AND INVESTMENTS (operator decision D1): a short-term
 deposits/investments row of the same balance sheet is added to the cash row, each part named in the
-note and carried on ``investments_usd``; the generic long-term investments line is never cash (D2).
+note and carried on ``investments_usd``, and so is an own-line current "Marketable securities" row
+(D6, ZENA); the generic long-term investments line is never cash (D2).
 THE ADDITION IS ONLY EVER FROM THE SAME STATEMENT (the 2026-11-16 re-audit's guard): the cash row must be
 a balance-sheet STATEMENT row (a title heading, no breakdown cue — never a note, MD&A table or summary),
 and the deposits row its own line in the same year column with a value in it (a dash is an empty cell;
@@ -86,12 +90,14 @@ the winning document.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
+from domain.links import filing_index_url
 from domain.market_time import market_today
 from ingest.edgar.annual_shares import (
     _companyfacts_or_none,
@@ -99,7 +105,7 @@ from ingest.edgar.annual_shares import (
     extract_annual_shares,
 )
 from ingest.edgar.client import EdgarClient
-from ingest.edgar.extract import _days
+from ingest.edgar.extract import _days, _doc_url
 from ingest.edgar.submissions import fetch_submissions, filings_of
 
 _DAYS_PER_YEAR = 365.25
@@ -205,8 +211,10 @@ _CURRENCY_CUT_ALLOW = {
 # Scale + currency read from the statement region (nearest marker ABOVE the row wins — that is the
 # row's own table header). Precedence: an explicit thousands/millions marker beats a bare
 # "expressed in ... dollars" (HYFT states both: "(Expressed in Canadian dollars) (in thousands)").
+# An ISO code with an apostrophe before 000 (ASND's "(EUR’000)") is a thousands marker like "$’000".
 _SCALE_THOUSANDS_RE = re.compile(
-    r"in\s+(?:[a-z$€£₹.\s]{0,14})?thousands?\b|thousands\s+of|[$€£₹]\W{0,3}000|\bk\W{0,2}€|NT\$\s*000",
+    r"in\s+(?:[a-z$€£₹.\s]{0,14})?thousands?\b|thousands\s+of|[$€£₹]\W{0,3}000|\bk\W{0,2}€|NT\$\s*000"
+    r"|\b(?:USD|EUR|GBP|CHF|CAD|AUD|DKK|SEK|NOK|ZAR)\s?[’']\s?000\b",
     re.IGNORECASE,
 )
 _SCALE_MILLIONS_RE = re.compile(
@@ -272,9 +280,16 @@ _OCF_NOTE_GUARD_RE = re.compile(r"included\s+in|paid\s+for|operating\s+leases?",
 _OCF_NOTE_GUARD_CHARS = 60
 
 # Short-term deposits and investments on the SAME balance sheet as the cash row (D1: cash means cash
-# plus short-term investments). Not "marketable securities" and never a long-term line (D2).
+# plus short-term investments), and an own-line "Marketable securities" row (D6: ZENA's current
+# 9,093,887), never a long-term line (D2). A marketable-securities row is current only by its section:
+# no assets heading may sit between it and the cash row (an IFRS balance sheet lists non-current first).
 _STI_LABEL_RE = re.compile(
-    r"short[-\s]?term\s+(?:bank\s+)?(?:deposits?|investments?)|\btime\s+deposits?", re.IGNORECASE
+    r"short[-\s]?term\s+(?:bank\s+)?(?:deposits?|investments?)|\btime\s+deposits?"
+    r"|(?P<securities>\bmarketable\s+securities\b)",
+    re.IGNORECASE,
+)
+_ASSET_SECTION_RE = re.compile(
+    r"(?:non[-\s]?current|long[-\s]?term|current)\s+assets", re.IGNORECASE
 )
 _STI_PRE_VETO_RE = re.compile(
     r"(?:restricted|pledged|long[-\s]?term|non[-\s]?current"
@@ -349,6 +364,15 @@ _NOTE_REF_PREFIX_RE = re.compile(r"^[\s:$]{0,4}\(\s*Note\s*\d{1,3}\s*\)", re.IGN
 
 _PAREN_NOTE_REF_PREFIX_RE = re.compile(r"^[\s:]{0,4}\(\s*\d{1,2}(?:\s*[,&]\s*\d{1,2})*\s*\)")
 
+# A note-reference LIST before the figures (ASND: "Cash and cash equivalents 17, 18 616,041 559,543" cites
+# notes 17 and 18): one- or two-digit numbers joined by a comma and a space, "&" or "and", then a figure. A
+# grouped figure never has a space after its comma, so the list is the row's note references, stripped like
+# "(Note N)"; the count rule in ``_map_columns`` drops only ONE leading note number and read ASND's 18 as its
+# cash.
+_NOTE_REF_LIST_PREFIX_RE = re.compile(
+    r"^[\s:]{0,4}\d{1,2}(?:(?:\s*,\s+|\s*&\s*|\s+and\s+)\d{1,2})+(?=\s+[-–—($€£₹]?\s?\d)"
+)
+
 
 def _value_window(text: str, label_end: int, note_col: bool = False) -> str:
     """The row's VALUE AREA: from the label to the next row's label word (or the window cap). Cutting at
@@ -356,9 +380,11 @@ def _value_window(text: str, label_end: int, note_col: bool = False) -> str:
     neighboring rows into the columns on tightly-packed statements. A leading "(Note N)" reference is
     stripped first (it would otherwise BE the cut word and empty the window); in a table whose header
     prints a Note column, a bare parenthesized "(3)" right after the label is that note reference too
-    (QGEN's shape — read as a figure it was a negative first column)."""
+    (QGEN's shape — read as a figure it was a negative first column). A leading note-reference list
+    ("17, 18") is stripped the same way."""
     raw = text[label_end : label_end + _ROW_VALUE_CHARS]
     raw = _NOTE_REF_PREFIX_RE.sub(" ", raw, count=1)
+    raw = _NOTE_REF_LIST_PREFIX_RE.sub(" ", raw, count=1)
     if note_col:
         raw = _PAREN_NOTE_REF_PREFIX_RE.sub(" ", raw, count=1)
     for m in _CUT_WORD_RE.finditer(raw):
@@ -938,7 +964,7 @@ _CF_STI_CONCEPTS = (
 
 @dataclass(frozen=True)
 class _CfRow:
-    """One companyfacts row, with where it came from (named in the note)."""
+    """One companyfacts row, with where it came from (named in the note) and the filing that carries it."""
 
     taxonomy: str
     concept: str
@@ -947,6 +973,8 @@ class _CfRow:
     start: date | None
     end: date
     filed: str = ""
+    accn: str = ""
+    form: str = ""
 
     @property
     def where(self) -> str:
@@ -979,7 +1007,15 @@ def _cf_rows(
                 start = date.fromisoformat(r["start"]) if r.get("start") else None
                 out.append(
                     _CfRow(
-                        taxonomy, concept, u, float(r["val"]), start, row_end, r.get("filed", "")
+                        taxonomy,
+                        concept,
+                        u,
+                        float(r["val"]),
+                        start,
+                        row_end,
+                        r.get("filed", ""),
+                        r.get("accn", ""),
+                        r.get("form", ""),
                     )
                 )
     return out
@@ -997,6 +1033,44 @@ def _latest_duration(rows: list[_CfRow]) -> _CfRow | None:
     if not dur:
         return None
     return max(dur, key=lambda r: (r.end, (r.end - (r.start or r.end)).days, r.filed))
+
+
+def _derived_quarter(
+    companyfacts: dict[str, Any] | None, ytd: _CfRow, cfg: ExtractorConfig
+) -> tuple[_CfRow, float, int] | None:
+    """The quarter inside a fresher interim year to date (ARM: six months to 2026-09-30, 1,109), when
+    companyfacts carries the same tag's prior year to date (three months to 2026-06-30, 902): (the prior row,
+    ``ytd - prior``, the quarter's days). Only for an interim year to date, longer than one quarter and at
+    most three (``quarterly_span_max_days``), whose prior shares its tag, unit and start and ends
+    ``quarterly_span_min_days`` to ``quarterly_span_max_days`` before it (the latest such prior, then the
+    latest filed). A fiscal year keeps its smoother annual basis. None otherwise: the year to date is
+    span-normalized as before (PBM), never halved by guess.
+    """
+    if ytd.start is None:
+        return None
+    span = (ytd.end - ytd.start).days
+    if not cfg.quarterly_span_max_days < span <= 3 * cfg.quarterly_span_max_days:
+        return None
+    priors = [
+        r
+        for r in _cf_rows(
+            companyfacts, ((ytd.taxonomy, ytd.concept),), duration=True, unit=ytd.unit
+        )
+        if r.start == ytd.start
+        and r.end < ytd.end
+        and cfg.quarterly_span_min_days <= (ytd.end - r.end).days <= cfg.quarterly_span_max_days
+    ]
+    if not priors:
+        return None
+    prior = max(priors, key=lambda r: (r.end, r.filed))
+    return prior, ytd.val - prior.val, (ytd.end - prior.end).days
+
+
+def _filed_as(row: _CfRow) -> str:
+    """How the note names the filing behind a companyfacts row: "the 6-K filed 2026-11-04 (accession ...)"."""
+    form = row.form or "filing"
+    filed = f" filed {row.filed}" if row.filed else ""
+    return f"the {form}{filed} (accession {row.accn})"
 
 
 def _reproduces(raw: float, decimals: int, scale: float, val: float) -> bool:
@@ -1191,7 +1265,8 @@ def _choose_ocf(rows: list[_Row], cf_rows: list[_CfRow], *, after: int) -> tuple
 def _sti_rows(text: str, cash: _Row, report_year: int) -> list[_Row]:
     """Short-term deposits / investments rows NEAR the chosen cash row (D1): within ``_STI_SPAN`` of it,
     in its region, with no "Total current assets" / statement boundary between them, not restricted,
-    long-term or a combined "cash ... and short-term ..." line, and immediately followed by a value.
+    long-term or a combined "cash ... and short-term ..." line, and immediately followed by a value. A
+    marketable-securities row (D6) also needs no assets heading between it and the cash row.
     Whether such a row may be COUNTED is ``_sti_judgement``'s call (the 2026-11-16 guard)."""
     lo = max(cash.region, cash.start - _STI_SPAN)
     hi = min(cash.region + _REGION_SPAN, cash.start + _STI_SPAN)
@@ -1200,6 +1275,8 @@ def _sti_rows(text: str, cash: _Row, report_year: int) -> list[_Row]:
         a, b = sorted((m.start(), cash.start))
         if _STI_BOUNDARY_RE.search(text, a, b):
             continue
+        if m.group("securities") and _ASSET_SECTION_RE.search(text, a, b):
+            continue  # D6: marketable securities count only from the cash row's own (current) section
         if _STI_PRE_VETO_RE.search(text[max(0, m.start() - 40) : m.start()]):
             continue
         if not _VALUE_GATE_RE.search(text[m.end() : m.end() + 18]):
@@ -1341,11 +1418,15 @@ def extract_annual_runway(
     report_date: date,
     today: date,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+    filing_refs: Mapping[str, str] | None = None,
 ) -> tuple[list[ExtractedFact], str | None]:
     """Pure + deterministic: (companyfacts-or-None + the CLEANED annual filing text) -> the one
     cash_burn FLAG candidate, or ``([], runway_empty_reason)`` when no statement row can be located
     (FAIL CLOSED — no passage, no fact). ``report_date`` is the filing's PERIOD OF REPORT (what the
-    statements are dated to); ``today`` only ages the staleness flag (time is a parameter)."""
+    statements are dated to); ``today`` only ages the staleness flag (time is a parameter).
+    ``filing_refs`` (accession -> document URL, from the submissions index the caller already read)
+    names the document of a later filing the candidate cites; without it, that filing's EDGAR index.
+    """
     text = _ZERO_WIDTH_RE.sub("", annual_text)
     report_year = report_date.year
 
@@ -1576,6 +1657,7 @@ def extract_annual_runway(
     ocf_span: int | None = None
     ocf_asof: date | None = None
     ocf_src = ""
+    ocf_row: _CfRow | None = None  # the companyfacts row behind the offered burn, if any
     if doc_ocf is not None and doc_span is not None:
         ocf_value, ocf_span, ocf_asof, ocf_src = doc_ocf, doc_span, report_date, "statement"
     if (
@@ -1583,12 +1665,26 @@ def extract_annual_runway(
         and cf_ocf.start is not None
         and (ocf_asof is None or cf_ocf.end > ocf_asof)
     ):
-        ocf_value, ocf_span, ocf_asof = (
-            cf_ocf.val,
-            max((cf_ocf.end - cf_ocf.start).days, 1),
-            cf_ocf.end,
-        )
-        ocf_src = f"companyfacts ({cf_ocf.unit}, {cf_ocf.start} → {cf_ocf.end} — fresher than the statement)"
+        ocf_row = cf_ocf
+        derived = _derived_quarter(companyfacts, cf_ocf, cfg)
+        if derived is not None:
+            prior, quarter, days = derived
+            ocf_value, ocf_span, ocf_asof = quarter, max(days, 1), cf_ocf.end
+            ocf_src = (
+                f"companyfacts ({cf_ocf.unit}, a quarter derived from its year-to-date rows: "
+                f"{_fmt(cf_ocf.val)} - {_fmt(prior.val)} ({cf_ocf.start} → {cf_ocf.end} less "
+                f"{prior.start} → {prior.end}, from {_filed_as(prior)}) — fresher than the statement)"
+            )
+        else:
+            ocf_value, ocf_span, ocf_asof = (
+                cf_ocf.val,
+                max((cf_ocf.end - cf_ocf.start).days, 1),
+                cf_ocf.end,
+            )
+            ocf_src = (
+                f"companyfacts ({cf_ocf.unit}, {cf_ocf.start} → {cf_ocf.end} — fresher than the "
+                "statement)"
+            )
         if doc_ocf is not None:
             notes.append(
                 f"the statement's own figure {_fmt(doc_ocf)} (as of {report_date}) is OLDER and was "
@@ -1705,7 +1801,9 @@ def extract_annual_runway(
     )
     # companyfacts may WIN the cash because the statement row IS located (the passage the value rides
     # with — the shares CMND precedent); the note states the losing side.
+    cash_row: _CfRow | None = None  # the companyfacts row behind the offered cash, if any
     if cf_cash is not None and (cash_asof is None or cf_cash.end > cash_asof):
+        cash_row = cf_cash
         if cash_value is not None:
             notes.append(
                 f"cash: the statement's {_fmt(cash_value)} (as of {cash_asof}) is OLDER and was not used"
@@ -1736,6 +1834,35 @@ def extract_annual_runway(
             notes.append(
                 "CASH UNREAD: the balance-sheet cash row was located but its current-column value could "
                 "not be read (missing or negative); author the cash from the passage"
+            )
+
+    # THE CITATION (W1-3, ARM): when every figure offered comes from companyfacts rows of ONE other filing
+    # than the annual document (a later 6-K interim), the candidate cites that filing, never the annual
+    # document whose statements are older; the passages stay the annual statement rows located (what the
+    # filing itself prints).
+    source_ref = annual_ref
+    rows_used = [r for r in (ocf_row, cash_row) if r is not None]
+    offered_from_cf = (ocf_value is None or ocf_row is not None) and (
+        cash_value is None or cash_row is not None
+    )
+    accessions = {r.accn.replace("-", "") for r in rows_used}
+    own = re.search(r"/data/\d+/(\d{18})/", annual_ref)
+    if (
+        rows_used
+        and offered_from_cf
+        and len(accessions) == 1
+        and rows_used[0].accn
+        and (own is None or own.group(1) not in accessions)
+    ):
+        accn = rows_used[0].accn
+        cited = (filing_refs or {}).get(accn) or filing_index_url(
+            str((companyfacts or {}).get("cik") or ""), accn
+        )
+        if cited:
+            source_ref = cited
+            notes.append(
+                f"Cited filing: {_filed_as(rows_used[0])}, which carries these companyfacts figures; the "
+                f"passages are the {annual_form}'s older statement rows"
             )
 
     checks = [ocf_check, cash_check, *sti_checks]
@@ -1819,7 +1946,7 @@ def extract_annual_runway(
             # the short-term deposits / investments part already inside cash_usd (D1)
             investments_usd=investments,
             source="annual-statements",
-            source_ref=annual_ref,
+            source_ref=source_ref,
             event_date=age_ref,
             flags=flags,
             located_passages=passages,
@@ -1833,6 +1960,17 @@ def extract_annual_runway(
 # ---------------------------------------------------------------------------------------------------------
 
 
+def _filing_refs(subs: dict[str, Any], cik: int) -> dict[str, str]:
+    """accession -> document URL for every recent filing in the submissions index already read (no request):
+    the citation of a later filing whose companyfacts rows a candidate offers (ARM's 6-K)."""
+    recent = subs.get("filings", {}).get("recent", {})
+    return {
+        accn: _doc_url(cik, accn, doc)
+        for accn, doc in zip(recent.get("accessionNumber", []), recent.get("primaryDocument", []))
+        if accn and doc
+    }
+
+
 def annual_facts_for_security(
     client: EdgarClient,
     cik: str | int,
@@ -1841,8 +1979,8 @@ def annual_facts_for_security(
     today: date | None = None,
 ) -> ExtractionResult:
     """Live (cache-first) wrapper for a DARK name: CIK -> the latest 20-F/40-F, fetched ONCE -> the
-    annual-cover shares candidate (``annual_shares.extract_annual_shares``, behavior unchanged —
-    cover shares ALWAYS reads the primary document, never routed through the seam) PLUS the
+    annual-cover shares candidate (``annual_shares.extract_annual_shares``, given the raw text too for
+    its inline cover — cover shares ALWAYS reads the primary document, never routed through the seam) PLUS the
     annual-statements cash/runway candidate, or their honest, DISTINCT empty reasons.
 
     The statements TEXT is resolved through the statement-source seam (Slice A-2): the primary
@@ -1874,7 +2012,7 @@ def annual_facts_for_security(
     filing = _latest_annual_filing(client, cik, subs=subs)
     if filing is None:
         return ExtractionResult(facts=[], empty_reason="no-annual-filing")
-    url, text, report_dt, form = filing
+    url, raw, text, report_dt, form = filing
     forms = subs.get("filings", {}).get("recent", {}).get("form", [])
     has_f6 = any(str(f).startswith("F-6") for f in forms)
     cf = _companyfacts_or_none(client, cik)
@@ -1888,6 +2026,7 @@ def annual_facts_for_security(
         today=when,
         has_f6_filing=has_f6,
         cfg=cfg,
+        raw=raw,
     )
     # the accession of the row _latest_annual_filing selected: the newest filing of the WINNING form
     # (same submissions list, same first-row pick — no second selection logic to drift)
@@ -1921,6 +2060,7 @@ def annual_facts_for_security(
             report_date=report_dt,
             today=when,
             cfg=cfg,
+            filing_refs=_filing_refs(subs, cik),
         )
     facts = shares + runway
     if not facts:

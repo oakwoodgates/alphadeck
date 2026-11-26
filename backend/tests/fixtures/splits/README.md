@@ -21,6 +21,15 @@ hand-written or edited; the only change is TRIMMING, and the source's spelling i
   cached pages in the dev container), that pair with the filings added from that run (below).
 - `polygon/rows_2026-10-22.json` — S4: the 6 real rows for GAME / NXL / MDCX / VRME / AXG / ENHA from the
   nightly-shaped pull of 2026-10-22 (`execution_date.gte=2026-07-24`), `results` filtered to those tickers.
+- `polygon/v1_2026-11-25.json` — W6-1: Massive.com
+  `/stocks/v1/splits?execution_date.gte=2024-10-01&limit=5000&sort=execution_date.asc` as the 2026-11-25 probe
+  pulled it (`api.massive.com`, one page, 3,521 rows, no `next_url`; the probe cached it parsed, so the rows are
+  re-serialized, keys and values as served), `results` filtered to 42 rows: the 32 Massive.com ids of
+  `page{1,2,3}.json` (the same rows on the new endpoint), GAME and NXL (S4), and the label cases: SCCO 2026-08-11
+  and 2026-11-03, MTH 2025-01-03 and GPUS 2024-12-13 (`stock_dividend`), HON 2025-10-30 and SNDK 2026-11-20
+  (`forward_split`), GNS 2026-11-20 (`reverse_split`), JZ 2026-12-24 (one of the 97 rows with no
+  `historical_adjustment_factor`). No row carries an unknown label; `tests/ingest/test_polygon_splits.py`
+  synthesizes one from HON's row, marked there.
 - `tape_2026-10-22.json` — S4: EVERY stored version (close, volume, `recorded_at`) of the price bars around the
   GAME / NXL / VRME / MDCX / FDCT splits, read from a read-only copy of prod on 2026-10-22, untouched — the
   tape-confirmation tests read each bar's FIRST-served version from it, exactly as the detector does.
@@ -123,3 +132,51 @@ screen, the restatement screen; `wide=True` for a primary document) AND the 2026
 - `polygon/rows_list_2026-10-24.json` — the Massive.com rows prod's split list CARRIES for LGHL 2025-03-26, MEDS,
   DFNS, ZNB, OFAL and SDCO (its 1-for-500 of 2025-04-24, listed under its FORMER ticker HLLK) (its stored `polygon_*` columns: Massive.com's own id, ticker, execution date and ratio, as the
   backfill stored them from the 2026-10-20/22 pulls), copied — not typed — into Massive.com's page shape.
+
+The date-sentence fixes (2026-11-25, W2-5) added nine full submissions, fetched from EDGAR
+(`https://www.sec.gov/Archives/edgar/data/<cik>/<acc-no-dashes>/<acc>.txt`) through the steward review's paced,
+cached reader and trimmed to the SGML header plus the documents the extractor reads, each kept WHOLE and
+byte-exact (nothing inside a kept document is dropped, so every reading of the trimmed file is the full
+submission's). On the pre-change extractor each reproduced the reading prod's split list stored
+(`docs/temp/platform-fixes-w0-w2-plan-2026-11-25.md` §2):
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001493152-25-028222 | COPR | 8-K (8.01, 9.01) | 1-for-20 "effective on the OTC Markets at the open of business on December 15, 2025"; the release's dateline 12-16 |
+| 0001493152-25-018165 | NVA | 6-K | an ADS ratio change (4 additional ADSs for each ADS); "The first day of trading under the new ratio is expected to be October 29, 2025" |
+| 0001015820-25-000012 | QGEN | 6-K | a 36 -> 35 consolidation; "the last trading day of the prior ISIN" 01-28, trading from 2025-01-29 |
+| 0001178913-26-004186 | IMCC | 6-K | 30 -> 1, post-consolidation trading 2026-08-27; the risk factors' "year ended December 31, 2025" |
+| 0001213900-26-113338 | SCAG | 6-K | an ADS ratio change to 1:15, effective 2026-10-27; the dateline 10-22 in a headline naming the "Effective Date" |
+| 0001213900-26-122017 | PBM | 6-K | interim results restating its 6.25:1 of 2026-02-02; "not yet effective for the period ended September 30, 2026" |
+| 0001493152-26-022840 | EZRA | 8-K (5.03, 7.01, 9.01) | 1-for-40, split-adjusted trading 2026-05-18; "the June 10, 2026 compliance deadline" |
+| 0001213900-26-093996 | VEEA | 8-K (1.01, 2.03, 3.03, 5.03, 7.01, 9.01) | 1-for-20, effective 4:30 p.m. 08-28, trading 2026-08-31 (written "August 31 , 2026") |
+| 0001493152-26-049433 | ALPS | 6-K | 5 -> 1; "The Authorized Share Capital Changes will be effective at market open on November 9, 2026" (tied to the split only by a defined term: still no date) |
+
+The ratio phrasings (2026-11-25, W2-6) added five full submissions, fetched and trimmed the same way (the SGML
+header plus the documents the extractor reads, each kept whole and byte-exact; every reading of each trimmed file,
+on the pre-change and the changed extractor, CHECKED identical to its full submission's). On the pre-change
+extractor each reproduced the reading prod's split list stored (`docs/temp/platform-fixes-w0-w2-plan-2026-11-25.md`
+§2):
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001373715-25-000321 | NOW | 8-K (5.03, 5.07, 9.01) | a 5-for-1 "with a proportionate increase in … authorized common stock"; "four additional shares for each share"; split-adjusted trading 2025-12-18 (read: no direction) |
+| 0001292814-26-005066 | EMBJ | 6-K | an ADS ratio change 1:4 -> 1:1, "three additional ADSs for every ADS held" (no split word in that sentence); trading 2026-11-16 (read: no ratio) |
+| 0001279569-26-001064 | DFSC | 6-K | "a consolidation of its common shares on a 9-to-1 basis", effective 12:01 a.m. / trading 2026-11-16 (read: no ratio) |
+| 0001279569-26-001077 | DFSC | 6-K | the completion of the same 9-to-1 consolidation, trading 2026-11-16 (read: no ratio) |
+| 0001213900-26-110501 | POM | 6-K | terminates its ADR program: ordinary shares consolidate 10 -> 1 while "each holder of ten (10) ADSs will receive three (3)" shares (read: 10 -> 1; now abstains, ADS termination) |
+
+The known past splits (2026-11-25, W2-7) added three full submissions, fetched and trimmed the same way (the SGML
+header plus the documents the extractor reads, each kept whole and byte-exact; for the 10-Q, its own document,
+which the wide reading keeps; every reading of each trimmed file, on the pre-change and the changed extractor, with
+and without the company's confirmed splits, CHECKED identical to its full submission's, and the 10-Q's to its
+standalone primary document's). Each restates a split prod's list already held CONFIRMED (the steward review's read
+of 2026-11-25); on the pre-change extractor each reproduced the reading prod's list stored
+(`docs/temp/platform-fixes-w0-w2-plan-2026-11-25.md` §2). PBM's interim 6-K `0001213900-26-122017` (above, W2-5) is
+the fourth.
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001493152-26-048139 | GCTK | 8-K (1.01, 2.03, 3.02, 7.01, 9.01) | a 1-for-2, trading 2026-10-26, beside "On August 28, 2026, the Company implemented a 1-for-15 reverse stock split" — the listed 1-for-15 of 2026-08-31 (read: two ratios, abstain) |
+| 0001214659-24-019590 | GPUS | 8-K (7.01, 9.01) | a special dividend of preferred stock (record date 2024-12-13); "… the one-for-thirty-five reserve stock split that was effectuated on November 25, 2024" — the listed 1-for-35, the day before (read: no direction, abstain) |
+| 0001437749-26-036465 | TRT | 10-Q | "On January 5, 2026, the Company effected a two-for-one forward stock split", in footnotes beside current dates — the listed 2-for-1 (read: 1 -> 2, no date) |

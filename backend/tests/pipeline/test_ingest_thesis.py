@@ -875,6 +875,37 @@ def test_name_result_has_NO_delisting_filings_for_a_live_name(db, security_id, m
 
     assert results[0].delisting_filings == ()
     assert results[0].edgar_tickers == ()
+    assert results[0].deregistration is None  # W4-2 — no Form 15 on file
+
+
+def test_name_result_carries_the_DEREGISTRATION_and_the_8_K_events_before_it(
+    db, security_id, monkeypatch
+):
+    """W4-2 — the newest Form 15 and the 8-K events filed in the 45 days up to it (items 1.03 / 2.01 / 3.03
+    / 5.01, or an 8-K15D5), read off the SAME submissions doc the delisting facts are read from: a pure walk
+    of the doc ``_stop_facts`` already holds, so it costs no fetch of its own."""
+    monkeypatch.setattr(IT, "EdgarClient", _FakeClient)
+    subs = _subs(
+        ("ACC-1",),
+        form8ks=[
+            ("ACC-8K1", "2026-06-14", "2.01,3.03,5.01,9.01"),
+            ("ACC-8K2", "2026-06-01", "5.07"),
+        ],
+        delistings=[("15-12G", "2026-06-20")],
+    )
+    monkeypatch.setattr(IT, "fetch_submissions", lambda client, cik: subs)
+    monkeypatch.setattr(
+        IT, "YahooPriceSource", lambda: _FakePriceSource(lambda t: _bars([date(2026, 6, 15)]))
+    )
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    d = results[0].deregistration
+    assert d is not None and (d.form, d.filed, d.accession) == ("15-12G", date(2026, 6, 20), "DL-0")
+    assert [(e.form, e.filed, e.items) for e in d.events] == [
+        ("8-K", date(2026, 6, 14), ("2.01", "3.03", "5.01"))
+    ]
 
 
 # --- F1: the FUND-SHARES edge, the twin of the tape edge ---------------------------------------------

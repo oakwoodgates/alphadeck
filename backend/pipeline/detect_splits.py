@@ -31,17 +31,20 @@ agreeing filing gets one look at the company's periodic reports / ADR registrati
 information statements, each read once ever); an SEC filing read in the window that no Massive.com row explains is
 an SEC-only candidate (``domain.splits.decide_sec_only``); then the tape. Each filing is read as S1 reads it
 (``backfill_splits.screen_of``: a 6-K or a charter 8-K through the restatement screen, which only removes — a
-6-K restating an old split never becomes a new candidate at its old date). A filing that mentions a split the
-list cannot place (no ratio, no date, an extractor abstain) is listed on the run artifact (``unplaced``), never
-dropped silently (#9).
+6-K restating an old split never becomes a new candidate at its old date), knowing the company's splits already
+CONFIRMED on the list (``backfill_splits.known_for``: a ratio equal to one, stated as done, is that past split's
+whatever its age). A filing that mentions a split the list cannot place (no ratio, no date, an extractor abstain)
+is listed on the run artifact (``unplaced``), never dropped silently (#9).
 
 THE PLAN against the stored list (``plan_against``): a split is found by S1's ``match_stored``. A new one is
 appended. A stored one is appended to ONLY when the system wrote its newest version, it is still OPEN
-(``needs_review`` / ``announced``), tonight's evidence covers every source it already carries (a source missing
-tonight — Massive.com off, a filing unread — never downgrades it), and the content changed: a second source arrived,
-the tape confirmed it, or an announced split's first session came (announced -> confirmed). A confirmed,
-rejected or revoked split, and anything the operator decided, is never touched; when tonight's evidence
-differs from such a split it is listed on the artifact (``kept``), not written.
+(``needs_review`` / ``announced``, or set aside by the system as a distribution — D2, ``split_repo.
+is_auto_set_aside``: a confirming filing that arrives later still confirms it, and one that mentions a split sends it
+back to review), tonight's evidence covers every source it already carries (a source missing tonight — Massive.com
+off, a filing unread — never downgrades it), and the content changed: a second source arrived, the tape confirmed
+it, an announced split's first session came (announced -> confirmed), or D2 set it aside. A confirmed split, one
+the operator rejected or revoked, and anything the operator decided (a restore included), is never touched; when
+tonight's evidence differs from such a split it is listed on the artifact (``kept``), not written.
 
 WHERE IT RUNS (``pipeline/ingest_thesis._ingest_one``): per company, right after its 8-K and 13D legs and
 BEFORE its price leg — so a split filed today, with a second source, is on the list before that company's
@@ -64,6 +67,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -77,6 +81,7 @@ from domain.splits import (
     PAST_RATIO_ONLY,
     STATUS_ANNOUNCED,
     STATUS_NEEDS_REVIEW,
+    STATUS_REJECTED,
     PolygonEvidence,
     SecEvidence,
     SplitDecision,
@@ -93,11 +98,16 @@ from ingest import CacheMiss
 from ingest.edgar.client import EdgarClient
 from ingest.polygon_splits import PolygonSplitsError, PolygonSplitSource, default_split_source
 from pipeline.backfill_splits import (
+    ConfirmedSplit,
     Member,
     SecReader,
     _conflicting,
     _group,
+    confirmed_of,
+    confirmed_splits,
     decide_polygon_group,
+    distribution_cap,
+    distribution_label_overrides_abstain,
     match_polygon,
     match_stored,
     union_members,
@@ -142,13 +152,17 @@ def tape_at(
 ) -> TapeEvidence | None:
     """The stored tape at ``session``: that bar and the stored bar before it (within ``TAPE_PRIOR_MAX_DAYS``),
     each its FIRST-SERVED version (the earliest recorded — the vendor's as-traded print, before any later
-    re-basing). ``None`` when either bar is missing or carries no positive close. A READ, never a write.
+    re-basing). A version Massive.com FILLED (``price_bar_fill``, W6-3b) is never the vendor's print and never
+    split evidence (decision W6-c): it is skipped, so a date only a fill holds reads as no bar. ``None`` when
+    either bar is missing or carries no positive close. A READ, never a write.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT ON (d) d, close, volume, recorded_at FROM fact_price_eod "
-            "WHERE tenant_id = %s AND security_id = %s AND d BETWEEN %s AND %s "
-            "ORDER BY d, recorded_at, id",
+            "SELECT DISTINCT ON (p.d) p.d, p.close, p.volume, p.recorded_at FROM fact_price_eod p "
+            "WHERE p.tenant_id = %s AND p.security_id = %s AND p.d BETWEEN %s AND %s "
+            "AND NOT EXISTS (SELECT 1 FROM price_bar_fill f WHERE f.tenant_id = p.tenant_id "
+            "AND f.security_id = p.security_id AND f.d = p.d AND f.bar_recorded_at = p.recorded_at) "
+            "ORDER BY p.d, p.recorded_at, p.id",
             (tenant_id, security_id, session - timedelta(days=TAPE_PRIOR_MAX_DAYS), session),
         )
         rows = {r["d"]: r for r in cur.fetchall()}
@@ -172,6 +186,71 @@ def tape_at(
         volume=_f(bar["volume"]),
         prior_served_before=prior["recorded_at"].astimezone(market_tz()).date() < session,
     )
+
+
+@dataclass(frozen=True)
+class TapeBar:
+    """One stored session of a tape window: the bar as the vendor FIRST served it (``close`` / ``volume``: the
+    version ``tape_at`` reads, the as-traded print) and its NEWEST stored close (the store's scale today).
+    ``filled`` (W6-3b): the vendor never served this session — the bar shown is Massive.com's fill
+    (``price_bar_fill``), which ``tape_at`` never reads as evidence.
+    """
+
+    d: date
+    close: float | None
+    volume: float | None
+    newest_close: float | None
+    filled: bool = False
+
+    @property
+    def restated(self) -> bool:
+        """The newest close differs from the first-served one (re-based later: by the vendor, or by the split
+        list's own rescale of the stored tape)."""
+        return self.newest_close != self.close
+
+
+def tape_window(
+    conn: psycopg.Connection, *, tenant_id: UUID, security_id: UUID, around: date, sessions: int
+) -> list[TapeBar]:
+    """The stored tape around ``around`` (platform fixes W5-1): up to ``sessions`` stored dates before it and up to
+    ``sessions`` from it on (``around`` itself first, when stored), oldest first — fewer where the tape ends. Each
+    date's FIRST-SERVED version (the ``tape_at`` pick: a Massive.com fill skipped) beside its newest; a date only
+    a fill holds shows the fill, marked ``filled``. A READ, never a write.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH days AS ("
+            "(SELECT DISTINCT d FROM fact_price_eod WHERE tenant_id = %(t)s AND security_id = %(s)s "
+            "AND d < %(a)s ORDER BY d DESC LIMIT %(n)s) UNION ALL "
+            "(SELECT DISTINCT d FROM fact_price_eod WHERE tenant_id = %(t)s AND security_id = %(s)s "
+            "AND d >= %(a)s ORDER BY d LIMIT %(n)s)), "
+            "versions AS (SELECT p.d, p.close, p.volume, (b.id IS NOT NULL) AS filled, "
+            "row_number() OVER (PARTITION BY p.d ORDER BY (b.id IS NOT NULL), p.recorded_at, p.id) "
+            "AS first_rank, "
+            "row_number() OVER (PARTITION BY p.d ORDER BY p.recorded_at DESC, p.id DESC) AS newest_rank "
+            "FROM fact_price_eod p JOIN days ON days.d = p.d "
+            "LEFT JOIN price_bar_fill b ON b.tenant_id = p.tenant_id AND b.security_id = p.security_id "
+            "AND b.d = p.d AND b.bar_recorded_at = p.recorded_at "
+            "WHERE p.tenant_id = %(t)s AND p.security_id = %(s)s) "
+            "SELECT f.d, f.close, f.volume, f.filled, n.close AS newest_close FROM versions f "
+            "JOIN versions n ON n.d = f.d AND n.newest_rank = 1 WHERE f.first_rank = 1 ORDER BY f.d",
+            {"t": tenant_id, "s": security_id, "a": around, "n": sessions},
+        )
+        rows = cur.fetchall()
+
+    def _f(v: Any) -> float | None:
+        return None if v is None else float(v)
+
+    return [
+        TapeBar(
+            d=r["d"],
+            close=_f(r["close"]),
+            volume=_f(r["volume"]),
+            newest_close=_f(r["newest_close"]),
+            filled=bool(r["filled"]),
+        )
+        for r in rows
+    ]
 
 
 # --- one company -------------------------------------------------------------------------------------------
@@ -223,12 +302,30 @@ def detect_security(
     *,
     asof: date,
     sec_since: date,
+    distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
+    confirmed: tuple[ConfirmedSplit, ...] | None = None,
 ) -> SecurityDetection:
-    """Every split tonight's evidence states for ONE company (the module docstring). Reads only."""
+    """Every split tonight's evidence states for ONE company (the module docstring). Reads only.
+    ``distribution_max_factor``: D2's bound (``backfill_splits.distribution_cap``); ``label_overrides_abstain``:
+    W6-2's label rule (``backfill_splits.distribution_label_overrides_abstain``). ``confirmed``: the company's
+    splits confirmed on the list (``backfill_splits.confirmed_of``; read here when not given) — every filing is
+    read knowing them."""
     out = SecurityDetection(member=m)
+    if confirmed is None:
+        confirmed = confirmed_splits(conn, m)
     absorbed: set[str] = set()
     for group in _group(list(polygon_rows)):
-        g = decide_polygon_group(conn, reader, m, group, asof=asof)
+        g = decide_polygon_group(
+            conn,
+            reader,
+            m,
+            group,
+            asof=asof,
+            distribution_max_factor=distribution_max_factor,
+            label_overrides_abstain=label_overrides_abstain,
+            confirmed=confirmed,
+        )
         d = g.decision
         absorbed.update(s.accession for s in g.read if related(s, group[0]))
         # the tape settles a Massive.com-only row only when nothing else could disagree: no conflicting Massive.com
@@ -250,7 +347,7 @@ def detect_security(
         out.decisions.append(d)
     # the SEC side on its own: the split filings filed in the lookback that no Massive.com row explains
     refs = reader.refs(conn, m, sec_since, asof)
-    read, unread = reader.read(m, refs)
+    read, unread = reader.read(m, refs, confirmed=confirmed)
     # each filing counted once, whichever window read it
     seen = reader.read_here
     out.filings_read = sum(1 for a in seen if reader.evidence[a] is not None)
@@ -325,6 +422,7 @@ def _stored_polygon(v: SplitVersion) -> PolygonEvidence | None:
         execution_date=v.polygon_execution_date,
         split_from=v.polygon_split_from,
         split_to=v.polygon_split_to,
+        adjustment_type=v.polygon_adjustment_type,  # W6-1: the label it was stored with (NULL before 0216)
     )
 
 
@@ -370,13 +468,19 @@ def _same_values(d: SplitDecision, v: SplitVersion) -> bool:
 
 
 def plan_against(
-    detection: SecurityDetection, stored: Iterable[SplitVersion], *, asof: date
+    detection: SecurityDetection,
+    stored: Iterable[SplitVersion],
+    *,
+    asof: date,
+    distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
 ) -> list[Planned]:
     """Each decision against the stored list (the module docstring's rule). Pure: no I/O.
 
     One refinement of the rule: a filing that arrives AFTER its split's Massive.com row left tonight's pull (a late
     8-K, filed weeks after the split — FDCT's came 47 days later, outside S1's window) is decided against the
-    Massive.com row the stored split already carries, by S1's own ``decide`` — so the two sources still meet.
+    Massive.com row the stored split already carries, by S1's own ``decide`` (with D2's ``distribution_max_factor``
+    and W6-2's ``label_overrides_abstain``) — so the two sources still meet.
     """
     vs = list(stored)
     claimed: set[date] = set()
@@ -392,7 +496,13 @@ def plan_against(
         if d.polygon is None and d.sec is not None and d.sec.has_ratio:
             poly = _stored_polygon(v)
             if poly is not None:
-                d = decide(poly, [d.sec], asof=asof)
+                d = decide(
+                    poly,
+                    [d.sec],
+                    asof=asof,
+                    distribution_max_factor=distribution_max_factor,
+                    label_overrides_abstain=label_overrides_abstain,
+                )
         d = replace(d, key_date=v.key_date)
         if v.key_date in claimed:
             out.append(Planned(detection.member, d, v, KEPT, "already planned tonight"))
@@ -402,9 +512,15 @@ def plan_against(
             out.append(Planned(detection.member, d, v, UNCHANGED))
             continue
         why = None
+        # open: waiting for review or its first session — or set aside by the system (D2), which a later filing
+        # can still confirm or send back to review
+        still_open = v.status in (
+            STATUS_NEEDS_REVIEW,
+            STATUS_ANNOUNCED,
+        ) or split_repo.is_auto_set_aside(v)
         if v.author == AUTHOR_OPERATOR:
             why = "the operator's decision stands"
-        elif v.status not in (STATUS_NEEDS_REVIEW, STATUS_ANNOUNCED):
+        elif not still_open:
             why = f"{v.status}: settled, the operator's to change"
         elif (v.polygon_id and d.polygon is None) or (v.sec_accession and d.sec is None):
             why = "a source the listed split carries is missing tonight"
@@ -473,7 +589,10 @@ class Detected:
     @property
     def line(self) -> str:
         who = self.ticker or str(self.security_id)
-        what = "needs review" if self.status == STATUS_NEEDS_REVIEW else self.status
+        what = {
+            STATUS_NEEDS_REVIEW: "needs review",
+            STATUS_REJECTED: "set aside as a distribution",  # D2: the only status a system writes as rejected
+        }.get(self.status, self.status)
         again = "; updated" if self.verb == "updated" else ""
         return f"{who} {self.label} {what} ({self.sources}{again})"
 
@@ -486,6 +605,8 @@ class SplitDetection:
     polygon: str = "not run"
     polygon_rows: int = 0
     polygon_live_pages: int = 0
+    # W6-1: rows Massive.com served with no known label (kept, label NULL; 0 on the v3 fallback)
+    polygon_unlabeled: int = 0
     checked: int = 0
     filings_read: int = 0
     filings_unread: int = 0
@@ -503,6 +624,7 @@ class SplitDetection:
                 "polygon": self.polygon,
                 "polygon_rows": self.polygon_rows,
                 "polygon_live_pages": self.polygon_live_pages,
+                "polygon_unlabeled": self.polygon_unlabeled,
                 "checked": self.checked,
                 "filings_read": self.filings_read,
                 "filings_unread": self.filings_unread,
@@ -573,6 +695,10 @@ class SplitDetector:
         self._evidence: dict[str, SecEvidence | None] = {}
         # every security's former tickers, read ONCE a pass on the first check (``former_tickers``)
         self._former: dict[UUID, tuple[str, ...]] | None = None
+        # D2's bound, read once a pass (``None`` = the auto set-aside is off)
+        self.distribution_max_factor = distribution_cap()
+        # W6-2's label rule, read beside it
+        self.label_overrides_abstain = distribution_label_overrides_abstain()
         self.planned: list[Planned] = []
         self.detections: list[SecurityDetection] = []
 
@@ -592,7 +718,7 @@ class SplitDetector:
         t0 = perf_counter()
         polygon = source if source is not None else default_split_source()
         rows: list[PolygonEvidence] | None = None
-        live_pages = 0
+        live_pages = unlabeled = 0
         if polygon is None:
             status = "off (no MASSIVE_API_KEY)"
         else:
@@ -601,6 +727,7 @@ class SplitDetector:
                     asof - timedelta(days=polygon_days), allow_live=allow_live
                 )
                 rows, live_pages, status = pull.rows, pull.live_pages, "on"
+                unlabeled = pull.unlabeled
                 if pull.skipped:
                     status = f"on ({pull.skipped} unreadable row(s) skipped)"
             except CacheMiss:
@@ -613,6 +740,7 @@ class SplitDetector:
             asof=asof, polygon_rows=rows, polygon_status=status, sec_days=sec_days, apply=apply
         )
         det.result.polygon_live_pages = live_pages
+        det.result.polygon_unlabeled = unlabeled
         det.result.duration_s += perf_counter() - t0
         return det
 
@@ -640,16 +768,31 @@ class SplitDetector:
         reader = SecReader(client, memo_dir=_memo_dir(client))
         reader.evidence = self._evidence  # each filing read once a pass, whichever company reads it
         try:
+            # the stored list first: its confirmed splits are the ones each filing is read knowing (a read only)
+            stored = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[sec.id])
             det = detect_security(
-                conn, reader, m, self._rows_for(m), asof=self.asof, sec_since=self.sec_since
+                conn,
+                reader,
+                m,
+                self._rows_for(m),
+                asof=self.asof,
+                sec_since=self.sec_since,
+                distribution_max_factor=self.distribution_max_factor,
+                label_overrides_abstain=self.label_overrides_abstain,
+                confirmed=confirmed_of(stored),
             )
             self.detections.append(det)
             self.result.checked += 1
             self.result.filings_read += det.filings_read
             self.result.filings_unread += det.filings_unread
             self.result.unplaced.extend(det.unplaced)
-            stored = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[sec.id])
-            plan = plan_against(det, stored, asof=self.asof)
+            plan = plan_against(
+                det,
+                stored,
+                asof=self.asof,
+                distribution_max_factor=self.distribution_max_factor,
+                label_overrides_abstain=self.label_overrides_abstain,
+            )
             self.planned.extend(plan)
             for p in plan:
                 if p.action == KEPT and p.reason != "already planned tonight":
@@ -794,9 +937,10 @@ def print_plan(detector: SplitDetector, *, out: Any = None) -> None:
         if d.sec is not None:
             w(f"      SEC {d.sec.form} {d.sec.accession} filed {d.sec.filed.isoformat()}\n")
         if d.polygon is not None:
+            label = f" ({d.polygon.adjustment_type})" if d.polygon.adjustment_type else ""
             w(
                 f"      Massive.com {d.polygon.ticker} {d.polygon.split_from} -> {d.polygon.split_to} on "
-                f"{d.polygon.execution_date.isoformat()}\n"
+                f"{d.polygon.execution_date.isoformat()}{label}\n"
             )
         w(f"      note: {' '.join(d.note.split())[:500]}\n")
     for u in detector.result.unplaced:

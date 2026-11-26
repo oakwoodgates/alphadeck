@@ -10,7 +10,8 @@ real ``run_daily`` whose call step genuinely raised for one thesis.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 
 import psycopg
@@ -25,6 +26,7 @@ from pipeline.self_audit import (
     check_code_sha_known,
     check_every_thesis_finished,
     check_on_time_rows,
+    check_splits_applied,
     failed_labels,
     run_audit,
 )
@@ -340,3 +342,153 @@ def test_the_PASS_writes_the_audit_into_the_artifact_and_PAGES_a_failure(db, mon
     assert len(pages) == 1 and pages[0].audit_failed
     assert "code_sha_known" in pages[0].label
     assert "audited-thesis-name" not in pages[0].label  # a page never names a thesis
+
+
+# --- (f) splits_applied — the repair command is named per ticker ---------------------------------------
+
+_SPLIT_ASOF = date(2026, 11, 25)
+_REPAIR = "python -m pipeline.repair_split_basis"
+
+
+def _unapplied_split(db, tk: str, first_session: date, *, factor: int = 10) -> uuid.UUID:
+    """A company in the active basket whose confirmed 1-for-``factor`` reverse split is in force and NOT on its
+    stored tape: weekday bars from 14 days before the first session to 14 days after (or the as-of), written
+    by the real price writer at the old scale (0.50, 1,000,000 shares) before the first session and at the
+    raw post-split scale (x``factor``, volume / ``factor``) from it — the shape ``boundary`` reads as RAW. The
+    split row goes through the repo's own writer, as the operator's confirm does.
+    """
+    from ingest.prices.eod_loader import ingest_prices
+    from repositories import split_repo
+
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, name, price_symbol, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, tk, f"{tk} Corp.", tk, "2020-01-01"),
+        )
+    rows = []
+    d = first_session - timedelta(days=14)
+    while d <= min(first_session + timedelta(days=14), _SPLIT_ASOF):
+        if d.weekday() < 5:
+            on_new_scale = d >= first_session
+            close = Decimal("0.50") * (factor if on_new_scale else 1)
+            volume = Decimal(1_000_000) / (factor if on_new_scale else 1)
+            rows.append(
+                {
+                    "d": d,
+                    "open": close,
+                    "high": close,
+                    "low": close,
+                    "close": close,
+                    "volume": volume,
+                }
+            )
+        d += timedelta(days=1)
+    ingest_prices(db, sid, rows, tenant_id=DEFAULT_TENANT_ID)
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=first_session,
+        values={
+            "effective_date": first_session,
+            "ratio_from": Decimal(factor),
+            "ratio_to": Decimal(1),
+            "status": "confirmed",
+            "confirmed_via": "operator",
+            "value_source": "polygon",
+            "polygon_execution_date": first_session,
+            "polygon_split_from": Decimal(factor),
+            "polygon_split_to": Decimal(1),
+            "valid_from": first_session - timedelta(days=6),
+        },
+        action=split_repo.ACTION_CONFIRM,
+        author=split_repo.AUTHOR_OPERATOR,
+    )
+    db.commit()
+    return sid
+
+
+def _in_basket(db, *sids: uuid.UUID) -> None:
+    """One thesis whose basket holds ``sids`` — the active basket union the audit walks."""
+    tid = _thesis(db, "s2-audit-basket")
+    with db.cursor() as cur:
+        for i, sid in enumerate(sids):
+            cur.execute(
+                "INSERT INTO basket_member (id, tenant_id, thesis_id, ordinal, ticker, role, security_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (uuid.uuid4(), DEFAULT_TENANT_ID, tid, i, "—", "—", sid),
+            )
+    db.commit()
+
+
+def _splits_applied(asof: date) -> AuditResult:
+    ctx = AuditContext(
+        asof=asof,
+        started_at=datetime.combine(asof, time(23), tzinfo=timezone.utc),
+        allow_live=True,
+        run_kind="cron",
+        code_sha="abc1234",
+        results=[],
+        run_at=time(22, 30),
+        tz=timezone.utc,
+        connect=connect,
+    )
+    try:
+        return check_splits_applied(ctx)
+    finally:
+        ctx.close()
+
+
+def test_splits_applied_FAILS_a_recent_split_naming_the_repair_command_for_that_ticker(db):
+    """GNS's 1-for-10 (first session 2026-11-20, three sessions before the 11-25 pass) is not on the stored
+    tape. The detail does not blame \"the price leg's first night\" — GNS WAS applied, then undone by a vendor
+    revert — and names the one command that fixes the company: the dry run, then --apply."""
+    _in_basket(db, _unapplied_split(db, "GNS", date(2026, 11, 20)))
+
+    res = _splits_applied(_SPLIT_ASOF)
+
+    assert res.ok is False, res.detail
+    assert "GNS 1-for-10 reverse split 2026-11-20" in res.detail
+    assert f"{_REPAIR} --ticker GNS (dry run), then --apply" in res.detail
+    assert "first night did not take" not in res.detail
+    assert "never applied, or undone by a vendor revert" in res.detail
+
+
+def test_splits_applied_FAIL_detail_names_a_command_per_ticker_when_several_are_recent(db):
+    """Two recent splits, two commands — one per company, never the bare tool (which dry-runs every one)."""
+    _in_basket(
+        db,
+        _unapplied_split(db, "GNS", date(2026, 11, 20)),
+        _unapplied_split(db, "RCNT", date(2026, 11, 19), factor=4),
+    )
+
+    res = _splits_applied(_SPLIT_ASOF)
+
+    assert res.ok is False
+    assert f"{_REPAIR} --ticker GNS (dry run), then --apply" in res.detail
+    assert f"{_REPAIR} --ticker RCNT (dry run), then --apply" in res.detail
+    assert "RCNT 1-for-4 reverse split 2026-11-19" in res.detail
+
+
+def test_splits_applied_BACKLOG_passes_and_names_the_repair_command_per_ticker(db):
+    """Older splits are the repair tool's backlog: the audit passes, and each name carries its own command."""
+    _in_basket(
+        db,
+        _unapplied_split(db, "OLDR", date(2026, 10, 1)),
+        _unapplied_split(db, "ELDR", date(2026, 10, 6), factor=4),
+    )
+
+    res = _splits_applied(_SPLIT_ASOF)
+
+    assert res.ok is True, res.detail
+    assert "2 older one(s) not yet applied to the stored tape" in res.detail
+    assert (
+        f"OLDR 1-for-10 reverse split 2026-10-01 — run {_REPAIR} --ticker OLDR (dry run), then --apply"
+        in res.detail
+    )
+    assert (
+        f"ELDR 1-for-4 reverse split 2026-10-06 — run {_REPAIR} --ticker ELDR (dry run), then --apply"
+        in res.detail
+    )

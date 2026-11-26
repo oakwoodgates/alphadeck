@@ -54,7 +54,19 @@ def _capture_extract_facts(monkeypatch):
     calls: dict = {}
 
     def fake(
-        cf, tenq_text, tenk_text, *, tenq_ref, tenk_ref, tenq_date, tenk_date, cfg, values_form
+        cf,
+        tenq_text,
+        tenk_text,
+        *,
+        tenq_ref,
+        tenk_ref,
+        tenq_date,
+        tenk_date,
+        cfg,
+        values_form,
+        tenq_raw,
+        tenq_filed,
+        tenq_prior,
     ):
         calls.update(
             values_form=values_form,
@@ -64,6 +76,9 @@ def _capture_extract_facts(monkeypatch):
             tenk_ref=tenk_ref,
             tenq_date=tenq_date,
             tenk_date=tenk_date,
+            tenq_raw=tenq_raw,
+            tenq_filed=tenq_filed,
+            tenq_prior=tenq_prior,
         )
         return ["shares", "burn", "purity"]  # extract_facts always yields the three candidates
 
@@ -84,6 +99,8 @@ def test_both_forms_present_is_unchanged(monkeypatch):
     assert (
         calls["values_form"] == "10-Q"
     )  # the cash candidate's provenance kind follows the cited form
+    # the values filing's raw document (its inline XBRL) and filing date ride along: no second read
+    assert calls["tenq_raw"] == "Q1-TEXT" and calls["tenq_filed"] == date(2026, 5, 12)
 
 
 def test_only_10k_falls_back_to_it_for_all_roles(monkeypatch):

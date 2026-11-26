@@ -15,6 +15,7 @@ import pytest
 
 from ingest.edgar.split_filing import (
     FilingDocument,
+    KnownSplit,
     extract_split,
     extract_split_screened,
     relevant_documents,
@@ -572,9 +573,10 @@ def test_a_6k_restating_an_old_split_never_attaches_its_ratio(name, old):
 # MEASURED over all 1,139 cached basket 6-Ks (2026-10-24): applying the catch-all 8-K screen to 6-Ks unchanged
 # gave these five a wrong or stale date / ratio. The restatement screen never makes a reading more confident.
 REGRESSED_BY_THE_CATCH_ALL_SCREEN = [
-    # CMND (filed 2026-03-12): restates its 1-for-40 of 2025-12-15 and an investee's 1-for-6; the one legal date
-    # is an accounting-standards boilerplate's 2026-01-31 — the catch-all screen read 40 -> 1 on 01-31
-    ("0001213900-26-026965.txt", ("40", "1", "2026-01-31"), (None, "2026-01-31")),
+    # CMND (filed 2026-03-12): restates its 1-for-40 of 2025-12-15 and an investee's 1-for-6 — the catch-all
+    # screen read 40 -> 1. Its one legal date was an accounting-standards boilerplate's "not yet effective for the
+    # three months ended January 31, 2026", which dates nothing since 2026-11-25 (W2-5)
+    ("0001213900-26-026965.txt", ("40", "1", None), (None, None)),
     # CPOP (2026-06-10): a 2023 consolidation and a proxy dated 2026-04-24 — the catch-all screen read 10 -> 1 on
     # the proxy date (the split's first session is 07-13)
     ("0001213900-26-067098.txt", ("10", "1", "2026-04-24"), ("10->1", None)),
@@ -583,8 +585,10 @@ REGRESSED_BY_THE_CATCH_ALL_SCREEN = [
     # KXIN (2026-09-16): restates 60 -> 1 (2024-10-25, also undated) and 15 -> 1 (2026-03-13) — it read 60 -> 1
     ("0001104659-26-108260.txt", ("60", "1", None), (None, None)),
     # RDY (2024-11-05): a 1:5 sub-division "effective October 28, 2024" (the record date) beside two fiscal
-    # dates — it read 10-28 (Massive.com's first session is 11-05)
-    ("0001575872-24-001124.txt", ("1", "5", "2024-10-28"), ("1->5", None)),
+    # dates — the catch-all screen read 10-28 (Massive.com's first session is 11-05). Since 2026-11-25 (W2-5) a
+    # fiscal period end and a standard not yet effective date nothing, so every reading states the filing's own
+    # LEGAL 10-28 — six sessions from Massive.com's, outside the matcher's tolerance: still the operator's
+    ("0001575872-24-001124.txt", ("1", "5", "2024-10-28"), ("1->5", "2024-10-28")),
 ]
 
 
@@ -705,3 +709,567 @@ def test_a_meeting_date_never_makes_its_ratio_a_past_one():
         Decimal(1),
         date(2026, 6, 1),
     )
+
+
+# --- 2026-11-25: the date sentences the split list misread (W2-5) ----------------------------------------------
+#
+# Each filing below is a REAL full submission (``tests/fixtures/splits/README.md``), read the way the nightly reads
+# it (``pipeline/backfill_splits.extract_for``): a catch-all 8-K (Item 8.01 only) with its filing date, a 6-K or a
+# charter 8-K through the restatement screen. Until 2026-11-25 each read as its comment says (prod's stored
+# reading).
+
+
+def _as_the_nightly_reads(name: str, catch_all: bool):
+    docs = documents(name)
+    if catch_all:
+        return extract_split(docs, filed=filed_of(name))
+    return extract_split_screened(docs, filed=filed_of(name))
+
+
+DATE_SENTENCES = [
+    # COPR (8.01 8-K): "effective on the OTC Markets at the open of business on December 15, 2025" names the
+    # session without the word "trade" (read as a LEGAL date) beside the release's dateline (12-16): "2 different
+    # legal dates stated: 2025-12-15, 2025-12-16"
+    (
+        "0001493152-25-028222.txt",
+        True,
+        ("20", "1"),
+        "2025-12-15",
+        "trading",
+        "effective on the OTC Markets at the open of business on December 15, 2025",
+    ),
+    # NVA (6-K): "The first day of trading under the new ratio is expected to be October 29, 2025" carried no
+    # cue: "no first-session or effective date stated"
+    (
+        "0001493152-25-018165.txt",
+        False,
+        ("1", "5"),
+        "2025-10-29",
+        "trading",
+        "The first day of trading under the new ratio is expected to be October 29, 2025",
+    ),
+    # QGEN (6-K): "… January 28, 2025 (the “Effective Date” and the last trading day of the prior ISIN …)" read as
+    # a first session beside the real one: "2 different trading dates stated: 2025-01-28, 2025-01-29"
+    (
+        "0001015820-25-000012.txt",
+        False,
+        ("36", "35"),
+        "2025-01-29",
+        "trading",
+        "Beginning on Wednesday, January 29, 2025",
+    ),
+    # IMCC (6-K): the risk factors' "annual report for the year ended December 31, 2025" read as a first session:
+    # "2 different trading dates stated: 2025-12-31, 2026-08-27"
+    (
+        "0001178913-26-004186.txt",
+        False,
+        ("30", "1"),
+        "2026-08-27",
+        "trading",
+        "on a post-Consolidation basis at the opening of trading on August 27, 2026",
+    ),
+    # SCAG (6-K): the dateline "Nanjing, China, October 22, 2026 /PRNewswire/" in the headline sentence naming the
+    # "Effective Date": "2 different legal dates stated: 2026-10-22, 2026-10-27"
+    (
+        "0001213900-26-113338.txt",
+        False,
+        ("15", "1"),
+        "2026-10-27",
+        "legal",
+        "The ADS Ratio Change will be effective on October 27, 2026",
+    ),
+    # EZRA (charter 8-K): its press release's forward-looking statements name "the June 10, 2026 compliance
+    # deadline" beside "post-split trading price": "2 different trading dates stated: 2026-05-18, 2026-06-10"
+    (
+        "0001493152-26-022840.txt",
+        False,
+        ("40", "1"),
+        "2026-05-18",
+        "trading",
+        "begin trading on Nasdaq on a Reverse Stock Split-adjusted basis on May 18, 2026 at market open",
+    ),
+    # VEEA (charter 8-K): its press release writes "at the market open on August 31 , 2026" (a space before the
+    # comma: the date went unread) after "effective at 4:30 p.m. … on August 28, 2026", so the sentence's one date
+    # read was the legal one: "2 different trading dates stated: 2026-08-28, 2026-08-31"
+    (
+        "0001213900-26-093996.txt",
+        False,
+        ("20", "1"),
+        "2026-08-31",
+        "trading",
+        "will begin trading on a split-adjusted basis when the market opens on August 31, 2026",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "catch_all", "ratio", "when", "kind", "phrase"),
+    DATE_SENTENCES,
+    ids=["COPR", "NVA", "QGEN", "IMCC", "SCAG", "EZRA", "VEEA"],
+)
+def test_the_filing_states_its_first_session(name, catch_all, ratio, when, kind, phrase):
+    x = _as_the_nightly_reads(name, catch_all)
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
+    assert (x.effective_date, x.date_kind, x.date_note) == (date.fromisoformat(when), kind, None)
+    assert phrase in x.passage
+
+
+def test_pbm_period_end_boilerplate_never_dates_its_split():
+    """PBM's interim-results 6-K (filed 2026-11-19) restates its 1-for-6.25 of 2026-02-02; the one date a cue
+    reached was the accounting note's "Accounting Standards Issued But Not Yet Effective … not yet effective for
+    the period ended September 30, 2026", read as the split's LEGAL date 2026-09-30. A period end and a standard
+    not yet effective date nothing (the restated ratio itself is W2-7's: a split already on the list).
+    """
+    x = _as_the_nightly_reads("0001213900-26-122017.txt", False)
+    assert (x.ratio_from, x.ratio_to) == (Decimal("6.25"), Decimal(1))
+    assert x.effective_date is None and x.date_kind is None
+    assert x.date_note == "no first-session or effective date stated"
+    assert "not yet effective" not in x.passage
+
+
+def test_alps_session_cue_outside_a_sentence_about_the_split_dates_nothing():
+    """ALPS's 6-K: "The Authorized Share Capital Changes will be effective at market open on November 9, 2026"
+    ties the date to the split only through a defined term (the share consolidation AND a capital increase). A
+    session cue counts without the word "trade" only in a sentence about the split, so it still dates nothing.
+    """
+    x = _as_the_nightly_reads("0001493152-26-049433.txt", False)
+    assert (x.ratio_from, x.ratio_to) == (Decimal(5), Decimal(1))
+    assert x.effective_date is None
+    assert x.date_note == "no first-session or effective date stated"
+
+
+# --- the date-sentence rules, on direct inputs ------------------------------------------------------------------
+
+
+def test_a_session_cue_in_a_sentence_about_the_split_is_a_trading_date():
+    x = _x(
+        "The 1-for-20 reverse stock split became effective at the open of business on December 15, 2025. The "
+        "certificate effecting the reverse split is effective as of December 12, 2025."
+    )
+    assert (x.effective_date, x.date_kind) == (date(2025, 12, 15), "trading")
+
+
+def test_a_last_day_of_trading_is_never_the_first_session():
+    x = _x(
+        "The 1-for-10 reverse stock split is effective as of 5:00 p.m. on March 1, 2026. The last day of trading "
+        "on a pre-split basis will be March 2, 2026, and the shares will trade on a post-split basis after it."
+    )
+    assert (x.effective_date, x.date_kind) == (date(2026, 3, 1), "legal")
+
+
+@pytest.mark.parametrize(
+    "noise",
+    [
+        # a release's dateline, in a headline that names the effective date
+        "Acme Announces Effective Date of Reverse Stock Split NEW YORK, March 1, 2026 (GLOBE NEWSWIRE) -- Acme "
+        "Corp. today announced the effective date of its reverse stock split.",
+        # the release's own date, cited by the 8-K
+        "On March 1, 2026, the Company issued a press release announcing the effective date of the reverse "
+        "stock split.",
+        # a period end
+        "Share counts for the year ended December 31, 2025 give retroactive effect to the reverse stock split "
+        "as if it were effective then.",
+        # an accounting standard not yet effective
+        "Accounting standards on share consolidations issued but not yet effective will become effective for "
+        "periods beginning on January 1, 2027.",
+        # a deadline
+        "The Company expects post-split trading to cure the deficiency before the June 10, 2026 compliance "
+        "deadline.",
+    ],
+    ids=["dateline", "press-release", "period-end", "not-yet-effective", "deadline"],
+)
+def test_a_date_that_names_something_else_never_dates_a_split(noise):
+    x = _x(f"The 1-for-10 reverse stock split will be effective on March 4, 2026. {noise}")
+    assert (x.effective_date, x.date_kind, x.date_note) == (date(2026, 3, 4), "legal", None)
+
+
+def test_a_date_written_with_a_space_before_its_comma_is_read():
+    x = _x(
+        "The 1-for-20 reverse stock split is expected to become effective at 4:30 p.m. on August 28, 2026 and the "
+        "common stock is expected to begin trading on a post-split basis at the market open on August 31 , 2026."
+    )
+    assert (x.effective_date, x.date_kind) == (date(2026, 8, 31), "trading")
+    y = _x(
+        "The 1-for-20 reverse split became effective as of the market open on December 15 th , 2025."
+    )
+    assert (y.effective_date, y.date_kind) == (date(2025, 12, 15), "trading")
+
+
+# --- 2026-11-25: the ratio phrasings the split list misread (W2-6) ---------------------------------------------
+#
+# Each filing below is a REAL full submission (``tests/fixtures/splits/README.md``), read the way the nightly reads
+# it. Until 2026-11-25 each read as its comment says (prod's stored reading).
+
+RATIO_PHRASINGS = [
+    # NOW (charter 8-K): "a 5-for-1 stock split …, with a proportionate increase in the number of shares of
+    # authorized common stock" named no direction, and "will receive four additional shares for each share" had no
+    # number after "for each": "a ratio is stated but not whether the split is reverse or forward". Both read 1 -> 5
+    # now
+    (
+        "0001373715-25-000321.txt",
+        ("1", "5"),
+        "2025-12-18",
+        "trading",
+        "to effect a 5-for-1 stock split",
+    ),
+    # EMBJ (6-K, an ADS ratio change): "three additional ADSs for every ADS held on the record date" — no number
+    # after "for every", in a sentence with no split word: "no split ratio found"
+    (
+        "0001292814-26-005066.txt",
+        ("1", "4"),
+        "2026-11-16",
+        "trading",
+        "three additional ADSs for every ADS held on the record date",
+    ),
+    # DFSC (two 6-Ks): "a consolidation of its common shares on a 9-to-1 basis": "no split ratio found"
+    (
+        "0001279569-26-001064.txt",
+        ("9", "1"),
+        "2026-11-16",
+        "trading",
+        "will complete a consolidation of its common shares on a 9-to-1 basis",
+    ),
+    (
+        "0001279569-26-001077.txt",
+        ("9", "1"),
+        "2026-11-16",
+        "trading",
+        "has completed a consolidation of its common shares on a 9-to-1 basis",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "ratio", "when", "kind", "phrase"),
+    RATIO_PHRASINGS,
+    ids=["NOW", "EMBJ", "DFSC-1064", "DFSC-1077"],
+)
+def test_the_filing_states_its_ratio(name, ratio, when, kind, phrase):
+    x = _as_the_nightly_reads(name, False)
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
+    assert (x.effective_date, x.date_kind, x.date_note) == (date.fromisoformat(when), kind, None)
+    assert phrase in x.passage
+    assert all(m.startswith("operative:") for m in x.mentions)  # every ratio stated reads the same
+
+
+def test_pom_ads_termination_abstains_on_the_ordinary_share_ratio():
+    """POM's 6-K terminates its ADR program: \"every ten (10) ordinary shares … consolidated into one (1)\" is the
+    ORDINARY share's ratio, while \"each holder of ten (10) ADSs will receive three (3) post-Share Consolidation
+    Class A ordinary shares\" — the ADS price moves x10/3, not x10. It read 10 -> 1, so the ordinary-share ratio could
+    be confirmed onto the ADS's tape; the exchange's factor is the operator's, from cited values.
+    """
+    x = _as_the_nightly_reads("0001213900-26-110501.txt", False)
+    assert not x.has_ratio
+    assert x.abstain_reason == (
+        "ADS termination: the exchange sets the ADS price factor — confirm it with cited values"
+    )
+    assert x.about_a_split  # shown as a split filing the extractor abstained on
+    assert "each holder of ten (10) ADSs will receive three (3)" in x.passage
+    assert (x.effective_date, x.date_kind) == (date(2026, 10, 21), "trading")
+
+
+# --- the ratio rules, on direct inputs ---------------------------------------------------------------------------
+
+
+def test_consolidated_financial_statements_are_no_reverse_split():
+    """NOW's 10-Q (0001373715-25-000309) and 10-K (0001373715-26-000007) read its 5-for-1 as 5 -> 1: the reverse cue
+    \"consolidat\" matched \"consolidated financial statements\" (and \"reclassified into\" matched \"reclassified into
+    earnings\") all through the report, and the 10-K's table footnote cites the statements in the ratio's own
+    sentence. Their own words, verbatim."""
+    ten_q = (
+        "These condensed consolidated financial statements should be read in conjunction with the audited "
+        "consolidated financial statements and related notes included in our Annual Report on Form 10-K for the "
+        "year ended December 31, 2024, which was filed with the SEC on January 30, 2025. Principles of "
+        "Consolidation The accompanying condensed consolidated financial statements have been prepared in "
+        "conformity with GAAP, and include our accounts and the accounts of our wholly-owned subsidiaries. All "
+        "intercompany transactions and balances have been eliminated upon consolidation. (19) Subsequent Event On "
+        "October 29, 2025, we announced that our Board of Directors approved a 5 -for-1 split of our common stock, "
+        "with a proportionate increase in authorized shares of common stock."
+    )
+    x = extract_split(
+        [FilingDocument(type="10-Q", filename="now-20250930.htm", raw=ten_q)], wide=True
+    )
+    assert (x.ratio_from, x.ratio_to) == (Decimal(1), Decimal(5))
+    ten_k = (
+        "(1) Share and per share information in this table has been adjusted to reflect the 5-for-1 common stock "
+        "split effected on December 17, 2025. Refer to Note 2 “Summary of Significant Accounting Policies” in the "
+        "notes to the consolidated financial statements included in Part II, Item 8 of this Annual Report on Form "
+        "10-K for additional information. For contracts qualifying as cash flow hedges, the derivative’s gain or "
+        "loss is initially reported as a component of accumulated other comprehensive income (loss) and "
+        "subsequently reclassified into earnings in the same period the forecasted transaction affects earnings."
+    )
+    y = extract_split(
+        [FilingDocument(type="10-K", filename="now-20251231.htm", raw=ten_k)], wide=True
+    )
+    assert y.abstain_reason == "a ratio is stated but not whether the split is reverse or forward"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The Company will complete a consolidation of its common shares on a 9-to-1 basis.",
+        "Every nine (9) ordinary shares will be consolidated into one (1) ordinary share.",
+        "The shares will begin trading on a post-consolidation basis; the 1-for-9 ratio was set by the Board.",
+        "The common shares will be consolidated at a ratio of 9:1.",
+        "The Board approved the 1-for-9 Share Consolidation of the consolidated group's parent.",
+    ],
+)
+def test_a_share_consolidation_is_still_a_reverse_split(text):
+    x = _x(text)
+    assert (x.ratio_from, x.ratio_to) == (Decimal(9), Decimal(1))
+
+
+def test_a_proportionate_increase_in_authorized_shares_is_a_forward_split():
+    x = _x(
+        "The Board approved a 4-for-1 split of the common stock, with a proportionate increase in the number of "
+        "authorized shares. The common stock will begin trading on a split-adjusted basis on March 2, 2026."
+    )
+    assert (x.ratio_from, x.ratio_to) == (Decimal(1), Decimal(4))
+    # …but never where the sentence itself names a reverse split, nor where it says there is no such increase
+    y = _x(
+        "The 1-for-4 reverse split will not cause a proportionate increase in the authorized shares."
+    )
+    assert (y.ratio_from, y.ratio_to) == (Decimal(4), Decimal(1))
+    z = _x(
+        "The Company effected a reverse stock split. The 1-for-4 split was effected without a proportionate "
+        "increase in the number of authorized shares."
+    )
+    assert (z.ratio_from, z.ratio_to) == (Decimal(4), Decimal(1))
+
+
+def test_additional_shares_elsewhere_never_turn_a_reverse_split_forward():
+    """\"additional shares\" orients only the ratio's own sentence, never the document."""
+    x = _x(
+        "The Company effected a reverse stock split. Each holder's 1-for-20 split shares were rounded up. The "
+        "Company may issue additional shares in the future."
+    )
+    assert (x.ratio_from, x.ratio_to) == (Decimal(20), Decimal(1))
+
+
+def test_n_to_m_is_read_only_as_a_basis():
+    x = _x("The Board may select a consolidation ratio from 1-to-5 to 1-to-50 at its discretion.")
+    assert not x.has_ratio
+
+
+def test_a_ceiling_or_a_past_split_needs_no_direction():
+    """With accounting "consolidated" no longer a reverse cue, a 10-Q's covenant and a restated old split often
+    name no direction: a ceiling is still a ceiling and a past split still a past one (NEE's 10-Q restates "the
+    four-for-one stock split of NEE common stock effective October 26, 2020")."""
+    x = _x("The credit agreement limits our consolidated leverage ratio to no more than 4.0:1.0.")
+    assert x.abstain_reason.startswith("only an authorized range of ratios")
+    y = extract_split(
+        [
+            FilingDocument(
+                type="10-Q",
+                filename="t.htm",
+                raw="Share counts reflect the four-for-one stock split of the common stock effective "
+                "October 26, 2020.",
+            )
+        ],
+        filed=date(2026, 9, 30),
+        wide=True,
+    )
+    assert y.abstain_reason == "only a past split's ratio is stated"
+
+
+def test_an_ads_termination_only_supposed_is_none():
+    x = _x(
+        "If we terminate our ADR program, holders may receive ordinary shares. The Board approved a 1-for-10 "
+        "reverse stock split effective as of March 2, 2026."
+    )
+    assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(10), Decimal(1), None)
+
+
+# --- 2026-11-25: a split already CONFIRMED on the list, restated (W2-7) -----------------------------------------
+#
+# Each filing below is a REAL full submission (``tests/fixtures/splits/README.md``), read the way the nightly reads
+# it, knowing the company's splits prod's list held CONFIRMED on 2026-11-25 (``KnownSplit``: old -> new shares and
+# the first session, as the list stores them; ``pipeline/backfill_splits.known_for`` passes those in effect by the
+# filing's date). Without them each reads as its comment says (prod's stored reading, or W2-5 / W2-6's).
+
+PAST_ONLY = "only a past split's ratio is stated"
+
+
+def _known(*splits: tuple[str, str, str]) -> tuple[KnownSplit, ...]:
+    return tuple(KnownSplit(Decimal(a), Decimal(b), date.fromisoformat(d)) for a, b, d in splits)
+
+
+GCTK_KNOWN = _known(("20", "1", "2025-02-04"), ("60", "1", "2025-06-16"), ("15", "1", "2026-08-31"))
+PBM_KNOWN = _known(
+    ("75", "1", "2024-11-26"), ("7.97", "1", "2025-05-05"), ("6.25", "1", "2026-02-02")
+)
+GPUS_KNOWN = _known(("35", "1", "2024-11-25"))
+TRT_KNOWN = _known(("1", "2", "2026-01-05"))
+CMND_KNOWN = _known(("40", "1", "2025-12-15"))
+
+
+def _nightly(name: str, *, catch_all: bool = False, wide: bool = False, known=()):
+    docs = documents(name)
+    if catch_all:
+        return extract_split(docs, filed=filed_of(name), known=known)
+    return extract_split_screened(docs, filed=filed_of(name), wide=wide, known=known)
+
+
+def test_gctk_reads_its_new_split_beside_the_one_already_listed():
+    """GCTK's 8-K of 2026-10-22 (Items 1.01 / 2.03 / 3.02 / 7.01: a catch-all) announces a 1-for-2, first session
+    10-26, and restates "On August 28, 2026, the Company implemented a 1-for-15 reverse stock split" — 55 days
+    back, inside the 90-day gap, so it abstained on the two and the 1-for-2 waited for review. The 1-for-15 is on
+    the list (first session 08-31; August 28 its legal date): read knowing it, the 8-K states the 1-for-2.
+    """
+    name = "0001493152-26-048139.txt"
+    before = _nightly(name, catch_all=True)
+    assert before.abstain_reason == "more than one ratio stated: 2->1, 15->1"
+    assert _nightly(name, catch_all=True, known=()) == before  # no known split: exactly as before
+    x = _nightly(name, catch_all=True, known=GCTK_KNOWN)
+    assert x.abstain_reason is None
+    assert (x.ratio_from, x.ratio_to) == (Decimal(2), Decimal(1))
+    assert (x.effective_date, x.date_kind, x.date_note) == (date(2026, 10, 26), "trading", None)
+    assert "announced a 1-for-2 reverse stock split" in x.passage
+    assert "historical:1-for-15" in x.mentions
+    # through the restatement screen too (a charter 8-K would be read so): the same reading
+    assert _nightly(name, known=GCTK_KNOWN) == x
+
+
+RESTATED = [
+    # PBM's interim 6-K of 2026-11-19: "Comparative loss per share has been restated to reflect the 6.25:1 share
+    # consolidation completed on February 2, 2026", in a run-on table sentence whose other dates are current: read
+    # as a 6.25 -> 1 with no date (since W2-5; until then dated 2026-09-30 by a period end)
+    (
+        "0001213900-26-122017.txt",
+        PBM_KNOWN,
+        {},
+        ("6.25", "1"),
+        "restated to reflect the 6.25:1 share consolidation completed on February 2, 2026",
+    ),
+    # GPUS's 8-K of 2024-11-26 (Items 7.01 / 9.01): "The foregoing figures reflect the implementation of the
+    # one-for-thirty-five reserve stock split that was effectuated on November 25, 2024" — the day before, and with
+    # no direction word ("reserve"): an abstain that kept its 2024-12-13 distribution from being set aside
+    (
+        "0001214659-24-019590.txt",
+        GPUS_KNOWN,
+        {"catch_all": True},
+        "a ratio is stated but not whether the split is reverse or forward",
+        "that was effectuated on November 25, 2024",
+    ),
+    # Trio-Tech's 10-Q of 2026-11-12 (a wide form: the targeted reader): "On January 5, 2026, the Company effected a
+    # two-for-one forward stock split", in footnotes under its tables, beside current dates: 1 -> 2, no date
+    (
+        "0001437749-26-036465.txt",
+        TRT_KNOWN,
+        {"wide": True},
+        ("1", "2"),
+        "On January 5, 2026, the Company effected a two-for-one forward stock split",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "known", "how", "was", "phrase"), RESTATED, ids=["PBM", "GPUS", "TRT"]
+)
+def test_a_split_already_listed_restated_is_a_past_splits(name, known, how, was, phrase):
+    before = _nightly(name, **how)
+    if isinstance(was, tuple):
+        assert (before.ratio_from, before.ratio_to) == (Decimal(was[0]), Decimal(was[1]))
+        assert before.effective_date is None
+    else:
+        assert not before.has_ratio and before.abstain_reason == was
+    x = _nightly(name, known=known, **how)
+    assert not x.has_ratio
+    assert (x.abstain_reason, x.effective_date) == (PAST_ONLY, None)
+    assert x.about_a_split  # still a filing about a split: shown, never news
+    assert phrase in x.passage
+    assert all(m.startswith(("historical:", "range:")) for m in x.mentions)
+
+
+def test_cmnd_a_restated_split_takes_its_other_mentions_along():
+    """CMND's interim 6-K of 2026-03-12 restates its 1-for-40 of 2025-12-15 twice: \"the Company effected a
+    1-for-40 reverse split\" and \"holders of the Company's common shares received 0.025 of a common share for every
+    one common share held\" (no done word). A filing that dates nothing current of its own only restates, so the
+    second goes with the first: read as the catch-all screen reads it, 40 -> 1 before, a past split's now.
+    """
+    name = "0001213900-26-026965.txt"
+    before = _nightly(name, catch_all=True)
+    assert (before.ratio_from, before.ratio_to) == (Decimal(40), Decimal(1))
+    x = _nightly(name, catch_all=True, known=CMND_KNOWN)
+    assert (x.has_ratio, x.abstain_reason) == (False, PAST_ONLY)
+
+
+# --- the known-split rule, on direct inputs -----------------------------------------------------------------------
+
+
+def _xk(text: str, known, *, filed: date | None = None):
+    return extract_split(
+        [FilingDocument(type="8-K", filename="t.htm", raw=text)], filed=filed, known=known
+    )
+
+
+K15 = _known(("15", "1", "2026-08-31"))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "On August 28, 2026, the Company implemented a 1-for-15 reverse stock split.",
+        "As previously disclosed, the Company effected a 1-for-15 reverse stock split.",
+        "Share amounts have been retroactively adjusted to reflect the 1-for-15 reverse stock split.",
+        "Per-share figures give retroactive effect to the 1-for-15 reverse stock split.",
+    ],
+)
+def test_a_known_ratio_stated_as_done_is_a_past_splits(text):
+    assert _xk(text, ()).ratio_from == Decimal(15)  # without the list: read as a split
+    x = _xk(text, K15, filed=date(2026, 10, 22))
+    assert (x.has_ratio, x.abstain_reason) == (False, PAST_ONLY)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # still to come
+        "The 1-for-15 reverse stock split is to be effected through an amendment to the charter.",
+        "The 1-for-15 reverse stock split will be implemented as previously disclosed.",
+        # no done word at all
+        "The Board approved a 1-for-15 reverse stock split of the common stock.",
+        # done, but dated away from the known split: another split of the same ratio
+        "On October 20, 2026, the Company effected a 1-for-15 reverse stock split.",
+    ],
+)
+def test_a_known_ratio_not_stated_as_done_stays(text):
+    x = _xk(text, K15, filed=date(2026, 10, 22))
+    assert (x.ratio_from, x.ratio_to) == (Decimal(15), Decimal(1))
+
+
+def test_the_known_splits_own_evidence_reads_as_before():
+    """A filing whose own date is the known split's is that split's evidence (the one that confirmed it, re-read):
+    knowing the split changes nothing."""
+    text = (
+        "The 1-for-15 reverse stock split became effective on August 28, 2026, and the common stock began trading "
+        "on a split-adjusted basis on August 31, 2026."
+    )
+    before = _xk(text, (), filed=date(2026, 9, 2))
+    assert (before.ratio_from, before.effective_date, before.date_kind) == (
+        Decimal(15),
+        date(2026, 8, 31),
+        "trading",
+    )
+    assert _xk(text, K15, filed=date(2026, 9, 2)) == before
+
+
+def test_a_new_split_of_the_same_ratio_still_reads():
+    """A company splitting by the same ratio again (44 days apart: inside the 90-day gap): the old split restated as
+    done is set aside, the new one — announced, not done — stands, whether its own sentence carries its date or
+    not."""
+    k = _known(("10", "1", "2026-09-14"))
+    for text in (
+        "On September 14, 2026, the Company effected a 1-for-10 reverse stock split. The Board has approved a "
+        "second 1-for-10 reverse stock split, and the common stock will begin trading on a split-adjusted basis "
+        "on November 2, 2026.",
+        "On September 14, 2026, the Company effected a 1-for-10 reverse stock split. The Board has approved a "
+        "second 1-for-10 reverse stock split. The common stock will begin trading on a split-adjusted basis on "
+        "November 2, 2026.",
+    ):
+        x = _xk(text, k, filed=date(2026, 10, 28))
+        assert (x.ratio_from, x.ratio_to) == (Decimal(10), Decimal(1)), text
+        assert (x.effective_date, x.date_kind) == (date(2026, 11, 2), "trading")
+        assert "historical:1-for-10" in x.mentions

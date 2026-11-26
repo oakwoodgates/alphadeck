@@ -1,0 +1,67 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-26 through the steward review's sec.py), cut to the dei taxonomy; every row is verbatim.",
+ "cik": 1583708,
+ "entityName": "SENTINELONE, INC",
+ "facts": {
+  "dei": {
+   "EntityPublicFloat": {
+    "label": "Entity Public Float",
+    "description": "The aggregate market value of the voting and non-voting common equity held by non-affiliates computed by reference to the price at which the common equity was last sold, or the average bid and asked price of such common equity, as of the last business day of the registrant's most recently completed second fiscal quarter.",
+    "units": {
+     "USD": [
+      {
+       "end": "2021-07-31",
+       "val": 6900000000,
+       "accn": "0001583708-22-000016",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-04-07",
+       "frame": "CY2021Q2I"
+      },
+      {
+       "end": "2022-07-31",
+       "val": 3500000000,
+       "accn": "0001583708-23-000014",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-03-29",
+       "frame": "CY2022Q2I"
+      },
+      {
+       "end": "2023-07-31",
+       "val": 3300000000,
+       "accn": "0001583708-24-000016",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2024-03-27",
+       "frame": "CY2023Q2I"
+      },
+      {
+       "end": "2024-07-31",
+       "val": 5500000000,
+       "accn": "0001583708-25-000051",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-03-26",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2025-07-31",
+       "val": 5100000000,
+       "accn": "0001583708-26-000020",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-03-19",
+       "frame": "CY2025Q2I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

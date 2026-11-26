@@ -1,4 +1,4 @@
-"""Synthetic API payloads for the steward tools (``GET /admin/splits`` and ``GET /admin/status``).
+"""Synthetic API payloads for the steward tools (``GET /admin/splits``, its tape window and ``GET /admin/status``).
 
 Every name is synthetic (``TK01``..``TK08``, ``Company 01``..); no card, company or ticker from the live store. Each
 payload is built as a dict, VALIDATED through the API's own wire model (so a fixture cannot drift from the contract) and
@@ -7,11 +7,12 @@ dumped to JSON exactly as FastAPI serves it.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from app.routers.admin_insider_holds import AdminInsiderHoldsOut
 from app.routers.admin_platform_values import CompanyValuesOut, PlatformQueueOut
-from app.routers.admin_splits import AdminSplitListOut
+from app.routers.admin_splits import AdminSplitListOut, AdminSplitTapeOut
 from app.schemas_api import AdminStatusOut, OnboardingReadoutOut
 from domain.insider_holds import reason_words
 from tests.agent_tools.fixtures import text, uid
@@ -97,13 +98,23 @@ def _option(source: str, label: str) -> dict[str, Any]:
     }
 
 
+# W2-8: an open row's hints as the API states them (TREO's count: dated before the first session, so a confirm
+# rescales it)
+HINTS: dict[str, Any] = {
+    "first_bar": "2025-03-14",
+    "shares_rescaled": {"count": 13_524_682.0, "date": "2026-07-31"},
+}
+
+
 def needs_review_row(n: int, **over: Any) -> dict[str, Any]:
-    """One more needs-review row (a different synthetic ticker), for the budget test."""
+    """One more needs-review row (a different synthetic ticker), for the budget test. Like every open row it carries
+    the API's two hints (W2-8): the first stored bar and the share count a confirm rescales."""
     fields: dict[str, Any] = {
         "decided_by": "needs review",
         "confirm_options": [_option("sec", "SEC: 1-for-10")],
         "actions": ["confirm_sec", "reject"],
         "review_reason": "one_source",
+        **HINTS,
         **over,
     }
     return _entry(n, "needs_review", **fields)
@@ -165,7 +176,7 @@ def splits(extra_needs_review: int = 0) -> dict[str, Any]:
     )
     body = {
         "needs_review": needs,
-        "announced": [_entry(4, "announced", decided_by="auto: SEC + Massive.com")],
+        "announced": [_entry(4, "announced", decided_by="auto: SEC + Massive.com", **HINTS)],
         "confirmed": [
             _entry(5, "confirmed", confirmed_via="auto"),
             _entry(1, "confirmed", key_date="2026-06-01", confirmed_via="auto"),
@@ -180,6 +191,43 @@ def splits(extra_needs_review: int = 0) -> dict[str, Any]:
         len(body[b]) for b in ("needs_review", "announced", "confirmed", "set_aside")
     )
     return _dump(AdminSplitListOut, body)
+
+
+SPLIT_BUCKETS = ("needs_review", "announced", "confirmed", "set_aside")
+TAPE_SESSIONS = 5
+
+
+def split_tape(version_id: str, around: str) -> dict[str, Any]:
+    """``GET /admin/splits/{version_id}/tape`` (W5-1): five stored sessions either side of ``around`` (synthetic
+    calendar days). The five before it were first served at about 20 and restated x0.1 (two closes each); from
+    ``around`` on one version at about 2, so the step at ``around`` as first served reads about x0.1.
+    """
+    start = date.fromisoformat(around)
+    bars = []
+    for k in range(-TAPE_SESSIONS, TAPE_SESSIONS):
+        before = k < 0
+        close = round(20.0 + k / 10 if before else 2.0 + k / 100, 4)
+        bars.append(
+            {
+                "d": (start + timedelta(days=k)).isoformat(),
+                "close": close,
+                "volume": 100_000.0 if before else 900_000.0,
+                "newest_close": round(close / 10, 4) if before else close,
+                "restated": before,
+            }
+        )
+    prior, first = bars[TAPE_SESSIONS - 1], bars[TAPE_SESSIONS]
+    body = {
+        "version_id": version_id,
+        "around": around,
+        "sessions": TAPE_SESSIONS,
+        "bars": bars,
+        "prior_date": prior["d"],
+        "step": first["close"] / prior["close"],
+        "volume_ratio": first["volume"] / prior["volume"],
+        "prior_served_before": True,
+    }
+    return _dump(AdminSplitTapeOut, body)
 
 
 def status() -> dict[str, Any]:
@@ -717,6 +765,11 @@ def hold(n: int, bucket: str, *, ticker: int | None = None, seq: int = 1) -> dic
         "filing_night": None,
         "suggested_date": "2026-10-31",
         "agrees": True,
+        "suggestion_basis": "period_of_report",
+        "suggestion_words": "2026-10-31: the filing's period of report; " + text(700, n),
+        "window_from": "2026-10-31",
+        "window_to": "2026-11-02",
+        "copies": [],
         "market_date": "2026-11-02",
         "owed_why": None,
         "decision": None,
@@ -799,6 +852,7 @@ def _onboard(i: int, status: str, **over: Any) -> dict[str, Any]:
         "last_error": over.pop("last_error", None),
         "source": "promote",
         "in_live_basket": True,
+        "parked": False,
         "enqueued_at": f"{ASOF}T21:00:00Z",
         "last_attempt_at": over.pop("last_attempt_at", f"{ASOF}T21:30:00Z"),
         "finished_at": over.pop("finished_at", None),
@@ -898,18 +952,82 @@ def _renamed(n: int, *, verified: bool, probed: bool = True) -> dict[str, Any]:
         "probed": probed,
         "price_symbol": ticker,
         "change": None,
+        # W6-4 — the first renamed name is delisted on Massive.com (INDV's measured shape); the rest carry none
+        "massive_ref": (
+            _massive_ref(ticker, active=False, delisted_utc="2026-11-03") if n == 1 else None
+        ),
+    }
+
+
+def _massive_ref(symbol: str, **kw: Any) -> dict[str, Any]:
+    """W6-4 — Massive.com's reference evidence on a stale row, as ``AdminMassiveRefOut`` serves it."""
+    return {
+        "symbol": symbol,
+        "read_on": "2026-11-05",
+        "listed": True,
+        "active": True,
+        "type": "CS",
+        "delisted_utc": None,
+        "traded_on": None,
+        **kw,
+    }
+
+
+def _deregistered(n: int) -> dict[str, Any]:
+    """W4-2 — the Form 15 and the 8-K event before it, as ``AdminDeregistrationOut`` serves them."""
+    cik = 9_999_000 + n
+    return {
+        "form": "15-12G",
+        "filed": "2026-10-20",
+        "accession": f"{n:010d}-26-000052",
+        "filing_url": f"https://www.sec.gov/Archives/edgar/data/{cik}/{n:010d}26000052/",
+        "events": [
+            {
+                "form": "8-K",
+                "filed": "2026-10-14",
+                "accession": f"{n:010d}-26-000051",
+                "items": ["2.01", "3.03", "5.01"],
+                "item_titles": [
+                    "Completion of Acquisition or Disposition of Assets",
+                    "Material Modification to Rights of Security Holders",
+                    "Changes in Control of Registrant",
+                ],
+                "filing_url": f"https://www.sec.gov/Archives/edgar/data/{cik}/{n:010d}26000051/",
+            }
+        ],
     }
 
 
 def _unpriceable(n: int) -> dict[str, Any]:
+    """A never-priced name. The first (``n == 20``) is an ADR member whose EDGAR list also carries a foreign
+    ordinary line the never-priced probe fetched (W4-1): never recommended, the classes differ. The second
+    (``n == 21``, EDGAR lists nothing) deregistered: a Form 15 after an acquisition's 8-K (W4-2)."""
+    adr = n == 20
+    candidates = [
+        {
+            **_probe("TKTAF", verified=False),
+            "overlap": 0,
+            "ratio": None,
+            "listing_class": "ordinary",
+        }
+    ]
     return {
         "security_id": uid("repair", "unpriceable", n),
         "ticker": f"TK{n:02d}",
         "theses": _repair_thesis(n),
-        "edgar_tickers": [] if n % 2 else [f"TK{n:02d}.TO"],
+        "edgar_tickers": [f"TK{n:02d}", "TKTAF"] if adr else [] if n % 2 else [f"TK{n:02d}.TO"],
         "vendor_error": "404 Not Found: " + text(120, n),
         "price_symbol": None,
         "change": None,
+        "member_class": "adr" if adr else None,
+        "candidates": candidates if adr else [],
+        "recommended": None,
+        "probed": adr,
+        "deregistered": _deregistered(n) if n == 21 else None,
+        # W6-4 — Massive.com lists no such ticker for the third (TMRC's measured 404)
+        "massive_ref": (
+            _massive_ref(f"TK{n:02d}", listed=False, active=None, type=None) if n == 22 else None
+        ),
     }
 
 
