@@ -384,6 +384,51 @@ def test_compose_passes_the_uvicorn_concurrency_limit_to_the_backend_at_the_imag
     assert m.group(1) == image_default.group(1)
 
 
+# W6-3a — the Massive.com tape cross-check's two dials
+_TAPE_CROSSCHECK_DIALS = {
+    "ALPHADECK_TAPE_CROSSCHECK": "tape_crosscheck",
+    "ALPHADECK_TAPE_CROSSCHECK_TOLERANCE": "tape_crosscheck_tolerance",
+}
+
+
+def test_the_tape_crosscheck_dials_have_the_planned_defaults(monkeypatch):
+    for var in _TAPE_CROSSCHECK_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert s.tape_crosscheck is True
+    assert s.tape_crosscheck_tolerance == 0.02 and isinstance(s.tape_crosscheck_tolerance, float)
+    monkeypatch.setenv("ALPHADECK_TAPE_CROSSCHECK", "false")  # the off switch
+    monkeypatch.setenv("ALPHADECK_TAPE_CROSSCHECK_TOLERANCE", "0.05")
+    s = Settings()
+    assert (s.tape_crosscheck, s.tape_crosscheck_tolerance) == (False, 0.05)
+
+
+def test_compose_injects_the_tape_crosscheck_dials_into_BOTH_services_at_the_settings_defaults(
+    monkeypatch,
+):
+    """Compose lists the environment explicitly (no ``env_file``): the off switch ``ALPHADECK_TAPE_CROSSCHECK=false``
+    reaches the nightly (cron) and the Admin "Run daily now" pass (backend) only if each dial is listed for both,
+    with a fallback equal to the Settings default."""
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for var in _TAPE_CROSSCHECK_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        for var, field in _TAPE_CROSSCHECK_DIALS.items():
+            found = re.findall(rf"{var}: \$\{{{var}:-([a-z0-9.]+)\}}", block)
+            assert len(found) == 1, f"{service}: {var} must be injected once, found {len(found)}"
+            default = getattr(s, field)
+            got = found[0] if isinstance(default, bool) else float(found[0])
+            want = str(default).lower() if isinstance(default, bool) else default
+            assert got == want, f"{service}: {var} fallback {found[0]} != {default}"
+
+
 # --- the late-read rule (D5): the 3 env-toggled vars, monkeypatched AFTER import ---
 
 

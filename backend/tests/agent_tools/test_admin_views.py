@@ -481,6 +481,75 @@ def test_the_split_defects_missing_closes_and_record_sections_read_their_panel()
     assert record["daytime_only_asofs"] == ["2026-10-15"] and record["edge"] == "2026-11-06"
 
 
+def _with_crosscheck() -> dict:
+    """The status body with W6-3a's fields: the missing-close panel's Massive.com cross-check (one vendor gap, one
+    stale line) and a stale tape row Massive.com shows traded (synthetic tickers, real shapes)."""
+    body = afx.status()
+    body["tape"]["stale"][0].update(massive_traded="2026-11-06", massive_close=73.61)
+    body["missing_closes"]["crosscheck"] = {
+        "session": "2026-11-06",
+        "status": "on",
+        "note": None,
+        "error": None,
+        "massive_status": "DELAYED",
+        "tolerance": 0.02,
+        "judged": 300,
+        "compared": 298,
+        "disagree": 0,
+        "vendor_gap": 1,
+        "no_trade": 1,
+        "unmapped": 0,
+        "line": "Massive.com cross-check · Nov 6: 298 compared, 0 disagree; Massive.com traded 1 we have no "
+        "close for: TK09 0.0002; 1 with no Massive.com trade",
+        "disagree_line": None,
+        "stale_lines": [
+            "TK01: no close stored since 2026-10-30, but Massive.com shows it traded tonight (73.61) — a "
+            "vendor gap, not a rename"
+        ],
+        "rows": [
+            {
+                "security_id": uid("cc", 1),
+                "ticker": "TK09",
+                "kind": "vendor_gap",
+                "massive": 0.0002,
+            },
+            {"security_id": uid("cc", 2), "ticker": "TK10", "kind": "no_trade", "ours": 0.101},
+        ],
+    }
+    return body
+
+
+def test_the_crosscheck_rides_the_default_lines_and_the_tape_counts_the_rows_that_traded():
+    reply = ok(FakeApi(status=_with_crosscheck()), "get_admin_status")
+    cc = reply["lines"]["tape_crosscheck"]
+    assert cc["line"].startswith("Massive.com cross-check · Nov 6: 298 compared")
+    assert cc["disagree_line"] is None and cc["stale_lines_total"] == 1
+    assert cc["stale_lines"][0].startswith("TK01: no close stored since 2026-10-30")
+    assert reply["tape"]["massive_traded"] == 1 and reply["tape"]["stale"] == 2
+    assert size(reply) <= BUDGET
+
+
+def test_the_missing_closes_section_carries_the_crosscheck_and_pages_its_rows():
+    api = FakeApi(status=_with_crosscheck())
+    closes = ok(api, "get_admin_status", section="missing_closes")
+    cc = closes["crosscheck"]
+    assert (cc["status"], cc["compared"], cc["vendor_gap"], cc["no_trade"]) == ("on", 298, 1, 1)
+    assert "rows" not in cc  # the rows page as their own list
+    assert [(r["ticker"], r["kind"]) for r in closes["crosscheck_rows"]] == [
+        ("TK09", "vendor_gap"),
+        ("TK10", "no_trade"),
+    ]
+    assert closes["totals"]["crosscheck_rows"] == 2
+    tape = ok(api, "get_admin_status", section="tape")
+    assert (tape["stale"][0]["massive_traded"], tape["stale"][0]["massive_close"]) == (
+        "2026-11-06",
+        73.61,
+    )
+    # a panel without the block reads null
+    plain = ok(FakeApi(), "get_admin_status", section="missing_closes")
+    assert plain["crosscheck"] is None and plain["crosscheck_rows"] == []
+
+
 def test_the_run_section_reads_the_last_run_whole():
     run = ok(FakeApi(), "get_admin_status", section="run")["last_run"]
     assert len(run["problems"]) == 4 and len(run["audit"]) == 2

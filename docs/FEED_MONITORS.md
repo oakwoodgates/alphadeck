@@ -49,6 +49,7 @@ Every monitor here follows one discipline, and a new one must too:
 | Split-basis defects | `pipeline/split_basis.py` | A stored tape that mixes two split bases (island, cliff, flap); a flap no reader sees is settled and named, never a defect | New ones page once |
 | Split-shaped jumps | `pipeline/split_jumps.py` | A jump the split-night hold released with no split listed | Admin Splits panel and one quiet line; never a page |
 | Missing closes | `pipeline/missing_closes.py` | A company with no close for the night's session | Quiet nightly; loud on Admin once still missing after the next session's pass; never a page |
+| Tape cross-check | `pipeline/tape_crosscheck.py`, `ingest/massive_bars.py` | Tonight's stored closes against Massive.com's raw bars; a stale price row whose symbol traded tonight | One quiet line, one line per stale row that traded; on Admin beside missing closes; never a page |
 | Form 4/A inventory | `pipeline/insider_amendment_scan.py` | Amendments owed a steward decision; amendments the system applied | New owed items page, named; system applications are one quiet count |
 | Held insider rows | `pipeline/insider_hold_scan.py` | Rows held for an impossible transaction date, by bucket | New rows the read does not count page; the rest are quiet |
 | SEC freshness | `pipeline/edgar_coverage.py` | Fewer than `freeze_completed_floor` of the EDGAR-eligible companies got a completed SEC fetch | Pages (the freeze alarm) |
@@ -88,6 +89,20 @@ expected (`ExpectedPriceMiss`): it leaves the name's errors so `ingest_fresh` st
 quiet line. The fetch still runs for those names, so a relisted name or a vendor that starts serving is
 noticed. A renamed name not yet adopted, an unacknowledged unpriceable name and every non-404 failure stay
 loud.
+
+#### The tape cross-check
+
+One Massive.com request a night: the grouped raw bars of the as-of session (`ingest/massive_bars.py`, cached
+compact per session, paced on the shared Massive.com limiter), fetched before the per-thesis loop and judged
+after it. The judged set is the missing-close check's. Per company: `disagree` (both have a bar, more than
+`tape_crosscheck_tolerance` apart in log terms and more than a cent; `split_shaped` when the ratio sits near a
+listed split's factor), `vendor_gap` (Massive.com traded it, we have no close), `no_trade` (we have a bar,
+Massive.com shows no trade: a halt placeholder, or a symbol it writes differently, as it writes preferreds) and
+`unmapped` (no symbol). A stale price row whose symbol traded tonight gets its own line, "a vendor gap, not a
+rename", naming the split on the list after its edge: Yahoo nulls sessions around some splits (SNDK, SCNI), so
+the stale advice to look for a rename is wrong there. No key, `ALPHADECK_TAPE_CROSSCHECK=false`, a session
+Massive.com has not served yet (a 403) or a failed read is a status on the block; nothing is judged. It never
+writes the tape.
 
 #### Known feed limitations
 
@@ -168,6 +183,7 @@ Every steward decision here is an append-only row with an undo; nothing is appli
 | `ALPHADECK_TAPE_STALE_DAYS`, `ALPHADECK_FUND_SHARES_STALE_DAYS` | `domain/settings.py` | No |
 | `ALPHADECK_TAPE_CLOSED_BEFORE_DAYS`, `ALPHADECK_TAPE_CLOSED_AFTER_DAYS` | `domain/settings.py` | No |
 | `ALPHADECK_FREEZE_COMPLETED_FLOOR` | `domain/settings.py` | No |
+| `ALPHADECK_TAPE_CROSSCHECK`, `ALPHADECK_TAPE_CROSSCHECK_TOLERANCE` | `domain/settings.py` | Yes, and to the backend |
 
 ## Known limits
 

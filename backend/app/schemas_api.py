@@ -2571,6 +2571,12 @@ class AdminStaleTapeOut(BaseModel):
     # artifact written before the keys.
     unpriceable: bool = False
     acknowledged: bool = False
+    # W6-3a — the Massive.com tape cross-check on that pass (``pipeline/tape_crosscheck.py``): set on an open price
+    # row whose symbol Massive.com shows TRADED on ``massive_traded`` (the pass's session) at ``massive_close`` (its
+    # raw close) — a vendor gap, not a rename: the symbol is right and the vendor has no close. ``null`` = no trade
+    # on Massive.com, the check off or not run, or an artifact written before it.
+    massive_traded: date | None = None
+    massive_close: float | None = None
 
 
 class AdminTapeOut(BaseModel):
@@ -3083,6 +3089,56 @@ class AdminArrivedCloseOut(BaseModel):
     otc: bool = False
 
 
+class AdminTapeCrosscheckRowOut(BaseModel):
+    """One company the Massive.com tape cross-check names (``pipeline/tape_crosscheck.py``). ``kind``: ``disagree``
+    (both have a bar for the session and they differ past the tolerance and by more than a cent; ``split_shaped`` =
+    the ratio sits near a listed split's factor, ``split`` names it), ``vendor_gap`` (Massive.com traded it, we have
+    no close), ``no_trade`` (we have a bar, Massive.com shows no trade: a placeholder on a halt, or a symbol it
+    writes differently) or ``unmapped`` (no symbol to look up). ``ours`` = our newest stored close, ``massive`` =
+    Massive.com's raw close on our tape's scale, ``ratio`` = ours / massive, ``symbol`` = the Massive.com symbol
+    read, ``otc`` = Massive.com's venue flag."""
+
+    security_id: UUID
+    ticker: str | None = None
+    kind: str
+    symbol: str | None = None
+    ours: float | None = None
+    massive: float | None = None
+    volume: float | None = None
+    ratio: float | None = None
+    split_shaped: bool = False
+    split: str | None = None
+    otc: bool = False
+
+
+class AdminTapeCrosscheckOut(BaseModel):
+    """The Massive.com TAPE CROSS-CHECK (W6-3a) on the same pass as the missing-close flag: one grouped raw-bars
+    read a night, compared with the stored closes — a monitor (no tape write, never paged, never the cron
+    verdict). ``status`` is the read's (``on``, ``off`` = no key or switched off, ``not_served`` = Massive.com had
+    not served the session yet, ``uncached``, ``failed``, ``not_run``) with its ``note``; ``error`` = the check
+    itself failed. ``line`` is the backend-authored quiet line; ``disagree_line`` names the disagreements;
+    ``stale_lines`` one line per open stale price row whose symbol traded on Massive.com that session ("a vendor
+    gap, not a rename"). The counts are per class; ``rows`` carry every named company with its ``kind``.
+    """
+
+    session: date | None = None
+    status: str
+    note: str | None = None
+    error: str | None = None
+    massive_status: str | None = None
+    tolerance: float | None = None
+    judged: int = 0
+    compared: int = 0
+    disagree: int = 0
+    vendor_gap: int = 0
+    no_trade: int = 0
+    unmapped: int = 0
+    line: str
+    disagree_line: str | None = None
+    stale_lines: list[str] = []
+    rows: list[AdminTapeCrosscheckRowOut] = []
+
+
 class AdminMissingClosesOut(BaseModel):
     """MISSING CLOSES (operator decision 2026-10-23) — did every live basket company get the session's close
     by the night's run? Read from the newest finished live run artifact that ran the check (a file read, no
@@ -3106,6 +3162,8 @@ class AdminMissingClosesOut(BaseModel):
     loud_lines: list[str] = []
     arrived: list[AdminArrivedCloseOut] = []
     error: str | None = None
+    # W6-3a — the same pass's Massive.com tape cross-check (null = an artifact written before it)
+    crosscheck: AdminTapeCrosscheckOut | None = None
 
 
 class AdminEditionsCutOut(BaseModel):

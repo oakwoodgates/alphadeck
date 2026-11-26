@@ -3166,3 +3166,150 @@ def test_report_names_a_deregistered_never_priced_rows_FORM_15_and_its_events(ca
     assert "15-12G filed 2026-06-10" in line
     assert "8-K 2026-06-04: Completion of Acquisition or Disposition of Assets" in line
     assert "remove it from the basket" in line
+
+
+# --- W6-3a: the Massive.com tape cross-check rides the pass (fetched once before the loop, judged after it) -------
+
+
+def _grouped_fixture(session):
+    """A REAL grouped day (``tests/fixtures/massive/grouped``) as the fetch would hand it to the pass."""
+    from ingest.massive_bars import parse_grouped
+
+    text = (
+        Path(__file__).resolve().parents[1] / "fixtures" / "massive" / "grouped" / "2026-11-25.json"
+    ).read_text("utf-8")
+    return parse_grouped(text, session=session)
+
+
+def test_pass_FETCHES_the_grouped_day_ONCE_before_the_loop_and_the_crosscheck_rides_the_artifact(
+    monkeypatch,
+):
+    from pipeline import tape_crosscheck as tc
+
+    order, _, _ = _prime_pass(monkeypatch)
+    fetched: list[dict] = []
+    grouped = tc.GroupedFetch(session=_ASOF, status=tc.STATUS_ON, day=_grouped_fixture(_ASOF))
+
+    def _fetch(**kw):
+        order.append("tape_crosscheck_fetch")
+        fetched.append(kw)
+        return grouped
+
+    judged = tc.TapeCrossCheck(evaluated=True, status=tc.STATUS_ON, session=_ASOF, judged=3)
+    seen_check: dict = {}
+
+    def _check(**kw):
+        order.append("tape_crosscheck")
+        seen_check.update(kw)
+        return judged
+
+    seen_log: dict = {}
+
+    def _log(results, **kw):
+        seen_log.update(kw)
+        return None
+
+    monkeypatch.setattr(daily, "fetch_grouped", _fetch)
+    monkeypatch.setattr(daily, "run_tape_crosscheck", _check)
+    monkeypatch.setattr(daily, "write_cron_run_log", _log)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    assert fetched == [{"asof": _ASOF, "allow_live": True}]  # ONE read, before the loop
+    assert (
+        order.index("tape_crosscheck_fetch")
+        < order.index("run_daily")
+        < order.index("tape_crosscheck")
+    )
+    assert seen_check["grouped"] is grouped and seen_check["tolerance"] == 0.02
+    assert seen_check["tenant_id"] == DEFAULT_TENANT_ID and seen_check["allow_live"] is True
+    assert out.tape_crosscheck is judged and seen_log["tape_crosscheck"] is judged
+    assert (
+        out.payload_kwargs()["tape_crosscheck"] is judged
+    )  # the Admin poll payload reads the same
+
+
+def test_a_crosscheck_FAULT_is_fail_open_and_rides_the_outcome(monkeypatch):
+    """The REAL check over a pass whose read fails (the harness's fake connection has no cursor): the pass
+    finishes, the fault is the block's ``error``, and nothing raises."""
+    from pipeline import tape_crosscheck as tc
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(
+        daily,
+        "fetch_grouped",
+        lambda **kw: tc.GroupedFetch(
+            session=_ASOF, status=tc.STATUS_ON, day=_grouped_fixture(_ASOF)
+        ),
+    )
+    walked = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        ingested=[NameResult("MARA", uuid.uuid4(), 0, 1, tape_edge=_ASOF)],
+    )
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: [walked])
+    seen_log: dict = {}
+    monkeypatch.setattr(daily, "write_cron_run_log", lambda results, **kw: seen_log.update(kw))
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    cc = out.tape_crosscheck
+    assert cc.evaluated is False and (cc.error or "").startswith("AttributeError")
+    assert seen_log["tape_crosscheck"] is cc
+    assert tc.report_lines(cc)[0].startswith("TAPE CROSS-CHECK FAILED — AttributeError")
+
+
+def test_a_keyless_pass_is_OFF_and_opens_nothing(monkeypatch):
+    """No MASSIVE_API_KEY (the off switch): the fetch makes no request and the check opens no connection."""
+    from pipeline import tape_crosscheck as tc
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(tc, "default_bar_source", lambda: None)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    cc = out.tape_crosscheck
+    assert (cc.evaluated, cc.status, cc.note, cc.error) == (
+        False,
+        "off",
+        "no MASSIVE_API_KEY",
+        None,
+    )
+    assert tc.report_lines(cc) == ["Massive.com cross-check · off (no MASSIVE_API_KEY)"]
+
+
+def test_main_PRINTS_the_crosscheck_lines_beside_the_missing_closes(monkeypatch, capsys):
+    from decimal import Decimal
+
+    from domain.splits import ListedSplit
+    from pipeline import tape_crosscheck as tc
+
+    sndk, aitx = uuid.uuid4(), uuid.uuid4()
+    night = date(2026, 11, 25)
+    cc = tc.judge(
+        session=night,
+        asof=night,
+        judged=[tc.Name(aitx, "AITX")],
+        stale=[tc.Name(sndk, "SNDK", edge=date(2026, 11, 19))],
+        stored={},
+        massive=_grouped_fixture(night),
+        listed={
+            sndk: [
+                ListedSplit(
+                    date(2026, 11, 20), date(2026, 11, 20), Decimal(1), Decimal(8), "confirmed"
+                )
+            ]
+        },
+        tolerance=0.02,
+    )
+    outcome = _outcome_with([_res(recorded=True)])
+    outcome.tape_crosscheck = cc
+    monkeypatch.setattr(daily, "run_daily_pass", lambda **kw: outcome)
+    _tonight(monkeypatch, _ASOF)
+    daily.main(["--asof", _ASOF.isoformat()])
+    out = capsys.readouterr().out.splitlines()
+    assert (
+        "Massive.com cross-check · Nov 25: 0 compared, 0 disagree; Massive.com traded 1 we have no close "
+        "for: AITX 0.0002"
+    ) in out
+    assert (
+        "SNDK: no close stored since 2026-11-19, but Massive.com shows it traded tonight (73.61) — a vendor "
+        "gap, not a rename; the 8-for-1 forward split of 2026-11-20 is on the list"
+    ) in out
