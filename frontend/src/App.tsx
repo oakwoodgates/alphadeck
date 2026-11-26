@@ -251,6 +251,8 @@ function CockpitRoute() {
   const location = useLocation();
   const { thesisId } = useParams();
   const { asof, asofParam, setAsof } = useAsof();
+  const thesesQ = useTheses();
+  const theses = thesesQ.data ?? [];
   // The NamePanel's selection rides ?name= so a scoreboard row / shared link lands with the
   // panel open. Opening/closing/switching a name REPLACES (a selection, not a navigation — Back
   // still walks pages, and browsing names never spams history).
@@ -282,9 +284,17 @@ function CockpitRoute() {
     );
   if (!thesisId) return <Navigate to="/" replace />;
   const from = (location.state as { from?: string } | null)?.from;
+  const switchTo = (id: string, nameKey?: string | null) => {
+    const base = thesisPath(id, { asof: asofParam, name: nameKey ?? null });
+    const url = railOpen ? base : `${base}${base.includes("?") ? "&" : "?"}${RAIL}=0`;
+    navigate(url, { state: { from } });
+  };
   return (
     <Cockpit
+      header={<AppHeader current="dashboards" asof={asof} onAsofChange={setAsof} />}
+      embedded
       thesisId={thesisId}
+      theses={theses}
       asof={asof}
       onAsofChange={setAsof}
       onBack={() => navigate(from ?? homePath(asofParam))}
@@ -292,11 +302,8 @@ function CockpitRoute() {
       onSelectName={onSelectName}
       railOpen={railOpen}
       onRailChange={onRailChange}
-      onSelectThesis={(id, nameKey) =>
-        navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
-          state: { from },
-        })
-      }
+      onSwitchThesis={(id) => switchTo(id)}
+      onSelectThesis={(id, nameKey) => switchTo(id, nameKey)}
     />
   );
 }

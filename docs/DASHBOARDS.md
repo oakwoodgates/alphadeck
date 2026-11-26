@@ -8,7 +8,7 @@ checklists and the doc template. Read it before you add, change or remove a dash
 ## What a dashboard is
 
 One registry entry and the files it owns (rule 8), so each builds alone and deletes cleanly. Its `status` in
-`entry.ts` is `core` (a standing page; today the Board and Ticker Lookup) or `experimental` (it may be removed); promoting one to
+`entry.ts` is `core` (a standing page; today the Board, Cockpit and Ticker Lookup) or `experimental` (it may be removed); promoting one to
 `core` is the operator's call. The top nav's Dashboards menu lists every entry, `/dashboards` is the index (one tile
 per entry), `/dashboards/<slug>` is one dashboard, and an unknown slug lands on the index. Links carry `?asof=`.
 

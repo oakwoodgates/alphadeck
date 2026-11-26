@@ -77,10 +77,17 @@ Quiet hover controls beside each card, reversible in one click (WB#1):
 
 ### The Cockpit
 
-The Cockpit opens at the Board's as-of. Top to bottom: the narrative; the rotation strip (theme breadth and
-sector relative strength); the basket table with its exports (JSON, TradingView watchlist); the fund launches
-line; evidence; the catalyst calendar; kill criteria. The call rail sits beside them and collapses from the top
-bar (`?rail=0`). The call, display signals, scored read and data flags all read the same as-of on the same clock
+The Cockpit is a `core` dashboard (`cockpit` at `/dashboards/cockpit`, `frontend/src/dashboards/cockpit/entry.ts`,
+doc [cockpit](dashboards/cockpit.md)) and also opens directly from any card at `/thesis/:thesisId` at the Board's
+as-of. Its top bar carries a searchable thesis switcher dropdown (`ThesisSwitcher.tsx`) with prev/next steppers
+(`[` / `]`) that preserves workspace list order and reads any already-warm lifecycle state from the query cache
+without firing extra `/call` requests. Top to bottom: an open-position strip when held; the narrative; a compact
+thesis pulse (populated active buckets, next dated catalyst, active risk signals, kill criteria); the rotation strip
+(theme breadth and sector relative strength); the basket table with reversible view filters (`basketFilter.ts`),
+collapse/expand all, per-row risk marks (`▲`) and exports (JSON, TradingView watchlist); the fund launches line;
+evidence; the catalyst calendar; kill criteria. The call rail sits beside them, collapses from the top bar
+(`?rail=0`, shortcut `r`), and lets the user click any `MemberMenu` row or trigger ticker to open that company's
+drawer. The call, display signals, scored read and data flags all read the same as-of on the same clock
 (`serve_view`).
 
 - **Catalyst calendar.** The card's events in date order, fuzzy dates ("~Q3") last; a past date grays and

@@ -17,6 +17,7 @@
 //   ?asof=YYYY-MM-DD     any view; absent or malformed = today
 //   ?name=<key>          Cockpit only; the NamePanel open on that member (ticker or security_id)
 //   ?rail=0              Cockpit only; the call rail collapsed (absent = open, the default)
+//   ?thesis=<id>         Cockpit dashboard (/dashboards/cockpit); the selected thesis id
 //   ?edition=N           Scoreboard only; the edition shown (0 = the original record; absent = the server's
 //                        default: the newest published edition)
 //
@@ -26,6 +27,7 @@
 export const ASOF = "asof";
 export const NAME = "name";
 export const RAIL = "rail";
+export const THESIS = "thesis";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
