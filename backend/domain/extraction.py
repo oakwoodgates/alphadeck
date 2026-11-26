@@ -93,8 +93,13 @@ class ExtractedFact(DomainModel):
     # basis) rides the note as provenance, never a flag — a flag true of ~every filer carries no
     # information (the re-tier; honest loudness):
     # shares -> "dual-class" | "stale-cover" | "no-companyfacts"
-    #           | "cover-after-filing" (a companyfacts cover row dated after its own filing was refused;
-    #             it rides beside the condition label, on any tier — the note names the row)
+    #           | "cover-after-filing" (a companyfacts cover row, or the filing's own inline cover count,
+    #             dated after its own filing was refused; it rides beside the condition label, on any
+    #             tier — the note names the row)
+    #           | "companyfacts-behind" (the filing's own inline-XBRL cover count, one count newer than
+    #             companyfacts' newest cover row, is offered: CEG's Q3 cover behind a Q2 companyfacts)
+    #           | "class-outside-eps" (beside "dual-class": the filing's EPS share base leaves a cover class
+    #             out; the sum of every class is still offered and the note carries both figures)
     # cash   -> "ytd-raw" | "possible-one-time" | "stale-cash"
     #           | "cash-tags-disagree" (two balance-sheet cash tags of one date contradict each other: a
     #             narrower line exceeds a wider one, SOAR's zero cash-and-equivalents beside 8.4M of cash)
