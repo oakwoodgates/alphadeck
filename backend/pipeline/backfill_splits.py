@@ -265,6 +265,9 @@ class BackfillResult:
     polygon_rows: int = 0
     polygon_pages: int = 0
     polygon_skipped: int = 0
+    polygon_unlabeled: int = (
+        0  # W6-1: rows with no known Massive.com label (kept; 0 on the v3 fallback)
+    )
     polygon_matched: int = 0
     planned: list[PlannedSplit] = field(default_factory=list)
     stored_not_seen: int = 0
@@ -974,6 +977,7 @@ def backfill_splits(
         pull.pages,
         pull.skipped,
     )
+    result.polygon_unlabeled = pull.unlabeled
     matched = match_polygon(pull.rows, members)
     result.polygon_matched = sum(len(v) for v in matched.values())
 
@@ -1067,9 +1071,10 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
             f"session {d.effective_date.isoformat()}  {d.status.upper()}{via}  -> {verb}\n"
         )
         poly = d.polygon
+        label = f" ({poly.adjustment_type})" if poly.adjustment_type else ""
         w(
             f"      Massive.com {poly.ticker} {poly.id[:14]}…: {poly.split_from} -> {poly.split_to} on "
-            f"{poly.execution_date.isoformat()}\n"
+            f"{poly.execution_date.isoformat()}{label}\n"
         )
         s = d.sec
         if s is not None:
@@ -1095,7 +1100,9 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
     st = result.by_status()
     w(
         f"MASSIVE.COM: {result.polygon_rows} rows in {result.polygon_pages} page(s) since "
-        f"{result.since.isoformat()} ({result.polygon_skipped} unreadable) · {result.polygon_matched} on the "
+        f"{result.since.isoformat()} ({result.polygon_skipped} unreadable"
+        + (f", {result.polygon_unlabeled} unlabeled" if result.polygon_unlabeled else "")
+        + f") · {result.polygon_matched} on the "
         f"{result.members} union member(s) -> {len(result.planned)} split(s)\n"
     )
     w(

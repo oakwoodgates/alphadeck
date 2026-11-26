@@ -29,6 +29,11 @@ the caller names the CURRENT version — a stale click is refused, never applied
   whether it was born set aside (no version before it) or re-decided from review; the restored version names the
   operator, so neither the backfill nor the nightly detector ever touches it again.
 
+**Evidence, not content (W6-1, migration 0216).** ``EVIDENCE_COLUMNS`` ride a version beside its content but are
+never compared: Massive.com's label (``polygon_adjustment_type``). A re-run whose only difference is the label is
+UNCHANGED, so no stored split is re-versioned for it; a version appended for another reason carries tonight's label,
+and every verb carries the label of the version it acts on.
+
 Value-free like every repository: what a split IS comes from the matcher (``domain/splits.py``) and the
 operator; this module stores and returns versions. The caller owns the transaction.
 """
@@ -108,6 +113,9 @@ CONTENT_COLUMNS: tuple[str, ...] = (
     "cited_url",
     "tape_override",
 )
+# W6-1 (0216): stored and carried, NEVER compared — Massive.com's label is evidence about the row, and as content it
+# would re-version every backfill-authored split on the next backfill (``backfill_splits.plan_against_stored``)
+EVIDENCE_COLUMNS: tuple[str, ...] = ("polygon_adjustment_type",)
 
 _LIVE = (STATUS_ANNOUNCED, STATUS_CONFIRMED, STATUS_NEEDS_REVIEW)
 
@@ -151,6 +159,7 @@ class SplitVersion(BaseModel):
     polygon_execution_date: date | None = None
     polygon_split_from: Decimal | None = None
     polygon_split_to: Decimal | None = None
+    polygon_adjustment_type: str | None = None
     note: str | None = None
     valid_from: date
     valid_to: date | None = None
@@ -178,7 +187,7 @@ def content_of(values: dict[str, Any]) -> tuple[Any, ...]:
 
 def decision_values(d: SplitDecision) -> dict[str, Any]:
     """A matcher decision as the columns a system version carries (an SEC-only decision has no Massive.com side:
-    its ``polygon_*`` columns are NULL)."""
+    its ``polygon_*`` columns are NULL): the content, and the evidence (Massive.com's label)."""
     s, p = d.sec, d.polygon
     return {
         "effective_date": d.effective_date,
@@ -203,6 +212,7 @@ def decision_values(d: SplitDecision) -> dict[str, Any]:
         "polygon_execution_date": p.execution_date if p else None,
         "polygon_split_from": p.split_from if p else None,
         "polygon_split_to": p.split_to if p else None,
+        "polygon_adjustment_type": p.adjustment_type if p else None,
         "note": d.note,
         "valid_from": d.valid_from,
         "valid_to": None,
@@ -367,15 +377,16 @@ def append_version(
     author: str,
 ) -> SplitVersion:
     """INSERT one version (``recorded_at`` = the column default, the DB's now() — never passed, never
-    backdated). Returns it as stored."""
-    cols = ["tenant_id", "security_id", "key_date", "action", "author", *CONTENT_COLUMNS]
+    backdated): its content and its evidence. Returns it as stored."""
+    stored = (*CONTENT_COLUMNS, *EVIDENCE_COLUMNS)
+    cols = ["tenant_id", "security_id", "key_date", "action", "author", *stored]
     row = {
         "tenant_id": tenant_id,
         "security_id": security_id,
         "key_date": key_date,
         "action": action,
         "author": author,
-        **{c: values.get(c) for c in CONTENT_COLUMNS},
+        **{c: values.get(c) for c in stored},
     }
     placeholders = ", ".join(f"%({c})s" for c in cols)
     with conn.cursor() as cur:
@@ -417,7 +428,8 @@ def _current(conn: psycopg.Connection, version_id: UUID, *, tenant_id: UUID) -> 
 
 
 def _carry(v: SplitVersion, **changes: Any) -> dict[str, Any]:
-    vals = {c: getattr(v, c) for c in CONTENT_COLUMNS}
+    """``v``'s content and evidence (its Massive.com label rides every verb), with ``changes`` applied."""
+    vals = {c: getattr(v, c) for c in (*CONTENT_COLUMNS, *EVIDENCE_COLUMNS)}
     vals.update(changes)
     return vals
 

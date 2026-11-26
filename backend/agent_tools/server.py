@@ -1140,7 +1140,9 @@ def build_server(
         "announced (both agree, the first session still ahead), confirmed, set_aside (rejected or revoked, "
         "kept), plus the split-shaped price jumps no source listed. The default reply is the counts and the "
         "needs-review rows; section=needs_review, announced, confirmed, set_aside or jumps pages one bucket; "
-        "section=one with t reads one ticker's every entry and jump in full. Every needs-review row carries "
+        "section=one with t reads one ticker's every entry and jump in full, each needs-review or announced "
+        "entry with tape: the stored closes and volumes around its first session, each bar as first served "
+        "beside its newest close. Every needs-review row carries "
         "review_reason (sources_differ, extractor_abstained or one_source) and counts.needs_review_by_reason "
         "counts them; reason narrows section=needs_review to one. polygon.ticker is the vendor's symbol at the "
         "split; ticker is the master's current one (they differ after a rename). Reads only: a split's values "
@@ -1178,6 +1180,15 @@ def build_server(
         if t is not None and section != "one":
             raise ToolFailure("invalid_arguments", splits_view.T_RULE)
         payload, _ = await client.get("/admin/splits")
+        if section == "one" and t is not None and reason is None:
+            # W5-1: each open entry on this page carries the stored tape around its first session
+            for entry in splits_view.tape_targets(payload, t, cursor):
+                try:
+                    entry["tape"], _ = await client.get(
+                        f"/admin/splits/{path_seg(entry['version_id'])}/tape"
+                    )
+                except ToolFailure as failure:
+                    entry["tape_error"] = failure.message
         req = ResearchRequest(section=section, cursor=cursor, t=t, reason=reason)
         try:
             return _result(splits_view.view(payload, req))
@@ -1305,7 +1316,9 @@ def build_server(
         "decided, dismissed or amendment_row pages one bucket; section=one with t reads that ticker's rows in "
         "full, with each row's history of decisions. Every row carries the date as the filing wrote it, its "
         "period of report and signature date (the filing's own text, evidence and never a correction), the "
-        "suggested date and agrees (the API's own arithmetic on the filing's fields), the filing's market "
+        "suggested date, agrees and suggestion_basis (the API's own reading of the filing's fields; with no "
+        "suggested date, window_from..window_to is the filing's own range), copies (the same row held under "
+        "another security, each decided on its own), the filing's market "
         "date, owed_why (why the rule did not place an owed row) and the EDGAR link. Reads only: a held row's "
         "date or dismissal changes only on the panel. Steward scope.",
         scope=STEWARD,

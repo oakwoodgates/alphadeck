@@ -17,6 +17,7 @@ import {
   NOTE_MAX,
   confirmLine,
   confirmValuesLine,
+  hintLine,
   isDate,
   overrideLabel,
   polygonSays,
@@ -46,12 +47,14 @@ const STATUS_WORD: Record<string, string> = {
   revoked: "revoked",
 };
 
-/** "BTOC — 1-for-16 reverse split · first session 2026-10-15" */
+/** "BTOC — 1-for-16 reverse split · first session 2026-10-15", and on an open split what a confirm would touch
+ *  (W2-8: a first session on its first stored bar, the share count it rescales). */
 function Header({ s }: { s: Split }) {
   return (
     <div>
       <b>{s.ticker ?? s.security_id}</b> — {s.label} · first session {s.effective_date}
       {s.name ? <span className="adm-sub"> ({s.name})</span> : null}
+      {hintLine(s) ? <div className="adm-sub" data-testid="adm-split-hint">{hintLine(s)}</div> : null}
     </div>
   );
 }

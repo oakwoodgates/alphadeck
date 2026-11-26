@@ -3,11 +3,17 @@
 ``review_reason`` (the API's: sources_differ, extractor_abstained or one_source) rides every needs-review row,
 ``counts.needs_review_by_reason`` counts it and ``reason=`` narrows ``section=needs_review`` to one value.
 The default reply keeps the counts, the whole needs-review list (the panel's loud one) and the first unlisted jumps;
-a section pages one bucket in the API's order; ``one`` with a ticker reads that ticker's every entry and jump in full.
+a section pages one bucket in the API's order; ``one`` with a ticker reads that ticker's every entry and jump in full,
+each open entry (needs review, announced) with ``tape``: the API's stored window around its first session (``GET
+/admin/splits/{version_id}/tape``, read by the server for at most ``TAPE_READS`` entries a call, from the cursor on;
+``tape_error`` names a read that failed).
 Every value is copied from the API's JSON: the view never sorts, derives a date or a ratio, or decides whether the two
 sources agree (the model reads the two side by side; ``confirm_options`` is the API's statement of what can be
 confirmed). ``name`` is the shared master's company name, which the Admin panel shows. A split the steward confirmed
 with cited values (``value_source`` ``steward``) carries the API's ``cited_url`` and ``tape_override`` in every reply.
+An open entry (needs review, announced) carries the API's ``first_bar`` (the first stored bar: a split on or before it
+adjusts no tape) and ``shares_rescaled`` (the share count a confirm puts on the new scale) in every reply, when stated.
+The brief ``polygon`` block carries Massive.com's ``adjustment_type`` label when the API states one (W6-1).
 """
 
 from __future__ import annotations
@@ -32,6 +38,9 @@ REASON_RULE = "reason must be one of: " + ", ".join(REASONS) + "."
 
 T_RULE = "t narrows section=one only."
 REASON_SECTION_RULE = "reason narrows section=needs_review only."
+# section=one: the open entries whose stored tape window the server reads, at most this many a call
+TAPE_BUCKETS = ("needs_review", "announced")
+TAPE_READS = 3
 PASSAGE_BRIEF = 300
 PASSAGE_FULL = 1_500
 NOTE_BRIEF = 200
@@ -60,6 +69,12 @@ JUMP_BRIEF_KEYS = (
     "label",
     "sessions_since",
 )
+# W2-8: what a confirm would touch, as the API states it on an open entry (copied when stated, never derived)
+HINT_KEYS = ("first_bar", "shares_rescaled")
+
+
+def _hints(e: dict[str, Any]) -> dict[str, Any]:
+    return {k: e[k] for k in HINT_KEYS if e.get(k) is not None}
 
 
 def _passage(sec: dict[str, Any], limit: int) -> dict[str, Any]:
@@ -83,7 +98,12 @@ def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
     out["polygon"] = (
         None
         if poly is None
-        else {"execution_date": poly.get("execution_date"), "ratio_label": poly.get("ratio_label")}
+        else {
+            "execution_date": poly.get("execution_date"),
+            "ratio_label": poly.get("ratio_label"),
+            # W6-1: Massive.com's own label, copied when stated
+            **({"adjustment_type": poly["adjustment_type"]} if poly.get("adjustment_type") else {}),
+        }
     )
     out["confirm_options"] = [o.get("label") for o in e.get("confirm_options") or []]
     out["actions"] = e.get("actions") or []
@@ -91,6 +111,7 @@ def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
     if e.get("cited_url") is not None:
         out["cited_url"] = e.get("cited_url")
         out["tape_override"] = e.get("tape_override")
+    out.update(_hints(e))
     if bucket == "set_aside":
         out["restore_to"] = e.get("restore_to")
         note = e.get("note")
@@ -101,7 +122,7 @@ def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
 
 
 def _full_entry(e: dict[str, Any]) -> dict[str, Any]:
-    out = dict(e)
+    out = dict(e)  # ``tape`` / ``tape_error`` (section=one's open entries) ride whole
     sec = e.get("sec")
     if sec is not None:
         out["sec"] = {**sec, **_passage(sec, PASSAGE_FULL)}
@@ -122,6 +143,15 @@ def _matches(ticker: str, e: dict[str, Any]) -> bool:
     if master is None:
         master = (e.get("polygon") or {}).get("ticker")
     return master is not None and master.upper() == ticker
+
+
+def tape_targets(payload: dict[str, Any], t: str, cursor: int = 0) -> list[dict[str, Any]]:
+    """The open entries (needs review, then announced) of ticker ``t`` whose tape window section=one attaches, from
+    ``cursor`` on, at most ``TAPE_READS``. Open entries come first in section=one's order, so the cursor indexes
+    them directly: a later page reads the ones an earlier page did not show."""
+    ticker = t.strip().upper()
+    found = [e for b in TAPE_BUCKETS for e in payload.get(b) or [] if _matches(ticker, e)]
+    return found[cursor:][:TAPE_READS]
 
 
 def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:

@@ -179,6 +179,63 @@ def tape_at(
     )
 
 
+@dataclass(frozen=True)
+class TapeBar:
+    """One stored session of a tape window: the bar as the vendor FIRST served it (``close`` / ``volume``: the
+    version ``tape_at`` reads, the as-traded print) and its NEWEST stored close (the store's scale today).
+    """
+
+    d: date
+    close: float | None
+    volume: float | None
+    newest_close: float | None
+
+    @property
+    def restated(self) -> bool:
+        """The newest close differs from the first-served one (re-based later: by the vendor, or by the split
+        list's own rescale of the stored tape)."""
+        return self.newest_close != self.close
+
+
+def tape_window(
+    conn: psycopg.Connection, *, tenant_id: UUID, security_id: UUID, around: date, sessions: int
+) -> list[TapeBar]:
+    """The stored tape around ``around`` (platform fixes W5-1): up to ``sessions`` stored dates before it and up to
+    ``sessions`` from it on (``around`` itself first, when stored), oldest first — fewer where the tape ends. Each
+    date's FIRST-SERVED version (the ``tape_at`` pick) beside its newest. A READ, never a write.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH days AS ("
+            "(SELECT DISTINCT d FROM fact_price_eod WHERE tenant_id = %(t)s AND security_id = %(s)s "
+            "AND d < %(a)s ORDER BY d DESC LIMIT %(n)s) UNION ALL "
+            "(SELECT DISTINCT d FROM fact_price_eod WHERE tenant_id = %(t)s AND security_id = %(s)s "
+            "AND d >= %(a)s ORDER BY d LIMIT %(n)s)), "
+            "versions AS (SELECT p.d, p.close, p.volume, "
+            "row_number() OVER (PARTITION BY p.d ORDER BY p.recorded_at, p.id) AS first_rank, "
+            "row_number() OVER (PARTITION BY p.d ORDER BY p.recorded_at DESC, p.id DESC) AS newest_rank "
+            "FROM fact_price_eod p JOIN days ON days.d = p.d "
+            "WHERE p.tenant_id = %(t)s AND p.security_id = %(s)s) "
+            "SELECT f.d, f.close, f.volume, n.close AS newest_close FROM versions f "
+            "JOIN versions n ON n.d = f.d AND n.newest_rank = 1 WHERE f.first_rank = 1 ORDER BY f.d",
+            {"t": tenant_id, "s": security_id, "a": around, "n": sessions},
+        )
+        rows = cur.fetchall()
+
+    def _f(v: Any) -> float | None:
+        return None if v is None else float(v)
+
+    return [
+        TapeBar(
+            d=r["d"],
+            close=_f(r["close"]),
+            volume=_f(r["volume"]),
+            newest_close=_f(r["newest_close"]),
+        )
+        for r in rows
+    ]
+
+
 # --- one company -------------------------------------------------------------------------------------------
 
 
@@ -334,6 +391,7 @@ def _stored_polygon(v: SplitVersion) -> PolygonEvidence | None:
         execution_date=v.polygon_execution_date,
         split_from=v.polygon_split_from,
         split_to=v.polygon_split_to,
+        adjustment_type=v.polygon_adjustment_type,  # W6-1: the label it was stored with (NULL before 0216)
     )
 
 
@@ -511,6 +569,8 @@ class SplitDetection:
     polygon: str = "not run"
     polygon_rows: int = 0
     polygon_live_pages: int = 0
+    # W6-1: rows Massive.com served with no known label (kept, label NULL; 0 on the v3 fallback)
+    polygon_unlabeled: int = 0
     checked: int = 0
     filings_read: int = 0
     filings_unread: int = 0
@@ -528,6 +588,7 @@ class SplitDetection:
                 "polygon": self.polygon,
                 "polygon_rows": self.polygon_rows,
                 "polygon_live_pages": self.polygon_live_pages,
+                "polygon_unlabeled": self.polygon_unlabeled,
                 "checked": self.checked,
                 "filings_read": self.filings_read,
                 "filings_unread": self.filings_unread,
@@ -619,7 +680,7 @@ class SplitDetector:
         t0 = perf_counter()
         polygon = source if source is not None else default_split_source()
         rows: list[PolygonEvidence] | None = None
-        live_pages = 0
+        live_pages = unlabeled = 0
         if polygon is None:
             status = "off (no MASSIVE_API_KEY)"
         else:
@@ -628,6 +689,7 @@ class SplitDetector:
                     asof - timedelta(days=polygon_days), allow_live=allow_live
                 )
                 rows, live_pages, status = pull.rows, pull.live_pages, "on"
+                unlabeled = pull.unlabeled
                 if pull.skipped:
                     status = f"on ({pull.skipped} unreadable row(s) skipped)"
             except CacheMiss:
@@ -640,6 +702,7 @@ class SplitDetector:
             asof=asof, polygon_rows=rows, polygon_status=status, sec_days=sec_days, apply=apply
         )
         det.result.polygon_live_pages = live_pages
+        det.result.polygon_unlabeled = unlabeled
         det.result.duration_s += perf_counter() - t0
         return det
 
@@ -829,9 +892,10 @@ def print_plan(detector: SplitDetector, *, out: Any = None) -> None:
         if d.sec is not None:
             w(f"      SEC {d.sec.form} {d.sec.accession} filed {d.sec.filed.isoformat()}\n")
         if d.polygon is not None:
+            label = f" ({d.polygon.adjustment_type})" if d.polygon.adjustment_type else ""
             w(
                 f"      Massive.com {d.polygon.ticker} {d.polygon.split_from} -> {d.polygon.split_to} on "
-                f"{d.polygon.execution_date.isoformat()}\n"
+                f"{d.polygon.execution_date.isoformat()}{label}\n"
             )
         w(f"      note: {' '.join(d.note.split())[:500]}\n")
     for u in detector.result.unplaced:

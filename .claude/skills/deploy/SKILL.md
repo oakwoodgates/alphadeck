@@ -13,14 +13,14 @@ description: >-
 ## Guardrails
 
 - Prod is the operator's. State the sha and the services and get the go: `frontend` for a frontend change,
-  `backend` for any backend half (a route, a field, a migration), and `cron` too for a change on the nightly path,
-  in a cron job or in `backend/scripts/daily_cron.sh`.
+  `backend` for any backend half (a route, a field, a migration; it rebuilds `cron` too; `--backend-only` opts
+  out), `cron` alone for a cron job or `backend/scripts/daily_cron.sh` change.
 - Run from Git Bash in the main checkout (`bash` typed in PowerShell is WSL). The build context is the main
   checkout, never a worktree.
 - The backend's boot migrates prod, so the backup comes first; the script takes it. Never `docker compose down -v`
   and never `DROP DATABASE alphadeck` on prod.
-- Never deploy `cron` while a hand editions cut runs (`editions.run cut`): the script does not check the editions
-  lock, and recreating the cron kills the cut ([EDITIONS], "Cutting by hand").
+- A cron recreate kills a hand editions cut (`editions.run cut`); the script refuses while the editions lock is
+  held ([EDITIONS], "Cutting by hand").
 - Report a refusal (exit 3) as it stands; never work around it.
 - `GIT_SHA` is only the sha just read from the checkout being built: a wrong one is a false provenance claim.
 
@@ -35,12 +35,12 @@ description: >-
 4. A frontend change: open the changed control on `http://localhost:8080`.
 
 **By hand,** only when the wrapper cannot run. Apply its guards yourself: not 22:20 to 22:50 New York time, not
-while `/admin/status` reads `cron.status: running`. With `P="docker compose -f docker-compose.yml -f
-docker-compose.prod.yml"`:
+while `/admin/status` reads `cron.status: running`, not during a hand editions cut. With `P="docker compose -f
+docker-compose.yml -f docker-compose.prod.yml"`:
 
 1. `$P exec -T backend python -m pipeline.backup --label pre-deploy-<topic>`.
-2. `GIT_SHA=$(git rev-parse HEAD) $P up -d --build --no-deps <services>` (`--no-build cron` for an env-only change;
-   `docker restart` does not apply env).
+2. `GIT_SHA=$(git rev-parse HEAD) $P up -d --build --no-deps <services>` (`backend cron` together;
+   `--no-build cron` for an env-only change; `docker restart` does not apply env).
 3. After a backend rebuild without `frontend`: `docker restart alphadeck-frontend-1` (nginx keeps the old backend
    address).
 

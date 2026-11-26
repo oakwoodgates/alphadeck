@@ -286,6 +286,33 @@ def test_compose_passes_dynamic_registration_off_by_default():
     assert m.group(1) == "false"
 
 
+def test_the_one_row_held_insider_suggestion_does_not_agree_by_default_and_compose_passes_it(
+    monkeypatch,
+):
+    """W3-1 (decision W3-b): a one-row filing's period of report is suggested for its held row without agreeing,
+    unless the steward turns it on; the backend (the steward's queue) is the only reader, so compose passes it there
+    with a fallback EQUAL to the Settings default."""
+    import re
+    from pathlib import Path
+
+    monkeypatch.delenv("ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES", raising=False)
+    assert Settings().insider_hold_one_row_por_agrees is False
+    monkeypatch.setenv("ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES", "true")
+    assert Settings().insider_hold_one_row_por_agrees is True
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    backend = _compose_service_block(compose, "backend")
+    m = re.search(
+        r"^\s+ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES: "
+        r"\$\{ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES:-(\w+)\}",
+        backend,
+        re.M,
+    )
+    assert m is not None, "ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES is not passed to the backend"
+    assert m.group(1) == "false"
+
+
 def test_compose_passes_the_stewards_flag_webhook_to_the_backend_blank_by_default(monkeypatch):
     """V2 W5b (decision W-c): the backend raises users' flags, so it reads the steward's flag webhook; compose
     passes it with an EMPTY fallback, which the setting reads as unset (the flags then fall back to
@@ -640,3 +667,72 @@ def test_compose_injects_the_split_distribution_dials_into_BOTH_services_at_the_
         assert all(
             (v if isinstance(default, bool) else float(v)) == want for v in found
         ), f"{var}: {found}"
+
+
+_CROSS_CLASS_ENV = "ALPHADECK_PRICE_FEED_CROSS_CLASS_ADOPT"
+
+
+def test_the_cross_class_adopt_setting_defaults_to_CONFIRM_and_REFUSE_turns_it_off(monkeypatch):
+    """W4-1 (decision W4-a): adopting a never-priced member's listing of ANOTHER class (the foreign ordinary
+    line for an ADR member) is allowed only with the request's explicit confirm while the setting reads
+    "confirm" (the default); "refuse" turns it off. Any other value fails at load, never a silent default.
+    """
+    from pydantic import ValidationError
+
+    monkeypatch.delenv(_CROSS_CLASS_ENV, raising=False)
+    assert Settings().price_feed_cross_class_adopt == "confirm"
+    assert Settings.model_fields["price_feed_cross_class_adopt"].default == "confirm"
+    monkeypatch.setenv(_CROSS_CLASS_ENV, "refuse")
+    assert Settings().price_feed_cross_class_adopt == "refuse"
+    assert get_settings().price_feed_cross_class_adopt == "refuse"
+    monkeypatch.setenv(_CROSS_CLASS_ENV, "allow")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_compose_passes_the_cross_class_adopt_setting_only_at_its_settings_default():
+    """The settings-versus-compose guard for W4-1's setting: it is read via the env prefix and deliberately
+    NOT injected by docker-compose (the default holds in every container). Should a service ever pass it,
+    its fallback must equal the Settings default (compose always injects, so a drifted fallback would win).
+    """
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    default = Settings.model_fields["price_feed_cross_class_adopt"].default
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        if _CROSS_CLASS_ENV not in block:
+            continue
+        m = re.search(rf"{_CROSS_CLASS_ENV}: \$\{{{_CROSS_CLASS_ENV}:-([a-z]*)\}}", block)
+        assert m is not None, f"{service}: {_CROSS_CLASS_ENV} passed without a fallback"
+        assert m.group(1) == default, f"{service}: compose fallback {m.group(1)} != {default}"
+
+
+def test_the_split_reader_path_defaults_to_v1_and_compose_passes_it_to_both_services(monkeypatch):
+    """W6-1: Massive.com's split reference is read from ``/stocks/v1/splits``; ``ALPHADECK_POLYGON_SPLITS_PATH=
+    /v3/reference/splits`` falls back to the deprecated endpoint while it lives. Compose lists the environment
+    explicitly (no ``env_file``), so the fallback reaches the nightly detector (cron) and the onboarding split history
+    (backend) only if both list it, each at the Settings default."""
+    import re
+    from pathlib import Path
+
+    monkeypatch.delenv("ALPHADECK_POLYGON_SPLITS_PATH", raising=False)
+    s = Settings()
+    assert s.polygon_splits_path == "/stocks/v1/splits"
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        m = re.search(
+            r"^\s+ALPHADECK_POLYGON_SPLITS_PATH: \$\{ALPHADECK_POLYGON_SPLITS_PATH:-([^}]*)\}",
+            block,
+            re.M,
+        )
+        assert m is not None, f"ALPHADECK_POLYGON_SPLITS_PATH is not passed to the {service}"
+        assert m.group(1) == s.polygon_splits_path, f"{service}: {m.group(1)}"
+    monkeypatch.setenv("ALPHADECK_POLYGON_SPLITS_PATH", "/v3/reference/splits")
+    assert Settings().polygon_splits_path == "/v3/reference/splits"

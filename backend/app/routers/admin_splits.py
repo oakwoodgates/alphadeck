@@ -15,7 +15,8 @@ What the operator can do, and its inverse:
   document that states them, an optional note. The server reads the stored tape's step at that session as first
   served (``pipeline.detect_splits.tape_at``) and refuses (409) a factor outside ``domain.splits.TAPE_TOLERANCE``
   of it, or a session with no bar, unless the steward overrides — the version records the override. Inverse:
-  **Revoke**. ``GET /admin/splits/{version_id}/tape-step`` is the same reading for the form.
+  **Revoke**. ``GET /admin/splits/{version_id}/tape-step`` is the same reading for the form, and ``GET
+  /admin/splits/{version_id}/tape`` the stored closes and volumes around a split's first session (W5-1).
 - **Reject** a needs-review or announced split. Inverse: **Restore** (back to the state before).
 - **Revoke** any confirmed split, auto-confirmed or not. Inverse: **Restore** (back to confirmed).
 - A forward split under x1.5 that only Massive.com lists, with no SEC filing about it, arrives SET ASIDE as a
@@ -34,12 +35,18 @@ has released (three sessions on) that no source ever listed (``pipeline.split_ju
 real?". Never a page (#7). Since 2026-10-24 the operator can **Dismiss** one ("this was a real move" —
 ``repositories.split_jump_repo``, append-only): it leaves the list and is listed under ``dismissed_jumps`` (WB#2);
 inverse: **Undo**. A dismissal is display only — the split-night hold never reads it.
+
+**What a confirm would touch (W2-8)** — each needs-review or announced split on the list read carries the
+security's first stored bar (``first_bar``: a split whose first session is on or before it has no stored bar to
+adjust) and the platform share count a confirm would put on the new scale (``shares_rescaled``: the Workbench count
+the market cap reads, dated before the first session). Read for the whole list at once, in a fixed number of
+queries, never one per split; display only.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, TypeVar
@@ -62,14 +69,17 @@ from domain.splits import (
     STATUS_CONFIRMED,
     STATUS_NEEDS_REVIEW,
     TAPE_TOLERANCE,
+    ListedSplit,
     TapeEvidence,
     direction,
     price_factor,
     ratio_label,
+    scale_after,
 )
 from domain.text_types import Prose, RequestDate, UrlText
-from pipeline.detect_splits import TAPE_PRIOR_MAX_DAYS, tape_at
+from pipeline.detect_splits import TAPE_PRIOR_MAX_DAYS, tape_at, tape_window
 from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps, split_dismissed
+from platform_values.state import read_states
 from repositories import split_jump_repo, split_repo
 from repositories.split_jump_repo import JumpDismissalConflict
 from repositories.split_repo import SplitConflict, SplitVersion
@@ -104,7 +114,9 @@ class AdminSplitListSecOut(BaseModel):
 
 
 class AdminSplitListPolygonOut(BaseModel):
-    """Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares."""
+    """Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares. ``adjustment_type`` is
+    Massive.com's own label (``forward_split``, ``reverse_split`` or ``stock_dividend``), evidence only; null on a row
+    stored before the label was read or from the v3 endpoint."""
 
     id: str
     ticker: str | None = None
@@ -112,6 +124,7 @@ class AdminSplitListPolygonOut(BaseModel):
     split_from: str | None = None
     split_to: str | None = None
     ratio_label: str | None = None
+    adjustment_type: str | None = None
 
 
 class AdminSplitListOptionOut(BaseModel):
@@ -124,6 +137,16 @@ class AdminSplitListOptionOut(BaseModel):
     label: str
 
 
+class AdminSplitSharesOut(BaseModel):
+    """The platform share count a confirm would RESCALE (W2-8): the count the market cap reads (the Workbench's,
+    ``dashboards.market_cap.cap_cell``), dated before the split's first session, so the split puts it on the new
+    scale (divided by the price factor). ``count`` = as stored; ``date`` = the day it was true (its
+    ``valid_from``)."""
+
+    count: float
+    date: date
+
+
 class AdminSplitListEntryOut(BaseModel):
     """One split on the list (its NEWEST version). ``version_id`` names that version — every action posts it,
     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
@@ -133,7 +156,10 @@ class AdminSplitListEntryOut(BaseModel):
     different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
     both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the
     document that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both
-    ``null`` on every other split).
+    ``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on
+    the list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before
+    it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
+    none dated before the first session).
     """
 
     version_id: UUID
@@ -164,6 +190,8 @@ class AdminSplitListEntryOut(BaseModel):
     review_reason: Literal["sources_differ", "extractor_abstained", "one_source"] | None = None
     cited_url: HttpUrlOut = None
     tape_override: bool | None = None
+    first_bar: date | None = None
+    shares_rescaled: AdminSplitSharesOut | None = None
 
 
 class AdminSplitJumpBarOut(BaseModel):
@@ -307,6 +335,43 @@ class AdminSplitTapeStepOut(BaseModel):
     reason: str | None = None
 
 
+# the tape window (W5-1): stored sessions each side of a split's first session
+TAPE_SESSIONS_DEFAULT = 5
+TAPE_SESSIONS_MAX = 10
+
+
+class AdminSplitTapeBarOut(BaseModel):
+    """One stored session in a split's tape window. ``close`` / ``volume`` = the bar as the vendor FIRST served it
+    (the version ``tape_at`` reads: the as-traded print); ``newest_close`` = its newest stored version (the store's
+    scale today); ``restated`` = the two closes differ (re-based later: by the vendor, or by the split list's own
+    rescale of the stored tape)."""
+
+    d: date
+    close: float | None = None
+    volume: float | None = None
+    newest_close: float | None = None
+    restated: bool = False
+
+
+class AdminSplitTapeOut(BaseModel):
+    """The stored tape around a split's first session (W5-1): what was served each session either side of it.
+    ``bars`` = up to ``sessions`` stored sessions before ``around`` and up to ``sessions`` from ``around`` on (it
+    first, when stored), oldest first, fewer where the tape ends; ``around`` defaults to the split's ``key_date``.
+    ``prior_date`` / ``step`` / ``volume_ratio`` / ``prior_served_before`` = the step at ``around`` as first served,
+    the reading ``GET .../tape-step`` shows (the bar on ``around`` and the stored bar before it, at most 14 days
+    back; ``null`` when either is missing). A read.
+    """
+
+    version_id: UUID
+    around: date
+    sessions: int
+    bars: list[AdminSplitTapeBarOut] = Field(default_factory=list)
+    prior_date: date | None = None
+    step: float | None = None
+    volume_ratio: float | None = None
+    prior_served_before: bool | None = None
+
+
 def tape_why(
     tape: TapeEvidence | None, first_session: date, ratio_from: Decimal, ratio_to: Decimal
 ) -> str | None:
@@ -334,6 +399,14 @@ def _tape_now(
     conn: psycopg.Connection, security_id: UUID, first_session: date
 ) -> TapeEvidence | None:
     return tape_at(conn, tenant_id=DATA_TENANT_ID, security_id=security_id, session=first_session)
+
+
+def _data_version(conn: psycopg.Connection, version_id: UUID) -> SplitVersion:
+    """The split version a tape read names, on the data tenant; **404** otherwise."""
+    v = split_repo.get_version(conn, version_id)
+    if v is None or v.tenant_id != DATA_TENANT_ID:
+        raise HTTPException(status_code=404, detail=f"no split version {version_id}")
+    return v
 
 
 def _md(ts: datetime) -> str:
@@ -434,6 +507,7 @@ def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitLi
                 if v.polygon_split_from is not None and v.polygon_split_to is not None
                 else None
             ),
+            adjustment_type=v.polygon_adjustment_type,
         )
         if v.polygon_id
         else None
@@ -504,11 +578,71 @@ def _jumps(
     )
 
 
+# --- what a confirm would touch (W2-8): read for the whole list at once; no decision reads it -------------------
+
+
+def first_bars(
+    conn: psycopg.Connection, *, tenant_id: UUID, security_ids: Collection[UUID]
+) -> dict[UUID, date]:
+    """Each security's FIRST stored bar (its oldest ``fact_price_eod`` date, any version), in one read for the set;
+    a security with no bar is absent. A split whose first session is on or before it has no stored bar to adjust.
+    """
+    if not security_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT security_id, min(d) AS first_bar FROM fact_price_eod "
+            "WHERE tenant_id = %s AND security_id = ANY(%s) GROUP BY security_id",
+            (tenant_id, list(security_ids)),
+        )
+        return {r["security_id"]: r["first_bar"] for r in cur.fetchall()}
+
+
+def rescaled_count(
+    e: AdminSplitListEntryOut, shares: Mapping[str, Any] | None
+) -> AdminSplitSharesOut | None:
+    """The share count a confirm of ``e`` would put on the new scale, or ``None``: the market cap's own rule
+    (``dashboards.market_cap.cap_cell``, ``domain.splits.scale_after`` from the count's date) with the split in
+    force, so a count dated before its first session is rescaled and one dated on or after it is not.
+    """
+    day = shares.get("valid_from") if shares is not None else None
+    if shares is None or shares.get("shares") is None or not isinstance(day, date):
+        return None
+    in_force = ListedSplit(
+        key_date=e.key_date,
+        effective_date=e.effective_date,
+        ratio_from=Decimal(e.ratio_from),
+        ratio_to=Decimal(e.ratio_to),
+        status=STATUS_CONFIRMED,
+    )
+    if scale_after([in_force], day, through=e.effective_date) == 1:
+        return None
+    return AdminSplitSharesOut(count=float(shares["shares"]), date=day)
+
+
+def _hints(
+    conn: psycopg.Connection, out: AdminSplitListOut, *, tenant_id: UUID, asof: date
+) -> None:
+    """``first_bar`` and ``shares_rescaled`` on every open entry (needs review, announced), read for the whole list
+    at once: the first bars, and the platform share counts as the meters read and pick them
+    (``platform_values.state.read_states``, a fixed number of queries whatever the list's size)."""
+    entries = [*out.needs_review, *out.announced]
+    ids = list(dict.fromkeys(e.security_id for e in entries))
+    if not ids:
+        return
+    bars = first_bars(conn, tenant_id=tenant_id, security_ids=ids)
+    states = read_states(conn, ids, "shares_outstanding", asof=asof)
+    for e in entries:
+        e.first_bar = bars.get(e.security_id)
+        e.shares_rescaled = rescaled_count(e, states[e.security_id].meter_value)
+
+
 def splits_out(
     conn: psycopg.Connection, *, tenant_id: UUID, asof: date | None = None
 ) -> AdminSplitListOut:
     """The panel, read live from the list's newest versions — plus the released, unlisted split-shaped jumps
-    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``). SELECTs only."""
+    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``), and each open split's hints (W2-8).
+    SELECTs only."""
     versions = split_repo.latest_versions(conn, tenant_id=tenant_id)
     out = AdminSplitListOut(total=len(versions))
     try:
@@ -538,6 +672,7 @@ def splits_out(
     out.confirmed.sort(key=newest_first, reverse=True)
     out.set_aside.sort(key=newest_first, reverse=True)
     out.announced.sort(key=newest_first)
+    _hints(conn, out, tenant_id=tenant_id, asof=asof or market_today())
     return out
 
 
@@ -632,9 +767,7 @@ def split_tape_step(
     if (ratio_from is None) != (ratio_to is None):
         raise HTTPException(status_code=422, detail="give both ratio_from and ratio_to, or neither")
     try:
-        v = split_repo.get_version(conn, version_id)
-        if v is None or v.tenant_id != DATA_TENANT_ID:
-            raise HTTPException(status_code=404, detail=f"no split version {version_id}")
+        v = _data_version(conn, version_id)
         tape = _tape_now(conn, v.security_id, first_session)
     finally:
         conn.rollback()  # a read: hold no snapshot
@@ -657,6 +790,53 @@ def split_tape_step(
         )
         out.reason = tape_why(tape, first_session, rf, rt)
         out.within_tolerance = out.reason is None
+    return out
+
+
+@router.get("/{version_id}/tape", response_model=AdminSplitTapeOut)
+def split_tape_window(
+    version_id: UUID,
+    around: Annotated[
+        RequestDate | None,
+        Query(description="the session to center on (default: the split's key_date)"),
+    ] = None,
+    sessions: Annotated[
+        int, Query(ge=1, le=TAPE_SESSIONS_MAX, description="stored sessions each side (1-10)")
+    ] = TAPE_SESSIONS_DEFAULT,
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminSplitTapeOut:
+    """The stored closes and volumes around the split ``version_id`` names (W5-1): ``sessions`` stored sessions
+    each side of ``around`` (default the split's ``key_date``), each bar as first served beside its newest close,
+    and the step at ``around`` as first served. **404** unknown version, **422** ``sessions`` outside 1-10 or a
+    bad date. Read-only.
+    """
+    try:
+        v = _data_version(conn, version_id)
+        at = around or v.key_date
+        bars = tape_window(
+            conn, tenant_id=DATA_TENANT_ID, security_id=v.security_id, around=at, sessions=sessions
+        )
+        tape = _tape_now(conn, v.security_id, at)
+    finally:
+        conn.rollback()  # a read: hold no snapshot
+    out = AdminSplitTapeOut(
+        version_id=v.id,
+        around=at,
+        sessions=sessions,
+        bars=[
+            AdminSplitTapeBarOut(
+                d=b.d,
+                close=b.close,
+                volume=b.volume,
+                newest_close=b.newest_close,
+                restated=b.restated,
+            )
+            for b in bars
+        ],
+    )
+    if tape is not None and tape.session == at:
+        out.prior_date, out.step = tape.prior, tape.step
+        out.volume_ratio, out.prior_served_before = tape.volume_ratio, tape.prior_served_before
     return out
 
 

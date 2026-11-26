@@ -2929,6 +2929,8 @@ def test_pass_threads_the_RENAME_probe_to_the_artifact(monkeypatch):
 
     assert seen["probe"]["results"] is results and seen["probe"]["connect"] is daily._pass_connect
     assert seen["probe"]["asof"] == _OCT16 and seen["probe"]["allow_live"] is True
+    # W4-1 — a never-priced name's candidate is recommended only on a tape fresh by the monitor's own rule
+    assert seen["probe"]["stale_days"] == get_settings().tape_stale_days
     assert out.rename_probe is probe and seen["log"]["rename_probe"] is probe
 
 
@@ -3081,3 +3083,86 @@ def test_report_carries_the_probe_verdict_and_the_QUIET_lines(capsys):
     )
     daily._report([res], probe=RenameProbe(error="OperationalError: boom"))
     assert "RENAME PROBE FAILED — OperationalError: boom" in capsys.readouterr().out
+
+
+def test_report_names_the_never_priced_probe_beside_the_UNPRICEABLE_row(capsys):
+    """W4-1: an unpriceable row whose EDGAR list carries another symbol gets the probe's verdict on its own
+    line, the way a renamed row names its splice: a cross-class candidate is named with both class marks
+    and never offered as the Adopt; a same-class fresh one is."""
+    from pipeline.rename_probe import UnpricedCandidate, UnpricedRecommendation
+
+    aa, mm = uuid.uuid4(), uuid.uuid4()
+    cross = UnpricedRecommendation(
+        security_id=aa,
+        ticker="TKAAY",
+        edgar_tickers=("TKAAY", "TKAAF"),
+        member_class="adr",
+        candidates=(
+            UnpricedCandidate(
+                "TKAAF", bars=30, last_bar=date(2026, 10, 15), listing_class="ordinary"
+            ),
+        ),
+    )
+    same = UnpricedRecommendation(
+        security_id=mm,
+        ticker="TKMM",
+        edgar_tickers=("TKMM", "TKMMN"),
+        member_class=None,
+        candidates=(UnpricedCandidate("TKMMN", bars=30, last_bar=date(2026, 10, 15)),),
+        recommended="TKMMN",
+    )
+    res = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        tape_stale=(
+            daily.StaleTape("TKAAY", aa, None, edgar_tickers=("TKAAY", "TKAAF")),
+            daily.StaleTape("TKMM", mm, None, edgar_tickers=("TKMM", "TKMMN")),
+        ),
+    )
+    daily._report([res], probe=RenameProbe(evaluated=True, unpriced=(cross, same)))
+    out = capsys.readouterr().out
+
+    line = next(x for x in out.splitlines() if x.strip().startswith("TKAAY: last bar never"))
+    assert "UNPRICEABLE" in line
+    assert "EDGAR also lists TKAAF" in line and "cross-class" in line
+    assert "ordinary" in line and "adr" in line.lower()
+    line = next(x for x in out.splitlines() if x.strip().startswith("TKMM: last bar never"))
+    assert "Adopt TKMMN on the Admin page" in line
+
+
+def test_report_names_a_deregistered_never_priced_rows_FORM_15_and_its_events(capsys):
+    """W4-2: an unpriceable row carrying a deregistration names the Form 15, its date, and each 8-K event
+    with SEC's item titles, and says the recommended action is removing it in the basket editor. The row
+    stays in the loud STALE block (a field, never a class)."""
+    from ingest.edgar.submissions import Deregistration, DeregistrationEvent
+
+    sid = uuid.uuid4()
+    d = Deregistration(
+        form="15-12G",
+        filed=date(2026, 6, 10),
+        accession="0009999841-26-000002",
+        events=(
+            DeregistrationEvent(
+                form="8-K",
+                filed=date(2026, 6, 4),
+                accession="0009999841-26-000001",
+                items=("2.01", "3.03", "5.01"),
+            ),
+        ),
+    )
+    res = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        tape_stale=(daily.StaleTape("TKAQ", sid, None, edgar_tickers=(), deregistered=d),),
+    )
+    daily._report([res], probe=RenameProbe(evaluated=True))
+    out = capsys.readouterr().out
+
+    assert "STALE PRICE TAPES" in out.upper()
+    line = next(x for x in out.splitlines() if x.strip().startswith("TKAQ: last bar never"))
+    assert "UNPRICEABLE" in line and "DEREGISTERED" in line
+    assert "15-12G filed 2026-06-10" in line
+    assert "8-K 2026-06-04: Completion of Acquisition or Disposition of Assets" in line
+    assert "remove it from the basket" in line

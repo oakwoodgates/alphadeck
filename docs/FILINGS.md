@@ -271,6 +271,7 @@ out of the replay mirror (`db.bitemporal.DISPLAY_ONLY_FACT_TABLES`), and its fai
 | `insider_hold_on_time_days`, `insider_10b5_1_buy_weight`, `corporate_event_items`, `activist_stake_enabled` | `domain/config.py` (`CallConfig`) | No (config, not environment) |
 | `ALPHADECK_INSIDER_AMENDMENT_REVIEW_HORIZON_DAYS` | `domain/settings.py` | No |
 | `MASSIVE_API_KEY` (the split reference) | `domain/settings.py` | Yes |
+| `ALPHADECK_POLYGON_SPLITS_PATH` (`/stocks/v1/splits`; `/v3/reference/splits` = the deprecated fallback) | `domain/settings.py` | Yes |
 
 ## Known limits
 

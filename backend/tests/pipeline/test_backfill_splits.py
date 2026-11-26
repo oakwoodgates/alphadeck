@@ -48,6 +48,7 @@ from tests.split_fixtures import (
     list_polygon_source,
     polygon_source,
     seed_union,
+    v1_source,
 )
 
 SINCE = date(2025, 8, 1)  # the fixture pages' own query
@@ -584,3 +585,85 @@ def test_the_backfill_sets_a_distribution_aside_and_a_rerun_appends_nothing(db, 
     again = _backfill_scco(db, tmp_path, asof=date(2026, 11, 6))
     assert (again.planned[0].action, again.appended) == (bf.UNCHANGED, 0)
     assert split_repo.count_rows(db) == 1
+
+
+# --- W6-1: the reader on /stocks/v1/splits — Massive.com's label is evidence, never content ------------------------
+
+
+def _run_v1(db, tmp_path, *, apply: bool, asof: date = ASOF):
+    polygon, _ = v1_source(tmp_path, today=asof)
+    return bf.backfill_splits(
+        db,
+        polygon=polygon,
+        edgar=EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False),
+        since=SINCE,
+        asof=asof,
+        apply=apply,
+        allow_live=True,  # the fake Massive.com socket; the EDGAR client is cache-only
+    )
+
+
+def _planned_values(result) -> dict[tuple[str, date], tuple]:
+    """Each planned split's action and the values it would append, the label aside."""
+    out = {}
+    for p in result.planned:
+        vals = dict(p.values)
+        vals.pop("polygon_adjustment_type")
+        out[(p.member.ticker, p.decision.key_date)] = (p.action, vals)
+    return out
+
+
+def test_the_v1_reader_plans_what_the_v3_reader_planned_apart_from_the_label(
+    db, tmp_path, monkeypatch
+):
+    """The same union, a dry run each: on the v3 endpoint (the path setting's fallback, the real v3 pages) and on
+    the v1 endpoint (the real v1 rows): the same 7 splits, the same verdicts and values; only the label differs.
+    """
+    from domain.settings import get_settings
+
+    seed_union(db)
+    monkeypatch.setenv("ALPHADECK_POLYGON_SPLITS_PATH", "/v3/reference/splits")
+    get_settings.cache_clear()
+    try:
+        v3, calls = _run(db, tmp_path, apply=False)
+    finally:
+        monkeypatch.delenv("ALPHADECK_POLYGON_SPLITS_PATH")
+        get_settings.cache_clear()
+    assert "/v3/reference/splits?" in calls[0]
+    db.rollback()
+    v1 = _run_v1(db, tmp_path, apply=False)
+    db.rollback()
+    assert _planned_values(v1) == _planned_values(v3) and len(v1.planned) == 7
+    assert {p.decision.polygon.adjustment_type for p in v3.planned} == {None}
+    assert {p.decision.polygon.adjustment_type for p in v1.planned} == {"reverse_split"}
+
+
+def test_a_v1_rerun_over_a_list_the_v3_reader_filled_appends_nothing(db, tmp_path):
+    """The union listed by the v3 reader (no label on the 7 rows: 4 confirmed, 3 needs review), then the v1 reader:
+    the same 7 splits, each now labelled, plan UNCHANGED, because the label is not content (the backfill
+    re-versions any backfill-authored split whose content changed, confirmed ones included)."""
+    seed_union(db)
+    first, _ = _run(db, tmp_path, apply=True)
+    assert first.appended == 7
+    assert {
+        v.polygon_adjustment_type
+        for v in split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID)
+    } == {None}
+    again = _run_v1(db, tmp_path, apply=True)
+    assert again.appended == 0 and again.count(bf.UNCHANGED) == 7
+    assert split_repo.count_rows(db) == 7
+    assert {
+        v.polygon_adjustment_type
+        for v in split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID)
+    } == {None}
+
+
+def test_a_list_the_v1_reader_fills_carries_the_label(db, tmp_path):
+    seed_union(db)
+    first = _run_v1(db, tmp_path, apply=True)
+    assert first.appended == 7
+    stored = split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID)
+    assert {v.polygon_adjustment_type for v in stored} == {"reverse_split"}
+    # a v3 fallback night over it: the label is not content either way
+    again, _ = _run(db, tmp_path, apply=True)
+    assert again.appended == 0 and split_repo.count_rows(db) == 7
