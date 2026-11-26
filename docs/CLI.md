@@ -49,7 +49,7 @@ doc. Run from `backend/` with the checkout's own venv (`bash scripts/ensure-venv
 | `pipeline.ingest_fundamentals` | loads quarterly revenue and share series for basket members | operator | DB | [INGEST](INGEST.md) |
 | `pipeline.ingest_benchmarks` | loads the SPY and IWM tape | operator | DB | [INGEST](INGEST.md) |
 | `pipeline.nightly_extraction` | the nightly pass's platform-extraction leg, standalone | operator | DB on apply | [PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md) |
-| `pipeline.extract_values` | the platform-value backfill: extracts every due company | operator | DB on apply | [PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md) |
+| `pipeline.extract_values` | the platform-value backfill: extracts every due company, or re-extracts the steward's queue (the rescan) | operator | DB on apply | [PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md) |
 | `pipeline.enrich_identity` | fills sector, status and category on master rows | operator | DB | [DISCOVERY](DISCOVERY.md#identity-enrichment) |
 | `pipeline.fund_radar` | scans EDGAR for new fund filings; also prints a read-only report | operator (the nightly runs the same scan) | DB; the report no | [FUND_RADAR](FUND_RADAR.md#errors-cost-and-the-cli) |
 | `pipeline.spac_radar` | scans EDGAR for SPAC events and matches them to term sets | operator (a nightly passenger leg) | DB | [FEED_LOOP](FEED_LOOP.md#the-pass-in-order) |

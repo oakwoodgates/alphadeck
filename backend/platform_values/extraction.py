@@ -20,6 +20,9 @@ CLI and the onboarding step are later PRs):
 - **The run loop.** ``run_extraction`` walks a work list (``work_list``: due companies, most cards first, through
   ``platform_values.cards.card_counts``) under a count and a time budget, fail-open per company, honoring the kill
   switch and a ``should_stop`` check, and returns an ``ExtractionRun`` summary for a run artifact.
+- **The rescan list (W1-R).** ``rescan_list`` is the other list a run can walk: every company the steward's queue
+  lists with a waiting candidate (``platform_values.state.awaiting``), whatever ``due`` says, reason ``rescan``;
+  the operator's ``python -m pipeline.extract_values --rescan awaiting`` re-extracts it.
 
 Nothing here is a call input. It lives in ``platform_values/``, never in ``domain/`` (the editions fingerprint hashes
 ``domain/``).
@@ -38,7 +41,8 @@ from uuid import UUID
 import psycopg
 
 from db.write_lock import CompanyLockBusy
-from domain.market_time import market_tz
+from domain.market_time import market_date_of, market_tz
+from domain.platform_values import FACT_TYPES, ValueState
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.edgar.acceptance import filing_date_bound, parse_filing_date, resolve_public_acceptance
@@ -47,13 +51,15 @@ from ingest.edgar.extract import extract_with_annual_fallback
 from ingest.edgar.submissions import fetch_submissions, index_filings
 from platform_values.cards import card_counts
 from platform_values.machine import MachineOutcome, record_extraction
+from platform_values.state import awaiting
 from repositories import platform_extraction_repo as repo
+from repositories import platform_value_repo as value_repo
 
 # The forms the extractor chooses from (``ingest.edgar.extract``: the 10-Q / 10-K periodic path, else the 20-F /
 # 40-F annual path). Exact match: an amendment (10-Q/A) or a current report (8-K, 6-K) is never read.
 PERIODIC_FORMS: tuple[str, ...] = ("10-Q", "10-K", "20-F", "40-F")
 
-DueReason = Literal["never", "new_filing", "retry"]
+DueReason = Literal["never", "new_filing", "retry", "rescan"]
 AttemptStatus = Literal["done", "error", "busy", "skipped"]
 RunKind = Literal["nightly", "onboarding", "backfill", "steward", "get_data"]
 
@@ -221,7 +227,8 @@ def filings_from_submissions(submissions: Mapping[str, Any]) -> list[PeriodicFil
 # --- the work list -------------------------------------------------------------------------------------------------
 
 # Due reasons in the order a run takes them (Q5): a new filing first, then a retry, then a never-extracted company.
-_REASON_RANK = {"new_filing": 0, "retry": 1, "never": 2}
+# ``rescan`` is never a due reason: only ``rescan_list`` gives it, and every one of its items carries it.
+_REASON_RANK = {"new_filing": 0, "retry": 1, "never": 2, "rescan": 3}
 # Attempts read per company: enough for any retry streak (busy rows in between included).
 _ATTEMPTS_READ = 20
 
@@ -338,6 +345,114 @@ def work_list(
         )
     )
     return WorkList(items, withheld, held, waiting)
+
+
+# --- the rescan list (W1-R) ----------------------------------------------------------------------------------------
+
+_SHORT = {"shares_outstanding": "shares", "cash_burn": "cash"}
+
+
+@dataclass(frozen=True)
+class RescanList:
+    """The rescan's companies in run order and what it left out. ``waiting`` counts every company the steward's
+    queue lists with a waiting candidate (``platform_values.state.awaiting_companies``' count); of those,
+    ``decided`` names (by ticker) the ones whose OTHER value's newest candidate a standing steward decision closes
+    (approved, corrected or dismissed), ``etf`` and ``off_card`` count the ETFs and the companies on no live card,
+    and ``done_since`` the ones with a ``done`` attempt at or after ``since`` (already re-extracted).
+    """
+
+    items: list[WorkItem]
+    waiting: int = 0
+    decided: tuple[str, ...] = ()
+    etf: int = 0
+    off_card: int = 0
+    done_since: int = 0
+
+
+def _closed_by_a_decision(conn: psycopg.Connection, ids: Sequence[UUID]) -> set[UUID]:
+    """The companies whose newest candidate of either value a standing decision closes. Two reads per value type,
+    whatever the number of ids."""
+    closed: set[UUID] = set()
+    for ft in FACT_TYPES:
+        newest = value_repo.latest_candidates(conn, ids, ft)
+        standing = value_repo.standing_decisions_for_candidates(
+            conn, [c["id"] for c in newest.values()]
+        )
+        closed |= {sid for sid, c in newest.items() if c["id"] in standing}
+    return closed
+
+
+def rescan_list(
+    conn: psycopg.Connection,
+    *,
+    now: datetime | None = None,
+    since: datetime | None = None,
+) -> RescanList:
+    """THE RESCAN'S COMPANIES (W1-R): every company whose newest candidate of either value is an undecided flag the
+    steward's queue lists (``platform_values.state.awaiting``: awaiting the steward, or pending beside an older
+    value; the queue's own reading, as of ``now``'s market date), on a live card, re-extracted WHATEVER ``due`` SAYS
+    (an up-to-date company too). Every item's reason is ``rescan``; its note names what waits
+    (``shares awaiting, cash pending``). Left out, and counted:
+
+    - an ETF (``extractable``) and a company on no live card (a run's universe is the work list's);
+    - a company whose OTHER value's newest candidate a standing steward decision closes (approved, corrected or
+      dismissed): a re-extraction writes both values, and a changed candidate is a new undecided row that would
+      re-queue over a dismissal or beside a steward's value. Extract now takes such a company by hand;
+    - with ``since``: a company with a ``done`` attempt at or after it (re-extracted since: the resume).
+
+    A dismissed or decided company is never listed: its newest candidate is not waiting. Order: pen-only companies
+    last, then most cards first, then ticker and id (the work list's). A fixed number of queries; no network.
+    """
+    at = now or datetime.now(timezone.utc)
+    waiting: dict[UUID, dict[str, str]] = {}
+    for item in awaiting(conn, limit=None, asof=market_date_of(at)):
+        how = "awaiting" if item.state.state is ValueState.AWAITING_STEWARD else "pending"
+        waiting.setdefault(item.security_id, {})[item.fact_type] = how
+    ids = list(waiting)
+    companies = {
+        c["security_id"]: c for c in repo.on_card_companies(conn) if c["security_id"] in waiting
+    }
+    counts = card_counts(conn, ids)
+    closed = _closed_by_a_decision(conn, ids)
+    filings = repo.periodic_filings(conn, ids)
+    attempts = repo.latest_attempts(conn, ids, per_company=_ATTEMPTS_READ) if since else {}
+    items: list[WorkItem] = []
+    decided: list[str] = []
+    etf = off_card = done_since = 0
+    for sid in ids:
+        c = companies.get(sid)
+        count = counts.get(sid)
+        if c is None or count is None:
+            off_card += 1
+            continue
+        if not extractable(c):
+            etf += 1
+            continue
+        if sid in closed:
+            decided.append(c["ticker"] or str(sid))
+            continue
+        if since is not None and any(
+            a["status"] == "done" and a["recorded_at"] >= since for a in attempts.get(sid, [])
+        ):
+            done_since += 1
+            continue
+        fs = filings_from_rows(filings.get(sid, []))
+        what = waiting[sid]
+        items.append(
+            WorkItem(
+                security_id=sid,
+                ticker=c["ticker"],
+                cik=c["cik"],
+                instrument_kind=c["instrument_kind"],
+                cards=count.cards,
+                pen_only=count.pen_only,
+                reason="rescan",
+                note=", ".join(f"{_SHORT[ft]} {what[ft]}" for ft in FACT_TYPES if ft in what),
+                inputs_key=inputs_key(c["cik"], [f for f in fs if f.public_at <= at]),
+            )
+        )
+    items.sort(key=lambda i: (i.pen_only, -i.cards, i.ticker or "", str(i.security_id)))
+    return RescanList(items, len(ids), tuple(sorted(decided)), etf, off_card, done_since)
 
 
 # --- the per-company step ------------------------------------------------------------------------------------------
@@ -750,6 +865,7 @@ __all__ = [
     "DueReason",
     "ExtractionRun",
     "PeriodicFiling",
+    "RescanList",
     "RunKind",
     "WorkItem",
     "WorkList",
@@ -762,6 +878,7 @@ __all__ = [
     "filings_from_submissions",
     "inputs_key",
     "parse_inputs_key",
+    "rescan_list",
     "run_extraction",
     "work_list",
 ]
