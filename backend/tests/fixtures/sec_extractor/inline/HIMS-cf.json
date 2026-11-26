@@ -1,0 +1,87 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-26 through the steward review's sec.py), cut to the dei taxonomy; every row is verbatim.",
+ "cik": 1773751,
+ "entityName": "HIMS & HERS HEALTH, INC.",
+ "facts": {
+  "dei": {
+   "EntityPublicFloat": {
+    "label": "Entity Public Float",
+    "description": "The aggregate market value of the voting and non-voting common equity held by non-affiliates computed by reference to the price at which the common equity was last sold, or the average bid and asked price of such common equity, as of the last business day of the registrant's most recently completed second fiscal quarter.",
+    "units": {
+     "USD": [
+      {
+       "end": "2019-12-30",
+       "val": 199237500,
+       "accn": "0001193125-20-088778",
+       "fy": 2019,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2020-03-27",
+       "frame": "CY2019Q4I"
+      },
+      {
+       "end": "2020-06-30",
+       "val": 204671250,
+       "accn": "0001193125-21-089657",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2021-03-22",
+       "frame": "CY2020Q2I"
+      },
+      {
+       "end": "2021-06-30",
+       "val": 1800000000,
+       "accn": "0001773751-22-000039",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-02-24",
+       "frame": "CY2021Q2I"
+      },
+      {
+       "end": "2022-06-30",
+       "val": 840000000,
+       "accn": "0001773751-23-000029",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-02-27",
+       "frame": "CY2022Q2I"
+      },
+      {
+       "end": "2023-06-30",
+       "val": 1800000000,
+       "accn": "0001773751-24-000025",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2024-02-26",
+       "frame": "CY2023Q2I"
+      },
+      {
+       "end": "2024-06-28",
+       "val": 3900000000,
+       "accn": "0001773751-25-000062",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-24",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2025-06-30",
+       "val": 10100000000,
+       "accn": "0001773751-26-000022",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-23",
+       "frame": "CY2025Q2I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

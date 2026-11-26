@@ -294,6 +294,7 @@ def test_the_tag_lists_as_built():
         "OtherShortTermInvestments",
         "CertificatesOfDepositAtCarryingValue",
         "TimeDepositsAtCarryingValue",
+        "DebtSecuritiesCurrent",  # W1-AUTO A3 (``ExtractorConfig.debt_securities_counted``)
     ]
     assert names(ex._LT_MARKETABLE) == [
         "MarketableSecuritiesNoncurrent",
@@ -301,6 +302,7 @@ def test_the_tag_lists_as_built():
         "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent",
         "DebtSecuritiesAvailableForSaleExcludingAccruedInterestNoncurrent",
         "HeldToMaturitySecuritiesNoncurrent",
+        "DebtSecuritiesNoncurrent",  # W1-AUTO A3
     ]
     assert names(ex._NOT_CASH) == [
         "LongTermInvestments",

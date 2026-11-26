@@ -1,0 +1,167 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-26 through the steward review's sec.py), cut to the dei taxonomy; every row is verbatim.",
+ "cik": 1050446,
+ "entityName": "STRATEGY INC",
+ "facts": {
+  "dei": {
+   "EntityPublicFloat": {
+    "label": "Entity Public Float",
+    "description": "The aggregate market value of the voting and non-voting common equity held by non-affiliates computed by reference to the price at which the common equity was last sold, or the average bid and asked price of such common equity, as of the last business day of the registrant's most recently completed second fiscal quarter.",
+    "units": {
+     "USD": [
+      {
+       "end": "2011-06-30",
+       "val": 1334300000,
+       "accn": "0001193125-12-067605",
+       "fy": 2011,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2012-02-17",
+       "frame": "CY2011Q2I"
+      },
+      {
+       "end": "2012-06-30",
+       "val": 1125900000,
+       "accn": "0001193125-13-055763",
+       "fy": 2012,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2013-02-13",
+       "frame": "CY2012Q2I"
+      },
+      {
+       "end": "2013-06-30",
+       "val": 787300000,
+       "accn": "0001193125-14-048295",
+       "fy": 2013,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2014-02-12",
+       "frame": "CY2013Q2I"
+      },
+      {
+       "end": "2014-06-30",
+       "val": 1305700000,
+       "accn": "0001193125-15-065807",
+       "fy": 2014,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2015-02-26",
+       "frame": "CY2014Q2I"
+      },
+      {
+       "end": "2015-06-30",
+       "val": 1590100000,
+       "accn": "0001193125-16-479811",
+       "fy": 2015,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2016-02-26",
+       "frame": "CY2015Q2I"
+      },
+      {
+       "end": "2016-06-30",
+       "val": 1648000000,
+       "accn": "0001564590-17-001395",
+       "fy": 2016,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2017-02-10",
+       "frame": "CY2016Q2I"
+      },
+      {
+       "end": "2017-06-30",
+       "val": 1807900000,
+       "accn": "0001564590-18-001547",
+       "fy": 2017,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2018-02-07",
+       "frame": "CY2017Q2I"
+      },
+      {
+       "end": "2018-06-29",
+       "val": 1207600000,
+       "accn": "0001564590-19-003468",
+       "fy": 2018,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2019-02-20",
+       "frame": "CY2018Q2I"
+      },
+      {
+       "end": "2019-06-28",
+       "val": 1178700000,
+       "accn": "0001564590-20-004679",
+       "fy": 2019,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2020-02-14",
+       "frame": "CY2019Q2I"
+      },
+      {
+       "end": "2020-06-30",
+       "val": 907000000,
+       "accn": "0001564590-21-005783",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2021-02-12",
+       "frame": "CY2020Q2I"
+      },
+      {
+       "end": "2021-06-30",
+       "val": 5172000000,
+       "accn": "0001564590-22-005287",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-02-16",
+       "frame": "CY2021Q2I"
+      },
+      {
+       "end": "2022-06-30",
+       "val": 1533000000,
+       "accn": "0001564590-23-002012",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-02-16",
+       "frame": "CY2022Q2I"
+      },
+      {
+       "end": "2023-06-30",
+       "val": 4133000000,
+       "accn": "0000950170-24-015847",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2024-02-15",
+       "frame": "CY2023Q2I"
+      },
+      {
+       "end": "2024-06-30",
+       "val": 23499000000,
+       "accn": "0000950170-25-021814",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-18",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2025-06-30",
+       "val": 105450000000,
+       "accn": "0001050446-26-000020",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-19",
+       "frame": "CY2025Q2I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

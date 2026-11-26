@@ -20,7 +20,8 @@ replay or editions engine names it
 | The backfill CLI | `pipeline/extract_values.py` |
 | Run files in `data/extraction_runs/` | `pipeline/extraction_run_log.py` |
 
-The code lives under `platform_values/`, not `domain/`, so it never moves the editions fingerprint.
+The code lives under `platform_values/`, not `domain/`, so it never moves the editions fingerprint; the extractor's
+dials (`ExtractorConfig` in `domain/config.py`) do.
 
 ## Who runs it
 
@@ -104,6 +105,33 @@ when the slowest one so far would end past the budget. The rest is `deferred` an
 to `ingest_lock_request_wait_s`, so one busy company cannot spend the budget. It returns an `ExtractionRun`
 (`to_json()`, `admin_line()`, `attention`). Under the kill switch a `nightly` or `onboarding` run is `off`: nothing
 fetched, nothing written (`KILL_SWITCHED`).
+
+## What the machine applies from a filing's own inline XBRL
+
+The extractor re-reads a flagged share count or cash value from the cited 10-Q or 10-K's own inline XBRL when
+companyfacts cannot give it ([EXTRACTOR](EXTRACTOR.md)). Four of those cases are AUTO (the operator's decision of
+2026-11-26): the machine writer applies them like any AUTO value. Each has its own `ExtractorConfig` dial; a dial off
+gives back the flagged offer (`tests/ingest/test_extract_auto_cases.py`).
+
+| Case | Dial (default) | AUTO when |
+|---|---|---|
+| Cover count | `cover_eps_tolerance` (0.02) | the cover tags its counts at one as-of date, on or after the period end and not after the filing date; every count is a plain class of common stock (no ADR line, preferred class, warrants, total beside its parts or class-less member beside classes; another registrant's count is set aside); the sum is within 2% of the same filing's EPS share base for the cited period |
+| Cash behind companyfacts | `cash_auto_companyfacts_behind` (on) | the figures are the registrant's own undimensioned facts and every cash check passes on them, the one-time check on the offered quarter's own reconciliation lines (a derived quarter's derived the same way) |
+| Debt-securities tags | `debt_securities_counted` (on) | `DebtSecuritiesCurrent` and `DebtSecuritiesNoncurrent` count like the other investment tags: per role the largest, never a sum |
+| Aggregate working capital | `operating_capital_routine` (on) | `IncreaseDecreaseInOperatingCapital` is routine working capital, never `possible-one-time` |
+
+- **Why the EPS share base:** an inline fact wraps the printed number, so the cover and its text are one reading;
+  the basic weighted-average count is the filing's independent one. Within the tolerance, a cover above the base is
+  not `class-outside-eps`. An applied count is dated by its cover, after the period-end candidate the same filing
+  queued, so that candidate stops waiting (`tests/platform_values/test_machine.py`).
+- **Cash two quarters behind:** the quarter needs the previous 10-Q's own year to date. `extract_for_security` reads
+  that document (one more request, cache-first) only when `_needs_previous_quarter` says so. A check that cannot run,
+  such as no reconciliation line tagged for the offered quarter, keeps `companyfacts-behind`. This is stricter than a
+  current company's derived quarter, whose one-time check has no lines of its own span to read.
+- **The debt-securities tags were measured first** on the fork's 1,341 applied cash values (2026-11-26): one
+  changed, AUPH (45.8M to 486.5M, its short-term investments line), and no double count.
+- **Changing a dial** moves the editions fingerprint (`domain/config.py` is an engine source): the next editions
+  nightly runs a trial.
 
 ## The nightly step
 

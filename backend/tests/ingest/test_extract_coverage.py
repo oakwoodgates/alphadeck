@@ -66,6 +66,7 @@ def _capture_extract_facts(monkeypatch):
         values_form,
         tenq_raw,
         tenq_filed,
+        tenq_prior,
     ):
         calls.update(
             values_form=values_form,
@@ -77,6 +78,7 @@ def _capture_extract_facts(monkeypatch):
             tenk_date=tenk_date,
             tenq_raw=tenq_raw,
             tenq_filed=tenq_filed,
+            tenq_prior=tenq_prior,
         )
         return ["shares", "burn", "purity"]  # extract_facts always yields the three candidates
 

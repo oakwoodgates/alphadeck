@@ -4,6 +4,9 @@ Offline through ``extract_for_security`` with a fake ``EdgarClient`` serving cut
 (``tests/fixtures/sec_extractor/inline/``: the head, the ``ix:resources`` contexts, the cover page and the EPS rows,
 verbatim from the cited filings) and each company's real companyfacts ``dei`` rows. FLAG-only: the tier and the
 machine writer's plan never change; without the raw document the candidate is today's.
+
+Read with W1-AUTO's A1 dial off (``_W11``), W1-1's FLAG-only behaviour; with it on a cover the EPS share base confirms
+is applied (``test_extract_auto_cases.py``).
 """
 
 from __future__ import annotations
@@ -16,12 +19,15 @@ from typing import Any
 
 import pytest
 
+from domain.config import ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from ingest.edgar import extract as ex
 from ingest.edgar.converts import clean_filing_text
 from platform_values.machine import plan
 
 _FX = Path(__file__).resolve().parent.parent / "fixtures" / "sec_extractor" / "inline"
+# W1-1's behaviour: W1-AUTO's A1 (apply a cover the EPS share base confirms) off
+_W11 = ExtractorConfig(cover_eps_tolerance=None)
 
 # (cik, accession, primary document, filed, period of report) of each cited 10-Q (README in the fixture folder)
 FILINGS: dict[str, tuple[int, str, str, str, str]] = {
@@ -104,7 +110,7 @@ class _Client:
 
 def _shares(ticker: str) -> ExtractedFact:
     """The live wrapper's share-count candidate (``extract_for_security``, as background extraction calls it)."""
-    facts = ex.extract_for_security(_Client(ticker), FILINGS[ticker][0], values_only=True)  # type: ignore[arg-type]
+    facts = ex.extract_for_security(_Client(ticker), FILINGS[ticker][0], values_only=True, cfg=_W11)  # type: ignore[arg-type]
     return next(f for f in facts if f.fact_type == "shares_outstanding")
 
 
@@ -120,6 +126,7 @@ def _pure(ticker: str, cf: dict | None = None, **kw: Any) -> ExtractedFact:
         tenk_ref=_url(ticker),
         tenq_date=period,
         tenk_date=period,
+        cfg=_W11,
         **kw,
     )
     return next(f for f in facts if f.fact_type == "shares_outstanding")

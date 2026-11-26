@@ -757,6 +757,59 @@ def test_an_annual_count_queued_before_the_rule_leaves_the_queue_once_applied(db
     assert len(_candidates(db, sid, "shares_outstanding")) == 1  # kept, never deleted
 
 
+def test_an_applied_inline_cover_count_takes_its_period_end_candidate_of_the_same_filing_off_the_queue(
+    db,
+):
+    """W1-AUTO (A1): GOOGL's Q3 share count waited for the steward as a period-end candidate of its 10-Q (no figure,
+    ``no-companyfacts``, dated 2026-09-30). The same filing re-extracted from its inline-XBRL cover, which the EPS
+    share base confirms: the count is applied, dated by the cover (2026-10-21), and the older candidate stops waiting
+    (no row is deleted)."""
+    import json as _json
+
+    from ingest.edgar import extract as ex
+    from ingest.edgar.converts import clean_filing_text
+
+    fx = Path(__file__).resolve().parent.parent / "fixtures" / "sec_extractor" / "inline"
+    ref = "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000084/goog-20260930.htm"
+    day = date(2026, 11, 26)
+    sid = _company(db, "GOGA")
+    waiting = _shares(
+        ref=ref, d=date(2026, 9, 30), value=None, tier=Tier.FLAG, flags=["no-companyfacts"]
+    )
+    _record(db, sid, ExtractionResult(facts=[waiting]), today=day)
+    assert sid in {a.security_id for a in state.awaiting(db, limit=None, asof=day)}
+    raw = (fx / "GOOGL-10q.htm").read_text(encoding="utf-8")
+    text = clean_filing_text(raw)
+    facts = ex.extract_facts(
+        _json.loads((fx / "GOOGL-cf.json").read_text(encoding="utf-8")),
+        text,
+        text,
+        tenq_ref=ref,
+        tenk_ref=ref,
+        tenq_date=date(2026, 9, 30),
+        tenk_date=date(2026, 9, 30),
+        tenq_raw=raw,
+        tenq_filed=date(2026, 10, 29),
+    )
+    shares = next(f for f in facts if f.fact_type == "shares_outstanding")
+    out = _record(db, sid, ExtractionResult(facts=[shares]), today=day)["shares_outstanding"]
+    assert (out.applied, out.reason) == (True, "applied")
+    (row,) = _facts(db, "fact_shares_outstanding", sid)
+    assert (float(row["shares"]), row["valid_from"], row["ratified_by"]) == (
+        12_294_000_000.0,
+        date(2026, 10, 21),
+        "auto",
+    )
+    assert sid not in {
+        a.security_id
+        for a in state.awaiting(db, limit=None, asof=day)
+        if a.fact_type == "shares_outstanding"
+    }
+    st = state.read_state(db, sid, "shares_outstanding", asof=day)
+    assert (st.state, st.pending) == (ValueState.FROM_FILING, None)
+    assert len(_candidates(db, sid, "shares_outstanding")) == 1  # the waiting one, kept
+
+
 # --- the same-day annual tie (PR D1): a form switcher's machine 10-q-cover row --------------------------------
 #
 # BTCT / CURR / EUDA on the fork: a MACHINE row labeled ``10-q-cover`` (citing an old 10-Q URL) dated the same day

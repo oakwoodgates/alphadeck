@@ -1,6 +1,7 @@
 # Inline-XBRL share-count fixtures (cut-down real 10-Q documents)
 
-Read by `backend/tests/ingest/test_inline_xbrl.py` and `backend/tests/ingest/test_extract_inline_shares.py`. Each
+Read by `backend/tests/ingest/test_inline_xbrl.py`, `test_extract_inline_shares.py` (the first eleven, the
+automatic-cover dial off) and `test_extract_auto_cases.py` (all, the dial at its 2% default). Each
 `<TICKER>-10q.htm` is the cited primary document of a share-count candidate that waited for the steward on
 2026-11-25, read from SEC EDGAR through the steward review's paced, cached reader and cut down. Nothing in a kept
 part is edited, rounded or rescaled:
@@ -31,3 +32,12 @@ passage of the old reader excepted: its first anchor hit sits in the notes the c
 | GLXY | 0001859392-26-000112 | 2026-11-09 | 2026-09-30 | a class outside the EPS share base (193.3M against a sum of 385.7M) |
 | ZLAB | 0001628280-26-070521 | 2026-11-05 | 2026-09-30 | an ADR line (`dei:AdrMember`, ordinary shares held as ADSs) beside the ordinary count: not summed |
 | KNSA | 0001104659-26-119186 | 2026-10-27 | 2026-09-30 | a total (`us-gaap:CommonStockMember`) beside its four class parts: not added again |
+| COIN | 0001679788-26-000122 | 2026-10-29 | 2026-09-30 | no companyfacts cover row; Class A + Class B within 0.4% of the EPS share base: applied |
+| AMRC | 0001628280-26-072337 | 2026-11-09 | 2026-09-30 | no companyfacts cover row; Class A + Class B within 0.1% of the base: applied |
+| HIMS | 0001773751-26-000246 | 2026-11-09 | 2026-09-30 | Class A + Class V within 0.3% of the base: applied |
+| CRWV | 0001769628-26-000465 | 2026-11-12 | 2026-09-30 | a cover 0.5% below the base: applied |
+| DKNG | 0001883685-26-000041 | 2026-11-06 | 2026-09-30 | an unpaired Class B outside the EPS share base (496.9M against a sum of 891.3M): stays FLAG |
+| MSTR | 0001050446-26-000060 | 2026-11-02 | 2026-09-30 | a cover 5.5% above its per-class EPS facts (issuance after the period): stays FLAG |
+| TEM | 0001193125-26-442624 | 2026-11-02 | 2026-09-30 | an EPS share base tagged unscaled (181,311): stays FLAG with `class-outside-eps` |
+| S | 0001583708-26-000055 | 2026-08-28 | 2026-07-31 | a cover 1.91% above the base: no `class-outside-eps` within the tolerance; applied |
+| REGN | 0000872589-26-000034 | 2026-10-30 | 2026-09-30 | `us-gaap:CommonStockMember` beside Class A (a total or a class, untold), 1.72% above the base: FLAG, no `class-outside-eps` |

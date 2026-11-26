@@ -6,6 +6,9 @@ holding the cash, investment and operating-cash-flow facts, verbatim from the ci
 companyfacts, cut to the concepts the cash reader reads. companyfacts misses combined multi-registrant filings for
 months: CEG's newest rows are its Q2 10-Q's (one quarter behind), DUK's and FE's their Q1's (two behind). The tier
 and the machine writer's plan never change; without the raw document the candidate is today's.
+
+Read with W1-AUTO's cash dials off (``_W12``: A2 and A3), W1-2's FLAG-only behaviour; with them on CEG-type and NVDA
+candidates can be applied (``test_extract_auto_cases.py``).
 """
 
 from __future__ import annotations
@@ -19,12 +22,15 @@ from typing import Any
 
 import pytest
 
+from domain.config import ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from ingest.edgar import extract as ex
 from ingest.edgar.converts import clean_filing_text
 from platform_values.machine import plan
 
 _FX = Path(__file__).resolve().parent.parent / "fixtures" / "sec_extractor" / "inline_cash"
+# W1-2's behaviour: W1-AUTO's A2 (apply when every check passes) and A3 (count the debt-securities tags) off
+_W12 = ExtractorConfig(cash_auto_companyfacts_behind=False, debt_securities_counted=False)
 
 # (cik, accession, primary document, filed, period of report) of each cited 10-Q (README in the fixture folder)
 FILINGS: dict[str, tuple[int, str, str, str, str]] = {
@@ -105,7 +111,7 @@ class _Client:
 
 def _cash(ticker: str) -> ExtractedFact:
     """The live wrapper's cash candidate (``extract_for_security``, as background extraction calls it)."""
-    facts = ex.extract_for_security(_Client(ticker), FILINGS[ticker][0], values_only=True)  # type: ignore[arg-type]
+    facts = ex.extract_for_security(_Client(ticker), FILINGS[ticker][0], values_only=True, cfg=_W12)  # type: ignore[arg-type]
     return next(f for f in facts if f.fact_type == "cash_burn")
 
 
@@ -121,6 +127,7 @@ def _pure(ticker: str, cf: dict | None = None, raw: str | None = None, **kw: Any
         tenk_ref=_url(ticker),
         tenq_date=period,
         tenk_date=period,
+        cfg=_W12,
         **kw,
     )
     return next(f for f in facts if f.fact_type == "cash_burn")

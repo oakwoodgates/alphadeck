@@ -1051,6 +1051,33 @@ class ExtractorConfig(DomainModel):
     # the longest span a year to date can have and still be a FISCAL year to date (52-53-week years run to 371
     # days): a longer row (a development-stage company's inception-to-date column) is never read as a pace.
     pace_ytd_max_days: int = 371
+    # a QUARTER DERIVED ACROSS FILINGS (W1-4): an earlier year to date of the same tag whose start lies at most this
+    # many days from the year to date's own (a 52/53-week year: FUBO's 10-K starts 3 days before its 10-Qs). Shapes a
+    # FLAG's offer (``ytd-derived-across-filings``), never a tier.
+    ytd_start_slack_days: int = 7
+
+    # --- the W1 AUTO cases (operator decision D4, 2026-11-26; docs/PLATFORM_EXTRACTION.md "What the machine applies
+    # from a filing's own inline XBRL"). One dial per case; each off gives the FLAG-only offer it replaced. ---
+    # A1: a share count read from the cited 10-Q/10-K's own inline-XBRL cover is AUTO when the cover tags its counts at
+    # one as-of date (on or after the period end, not after the filing date), every count is a plain class of common
+    # stock, and their sum is within this fraction of the same filing's EPS share base (basic weighted average of the
+    # cited period). The same bound narrows ``class-outside-eps`` to a cover sum MORE than it above the base. D4.1: 2%
+    # (on the 2026-11-25 queue 96 of 199 waiting quarterly share counts; 80 at 1%, 108 at 5%). None: off (the inline
+    # cover is offered, never applied, and ``class-outside-eps`` fires on any gap).
+    cover_eps_tolerance: float | None = 0.02
+    # A2: a cash-and-burn candidate read from the cited document because companyfacts is behind is AUTO when it is the
+    # registrant's own undimensioned figures and every AUTO check passes on them, the one-time check on reconciliation
+    # lines of the offered quarter itself (derived like the quarter); two quarters behind, the previous 10-Q's own
+    # year to date is read (one more document). False: always FLAG ``companyfacts-behind`` (W1-2).
+    cash_auto_companyfacts_behind: bool = True
+    # A3: ``DebtSecuritiesCurrent`` / ``DebtSecuritiesNoncurrent`` are counted like the other short- and long-term
+    # investment tags (NVDA's 34,143M). Measured on the fork's 1,341 applied cash values (2026-11-26): one changes
+    # (AUPH, 45.8M -> 486.5M, its balance sheet's short-term investments), no double count. False: only named in a
+    # FLAG's note (W1-2).
+    debt_securities_counted: bool = True
+    # A6: the aggregate working-capital line (``IncreaseDecreaseInOperatingCapital``) is routine working capital,
+    # never a ``possible-one-time`` line (FEIM's). False: it can trip the flag (W1-4).
+    operating_capital_routine: bool = True
 
     # --- annual-cover shares (the dark names, Retrieval Slice 1 — ingest/edgar/annual_shares.py) ---
     # The window AFTER the located cover instruction searched for the count. The instruction sentence
