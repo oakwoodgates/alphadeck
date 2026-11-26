@@ -1,0 +1,97 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-25/26 through the steward review's sec.py), cut to the dei taxonomy; every row is verbatim.",
+ "cik": 1730430,
+ "entityName": "Kiniksa Pharmaceuticals International, plc",
+ "facts": {
+  "dei": {
+   "EntityPublicFloat": {
+    "label": "Entity Public Float",
+    "description": "The aggregate market value of the voting and non-voting common equity held by non-affiliates computed by reference to the price at which the common equity was last sold, or the average bid and asked price of such common equity, as of the last business day of the registrant's most recently completed second fiscal quarter.",
+    "units": {
+     "USD": [
+      {
+       "end": "2018-06-30",
+       "val": 327300000,
+       "accn": "0001558370-19-001857",
+       "fy": 2018,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2019-03-12",
+       "frame": "CY2018Q2I"
+      },
+      {
+       "end": "2019-06-30",
+       "val": 304600000,
+       "accn": "0001558370-20-002081",
+       "fy": 2019,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2020-03-05",
+       "frame": "CY2019Q2I"
+      },
+      {
+       "end": "2020-06-30",
+       "val": 712600000,
+       "accn": "0001558370-21-001821",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2021-02-25",
+       "frame": "CY2020Q2I"
+      },
+      {
+       "end": "2021-06-30",
+       "val": 487200000,
+       "accn": "0001558370-22-001932",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-02-24",
+       "frame": "CY2021Q2I"
+      },
+      {
+       "end": "2022-06-30",
+       "val": 346700000,
+       "accn": "0001558370-23-002684",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-03-02",
+       "frame": "CY2022Q2I"
+      },
+      {
+       "end": "2023-06-30",
+       "val": 510300000,
+       "accn": "0001558370-24-002005",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2024-02-28",
+       "frame": "CY2023Q2I"
+      },
+      {
+       "end": "2024-06-28",
+       "val": 697400000,
+       "accn": "0001558370-25-001505",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-02-25",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2025-06-30",
+       "val": 1114000000,
+       "accn": "0001104659-26-019168",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-24",
+       "frame": "CY2025Q2I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

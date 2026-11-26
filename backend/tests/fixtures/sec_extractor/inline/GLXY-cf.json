@@ -1,0 +1,27 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-25/26 through the steward review's sec.py), cut to the dei taxonomy; every row is verbatim.",
+ "cik": "0001859392",
+ "entityName": "Galaxy Digital Inc.",
+ "facts": {
+  "dei": {
+   "EntityPublicFloat": {
+    "label": "Entity Public Float",
+    "description": "The aggregate market value of the voting and non-voting common equity held by non-affiliates computed by reference to the price at which the common equity was last sold, or the average bid and asked price of such common equity, as of the last business day of the registrant's most recently completed second fiscal quarter.",
+    "units": {
+     "USD": [
+      {
+       "end": "2025-06-30",
+       "val": 3600000000,
+       "accn": "0001859392-26-000016",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2026-02-26",
+       "frame": "CY2025Q2I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

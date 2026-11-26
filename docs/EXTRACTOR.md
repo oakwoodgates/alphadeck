@@ -83,16 +83,26 @@ anchors a person to a wrong number.
 - **AUTO** needs one distinct `dei:EntityCommonStockSharesOutstanding` value on the latest cover date, dated on or
   after the period of report (`reportDate`). Why not the filing date: a 10-Q cover is dated between the period end
   and the filing date, so that comparison made AUTO unreachable.
-- **`dual-class`**: more than one value on that date, or two or more per-class counts parsed from the cover text
-  (`_cover_class_sum`; companyfacts drops the class dimension). The value is the sum: class B is economic common
-  stock and the A/B split is about votes, so the market cap counts both. Fewer than two parsed classes: no value.
+- **`dual-class`**: more than one value on that date, or two or more per-class counts on the cover (companyfacts
+  drops the class dimension). The value is the sum: the A/B split is about votes, so the market cap counts every
+  class of common stock. Fewer than two classes read: no value.
 - **`stale-cover`**: one count older than the period; offered, dated by its own as-of date.
 - **`no-companyfacts`**: nothing observed; located only.
-- **`cover-after-filing`** (`screen_cover_rows`): a cover row dated after its own filing is refused first and named in
-  the note, beside the condition flag on any tier. A count is never public before its filing; the bound is the filing
-  date because companyfacts carries no acceptance time. The annual reader applies the same rule
+- **`cover-after-filing`** (`screen_cover_rows`): a cover count dated after its own filing is refused (a count is
+  never public before its filing) and named in the note, beside the condition flag on any tier. The bound is the
+  filing date (companyfacts carries no acceptance time); the annual reader applies it too
   (`tests/ingest/test_cover_dates.py`). `pipeline.repair_shares_cover_dates` re-dates stored versions (the
   `data-repair` skill).
+- **The filing's own cover** (`_inline_shares`, `ingest/edgar/inline_xbrl.py`): companyfacts also misses combined
+  filings for months, so a FLAG count is re-read from the raw document already fetched; the tier never changes
+  (`tests/ingest/test_extract_inline_shares.py`). Counted: the cover facts at their latest instant, scaled,
+  undimensioned or per `StatementClassOfStockAxis` member; never another registrant's (`dei:LegalEntityAxis`), an ADR
+  line, a preferred class, warrants or exchangeable units, and a count equal to the others' sum is their total. Two
+  or more classes: their sum, dated by the cover, `dual-class`; one count newer than companyfacts':
+  `companyfacts-behind`; the passage is the printed counts.
+- **`class-outside-eps`**: the filing's EPS share base (basic weighted average for the period, per-class facts first)
+  leaves a class out; the sum is still offered, both figures in the note. Why that base: the inline fact is the printed
+  number, not a second reading.
 
 ## Cash and burn on the periodic path
 
@@ -268,8 +278,7 @@ no untangling and purity is the user's.
   (`tests/app/test_workbench_api.py::test_explaining_writes_no_fact`,
   `::test_explanation_has_no_path_into_a_ratified_fact`).
 - **Components and direction only.** The prompt allows the passage's figures and an adjustment's direction, never the
-  adjusted value. That rule rests on the prompt alone, so only a live run tests it; the lever if it slips is a
-  stronger `llm_model`.
+  adjusted value; only a live run tests it, and the lever if it slips is a stronger `llm_model`.
 - **Fail-open.** No key, a timeout or an ungrounded draft returns 200 with `grounded: false`, never a 5xx. A draft
   shows a "drafted" badge.
 
@@ -311,6 +320,8 @@ no untangling and purity is the user's.
 - The explain prompt's no-final-figure rule has no structural check; a post-filter for numbers absent from the passage
   is not built.
 - The periodic cover-date bound is the filing date, not the acceptance.
+- `class-outside-eps` has no tolerance: a class near the size of the cover sum's gap to the EPS base, or an unscaled
+  base, reads as outside.
 
 ## Related
 
