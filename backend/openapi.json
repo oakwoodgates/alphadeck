@@ -11273,6 +11273,16 @@
               }
             ],
             "title": "Error"
+          },
+          "crosscheck": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminTapeCrosscheckOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -13847,6 +13857,29 @@
             "type": "boolean",
             "title": "Acknowledged",
             "default": false
+          },
+          "massive_traded": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Massive Traded"
+          },
+          "massive_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Massive Close"
           }
         },
         "type": "object",
@@ -14297,6 +14330,245 @@
         ],
         "title": "AdminSuccessorRowOut",
         "description": "A basket member whose company now files under a NEW CIK (T7's detector): the CIK the master holds\nlists no tickers on EDGAR, and SEC's ticker map assigns the member's symbol to another registrant \u2014 a\npending RECOMMENDATION; nothing is applied until the operator clicks Adopt. ``stored_cik`` and the OLD\nCIK's evidence (``old_entity_name``, ``old_former_names``, its ``deregistrations`` \u2014 15-12B / 15-12G /\n15-15D) sit beside each ``candidates`` entry's. ``recommended`` = the one candidate (``null`` when the\nmap is ambiguous \u2014 shown, not adoptable). ``current_cik`` is the master's CIK now; ``change`` the\nstanding operator re-point for this name (an Adopt waiting for the next pass, with its Undo)."
+      },
+      "AdminTapeCrosscheckOut": {
+        "properties": {
+          "session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "massive_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Massive Status"
+          },
+          "tolerance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance"
+          },
+          "judged": {
+            "type": "integer",
+            "title": "Judged",
+            "default": 0
+          },
+          "compared": {
+            "type": "integer",
+            "title": "Compared",
+            "default": 0
+          },
+          "disagree": {
+            "type": "integer",
+            "title": "Disagree",
+            "default": 0
+          },
+          "vendor_gap": {
+            "type": "integer",
+            "title": "Vendor Gap",
+            "default": 0
+          },
+          "no_trade": {
+            "type": "integer",
+            "title": "No Trade",
+            "default": 0
+          },
+          "unmapped": {
+            "type": "integer",
+            "title": "Unmapped",
+            "default": 0
+          },
+          "line": {
+            "type": "string",
+            "title": "Line"
+          },
+          "disagree_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disagree Line"
+          },
+          "stale_lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stale Lines",
+            "default": []
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AdminTapeCrosscheckRowOut"
+            },
+            "type": "array",
+            "title": "Rows",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "line"
+        ],
+        "title": "AdminTapeCrosscheckOut",
+        "description": "The Massive.com TAPE CROSS-CHECK (W6-3a) on the same pass as the missing-close flag: one grouped raw-bars\nread a night, compared with the stored closes \u2014 a monitor (no tape write, never paged, never the cron\nverdict). ``status`` is the read's (``on``, ``off`` = no key or switched off, ``not_served`` = Massive.com had\nnot served the session yet, ``uncached``, ``failed``, ``not_run``) with its ``note``; ``error`` = the check\nitself failed. ``line`` is the backend-authored quiet line; ``disagree_line`` names the disagreements;\n``stale_lines`` one line per open stale price row whose symbol traded on Massive.com that session (\"a vendor\ngap, not a rename\"). The counts are per class; ``rows`` carry every named company with its ``kind``."
+      },
+      "AdminTapeCrosscheckRowOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "ours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ours"
+          },
+          "massive": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Massive"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "split_shaped": {
+            "type": "boolean",
+            "title": "Split Shaped",
+            "default": false
+          },
+          "split": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split"
+          },
+          "otc": {
+            "type": "boolean",
+            "title": "Otc",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "kind"
+        ],
+        "title": "AdminTapeCrosscheckRowOut",
+        "description": "One company the Massive.com tape cross-check names (``pipeline/tape_crosscheck.py``). ``kind``: ``disagree``\n(both have a bar for the session and they differ past the tolerance and by more than a cent; ``split_shaped`` =\nthe ratio sits near a listed split's factor, ``split`` names it), ``vendor_gap`` (Massive.com traded it, we have\nno close), ``no_trade`` (we have a bar, Massive.com shows no trade: a placeholder on a halt, or a symbol it\nwrites differently) or ``unmapped`` (no symbol to look up). ``ours`` = our newest stored close, ``massive`` =\nMassive.com's raw close on our tape's scale, ``ratio`` = ours / massive, ``symbol`` = the Massive.com symbol\nread, ``otc`` = Massive.com's venue flag."
       },
       "AdminTapeOut": {
         "properties": {

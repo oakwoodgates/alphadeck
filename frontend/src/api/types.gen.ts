@@ -5452,6 +5452,7 @@ export interface components {
             arrived: components["schemas"]["AdminArrivedCloseOut"][];
             /** Error */
             error?: string | null;
+            crosscheck?: components["schemas"]["AdminTapeCrosscheckOut"] | null;
         };
         /**
          * AdminNameChangeFilingOut
@@ -6739,6 +6740,10 @@ export interface components {
              * @default false
              */
             acknowledged: boolean;
+            /** Massive Traded */
+            massive_traded?: string | null;
+            /** Massive Close */
+            massive_close?: number | null;
         };
         /**
          * AdminStatusOut
@@ -6949,6 +6954,117 @@ export interface components {
             /** Current Cik */
             current_cik?: string | null;
             change?: components["schemas"]["AdminCikChangeOut"] | null;
+        };
+        /**
+         * AdminTapeCrosscheckOut
+         * @description The Massive.com TAPE CROSS-CHECK (W6-3a) on the same pass as the missing-close flag: one grouped raw-bars
+         *     read a night, compared with the stored closes — a monitor (no tape write, never paged, never the cron
+         *     verdict). ``status`` is the read's (``on``, ``off`` = no key or switched off, ``not_served`` = Massive.com had
+         *     not served the session yet, ``uncached``, ``failed``, ``not_run``) with its ``note``; ``error`` = the check
+         *     itself failed. ``line`` is the backend-authored quiet line; ``disagree_line`` names the disagreements;
+         *     ``stale_lines`` one line per open stale price row whose symbol traded on Massive.com that session ("a vendor
+         *     gap, not a rename"). The counts are per class; ``rows`` carry every named company with its ``kind``.
+         */
+        AdminTapeCrosscheckOut: {
+            /** Session */
+            session?: string | null;
+            /** Status */
+            status: string;
+            /** Note */
+            note?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Massive Status */
+            massive_status?: string | null;
+            /** Tolerance */
+            tolerance?: number | null;
+            /**
+             * Judged
+             * @default 0
+             */
+            judged: number;
+            /**
+             * Compared
+             * @default 0
+             */
+            compared: number;
+            /**
+             * Disagree
+             * @default 0
+             */
+            disagree: number;
+            /**
+             * Vendor Gap
+             * @default 0
+             */
+            vendor_gap: number;
+            /**
+             * No Trade
+             * @default 0
+             */
+            no_trade: number;
+            /**
+             * Unmapped
+             * @default 0
+             */
+            unmapped: number;
+            /** Line */
+            line: string;
+            /** Disagree Line */
+            disagree_line?: string | null;
+            /**
+             * Stale Lines
+             * @default []
+             */
+            stale_lines: string[];
+            /**
+             * Rows
+             * @default []
+             */
+            rows: components["schemas"]["AdminTapeCrosscheckRowOut"][];
+        };
+        /**
+         * AdminTapeCrosscheckRowOut
+         * @description One company the Massive.com tape cross-check names (``pipeline/tape_crosscheck.py``). ``kind``: ``disagree``
+         *     (both have a bar for the session and they differ past the tolerance and by more than a cent; ``split_shaped`` =
+         *     the ratio sits near a listed split's factor, ``split`` names it), ``vendor_gap`` (Massive.com traded it, we have
+         *     no close), ``no_trade`` (we have a bar, Massive.com shows no trade: a placeholder on a halt, or a symbol it
+         *     writes differently) or ``unmapped`` (no symbol to look up). ``ours`` = our newest stored close, ``massive`` =
+         *     Massive.com's raw close on our tape's scale, ``ratio`` = ours / massive, ``symbol`` = the Massive.com symbol
+         *     read, ``otc`` = Massive.com's venue flag.
+         */
+        AdminTapeCrosscheckRowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Kind */
+            kind: string;
+            /** Symbol */
+            symbol?: string | null;
+            /** Ours */
+            ours?: number | null;
+            /** Massive */
+            massive?: number | null;
+            /** Volume */
+            volume?: number | null;
+            /** Ratio */
+            ratio?: number | null;
+            /**
+             * Split Shaped
+             * @default false
+             */
+            split_shaped: boolean;
+            /** Split */
+            split?: string | null;
+            /**
+             * Otc
+             * @default false
+             */
+            otc: boolean;
         };
         /**
          * AdminTapeOut

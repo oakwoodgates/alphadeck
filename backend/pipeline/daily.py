@@ -160,6 +160,8 @@ from pipeline.split_jumps import JumpScan, run_jump_scan
 from pipeline.split_jumps import report_lines as jump_report_lines
 from pipeline.successor_cik import SuccessorScan, previous_successor_keys, run_successor_scan
 from pipeline.successor_cik import report_lines as successor_report_lines
+from pipeline.tape_crosscheck import TapeCrossCheck, fetch_grouped, run_tape_crosscheck
+from pipeline.tape_crosscheck import report_lines as tape_crosscheck_report_lines
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
 from repositories import calls_repo, price_feed_repo, thesis_repo, user_meta_repo
 from securities import master
@@ -1177,6 +1179,10 @@ class DailyPassOutcome:
     # session after their price leg, the older sessions' closes still missing (loud), and the late ones that
     # arrived — computed ONCE in the pass, so the artifact, the printed report and the Admin poll agree
     missing_closes: MissingCloses = field(default_factory=MissingCloses)
+    # W6-3a — THE TAPE CROSS-CHECK (``pipeline/tape_crosscheck.py``): tonight's stored closes against Massive.com's
+    # raw grouped day (disagreements, closes Massive.com traded that we lack, stale rows that traded tonight) —
+    # computed ONCE in the pass, so the artifact, the printed report and the Admin poll agree. Never paged.
+    tape_crosscheck: TapeCrossCheck = field(default_factory=TapeCrossCheck)
     # V2 W3c — the platform-extraction step's block (``pipeline/nightly_extraction.py``): the LAST thing in the pass,
     # added to the FINISHED artifact afterwards (``cron_run_log.amend_run_block``). Not a ``payload_kwargs`` field:
     # it does not exist yet when the artifact is written. None = the step did not report (a direct caller).
@@ -1216,6 +1222,7 @@ class DailyPassOutcome:
             "edgar_coverage": self.edgar_coverage,
             "split_detect": self.split_detect,
             "missing_closes": self.missing_closes,
+            "tape_crosscheck": self.tape_crosscheck,
         }
 
 
@@ -1516,6 +1523,11 @@ def _run_daily_pass_locked(
     split_detector = timed("split_detect_start")(SplitDetector.start)(
         asof=asof, allow_live=allow_live
     )
+    # W6-3a — THE TAPE CROSS-CHECK's ONE Massive.com read (`pipeline/tape_crosscheck.py`): tonight's grouped raw
+    # bars, fetched once here, beside the split reference, so a later price-leg fill can share the day. Fail-open:
+    # off (no MASSIVE_API_KEY / ALPHADECK_TAPE_CROSSCHECK=false), not served yet (HTTP 403 before Massive.com's end
+    # of day), uncached on a --no-live pass or failed is a status on the outcome. Judged after the loop.
+    grouped = timed("tape_crosscheck_fetch")(fetch_grouped)(asof=asof, allow_live=allow_live)
     conn = _pass_connect()
     try:
         results = run_daily(
@@ -1642,6 +1654,21 @@ def _run_daily_pass_locked(
         connect=_pass_connect,
         payloads=list_run_logs,
         clock=perf_counter,
+    )
+    # W6-3a — THE TAPE CROSS-CHECK (`pipeline/tape_crosscheck.py`): the companies the missing-close check judged,
+    # their newest stored close for tonight against Massive.com's raw bar (disagree / Massive.com traded what we
+    # lack / no Massive.com trade), and each open stale price row whose symbol traded tonight (a vendor gap, not a
+    # rename). A MONITOR: no tape write, never a call input, never paged. AFTER `run_daily` (it reads tonight's
+    # stored closes) and BEFORE the artifact; its own read-only connection; fail-open (a fault rides `error`).
+    tape_crosscheck = timed("tape_crosscheck")(run_tape_crosscheck)(
+        results=results,
+        asof=asof,
+        allow_live=allow_live,
+        grouped=grouped,
+        tenant_id=DATA_TENANT_ID,  # the price tape and the split list are DATA (domain.scopes)
+        connect=_pass_connect,
+        clock=perf_counter,
+        tolerance=settings.tape_crosscheck_tolerance,
     )
     # S5 — THE SPLIT-NIGHT HOLD's ESCALATION (`pipeline/split_jumps.py`): a split-shaped jump the hold has
     # released (three sessions on) that no source ever listed goes to the operator — one quiet report line,
@@ -1787,6 +1814,7 @@ def _run_daily_pass_locked(
         split_detect=split_detector.result,
         jumps=jumps,
         missing_closes=missing_closes,
+        tape_crosscheck=tape_crosscheck,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -2468,6 +2496,10 @@ def main(argv: list[str] | None = None) -> None:
     # MISSING CLOSES — the night's quiet count line (+ the arrivals), LOUD only for an older session's close
     # still missing after a later session's pass, and a failed check loud
     for line in missing_close_report_lines(outcome.missing_closes):
+        print(line)
+    # W6-3a — the Massive.com cross-check: one quiet line, the disagreements named, one line per stale row that
+    # traded tonight (a vendor gap, not a rename); a failed check loud. Never paged.
+    for line in tape_crosscheck_report_lines(outcome.tape_crosscheck):
         print(line)
     # X5 — ONE timings line: the total, the three slowest legs, the slowest thesis, the peak RSS
     timings_line = pass_timings.summary_line(outcome.timings)

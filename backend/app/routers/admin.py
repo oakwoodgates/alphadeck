@@ -59,6 +59,8 @@ from app.schemas_api import (
     AdminSplitSettledOut,
     AdminStaleTapeOut,
     AdminStatusOut,
+    AdminTapeCrosscheckOut,
+    AdminTapeCrosscheckRowOut,
     AdminTapeOut,
     AdminUnfinishedRunOut,
     BackupCreateIn,
@@ -109,6 +111,9 @@ from pipeline.schedule import (
 )
 from pipeline.split_basis import new_labels_of as split_new_labels
 from pipeline.successor_cik import new_labels_of as successor_new_labels
+from pipeline.tape_crosscheck import disagree_line as crosscheck_disagree_line
+from pipeline.tape_crosscheck import quiet_line as crosscheck_quiet_line
+from pipeline.tape_crosscheck import stale_lines as crosscheck_stale_lines
 from repositories import calls_repo, editions_repo, fundamentals_set_aside_repo, insider_hold_repo
 from scoreboard.late import late_only_nights
 
@@ -449,6 +454,7 @@ def _tape_out(payloads: list[dict], names: _NameGuard | None = None) -> AdminTap
     inv = carried_inventory(payloads, evaluated_key="tape_evaluated")
     if inv is not None:
         doc = inv.newest
+        traded = _massive_traded(doc)
         rows: dict[str, AdminStaleTapeOut] = {}
         for t in inv.entries():
             for s in t.get("tape_stale") or []:
@@ -485,6 +491,8 @@ def _tape_out(payloads: list[dict], names: _NameGuard | None = None) -> AdminTap
                         # an older artifact lacks both and reads false
                         unpriceable=bool(s.get("unpriceable")),
                         acknowledged=bool(s.get("acknowledged")),
+                        # W6-3a — the same pass's Massive.com cross-check: this symbol traded that session
+                        **(traded.get(str(s["security_id"]), {}) if kind == PRICE.key else {}),
                     )
                 except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
                     continue
@@ -505,6 +513,88 @@ def _tape_out(payloads: list[dict], names: _NameGuard | None = None) -> AdminTap
             newly_stale=newly,
         )
     return None
+
+
+def _massive_traded(doc: Mapping) -> dict[str, dict]:
+    """W6-3a — ``{security_id: {massive_traded, massive_close}}`` for each open stale price row the pass's
+    Massive.com cross-check found TRADED that session (``tape_crosscheck.stale_traded``); ``{}`` for an artifact
+    without the block, a check that did not run, or a malformed block (never blanks the panel)."""
+    block = doc.get("tape_crosscheck")
+    out: dict[str, dict] = {}
+    if not isinstance(block, Mapping) or not block.get("evaluated"):
+        return out
+    for r in block.get("stale_traded") or ():
+        try:
+            out[str(UUID(str(r["security_id"])))] = {
+                "massive_traded": date.fromisoformat(str(r["session"])),
+                "massive_close": float(r["close"]),
+            }
+        except Exception:  # noqa: BLE001 — skip a malformed row
+            continue
+    return out
+
+
+_CROSS_KINDS = ("disagree", "vendor_gap", "no_trade", "unmapped")
+
+
+def _crosscheck_row(kind: str, r: Mapping) -> AdminTapeCrosscheckRowOut:
+    """One artifact cross-check row (``CrossRow.to_json``) as the wire row; raises on a malformed row."""
+
+    def num(v: object) -> float | None:
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    return AdminTapeCrosscheckRowOut(
+        security_id=UUID(str(r["security_id"])),
+        ticker=r.get("ticker") if isinstance(r.get("ticker"), str) else None,
+        kind=kind,
+        symbol=r.get("symbol") if isinstance(r.get("symbol"), str) else None,
+        ours=num(r.get("ours")),
+        massive=num(r.get("massive")),
+        volume=num(r.get("volume")),
+        ratio=num(r.get("ratio")),
+        split_shaped=bool(r.get("split_shaped")),
+        split=r.get("split") if isinstance(r.get("split"), str) else None,
+        otc=bool(r.get("otc")),
+    )
+
+
+def _crosscheck_out(doc: Mapping | None) -> AdminTapeCrosscheckOut | None:
+    """W6-3a — the pass's Massive.com TAPE CROSS-CHECK block (``pipeline/tape_crosscheck.py``) from the same
+    artifact as the missing-close flag; the lines are the module's own builders, so the page and the cron log say
+    the same thing. ``None`` = an artifact written before the check (or a malformed block)."""
+    block = doc.get("tape_crosscheck") if isinstance(doc, Mapping) else None
+    if not isinstance(block, Mapping):
+        return None
+    try:
+        rows: list[AdminTapeCrosscheckRowOut] = []
+        for kind in _CROSS_KINDS:
+            rows.extend(_rows(block.get(kind), lambda r, k=kind: _crosscheck_row(k, r)))
+        count = {k: len(block.get(k) or []) for k in _CROSS_KINDS}
+        return AdminTapeCrosscheckOut(
+            session=date.fromisoformat(block["session"]) if block.get("session") else None,
+            status=str(block.get("status") or "not_run"),
+            note=block.get("note") if isinstance(block.get("note"), str) else None,
+            error=block.get("error") if isinstance(block.get("error"), str) else None,
+            massive_status=(
+                block.get("massive_status")
+                if isinstance(block.get("massive_status"), str)
+                else None
+            ),
+            tolerance=(
+                float(block["tolerance"])
+                if isinstance(block.get("tolerance"), (int, float))
+                else None
+            ),
+            judged=int(block.get("judged") or 0),
+            compared=int(block.get("compared") or 0),
+            **count,
+            line=crosscheck_quiet_line(block),
+            disagree_line=crosscheck_disagree_line(block),
+            stale_lines=crosscheck_stale_lines(block),
+            rows=rows,
+        )
+    except Exception:  # noqa: BLE001 — a malformed block reads as absent, never a blank flag
+        return None
 
 
 def _split_row(d: Mapping) -> dict:
@@ -638,6 +728,7 @@ def _missing_closes_out(payloads: list[dict]) -> AdminMissingClosesOut | None:
                     ),
                 ),
                 error=error,
+                crosscheck=_crosscheck_out(doc),
             )
         except Exception:  # noqa: BLE001 — a malformed artifact is skipped like any other read
             continue
@@ -653,6 +744,7 @@ def _missing_closes_out(payloads: list[dict]) -> AdminMissingClosesOut | None:
                     ran_at=str(newest["started_at"]),
                     line="Closing prices · not checked — the check could not run on the last pass",
                     error=error,
+                    crosscheck=_crosscheck_out(newest),
                 )
             except Exception:  # noqa: BLE001
                 return None

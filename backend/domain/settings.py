@@ -569,6 +569,16 @@ class Settings(BaseSettings):
     # The adapters were measured against this legacy host. Verify live requests before repointing it here
     # or via ALPHADECK_POLYGON_BASE.
     polygon_base: str = "https://api.polygon.io"
+    # W6-3a — THE TAPE CROSS-CHECK (``pipeline/tape_crosscheck.py``): one Massive.com grouped raw-bars read a night
+    # (``ingest/massive_bars.py``) compared with the stored closes — a monitor (no tape write, never paged).
+    # ``tape_crosscheck`` = False turns it off (so does no MASSIVE_API_KEY); ``tape_crosscheck_tolerance`` is the
+    # log-ratio past which a stored close DISAGREES with Massive.com's raw close (and by more than a cent). MEASURED
+    # 2026-11-25: 192 of 195 (name, session) pairs within 0.001%, the widest 0.098% (MARA: the official close vs
+    # the last trade), so 0.02 (2%) flags only a real difference. ALPHADECK_TAPE_CROSSCHECK /
+    # ALPHADECK_TAPE_CROSSCHECK_TOLERANCE, injected into the backend AND the cron by docker-compose at these
+    # defaults (pinned by test).
+    tape_crosscheck: bool = True
+    tape_crosscheck_tolerance: float = 0.02
     openfigi_url: str = "https://api.openfigi.com/v3/mapping"  # the fixed POST endpoint
     usaspending_api_base: str = "https://api.usaspending.gov/api/v2"
     usaspending_award_url_base: str = (
