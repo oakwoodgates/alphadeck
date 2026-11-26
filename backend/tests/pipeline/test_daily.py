@@ -2929,6 +2929,8 @@ def test_pass_threads_the_RENAME_probe_to_the_artifact(monkeypatch):
 
     assert seen["probe"]["results"] is results and seen["probe"]["connect"] is daily._pass_connect
     assert seen["probe"]["asof"] == _OCT16 and seen["probe"]["allow_live"] is True
+    # W4-1 — a never-priced name's candidate is recommended only on a tape fresh by the monitor's own rule
+    assert seen["probe"]["stale_days"] == get_settings().tape_stale_days
     assert out.rename_probe is probe and seen["log"]["rename_probe"] is probe
 
 
@@ -3081,3 +3083,419 @@ def test_report_carries_the_probe_verdict_and_the_QUIET_lines(capsys):
     )
     daily._report([res], probe=RenameProbe(error="OperationalError: boom"))
     assert "RENAME PROBE FAILED — OperationalError: boom" in capsys.readouterr().out
+
+
+def test_report_names_the_never_priced_probe_beside_the_UNPRICEABLE_row(capsys):
+    """W4-1: an unpriceable row whose EDGAR list carries another symbol gets the probe's verdict on its own
+    line, the way a renamed row names its splice: a cross-class candidate is named with both class marks
+    and never offered as the Adopt; a same-class fresh one is."""
+    from pipeline.rename_probe import UnpricedCandidate, UnpricedRecommendation
+
+    aa, mm = uuid.uuid4(), uuid.uuid4()
+    cross = UnpricedRecommendation(
+        security_id=aa,
+        ticker="TKAAY",
+        edgar_tickers=("TKAAY", "TKAAF"),
+        member_class="adr",
+        candidates=(
+            UnpricedCandidate(
+                "TKAAF", bars=30, last_bar=date(2026, 10, 15), listing_class="ordinary"
+            ),
+        ),
+    )
+    same = UnpricedRecommendation(
+        security_id=mm,
+        ticker="TKMM",
+        edgar_tickers=("TKMM", "TKMMN"),
+        member_class=None,
+        candidates=(UnpricedCandidate("TKMMN", bars=30, last_bar=date(2026, 10, 15)),),
+        recommended="TKMMN",
+    )
+    res = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        tape_stale=(
+            daily.StaleTape("TKAAY", aa, None, edgar_tickers=("TKAAY", "TKAAF")),
+            daily.StaleTape("TKMM", mm, None, edgar_tickers=("TKMM", "TKMMN")),
+        ),
+    )
+    daily._report([res], probe=RenameProbe(evaluated=True, unpriced=(cross, same)))
+    out = capsys.readouterr().out
+
+    line = next(x for x in out.splitlines() if x.strip().startswith("TKAAY: last bar never"))
+    assert "UNPRICEABLE" in line
+    assert "EDGAR also lists TKAAF" in line and "cross-class" in line
+    assert "ordinary" in line and "adr" in line.lower()
+    line = next(x for x in out.splitlines() if x.strip().startswith("TKMM: last bar never"))
+    assert "Adopt TKMMN on the Admin page" in line
+
+
+def test_report_names_a_deregistered_never_priced_rows_FORM_15_and_its_events(capsys):
+    """W4-2: an unpriceable row carrying a deregistration names the Form 15, its date, and each 8-K event
+    with SEC's item titles, and says the recommended action is removing it in the basket editor. The row
+    stays in the loud STALE block (a field, never a class)."""
+    from ingest.edgar.submissions import Deregistration, DeregistrationEvent
+
+    sid = uuid.uuid4()
+    d = Deregistration(
+        form="15-12G",
+        filed=date(2026, 6, 10),
+        accession="0009999841-26-000002",
+        events=(
+            DeregistrationEvent(
+                form="8-K",
+                filed=date(2026, 6, 4),
+                accession="0009999841-26-000001",
+                items=("2.01", "3.03", "5.01"),
+            ),
+        ),
+    )
+    res = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        tape_stale=(daily.StaleTape("TKAQ", sid, None, edgar_tickers=(), deregistered=d),),
+    )
+    daily._report([res], probe=RenameProbe(evaluated=True))
+    out = capsys.readouterr().out
+
+    assert "STALE PRICE TAPES" in out.upper()
+    line = next(x for x in out.splitlines() if x.strip().startswith("TKAQ: last bar never"))
+    assert "UNPRICEABLE" in line and "DEREGISTERED" in line
+    assert "15-12G filed 2026-06-10" in line
+    assert "8-K 2026-06-04: Completion of Acquisition or Disposition of Assets" in line
+    assert "remove it from the basket" in line
+
+
+# --- W6-3a: the Massive.com tape cross-check rides the pass (fetched once before the loop, judged after it) -------
+
+
+def _grouped_fixture(session):
+    """A REAL grouped day (``tests/fixtures/massive/grouped``) as the fetch would hand it to the pass."""
+    from ingest.massive_bars import parse_grouped
+
+    text = (
+        Path(__file__).resolve().parents[1] / "fixtures" / "massive" / "grouped" / "2026-11-25.json"
+    ).read_text("utf-8")
+    return parse_grouped(text, session=session)
+
+
+def test_pass_FETCHES_the_grouped_day_ONCE_before_the_loop_and_the_crosscheck_rides_the_artifact(
+    monkeypatch,
+):
+    from pipeline import tape_crosscheck as tc
+
+    order, _, _ = _prime_pass(monkeypatch)
+    fetched: list[dict] = []
+    grouped = tc.GroupedFetch(session=_ASOF, status=tc.STATUS_ON, day=_grouped_fixture(_ASOF))
+
+    def _fetch(**kw):
+        order.append("tape_crosscheck_fetch")
+        fetched.append(kw)
+        return grouped
+
+    judged = tc.TapeCrossCheck(evaluated=True, status=tc.STATUS_ON, session=_ASOF, judged=3)
+    seen_check: dict = {}
+
+    def _check(**kw):
+        order.append("tape_crosscheck")
+        seen_check.update(kw)
+        return judged
+
+    seen_log: dict = {}
+
+    def _log(results, **kw):
+        seen_log.update(kw)
+        return None
+
+    monkeypatch.setattr(daily, "fetch_grouped", _fetch)
+    monkeypatch.setattr(daily, "run_tape_crosscheck", _check)
+    monkeypatch.setattr(daily, "write_cron_run_log", _log)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    assert fetched == [{"asof": _ASOF, "allow_live": True}]  # ONE read, before the loop
+    assert (
+        order.index("tape_crosscheck_fetch")
+        < order.index("run_daily")
+        < order.index("tape_crosscheck")
+    )
+    assert seen_check["grouped"] is grouped and seen_check["tolerance"] == 0.02
+    assert seen_check["tenant_id"] == DEFAULT_TENANT_ID and seen_check["allow_live"] is True
+    assert out.tape_crosscheck is judged and seen_log["tape_crosscheck"] is judged
+    assert (
+        out.payload_kwargs()["tape_crosscheck"] is judged
+    )  # the Admin poll payload reads the same
+
+
+def test_a_crosscheck_FAULT_is_fail_open_and_rides_the_outcome(monkeypatch):
+    """The REAL check over a pass whose read fails (the harness's fake connection has no cursor): the pass
+    finishes, the fault is the block's ``error``, and nothing raises."""
+    from pipeline import tape_crosscheck as tc
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(
+        daily,
+        "fetch_grouped",
+        lambda **kw: tc.GroupedFetch(
+            session=_ASOF, status=tc.STATUS_ON, day=_grouped_fixture(_ASOF)
+        ),
+    )
+    walked = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        ingested=[NameResult("MARA", uuid.uuid4(), 0, 1, tape_edge=_ASOF)],
+    )
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: [walked])
+    seen_log: dict = {}
+    monkeypatch.setattr(daily, "write_cron_run_log", lambda results, **kw: seen_log.update(kw))
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    cc = out.tape_crosscheck
+    assert cc.evaluated is False and (cc.error or "").startswith("AttributeError")
+    assert seen_log["tape_crosscheck"] is cc
+    assert tc.report_lines(cc)[0].startswith("TAPE CROSS-CHECK FAILED — AttributeError")
+
+
+def test_a_keyless_pass_is_OFF_and_opens_nothing(monkeypatch):
+    """No MASSIVE_API_KEY (the off switch): the fetch makes no request and the check opens no connection."""
+    from pipeline import tape_crosscheck as tc
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(tc, "default_bar_source", lambda: None)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    cc = out.tape_crosscheck
+    assert (cc.evaluated, cc.status, cc.note, cc.error) == (
+        False,
+        "off",
+        "no MASSIVE_API_KEY",
+        None,
+    )
+    assert tc.report_lines(cc) == ["Massive.com cross-check · off (no MASSIVE_API_KEY)"]
+
+
+def test_main_PRINTS_the_crosscheck_lines_beside_the_missing_closes(monkeypatch, capsys):
+    from decimal import Decimal
+
+    from domain.splits import ListedSplit
+    from pipeline import tape_crosscheck as tc
+
+    sndk, aitx = uuid.uuid4(), uuid.uuid4()
+    night = date(2026, 11, 25)
+    cc = tc.judge(
+        session=night,
+        asof=night,
+        judged=[tc.Name(aitx, "AITX")],
+        stale=[tc.Name(sndk, "SNDK", edge=date(2026, 11, 19))],
+        stored={},
+        massive=_grouped_fixture(night),
+        listed={
+            sndk: [
+                ListedSplit(
+                    date(2026, 11, 20), date(2026, 11, 20), Decimal(1), Decimal(8), "confirmed"
+                )
+            ]
+        },
+        tolerance=0.02,
+    )
+    outcome = _outcome_with([_res(recorded=True)])
+    outcome.tape_crosscheck = cc
+    monkeypatch.setattr(daily, "run_daily_pass", lambda **kw: outcome)
+    _tonight(monkeypatch, _ASOF)
+    daily.main(["--asof", _ASOF.isoformat()])
+    out = capsys.readouterr().out.splitlines()
+    assert (
+        "Massive.com cross-check · Nov 25: 0 compared, 0 disagree; Massive.com traded 1 we have no close "
+        "for: AITX 0.0002"
+    ) in out
+    assert (
+        "SNDK: no close stored since 2026-11-19, but Massive.com shows it traded tonight (73.61) — a vendor "
+        "gap, not a rename; the 8-for-1 forward split of 2026-11-20 is on the list"
+    ) in out
+
+
+# --- W6-4: Massive.com's reference evidence on the stale price rows (after the loop, before the artifact) -------
+
+
+def test_pass_runs_the_massive_reference_after_the_loop_over_the_grouped_day_before_the_artifact(
+    monkeypatch,
+):
+    from pipeline import massive_evidence as me
+    from pipeline import tape_crosscheck as tc
+
+    order, _, _ = _prime_pass(monkeypatch)
+    grouped = tc.GroupedFetch(session=_ASOF, status=tc.STATUS_ON, day=_grouped_fixture(_ASOF))
+    monkeypatch.setattr(daily, "fetch_grouped", lambda **kw: grouped)
+    ran = me.ReferenceRun(status="on", cap=5, read=("SNDK",))
+    seen: dict = {}
+
+    def _reference(**kw):
+        order.append("massive_reference")
+        seen.update(kw)
+        return ran
+
+    def _log(results, **kw):
+        order.append("artifact")
+
+    monkeypatch.setattr(daily, "run_massive_reference", _reference)
+    monkeypatch.setattr(daily, "write_cron_run_log", _log)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    assert order.index("run_daily") < order.index("massive_reference") < order.index("artifact")
+    assert seen["grouped"] is grouped and seen["asof"] == _ASOF and seen["allow_live"] is True
+    assert (
+        seen["payloads"] is daily.list_run_logs
+    )  # the earlier passes' reads are carried, not re-read
+    assert seen["results"] is out.results
+    assert out.massive_reference is ran
+
+
+def test_a_keyless_pass_reads_no_reference_and_never_fails(monkeypatch):
+    """The suite has no MASSIVE_API_KEY (conftest): the REAL unit runs, reads nothing, and the pass finishes."""
+    _prime_pass(monkeypatch)
+    sid = uuid.uuid4()
+    stale = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        tape_stale=(daily.StaleTape("ACLEW", sid, date(2025, 10, 15)),),
+    )
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: [stale])
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert (out.massive_reference.status, out.massive_reference.error) == ("off", None)
+    assert out.results[0].tape_stale[0].massive_ref is None
+
+
+def test_report_names_a_stale_rows_massive_evidence_and_main_prints_the_reads_line(
+    monkeypatch, capsys
+):
+    """The stale row's line names Massive.com's word (a field: the row stays in the loud STALE block), and the
+    reads are one quiet line beside the cross-check's."""
+    from ingest.massive_reference import MassiveRef
+    from pipeline import massive_evidence as me
+
+    row = daily.StaleTape(
+        "ACLEW",
+        uuid.uuid4(),
+        date(2025, 10, 15),
+        massive_ref=MassiveRef("ACLEW", date(2026, 11, 25), True, active=True, type="WARRANT"),
+    )
+    outcome = _outcome_with([_res(recorded=True, tape_stale=(row,))])
+    outcome.massive_reference = me.ReferenceRun(status="on", cap=5, read=("ACLEW",))
+    monkeypatch.setattr(daily, "run_daily_pass", lambda **kw: outcome)
+    _tonight(monkeypatch, _ASOF)
+    daily.main(["--asof", _ASOF.isoformat()])
+    out = capsys.readouterr().out.splitlines()
+
+    line = next(x for x in out if x.strip().startswith("ACLEW: last bar 2025-10-15"))
+    assert line.endswith(" · Massive.com: WARRANT, active")
+    assert "Massive.com reference · 1 stale symbol read (5-a-night cap)" in out
+
+
+# --- W6-3b: the price gap fill rides the pass (built once before the loop, over the grouped day) -----------------
+
+
+def test_pass_BUILDS_the_gap_fill_ONCE_over_tonight_s_grouped_day_and_hands_it_to_the_loop(
+    monkeypatch,
+):
+    from ingest.prices import gap_fill as gf
+    from pipeline import tape_crosscheck as tc
+
+    _prime_pass(monkeypatch)
+    grouped = tc.GroupedFetch(session=_ASOF, status=tc.STATUS_ON, day=_grouped_fixture(_ASOF))
+    monkeypatch.setattr(daily, "fetch_grouped", lambda **kw: grouped)
+    built: list[dict] = []
+    gap = gf.GapSource(None, tonight=grouped.day)
+
+    def _build(**kw):
+        built.append(kw)
+        return gap
+
+    monkeypatch.setattr(daily, "default_gap_source", _build)
+    seen: dict = {}
+
+    def _run_daily(conn, **k):
+        seen.update(k)
+        return []
+
+    monkeypatch.setattr(daily, "run_daily", _run_daily)
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert built == [
+        {"tonight": grouped.day, "allow_live": True}
+    ]  # once, over the day already read
+    assert seen["gap_source"] is gap
+
+
+@pytest.mark.parametrize("fault", ["off", "settings"])
+def test_a_gap_fill_that_cannot_start_is_no_fill_never_a_failed_pass(monkeypatch, capsys, fault):
+    """Off (``price_gap_fill = "off"`` / no key: ``None``) passes no gap source; a settings fault (the daily tests
+    stub the settings partially) is printed and the pass goes on without one."""
+    _prime_pass(monkeypatch)
+    with monkeypatch.context() as m:
+        if fault == "off":
+            m.setattr("ingest.prices.gap_fill.default_bar_source", lambda: None)
+        else:
+            m.setattr(
+                "ingest.prices.gap_fill.get_settings", lambda: SimpleNamespace(cron_run_at="22:30")
+            )
+        assert daily.build_gap_source(None, allow_live=True) is None
+    out = capsys.readouterr().out
+    if fault == "settings":
+        assert "WARNING: price gap fill off for this pass: AttributeError" in out
+    else:
+        assert out == ""
+    seen: dict = {}
+
+    def _run_daily(conn, **k):
+        seen.update(k)
+        return []
+
+    monkeypatch.setattr(daily, "run_daily", _run_daily)
+    monkeypatch.setattr(daily, "build_gap_source", lambda grouped, **kw: None)
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert "gap_source" not in seen  # the loop is called exactly as before W6-3b
+
+
+def test_run_daily_hands_the_gap_source_to_every_thesis_s_ingest(db, monkeypatch):
+    from ingest.prices import gap_fill as gf
+
+    _thesis(db, "A")
+    _thesis(db, "B")
+    seen: list = []
+
+    def _ingest(conn, thesis_id, **k):
+        seen.append(k.get("gap_source"))
+        return []
+
+    _stub_ingest(monkeypatch, _ingest)
+    gap = gf.GapSource(None)
+    daily.run_daily(db, asof=_ASOF, allow_live=True, gap_source=gap)
+    assert seen == [gap, gap]
+    seen.clear()
+    daily.run_daily(
+        db, asof=_ASOF, allow_live=True
+    )  # none: the unit is called exactly as before W6-3b
+    assert seen == [None, None]
+
+
+def test_main_PRINTS_one_fill_line_deduped_across_theses(monkeypatch, capsys):
+    sndk, scni = uuid.uuid4(), uuid.uuid4()
+    nov = [date(2026, 11, d) for d in (20, 23, 24, 25)]
+    split = "8-for-1 forward split of 2026-11-20"
+    rows = [
+        NameResult("SNDK", sndk, 0, 4, price_bars_filled=tuple(nov), price_fill_split=split),
+        NameResult("SNDK", sndk, 0, 0, price_bars_filled=tuple(nov), price_fill_split=split),
+        NameResult("SCNI", scni, 0, 0, price_fill_deferred=True),
+        NameResult("PARA", uuid.uuid4(), 0, 0, price_fill_error="MassiveBarsError: HTTP 500"),
+    ]
+    outcome = _outcome_with([_res(recorded=True, ingested=rows)])
+    monkeypatch.setattr(daily, "run_daily_pass", lambda **kw: outcome)
+    _tonight(monkeypatch, _ASOF)
+    daily.main(["--asof", _ASOF.isoformat()])
+    out = capsys.readouterr().out.splitlines()
+    assert (
+        "Massive.com filled 4 close(s) the vendor lacked: SNDK 11-20..11-25 (8-for-1 forward split of "
+        "2026-11-20); 1 deferred (past the night's range-read cap; filled on a later night)"
+    ) in out
+    assert "PARA: Massive.com fill not read — MassiveBarsError: HTTP 500" in out

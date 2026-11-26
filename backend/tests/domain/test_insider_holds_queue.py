@@ -52,11 +52,12 @@ def test_the_written_month_and_day_in_the_latest_year_on_or_before_the_filing():
         date(2024, 5, 24),
         True,
     )
-    # a written day after the market date in its year falls to the year before
-    assert suggested_date(_hold("2028-06-01", accepted=_ACC, por="2024-05-24")) == (
-        date(2023, 6, 1),
-        False,  # before the period of report: it does not agree
-    )
+    # a written day after the market date in its year falls to the year before — and that year's date, before
+    # the period of report, contradicts the filing: withheld since rule W3-1 (it was offered, not agreeing)
+    assert suggested_date(_hold("2028-06-01", accepted=_ACC, por="2024-05-24")) == (None, False)
+    # ...while a period of report a year before keeps it, agreeing
+    earlier = _hold("2028-06-01", accepted=_ACC, por="2023-05-24")
+    assert suggested_date(earlier) == (date(2023, 6, 1), True)
     # the market date itself is on or before
     assert suggested_date(_hold("0024-05-28", accepted=_ACC))[0] == date(2024, 5, 28)
 
@@ -161,8 +162,9 @@ def test_placement_problem_names_each_check_the_rule_fails():
         "the period of report (2024-05-29) is after the filing (2024-05-28)"
     )
     assert placement_problem(_hold("x", accepted=_ACC, por="2024-05-22"), 5) == (
-        "the filing was made 6 days after its period of report (2024-05-22), more than the on-time "
-        "window of 5 days"
+        "the filing is late: SEC accepted it 6 days after its period of report (2024-05-22, the earliest "
+        "trade it reports), past the 5-day on-time window, so its filing night is no stand-in for this row's "
+        "date"
     )
     # the window's own edges are on time: no problem, and a night
     for por in ("2024-05-23", "2024-05-28"):
@@ -210,8 +212,9 @@ def test_placement_problem_is_none_exactly_when_the_rule_places_the_row(days):
 def test_the_real_late_filing_says_how_late_it_is():
     holds = dict(_real_holds())
     assert placement_problem(holds["0000899243-21-012557"], _ON_TIME) == (
-        "the filing was made 122 days after its period of report (2020-11-16), more than the on-time "
-        f"window of {_ON_TIME} days"
+        "the filing is late: SEC accepted it 122 days after its period of report (2020-11-16, the earliest "
+        f"trade it reports), past the {_ON_TIME}-day on-time window, so its filing night is no stand-in for "
+        "this row's date"
     )
     assert placement_problem(holds["0001628280-24-010030"], _ON_TIME) == (
         "no acceptance time is known for the filing"

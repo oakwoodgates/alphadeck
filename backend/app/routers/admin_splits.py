@@ -10,8 +10,18 @@ What the operator can do, and its inverse:
 
 - **Confirm SEC values** / **Confirm Massive.com values** (when they differ), or **Confirm** (when only one source
   states both a ratio and a date) a needs-review split -> its values become the list's. Inverse: **Revoke**.
+- **Confirm with cited values** (decision D3, 2026-11-25) a needs-review split neither source states right (POM: an
+  ADR termination, 10 ADSs -> 3 shares): the steward's ratio and first session, a required https URL of the
+  document that states them, an optional note. The server reads the stored tape's step at that session as first
+  served (``pipeline.detect_splits.tape_at``) and refuses (409) a factor outside ``domain.splits.TAPE_TOLERANCE``
+  of it, or a session with no bar, unless the steward overrides — the version records the override. Inverse:
+  **Revoke**. ``GET /admin/splits/{version_id}/tape-step`` is the same reading for the form, and ``GET
+  /admin/splits/{version_id}/tape`` the stored closes and volumes around a split's first session (W5-1).
 - **Reject** a needs-review or announced split. Inverse: **Restore** (back to the state before).
 - **Revoke** any confirmed split, auto-confirmed or not. Inverse: **Restore** (back to confirmed).
+- A forward split under x1.5 that only Massive.com lists, with no SEC filing about it, arrives SET ASIDE as a
+  distribution (D2, ``domain.splits.distribution_reason``; ``decided_by`` "set aside automatically: a
+  distribution"). **Restore** returns it to review, and neither the backfill nor the nightly touches it again.
 
 Rejected and revoked splits stay listed, grayed (WB#2). Every action appends one version naming the operator
 (``repositories/split_repo.py``) and names the version it acts on, so a stale card is refused (409), never
@@ -25,21 +35,29 @@ has released (three sessions on) that no source ever listed (``pipeline.split_ju
 real?". Never a page (#7). Since 2026-10-24 the operator can **Dismiss** one ("this was a real move" —
 ``repositories.split_jump_repo``, append-only): it leaves the list and is listed under ``dismissed_jumps`` (WB#2);
 inverse: **Undo**. A dismissal is display only — the split-night hold never reads it.
+
+**What a confirm would touch (W2-8)** — each needs-review or announced split on the list read carries the
+security's first stored bar (``first_bar``: a split whose first session is on or before it has no stored bar to
+adjust) and the platform share count a confirm would put on the new scale (``shares_rescaled``: the Workbench count
+the market cap reads, dated before the first session). Read for the whole list at once, in a fixed number of
+queries, never one per split; display only.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import math
+from collections.abc import Callable, Collection, Mapping
 from datetime import date, datetime
-from typing import Any, Literal, TypeVar
+from decimal import Decimal
+from typing import Annotated, Any, Literal, TypeVar
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Body, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
 
 from app.deps import get_conn
-from domain.links import HttpUrlOut
+from domain.links import HttpUrlOut, safe_http_url
 from domain.market_time import market_today, market_tz
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import (
@@ -50,10 +68,18 @@ from domain.splits import (
     STATUS_ANNOUNCED,
     STATUS_CONFIRMED,
     STATUS_NEEDS_REVIEW,
+    TAPE_TOLERANCE,
+    ListedSplit,
+    TapeEvidence,
     direction,
+    price_factor,
     ratio_label,
+    scale_after,
 )
+from domain.text_types import Prose, RequestDate, UrlText
+from pipeline.detect_splits import TAPE_PRIOR_MAX_DAYS, tape_at, tape_window
 from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps, split_dismissed
+from platform_values.state import read_states
 from repositories import split_jump_repo, split_repo
 from repositories.split_jump_repo import JumpDismissalConflict
 from repositories.split_repo import SplitConflict, SplitVersion
@@ -88,7 +114,9 @@ class AdminSplitListSecOut(BaseModel):
 
 
 class AdminSplitListPolygonOut(BaseModel):
-    """Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares."""
+    """Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares. ``adjustment_type`` is
+    Massive.com's own label (``forward_split``, ``reverse_split`` or ``stock_dividend``), evidence only; null on a row
+    stored before the label was read or from the v3 endpoint."""
 
     id: str
     ticker: str | None = None
@@ -96,6 +124,7 @@ class AdminSplitListPolygonOut(BaseModel):
     split_from: str | None = None
     split_to: str | None = None
     ratio_label: str | None = None
+    adjustment_type: str | None = None
 
 
 class AdminSplitListOptionOut(BaseModel):
@@ -108,6 +137,16 @@ class AdminSplitListOptionOut(BaseModel):
     label: str
 
 
+class AdminSplitSharesOut(BaseModel):
+    """The platform share count a confirm would RESCALE (W2-8): the count the market cap reads (the Workbench's,
+    ``dashboards.market_cap.cap_cell``), dated before the split's first session, so the split puts it on the new
+    scale (divided by the price factor). ``count`` = as stored; ``date`` = the day it was true (its
+    ``valid_from``)."""
+
+    count: float
+    date: date
+
+
 class AdminSplitListEntryOut(BaseModel):
     """One split on the list (its NEWEST version). ``version_id`` names that version — every action posts it,
     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
@@ -115,7 +154,12 @@ class AdminSplitListEntryOut(BaseModel):
     Massive.com", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
     ``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state
     different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
-    both a ratio and a date).
+    both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the
+    document that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both
+    ``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on
+    the list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before
+    it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
+    none dated before the first session).
     """
 
     version_id: UUID
@@ -144,6 +188,10 @@ class AdminSplitListEntryOut(BaseModel):
     actions: list[str] = Field(default_factory=list)
     restore_to: str | None = None
     review_reason: Literal["sources_differ", "extractor_abstained", "one_source"] | None = None
+    cited_url: HttpUrlOut = None
+    tape_override: bool | None = None
+    first_bar: date | None = None
+    shares_rescaled: AdminSplitSharesOut | None = None
 
 
 class AdminSplitJumpBarOut(BaseModel):
@@ -212,18 +260,176 @@ class AdminSplitJumpReasonIn(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
+# D3 — the steward's cited values. A ratio is decimal TEXT, the way the panel's entries carry one ("10", "6.25"):
+# digits with an optional decimal part, above 0 and at most RATIO_MAX.
+RATIO_PATTERN = r"^\d{1,6}(\.\d{1,10})?$"
+RATIO_MAX = Decimal(100_000)
+CITED_NOTE_MAX = 500
+
+RatioText = Annotated[str, StringConstraints(strip_whitespace=True, pattern=RATIO_PATTERN)]
+
+
+def _https_url(value: str) -> str:
+    """A cited document is a plain https URL (``domain.links``' wire rule, https only)."""
+    if safe_http_url(value) is None or not value.lower().startswith("https://"):
+        raise ValueError("must be an https URL with a host and no user:password")
+    return value
+
+
+CitedUrl = Annotated[UrlText, AfterValidator(_https_url)]
+
+
+def _ratio(text: str, name: str) -> Decimal:
+    value = Decimal(text)
+    if not 0 < value <= RATIO_MAX:
+        raise ValueError(f"{name} must be above 0 and at most {RATIO_MAX}")
+    return value
+
+
+class AdminSplitConfirmValuesIn(BaseModel):
+    """The steward's OWN values for a needs-review split (decision D3): ``ratio_from`` old shares -> ``ratio_to`` new
+    shares (decimal text, above 0 and at most 100,000, never equal), ``first_session`` = the first session at the
+    new price, ``cited_url`` = the https URL of the document that states them (required), ``note`` (optional).
+    ``override_tape`` = confirm although the stored tape's step at that session sits outside the tolerance of the
+    entered factor, or no bar can be read (the server checks it either way: ``GET .../tape-step``).
+    """
+
+    ratio_from: RatioText
+    ratio_to: RatioText
+    first_session: RequestDate
+    cited_url: CitedUrl
+    note: Annotated[Prose, Field(max_length=CITED_NOTE_MAX)] | None = None
+    override_tape: bool = False
+
+    @model_validator(mode="after")
+    def _a_split(self) -> AdminSplitConfirmValuesIn:
+        if _ratio(self.ratio_from, "ratio_from") == _ratio(self.ratio_to, "ratio_to"):
+            raise ValueError("ratio_from equals ratio_to: that is not a split")
+        return self
+
+
+class AdminSplitTapeStepOut(BaseModel):
+    """The stored tape at a first session, beside the factor the steward entered (D3) — what the confirm-values
+    route checks. Each bar is read as the vendor FIRST served it (``pipeline.detect_splits.tape_at``: the bar on
+    ``first_session`` and the stored bar before it, at most 14 days back). ``step`` = close / prior close;
+    ``volume_ratio`` = volume / prior volume. ``price_factor`` = old / new shares of the entered ratio (``null``
+    when none was entered); ``step_low`` .. ``step_high`` = the steps ``tolerance`` (``domain.splits.
+    TAPE_TOLERANCE``, in ln, either direction) accepts around it. ``within_tolerance`` = the step sits inside
+    (``null`` with no ratio, ``false`` when no bar can be read); ``reason`` says why not. A read.
+    """
+
+    first_session: date
+    prior_date: date | None = None
+    prior_close: float | None = None
+    close: float | None = None
+    prior_volume: float | None = None
+    volume: float | None = None
+    step: float | None = None
+    volume_ratio: float | None = None
+    prior_served_before: bool | None = None
+    price_factor: float | None = None
+    tolerance: float = TAPE_TOLERANCE
+    step_low: float | None = None
+    step_high: float | None = None
+    within_tolerance: bool | None = None
+    reason: str | None = None
+
+
+# the tape window (W5-1): stored sessions each side of a split's first session
+TAPE_SESSIONS_DEFAULT = 5
+TAPE_SESSIONS_MAX = 10
+
+
+class AdminSplitTapeBarOut(BaseModel):
+    """One stored session in a split's tape window. ``close`` / ``volume`` = the bar as the vendor FIRST served it
+    (the version ``tape_at`` reads: the as-traded print); ``newest_close`` = its newest stored version (the store's
+    scale today); ``restated`` = the two closes differ (re-based later: by the vendor, or by the split list's own
+    rescale of the stored tape); ``filled`` = the vendor never served this session: the bar is Massive.com's raw bar
+    the price leg filled in (W6-3b), never read as split evidence."""
+
+    d: date
+    close: float | None = None
+    volume: float | None = None
+    newest_close: float | None = None
+    restated: bool = False
+    filled: bool = False
+
+
+class AdminSplitTapeOut(BaseModel):
+    """The stored tape around a split's first session (W5-1): what was served each session either side of it.
+    ``bars`` = up to ``sessions`` stored sessions before ``around`` and up to ``sessions`` from ``around`` on (it
+    first, when stored), oldest first, fewer where the tape ends; ``around`` defaults to the split's ``key_date``.
+    ``prior_date`` / ``step`` / ``volume_ratio`` / ``prior_served_before`` = the step at ``around`` as first served,
+    the reading ``GET .../tape-step`` shows (the bar on ``around`` and the stored bar before it, at most 14 days
+    back; ``null`` when either is missing). A read.
+    """
+
+    version_id: UUID
+    around: date
+    sessions: int
+    bars: list[AdminSplitTapeBarOut] = Field(default_factory=list)
+    prior_date: date | None = None
+    step: float | None = None
+    volume_ratio: float | None = None
+    prior_served_before: bool | None = None
+
+
+def tape_why(
+    tape: TapeEvidence | None, first_session: date, ratio_from: Decimal, ratio_to: Decimal
+) -> str | None:
+    """Why the stored tape does not support ``ratio_from`` -> ``ratio_to`` first trading on ``first_session``
+    (``None`` = it does): no bar to read, or a step more than ``TAPE_TOLERANCE`` (in ln) from the price factor,
+    EITHER way. Unlike the machine's auto-confirm (``domain.splits.tape_agreement``) it reads no volume and no
+    minimum factor: the cited document is the evidence, the tape the check the steward must override.
+    """
+    if tape is None or tape.session != first_session:
+        return (
+            f"no stored bar on {first_session.isoformat()} (with one in the {TAPE_PRIOR_MAX_DAYS} days before "
+            "it) to read"
+        )
+    k = float(price_factor(ratio_from, ratio_to))
+    step, band = tape.step, math.exp(TAPE_TOLERANCE)
+    if step <= 0 or abs(math.log(step / k)) > TAPE_TOLERANCE:
+        return (
+            f"the tape steps x{step:.3g} on {first_session.isoformat()}, not within x{band:.3g} of the "
+            f"entered x{k:.3g} ({ratio_label(ratio_from, ratio_to)})"
+        )
+    return None
+
+
+def _tape_now(
+    conn: psycopg.Connection, security_id: UUID, first_session: date
+) -> TapeEvidence | None:
+    return tape_at(conn, tenant_id=DATA_TENANT_ID, security_id=security_id, session=first_session)
+
+
+def _data_version(conn: psycopg.Connection, version_id: UUID) -> SplitVersion:
+    """The split version a tape read names, on the data tenant; **404** otherwise."""
+    v = split_repo.get_version(conn, version_id)
+    if v is None or v.tenant_id != DATA_TENANT_ID:
+        raise HTTPException(status_code=404, detail=f"no split version {version_id}")
+    return v
+
+
 def _md(ts: datetime) -> str:
     return ts.astimezone(market_tz()).strftime("%m-%d")
 
 
+# D2: the label of a split the system set aside as a distribution (``split_repo.is_auto_set_aside``)
+DECIDED_DISTRIBUTION = "set aside automatically: a distribution"
+
+
 def _decided_by(v: SplitVersion) -> str:
     """The source label: "auto: SEC + Massive.com" (or "auto: SEC + tape" / "auto: Massive.com + tape") for the
-    two-source rule, "you, 10-20" for the operator, else who listed it (the backfill / the nightly).
+    two-source rule, "you, 10-20" for the operator, ``DECIDED_DISTRIBUTION`` for a distribution the system set
+    aside (D2), else who listed it (the backfill / the nightly).
     """
     auto = AUTO_VIA_LABELS.get(v.confirmed_via or "")
     if v.author != split_repo.AUTHOR_OPERATOR:
         if auto:
             return auto
+        if split_repo.is_auto_set_aside(v):
+            return DECIDED_DISTRIBUTION
         return "the nightly" if v.author == split_repo.AUTHOR_DETECT else "the backfill"
     verb = {
         "confirm": "you",
@@ -232,6 +438,13 @@ def _decided_by(v: SplitVersion) -> str:
         "restore": "restored by you",
     }.get(v.action, "you")
     return f"{auto + ' · ' if auto else ''}{verb}, {_md(v.recorded_at)}"
+
+
+def _decided_label(v: SplitVersion) -> str:
+    """``_decided_by``, with the steward's cited-values confirm named as such: "you (cited values), 11-25"."""
+    if v.value_source == split_repo.SOURCE_STEWARD and v.action == split_repo.ACTION_CONFIRM:
+        return f"you (cited values), {_md(v.recorded_at)}"
+    return _decided_by(v)
 
 
 def _review_reason(
@@ -296,6 +509,7 @@ def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitLi
                 if v.polygon_split_from is not None and v.polygon_split_to is not None
                 else None
             ),
+            adjustment_type=v.polygon_adjustment_type,
         )
         if v.polygon_id
         else None
@@ -318,7 +532,7 @@ def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitLi
         author=v.author,
         action=v.action,
         recorded_at=v.recorded_at,
-        decided_by=_decided_by(v),
+        decided_by=_decided_label(v),
         valid_from=v.valid_from,
         note=v.note,
         sec=sec,
@@ -327,6 +541,8 @@ def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitLi
         actions=split_repo.allowed_actions(v),
         restore_to=restore_to,
         review_reason=_review_reason(v, len(options)),
+        cited_url=v.cited_url,
+        tape_override=v.tape_override,
     )
 
 
@@ -364,11 +580,71 @@ def _jumps(
     )
 
 
+# --- what a confirm would touch (W2-8): read for the whole list at once; no decision reads it -------------------
+
+
+def first_bars(
+    conn: psycopg.Connection, *, tenant_id: UUID, security_ids: Collection[UUID]
+) -> dict[UUID, date]:
+    """Each security's FIRST stored bar (its oldest ``fact_price_eod`` date, any version), in one read for the set;
+    a security with no bar is absent. A split whose first session is on or before it has no stored bar to adjust.
+    """
+    if not security_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT security_id, min(d) AS first_bar FROM fact_price_eod "
+            "WHERE tenant_id = %s AND security_id = ANY(%s) GROUP BY security_id",
+            (tenant_id, list(security_ids)),
+        )
+        return {r["security_id"]: r["first_bar"] for r in cur.fetchall()}
+
+
+def rescaled_count(
+    e: AdminSplitListEntryOut, shares: Mapping[str, Any] | None
+) -> AdminSplitSharesOut | None:
+    """The share count a confirm of ``e`` would put on the new scale, or ``None``: the market cap's own rule
+    (``dashboards.market_cap.cap_cell``, ``domain.splits.scale_after`` from the count's date) with the split in
+    force, so a count dated before its first session is rescaled and one dated on or after it is not.
+    """
+    day = shares.get("valid_from") if shares is not None else None
+    if shares is None or shares.get("shares") is None or not isinstance(day, date):
+        return None
+    in_force = ListedSplit(
+        key_date=e.key_date,
+        effective_date=e.effective_date,
+        ratio_from=Decimal(e.ratio_from),
+        ratio_to=Decimal(e.ratio_to),
+        status=STATUS_CONFIRMED,
+    )
+    if scale_after([in_force], day, through=e.effective_date) == 1:
+        return None
+    return AdminSplitSharesOut(count=float(shares["shares"]), date=day)
+
+
+def _hints(
+    conn: psycopg.Connection, out: AdminSplitListOut, *, tenant_id: UUID, asof: date
+) -> None:
+    """``first_bar`` and ``shares_rescaled`` on every open entry (needs review, announced), read for the whole list
+    at once: the first bars, and the platform share counts as the meters read and pick them
+    (``platform_values.state.read_states``, a fixed number of queries whatever the list's size)."""
+    entries = [*out.needs_review, *out.announced]
+    ids = list(dict.fromkeys(e.security_id for e in entries))
+    if not ids:
+        return
+    bars = first_bars(conn, tenant_id=tenant_id, security_ids=ids)
+    states = read_states(conn, ids, "shares_outstanding", asof=asof)
+    for e in entries:
+        e.first_bar = bars.get(e.security_id)
+        e.shares_rescaled = rescaled_count(e, states[e.security_id].meter_value)
+
+
 def splits_out(
     conn: psycopg.Connection, *, tenant_id: UUID, asof: date | None = None
 ) -> AdminSplitListOut:
     """The panel, read live from the list's newest versions — plus the released, unlisted split-shaped jumps
-    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``). SELECTs only."""
+    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``), and each open split's hints (W2-8).
+    SELECTs only."""
     versions = split_repo.latest_versions(conn, tenant_id=tenant_id)
     out = AdminSplitListOut(total=len(versions))
     try:
@@ -398,6 +674,7 @@ def splits_out(
     out.confirmed.sort(key=newest_first, reverse=True)
     out.set_aside.sort(key=newest_first, reverse=True)
     out.announced.sort(key=newest_first)
+    _hints(conn, out, tenant_id=tenant_id, asof=asof or market_today())
     return out
 
 
@@ -474,6 +751,135 @@ def confirm_split(
             today=market_today(),
         ),
     )
+    return _out(conn, v)
+
+
+@router.get("/{version_id}/tape-step", response_model=AdminSplitTapeStepOut)
+def split_tape_step(
+    version_id: UUID,
+    first_session: Annotated[RequestDate, Query(description="the first session at the new price")],
+    ratio_from: Annotated[RatioText | None, Query(description="old shares (decimal text)")] = None,
+    ratio_to: Annotated[RatioText | None, Query(description="new shares (decimal text)")] = None,
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminSplitTapeStepOut:
+    """The stored tape's STEP at ``first_session`` for the split ``version_id`` names, each bar as first served,
+    beside the factor ``ratio_from`` -> ``ratio_to`` the steward entered (both or neither): what ``POST
+    .../confirm-values`` checks. **404** unknown version, **422** one side of the ratio only. Read-only.
+    """
+    if (ratio_from is None) != (ratio_to is None):
+        raise HTTPException(status_code=422, detail="give both ratio_from and ratio_to, or neither")
+    try:
+        v = _data_version(conn, version_id)
+        tape = _tape_now(conn, v.security_id, first_session)
+    finally:
+        conn.rollback()  # a read: hold no snapshot
+    out = AdminSplitTapeStepOut(first_session=first_session)
+    if tape is not None and tape.session == first_session:
+        out.prior_date, out.prior_close, out.close = tape.prior, tape.prior_close, tape.close
+        out.prior_volume, out.volume = tape.prior_volume, tape.volume
+        out.step, out.volume_ratio = tape.step, tape.volume_ratio
+        out.prior_served_before = tape.prior_served_before
+    if ratio_from is not None and ratio_to is not None:
+        try:
+            rf, rt = _ratio(ratio_from, "ratio_from"), _ratio(ratio_to, "ratio_to")
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        k = float(price_factor(rf, rt))
+        out.price_factor = k
+        out.step_low, out.step_high = (
+            k * math.exp(-TAPE_TOLERANCE),
+            k * math.exp(TAPE_TOLERANCE),
+        )
+        out.reason = tape_why(tape, first_session, rf, rt)
+        out.within_tolerance = out.reason is None
+    return out
+
+
+@router.get("/{version_id}/tape", response_model=AdminSplitTapeOut)
+def split_tape_window(
+    version_id: UUID,
+    around: Annotated[
+        RequestDate | None,
+        Query(description="the session to center on (default: the split's key_date)"),
+    ] = None,
+    sessions: Annotated[
+        int, Query(ge=1, le=TAPE_SESSIONS_MAX, description="stored sessions each side (1-10)")
+    ] = TAPE_SESSIONS_DEFAULT,
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminSplitTapeOut:
+    """The stored closes and volumes around the split ``version_id`` names (W5-1): ``sessions`` stored sessions
+    each side of ``around`` (default the split's ``key_date``), each bar as first served beside its newest close,
+    and the step at ``around`` as first served. **404** unknown version, **422** ``sessions`` outside 1-10 or a
+    bad date. Read-only.
+    """
+    try:
+        v = _data_version(conn, version_id)
+        at = around or v.key_date
+        bars = tape_window(
+            conn, tenant_id=DATA_TENANT_ID, security_id=v.security_id, around=at, sessions=sessions
+        )
+        tape = _tape_now(conn, v.security_id, at)
+    finally:
+        conn.rollback()  # a read: hold no snapshot
+    out = AdminSplitTapeOut(
+        version_id=v.id,
+        around=at,
+        sessions=sessions,
+        bars=[
+            AdminSplitTapeBarOut(
+                d=b.d,
+                close=b.close,
+                volume=b.volume,
+                newest_close=b.newest_close,
+                restated=b.restated,
+                filled=b.filled,
+            )
+            for b in bars
+        ],
+    )
+    if tape is not None and tape.session == at:
+        out.prior_date, out.step = tape.prior, tape.step
+        out.volume_ratio, out.prior_served_before = tape.volume_ratio, tape.prior_served_before
+    return out
+
+
+@router.post("/{version_id}/confirm-values", response_model=AdminSplitListEntryOut)
+def confirm_split_values(
+    version_id: UUID,
+    body: AdminSplitConfirmValuesIn,
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminSplitListEntryOut:
+    """CONFIRM a split that needs review with the steward's OWN cited values (decision D3): ``ratio_from`` ->
+    ``ratio_to``, ``first_session`` and the ``cited_url`` of the document that states them become the list's
+    (``value_source`` ``steward``; a first session still ahead lands as ``announced``). The server reads the stored
+    tape's step at ``first_session`` as first served and refuses a factor outside the tape tolerance, or a session
+    with no bar, unless ``override_tape`` (stored as ``tape_override``). Undo with ``POST
+    /admin/splits/{version_id}/revoke``. **404** unknown version, **409** not the split's newest version / not
+    awaiting review / another split is listed on that date / the tape does not support the values, **422** a bad
+    ratio, date or URL."""
+    rf, rt = _ratio(body.ratio_from, "ratio_from"), _ratio(body.ratio_to, "ratio_to")
+
+    def act() -> SplitVersion:
+        seen = split_repo.get_version(conn, version_id)
+        if seen is None or seen.tenant_id != DATA_TENANT_ID:
+            raise LookupError(f"no split version {version_id}")
+        return split_repo.confirm_steward(
+            conn,
+            version_id,
+            ratio_from=rf,
+            ratio_to=rt,
+            first_session=body.first_session,
+            cited_url=body.cited_url,
+            note=body.note,
+            tape_why=tape_why(
+                _tape_now(conn, seen.security_id, body.first_session), body.first_session, rf, rt
+            ),
+            override_tape=body.override_tape,
+            tenant_id=DATA_TENANT_ID,
+            today=market_today(),
+        )
+
+    v = _commit(conn, act)
     return _out(conn, v)
 
 
@@ -599,7 +1005,7 @@ def restore_split(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> AdminSplitListEntryOut:
     """RESTORE a rejected or revoked split to exactly the state before (a rejected split back to review, a
-    revoked one back to confirmed). **404** unknown version, **409** not the newest version / not set
-    aside."""
+    revoked one back to confirmed; one the system set aside as a distribution back to review). **404** unknown
+    version, **409** not the newest version / not set aside."""
     v = _commit(conn, lambda: split_repo.restore(conn, version_id, tenant_id=DATA_TENANT_ID))
     return _out(conn, v)

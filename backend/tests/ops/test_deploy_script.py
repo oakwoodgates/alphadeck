@@ -125,7 +125,9 @@ case "$1" in
         case " $* " in
           *" --build "*)
             for s in backend cron; do
-              case " $* " in *" $s "*) printf '%s' "${FAKE_BUILT_SHA-$GIT_SHA}" > "$SHIM_STATE/sha_$s" ;; esac
+              built="${FAKE_BUILT_SHA-$GIT_SHA}"
+              if [ "$s" = cron ]; then built="${FAKE_BUILT_SHA_CRON-$built}"; fi   # the cron alone picks up a wrong sha
+              case " $* " in *" $s "*) printf '%s' "$built" > "$SHIM_STATE/sha_$s" ;; esac
             done ;;
         esac ;;
       *) echo "fake docker: unexpected compose: $*" >&2; exit 64 ;;
@@ -152,6 +154,9 @@ case "$1" in
         if [ -f "$SHIM_STATE/sha_$svc" ]; then cat "$SHIM_STATE/sha_$svc"; echo; else echo "${FAKE_OLD_SHA}"; fi ;;
       python)
         case "$3" in
+          *LOCK_ID_EDITIONS*)
+            [ -z "${FAKE_EDITIONS_LOCK_FAIL-}" ] || { echo "OperationalError: connection refused" >&2; exit 1; }
+            echo "${FAKE_EDITIONS_LOCK:-free}" ;;
           *run_lock*) echo "${FAKE_LOCK:-free}" ;;
           *) exec "$SHIM_PYTHON" -c "$3" ;;
         esac ;;
@@ -302,6 +307,19 @@ def test_the_script_is_LF_with_an_env_bash_shebang():
         (["--env-only", "cron", "frontend"], "--env-only recreates the cron sidecar only"),
         (["--label", "x"], "name at least one service"),
         (["--label", "x", "--force", "backend"], "unknown option: --force"),
+        (["--label", "x", "--backend-only", "frontend"], "--backend-only needs backend named"),
+        (
+            ["--label", "x", "--backend-only", "backend", "cron"],
+            "--backend-only keeps the cron out of the deploy, so it cannot also deploy cron",
+        ),
+        (
+            ["--env-only", "--backend-only", "cron"],
+            "--backend-only cannot be combined with --env-only",
+        ),
+        (
+            ["--label", "x", "--backend-only", "--hold-cron", "backend"],
+            "--backend-only cannot be combined with --hold-cron",
+        ),
     ],
 )
 def test_a_bad_invocation_refuses_before_running_anything(deploy, args, says):
@@ -315,6 +333,7 @@ def test_help_prints_the_usage(deploy):
     r = deploy("--help")
     assert r.code == 0
     assert "scripts/deploy.sh --label <label> <service>..." in r.out
+    assert "--backend-only" in r.out and "--hold-cron" in r.out
     assert r.log == []
 
 
@@ -589,7 +608,7 @@ _NO_OPS_TOKEN = "with NO Authorization header (.env sets no ALPHADECK_OPS_TOKEN,
 
 
 def test_the_dry_run_prints_every_command_and_changes_nothing(deploy):
-    r = deploy("--label", "pre-deploy", "backend", "--dry-run")
+    r = deploy("--label", "pre-deploy", "--backend-only", "backend", "--dry-run")
     assert r.code == 0, r.out
     pc = "docker compose -f docker-compose.yml -f docker-compose.prod.yml"
     for line in [
@@ -615,6 +634,27 @@ def test_the_dry_run_prints_every_command_and_changes_nothing(deploy):
     assert r.calls("docker") == [] and r.calls("curl") == []
     assert "git ls-remote origin refs/heads/main" in r.log
     assert not [c for c in r.log if c.startswith("git fetch")]
+
+
+def test_the_dry_run_of_a_backend_deploy_prints_both_images(deploy):
+    r = deploy("--label", "pre-deploy", "backend", "--dry-run")
+    assert r.code == 0, r.out
+    pc = "docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+    for line in [
+        "deploy PLAN for backend cron (rebuild)",
+        _CRON_WITH_BACKEND,
+        f"would run: GIT_SHA={HEAD} {pc} up -d --build --no-deps backend cron",
+        "would run: docker restart alphadeck-frontend-1",  # the backend was recreated without the frontend
+        f"would verify: docker exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA -> {HEAD}",
+        f"would verify: docker exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA -> {HEAD}",
+        "would verify: docker inspect --format '{{.State.Status}}' alphadeck-cron-1 -> running, and docker logs",
+        "would read: docker exec alphadeck-backend-1 python -c <pg_locks read> — refuse if the editions lock is held",
+        "OK: dry-run",
+    ]:
+        assert line in r.out, line
+    assert r.out.index("pipeline.backup") < r.out.index("--build") < r.out.index("docker restart")
+    assert "would show:   docker exec alphadeck-cron-1" not in r.out  # the cron is no bystander now
+    assert r.calls("docker") == [] and r.calls("curl") == []
 
 
 def test_a_dry_run_still_reports_what_the_real_run_would_refuse(deploy):
@@ -903,3 +943,216 @@ def test_hold_cron_dry_run_prints_the_plan(deploy):
     ]:
         assert line in r.out, line
     assert r.calls("docker") == [] and r.calls("curl") == []
+
+
+# --- backend and cron deploy together (W5-3) --------------------------------------------------------------
+# /admin/status alarms "one image is stale" when the cron's last pass ran a different sha than the backend, and
+# recreating the cron kills a running editions job: so a backend deploy brings the cron from the same sha, and
+# whenever the cron is recreated the editions lock must be free.
+
+_CRON_WITH_BACKEND = (
+    "cron rebuilt with the backend: one sha for both images; /admin/status alarms on a mismatch"
+)
+_EDITIONS_HOLDER = (
+    "held: pid 4343 (alphadeck-pass:editions cut, connected 2026-10-16T14:00:00+00:00)"
+)
+
+
+def _editions_reads(r: Result) -> list[str]:
+    """The docker calls that read the editions lock (the python one-liner names LOCK_ID_EDITIONS)."""
+    return [c for c in r.calls("docker") if "LOCK_ID_EDITIONS" in c]
+
+
+def _compose_up(r: Result) -> list[str]:
+    return [c for c in r.calls("docker") if " compose " in c and " up " in c]
+
+
+def test_naming_backend_rebuilds_the_cron_from_the_same_sha_and_verifies_both(deploy):
+    r = deploy("--label", "pre-deploy", "backend", GIT_SHA=OTHER)
+    assert r.code == 0, r.out
+    assert f"note: {_CRON_WITH_BACKEND}" in r.out
+    assert f"OK: deployed {HEAD[:12]} to prod: backend cron (rebuild)" in r.out
+    ups = _compose_up(r)
+    assert len(ups) == 1, ups  # one build: both images from one sha, one command
+    assert ups[0].startswith(f"docker[GIT_SHA={HEAD}] compose ")
+    assert ups[0].endswith(" up -d --build --no-deps backend cron")
+    # both containers' ALPHADECK_IMAGE_SHA were read back, after the build
+    build = r.index(" up -d --build ")
+    assert build < r.index("exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA")
+    assert build < r.index("exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA")
+    assert f"ok: alphadeck-backend-1 ALPHADECK_IMAGE_SHA={HEAD} (the sha just built)" in r.out
+    assert f"ok: alphadeck-cron-1 ALPHADECK_IMAGE_SHA={HEAD} (the sha just built)" in r.out
+    assert "ok: alphadeck-cron-1 is running and printed its boot lines" in r.out
+    assert "run different code" not in r.out
+    # the backend was recreated without the frontend: nginx still needs its restart
+    assert build < r.index("restart alphadeck-frontend-1")
+
+
+@pytest.mark.parametrize(
+    "args, built, implicit",
+    [
+        (["backend"], "backend cron", True),
+        (["frontend", "backend"], "frontend backend cron", True),
+        (["backend", "cron"], "backend cron", False),  # named by the operator: no note
+        (["cron"], "cron", False),
+        (["frontend"], "frontend", False),
+        (["--backend-only", "backend"], "backend", False),
+        (["--backend-only", "frontend", "backend"], "frontend backend", False),
+        (["--hold-cron", "backend"], "backend", False),  # held stopped: never started
+        (["--hold-cron", "frontend", "backend"], "frontend backend", False),
+    ],
+)
+def test_which_services_a_deploy_builds(deploy, args, built, implicit):
+    fake = {"FAKE_CRON_STATE": "exited"} if "--hold-cron" in args else {}
+    r = deploy("--label", "pre-deploy", *args, **fake)
+    assert r.code == 0, r.out
+    ups = _compose_up(r)
+    assert len(ups) == 1 and ups[0].endswith(f" up -d --build --no-deps {built}"), ups
+    assert (_CRON_WITH_BACKEND in r.out) is implicit, r.out
+
+
+def test_backend_only_rebuilds_the_backend_alone_and_warns_up_front(deploy):
+    r = deploy("--label", "pre-deploy", "--backend-only", "backend")
+    assert r.code == 0, r.out
+    assert "warning: --backend-only rebuilds the backend alone" in r.out
+    assert "one image is stale" in r.out  # the alarm the operator is choosing to risk
+    assert r.out.index("--backend-only rebuilds the backend alone") < r.out.index(
+        "--> local checks"
+    )
+    assert _CRON_WITH_BACKEND not in r.out
+    assert f"OK: deployed {HEAD[:12]} to prod: backend (rebuild)" in r.out
+    assert f"ok: alphadeck-backend-1 ALPHADECK_IMAGE_SHA={HEAD} (the sha just built)" in r.out
+    assert f"info: alphadeck-cron-1 ALPHADECK_IMAGE_SHA={OLD} (not rebuilt by this deploy)" in r.out
+    assert "ok: alphadeck-cron-1 is running (not recreated by this deploy)" in r.out
+    assert f"note: backend and cron run different code ({HEAD[:12]} vs {OLD[:12]})" in r.out
+    assert not _editions_reads(
+        r
+    )  # the cron is untouched, so an editions job is no reason to refuse
+
+
+def test_the_dry_run_of_backend_only_prints_the_warning_and_no_cron(deploy):
+    r = deploy("--label", "pre-deploy", "--backend-only", "backend", "--dry-run")
+    assert r.code == 0, r.out
+    assert "warning: --backend-only rebuilds the backend alone" in r.out
+    assert "deploy PLAN for backend (rebuild)" in r.out
+    assert [ln for ln in r.out.splitlines() if ln.endswith(" up -d --build --no-deps backend")]
+    assert (
+        "would show:   docker exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA (not rebuilt"
+        in r.out
+    )
+    assert "editions lock" not in r.out
+    assert r.calls("docker") == [] and r.calls("curl") == []
+
+
+def test_a_wrong_sha_in_the_cron_alone_fails_verification(deploy):
+    """Both containers are checked: the backend's sha being right does not excuse the cron's."""
+    r = deploy("--label", "pre-deploy", "backend", FAKE_BUILT_SHA_CRON=OTHER)
+    assert r.code == 5, r.out
+    assert f"ok: alphadeck-backend-1 ALPHADECK_IMAGE_SHA={HEAD} (the sha just built)" in r.out
+    assert f"FAIL: alphadeck-cron-1 ALPHADECK_IMAGE_SHA={OTHER}, expected {HEAD}" in r.out
+    assert "1 verification check(s) failed" in r.out and "stack-recovery" in r.out
+
+
+# --- the editions lock: refuse while an editions job holds it and the cron would be recreated ---------------
+
+
+def test_a_free_editions_lock_is_read_once_after_the_pass_lock_and_before_anything_changes(deploy):
+    r = deploy("--label", "pre-deploy", "backend")
+    assert r.code == 0, r.out
+    assert "ok: the editions lock is free" in r.out
+    reads = _editions_reads(r)
+    assert len(reads) == 1, reads
+    assert "pg_locks" in reads[0] and "pg_try_advisory_lock" not in reads[0]  # a READ, never a take
+    assert "LOCK_ID_CALL_OF_RECORD" not in reads[0]
+    assert (
+        r.index("LOCK_ID_CALL_OF_RECORD")
+        < r.index("LOCK_ID_EDITIONS")
+        < r.index("pipeline.backup")
+        < r.index(" up -d --build ")
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["backend"],  # brings the cron
+        ["frontend", "backend"],
+        ["backend", "cron"],
+        ["cron"],
+        ["--env-only", "cron"],  # recreates the cron with no build
+    ],
+)
+def test_refuses_while_an_editions_job_holds_its_lock_and_the_cron_would_be_recreated(deploy, args):
+    r = deploy("--label", "pre-deploy", *args, FAKE_EDITIONS_LOCK=_EDITIONS_HOLDER)
+    assert r.code == 3, r.out
+    assert (
+        "REFUSE: the editions lock is held: pid 4343 (alphadeck-pass:editions cut, connected"
+        in r.out
+    )
+    assert "recreating the cron would kill it" in r.out
+    assert "FAIL: refused — 1 check(s) failed" in r.out
+    assert len(_editions_reads(r)) == 1
+    _no_stack_change(r)  # no backup, no build, no restart: nothing changed
+
+
+@pytest.mark.parametrize(
+    "args, fake",
+    [
+        (["frontend"], {}),
+        (["--backend-only", "backend"], {}),
+        (["--hold-cron", "backend"], {"FAKE_CRON_STATE": "exited"}),
+        (["--hold-cron", "frontend", "backend"], {"FAKE_CRON_STATE": "exited"}),
+    ],
+)
+def test_a_deploy_that_leaves_the_cron_alone_reads_no_editions_lock(deploy, args, fake):
+    r = deploy("--label", "pre-deploy", *args, FAKE_EDITIONS_LOCK=_EDITIONS_HOLDER, **fake)
+    assert r.code == 0, r.out
+    assert not _editions_reads(r)
+    assert "editions lock" not in r.out
+    assert not [c for c in _compose_up(r) if c.endswith(" cron") or " cron " in c]
+
+
+@pytest.mark.parametrize(
+    "fake, says",
+    [
+        (
+            {"FAKE_EDITIONS_LOCK_FAIL": "1"},
+            "REFUSE: cannot read the editions lock (OperationalError: connection refused)",
+        ),
+        ({"FAKE_EDITIONS_LOCK": "perhaps"}, "REFUSE: the editions lock read gave 'perhaps'"),
+    ],
+)
+def test_an_unreadable_editions_lock_refuses_fail_closed(deploy, fake, says):
+    r = deploy("--label", "pre-deploy", "backend", **fake)
+    assert r.code == 3, r.out
+    assert says in r.out
+    _no_stack_change(r)
+
+
+def test_both_locks_held_reports_both_refusals_at_once(deploy):
+    r = deploy(
+        "--label",
+        "pre-deploy",
+        "backend",
+        FAKE_LOCK="held: pid 4242 (alphadeck-pass:backfill, connected 2026-10-16T14:00:00+00:00)",
+        FAKE_EDITIONS_LOCK=_EDITIONS_HOLDER,
+    )
+    assert r.code == 3, r.out
+    assert "REFUSE: the call-of-record lock is held: pid 4242" in r.out
+    assert "REFUSE: the editions lock is held: pid 4343" in r.out
+    assert "FAIL: refused — 2 check(s) failed" in r.out
+    _no_stack_change(r)
+
+
+def test_the_dry_run_names_the_editions_lock_read_when_the_cron_is_recreated(deploy):
+    for args in (["backend"], ["cron"], ["--env-only", "cron"]):
+        r = deploy("--label", "pre-deploy", *args, "--dry-run")
+        assert r.code == 0, r.out
+        assert (
+            "would read: docker exec alphadeck-backend-1 python -c <pg_locks read> — refuse if the "
+            "editions lock is held" in r.out
+        ), args
+        assert r.calls("docker") == [] and r.calls("curl") == []
+    r = deploy("--label", "pre-deploy", "frontend", "--dry-run")
+    assert r.code == 0, r.out
+    assert "editions lock" not in r.out  # the frontend deploy leaves the cron alone

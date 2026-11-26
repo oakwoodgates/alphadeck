@@ -364,6 +364,7 @@ vi.mock("../../api/hooks", () => ({
     error: null,
   }),
   useConfirmSplit: () => h.repair,
+  useConfirmSplitValues: () => h.repair,
   useRejectSplit: () => h.repair,
   useRevokeSplit: () => h.repair,
   useRestoreSplit: () => h.repair,

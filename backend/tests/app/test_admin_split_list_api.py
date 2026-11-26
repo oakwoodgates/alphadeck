@@ -1,21 +1,26 @@
 """The Admin "Splits" panel API (split plan S1), end to end over a real DB filled by the REAL backfill
 (``pipeline.backfill_splits`` on the fixture Massive.com pages and filings, cache-only). Every action is
 exercised WITH its inverse, and each step COUNTS THE TABLE (one version per action — nothing updated,
-nothing deleted)."""
+nothing deleted). The steward's confirm with CITED values (D3, platform fixes W2-1) runs on POM's shape, and the
+tape window around a split's first session (W5-1) on GNS's.
+"""
 
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
+
+import pytest
 
 from app.routers import admin_splits
+from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from ingest.edgar.client import EdgarClient
 from pipeline import backfill_splits as bf
 from repositories import split_repo
 from tests.split_801_fixtures import ENHA_8K, OLD_ITEMS, enha_polygon, seed_enha
 from tests.split_801_fixtures import SINCE as SINCE_8_01
-from tests.split_fixtures import edgar_cache, polygon_source, seed_union
+from tests.split_fixtures import edgar_cache, polygon_source, seed_union, v1_source
 
 BASE = "/admin/splits"
 
@@ -340,3 +345,620 @@ def test_a_dismissal_never_reaches_the_split_night_hold():
     for mod in (split_hold, hold_rules):
         assert "split_jump_dismissal" not in inspect.getsource(mod)
         assert "split_jump_repo" not in inspect.getsource(mod)
+
+
+# --- D3: the steward confirms a needs-review split with CITED values (platform fixes W2-1, 2026-11-25) ----------
+
+POM_6K = "0001213900-26-110501"
+POM_SESSION = date(2026, 10, 21)
+POM_CITED = "https://example.test/pom/6-k/0001213900-26-110501"
+POM_NOTE = "ADR termination: each 10 ADSs became 3 ordinary shares"
+TODAY = date(2026, 11, 25)
+
+
+def _served(d: date) -> datetime:
+    """The evening a bar version was stored (UTC)."""
+    return datetime(d.year, d.month, d.day, 23, tzinfo=timezone.utc)
+
+
+def _seed_pom(db, *, bars: bool = True) -> uuid.UUID:
+    """POM's shape (synthetic closes). Its 6-K states a 1-for-10 consolidation of the ORDINARY shares, first session
+    10-21, and the extractor reads 10 -> 1; but the ADR program ends, each 10 ADSs becoming 3 ordinary shares, so the
+    ADS price factor is 10/3, which no source states. The stored tape, as FIRST served, steps x4.53 on 10-21 on
+    falling volume: ln(4.53 / 3.33) = 0.31, inside ``TAPE_TOLERANCE`` (0.5); ln(10 / 4.53) = 0.79, outside. A later
+    re-based version of the 10-20 bar (the vendor adjusting history) is stored too and never read. Commits.
+    """
+    sid = uuid.uuid4()
+    rows = (
+        [
+            (date(2026, 10, 16), 1.04, 950_000, _served(date(2026, 10, 16))),
+            (date(2026, 10, 20), 1.00, 1_000_000, _served(date(2026, 10, 20))),
+            (POM_SESSION, 4.53, 300_000, _served(POM_SESSION)),
+            (date(2026, 10, 20), 3.33, 300_000, _served(date(2026, 10, 23))),
+        ]
+        if bars
+        else []
+    )
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "POM", date(2025, 1, 1)),
+        )
+        for d, close, volume, at in rows:
+            cur.execute(
+                "INSERT INTO fact_price_eod (tenant_id, security_id, d, close, volume, valid_from, recorded_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (DEFAULT_TENANT_ID, sid, d, close, volume, d, at),
+            )
+    db.commit()
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=POM_SESSION,
+        values={
+            "effective_date": POM_SESSION,
+            "ratio_from": 10,
+            "ratio_to": 1,
+            "status": "needs_review",
+            "value_source": "sec",
+            "sec_accession": POM_6K,
+            "sec_form": "6-K",
+            "sec_filed": date(2026, 10, 14),
+            "sec_effective_date": POM_SESSION,
+            "sec_date_kind": "trading",
+            "sec_ratio_from": 10,
+            "sec_ratio_to": 1,
+            "note": "SEC only; the tape does not confirm it.",
+            "valid_from": date(2026, 10, 14),
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    return sid
+
+
+def _pom_card(client) -> dict:
+    return _find(client.get(BASE).json(), "POM", POM_SESSION.isoformat())[1]
+
+
+def _cited(**over) -> dict:
+    return {
+        "ratio_from": "10",
+        "ratio_to": "3",
+        "first_session": POM_SESSION.isoformat(),
+        "cited_url": POM_CITED,
+        "note": POM_NOTE,
+        **over,
+    }
+
+
+def _confirm_values(client, version_id: str, body: dict):
+    return client.post(f"{BASE}/{version_id}/confirm-values", json=body)
+
+
+def _stored(db, version_id: str) -> dict:
+    db.rollback()  # a fresh snapshot: the route committed on its own connection
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT value_source, confirmed_via, cited_url, tape_override, status, author, action "
+            "FROM security_split WHERE id = %s",
+            (version_id,),
+        )
+        return cur.fetchone()
+
+
+@pytest.fixture
+def pinned(monkeypatch):
+    monkeypatch.setattr(admin_splits, "market_today", lambda: TODAY)
+
+
+def test_the_steward_confirms_poms_cited_values_inside_the_tape_tolerance(client, db, pinned):
+    """POM: 10 ADSs -> 3 shares, first session 10-21, a cited URL. The tape's x4.53 is inside the tolerance of
+    10/3, so no override is needed: the split is confirmed with the steward's values (``value_source``
+    ``steward``, ``confirmed_via`` ``operator``), the URL stored on the version — one version, the table counted.
+    """
+    _seed_pom(db)
+    card = _pom_card(client)
+    assert card["status"] == "needs_review" and card.get("cited_url") is None
+    n = split_repo.count_rows(db)
+    r = _confirm_values(client, card["version_id"], _cited())
+    assert r.status_code == 200, r.text
+    c = r.json()
+    assert (c["status"], c["value_source"], c["confirmed_via"]) == (
+        "confirmed",
+        "steward",
+        "operator",
+    )
+    assert (c["ratio_from"], c["ratio_to"], c["effective_date"], c["label"]) == (
+        "10",
+        "3",
+        "2026-10-21",
+        "3-for-10 reverse split",
+    )
+    assert c["cited_url"] == POM_CITED and c["tape_override"] is False and c["note"] == POM_NOTE
+    assert c["decided_by"].startswith("you (cited values), ") and c["actions"] == ["revoke"]
+    assert c["sec"]["accession"] == POM_6K  # the evidence the split carried rides on
+    assert split_repo.count_rows(db) == n + 1
+    stored = _stored(db, c["version_id"])
+    assert (stored["value_source"], stored["cited_url"], stored["tape_override"]) == (
+        "steward",
+        POM_CITED,
+        False,
+    )
+    assert (stored["author"], stored["action"]) == ("operator", "confirm")
+    bucket, listed = _find(client.get(BASE).json(), "POM", "2026-10-21")
+    assert bucket == "confirmed" and listed["cited_url"] == POM_CITED
+    assert client.get("/admin/status").json()["splits_needs_review"] == 0
+
+
+def test_cited_values_outside_the_tape_tolerance_need_the_override(client, db, pinned):
+    """10 -> 1 (x10) against the tape's x4.53 (ln 2.21 = 0.79 > 0.5): refused (409, nothing written) — the server
+    recomputes the step, whatever the form showed — unless the steward overrides; the override is stored.
+    """
+    _seed_pom(db)
+    card = _pom_card(client)
+    n = split_repo.count_rows(db)
+    r = _confirm_values(client, card["version_id"], _cited(ratio_to="1"))
+    assert r.status_code == 409 and "x4.53" in r.json()["detail"], r.text
+    assert split_repo.count_rows(db) == n
+    ok = _confirm_values(client, card["version_id"], _cited(ratio_to="1", override_tape=True))
+    assert ok.status_code == 200, ok.text
+    c = ok.json()
+    assert (c["status"], c["value_source"], c["tape_override"], c["price_factor"]) == (
+        "confirmed",
+        "steward",
+        True,
+        "10",
+    )
+    assert _stored(db, c["version_id"])["tape_override"] is True
+    assert split_repo.count_rows(db) == n + 1
+
+
+def test_no_stored_bar_on_the_first_session_needs_the_override(client, db, pinned):
+    _seed_pom(db, bars=False)
+    card = _pom_card(client)
+    r = _confirm_values(client, card["version_id"], _cited())
+    assert r.status_code == 409 and "no stored bar on 2026-10-21" in r.json()["detail"], r.text
+    ok = _confirm_values(client, card["version_id"], _cited(override_tape=True))
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["tape_override"] is True
+
+
+def test_a_stale_card_or_a_settled_split_is_refused(client, db, pinned):
+    _seed_pom(db)
+    card = _pom_card(client)
+    c = _confirm_values(client, card["version_id"], _cited()).json()
+    n = split_repo.count_rows(db)
+    stale = _confirm_values(client, card["version_id"], _cited())
+    assert stale.status_code == 409 and "changed since you looked" in stale.json()["detail"]
+    settled = _confirm_values(client, c["version_id"], _cited())
+    assert (
+        settled.status_code == 409 and "only a split that needs review" in settled.json()["detail"]
+    )
+    assert _confirm_values(client, str(uuid.uuid4()), _cited()).status_code == 404
+    assert split_repo.count_rows(db) == n  # a refusal writes nothing
+
+
+def test_revoke_then_restore_keeps_the_cited_values(client, db, pinned):
+    _seed_pom(db)
+    card = _pom_card(client)
+    n = split_repo.count_rows(db)
+    c = _confirm_values(client, card["version_id"], _cited()).json()
+    rv = client.post(f"{BASE}/{c['version_id']}/revoke").json()
+    assert (rv["status"], rv["restore_to"], rv["value_source"], rv["cited_url"]) == (
+        "revoked",
+        "confirmed",
+        "steward",
+        POM_CITED,
+    )
+    back = client.post(f"{BASE}/{rv['version_id']}/restore").json()
+    assert (back["status"], back["value_source"], back["ratio_to"], back["cited_url"]) == (
+        "confirmed",
+        "steward",
+        "3",
+        POM_CITED,
+    )
+    assert back["decided_by"].startswith("restored by you, ")
+    assert split_repo.count_rows(db) == n + 3
+
+
+def test_the_request_is_bounded_and_the_citation_is_required(client, db, pinned):
+    _seed_pom(db)
+    card = _pom_card(client)
+    n = split_repo.count_rows(db)
+    no_url = {k: v for k, v in _cited().items() if k != "cited_url"}
+    for bad in (
+        no_url,
+        _cited(cited_url="http://example.test/pom"),  # https only
+        _cited(cited_url="https://user:pw@example.test/pom"),
+        _cited(cited_url="https://"),
+        _cited(cited_url="https://example.test/" + "x" * 2_000),
+        _cited(ratio_from="0"),
+        _cited(ratio_to="-3"),
+        _cited(ratio_from="100001"),
+        _cited(ratio_from="1e3"),
+        _cited(ratio_to="10"),  # 10 -> 10 is not a split
+        _cited(note="x" * 501),
+        _cited(first_session="1980-01-01"),
+    ):
+        assert _confirm_values(client, card["version_id"], bad).status_code == 422, bad
+    assert split_repo.count_rows(db) == n
+
+
+def test_the_tape_step_reads_the_first_served_bars_beside_the_entered_factor(client, db):
+    """What the form shows beside the entered factor: the stored step at that session (each bar as first served —
+    the re-based 3.33 is never read), the volume ratio and whether the factor is inside the tolerance. A read.
+    """
+    _seed_pom(db)
+    card = _pom_card(client)
+    url = f"{BASE}/{card['version_id']}/tape-step"
+    n = split_repo.count_rows(db)
+    q = {"first_session": "2026-10-21", "ratio_from": "10", "ratio_to": "3"}
+    r = client.get(url, params=q)
+    assert r.status_code == 200, r.text
+    t = r.json()
+    assert (t["first_session"], t["prior_date"], t["prior_close"], t["close"]) == (
+        "2026-10-21",
+        "2026-10-20",
+        1.0,
+        4.53,
+    )
+    assert t["step"] == pytest.approx(4.53) and t["volume_ratio"] == pytest.approx(0.3)
+    assert t["price_factor"] == pytest.approx(10 / 3) and t["tolerance"] == 0.5
+    assert t["step_low"] < 4.53 < t["step_high"]
+    assert t["within_tolerance"] is True and t["reason"] is None
+    far = client.get(url, params={**q, "ratio_to": "1"}).json()
+    assert far["within_tolerance"] is False and "x4.53" in far["reason"]
+    bare = client.get(url, params={"first_session": "2026-10-21"}).json()
+    assert bare["step"] == pytest.approx(4.53) and bare["within_tolerance"] is None
+    assert bare["price_factor"] is None
+    gap = client.get(url, params={**q, "first_session": "2026-10-22"}).json()
+    assert gap["step"] is None and gap["within_tolerance"] is False
+    assert "no stored bar on 2026-10-22" in gap["reason"]
+    missing = client.get(f"{BASE}/{uuid.uuid4()}/tape-step", params=q)
+    assert missing.status_code == 404
+    half = client.get(url, params={"first_session": "2026-10-21", "ratio_from": "10"})
+    assert half.status_code == 422  # both sides of the ratio, or neither
+    assert client.get(url, params={**q, "ratio_from": "0"}).status_code == 422
+    assert client.get(url, params={**q, "first_session": "1980-01-01"}).status_code == 422
+    assert split_repo.count_rows(db) == n
+
+
+# --- D2 (platform fixes W2-3): a distribution the nightly set aside, and the steward's restore ---------------
+
+
+def test_a_distribution_set_aside_automatically_is_quiet_and_restores_to_review(
+    client, db, tmp_path
+):
+    from tests.pipeline.test_detect_splits import _detect_scco
+    from tests.split_801_fixtures import seed_member
+
+    seed_member(db, "SCCO", None, [])
+    _detect_scco(db, tmp_path, asof=date(2026, 11, 5))
+    body = client.get(BASE).json()
+    assert (
+        body["needs_review"] == []
+        and client.get("/admin/status").json()["splits_needs_review"] == 0
+    )
+    bucket, scco = _find(body, "SCCO", "2026-11-03")
+    assert bucket == "set_aside"
+    assert (scco["status"], scco["decided_by"], scco["restore_to"], scco["actions"]) == (
+        "rejected",
+        "set aside automatically: a distribution",
+        "needs_review",
+        ["restore"],
+    )
+    assert scco["label"] == "1.0106-for-1 forward split" and scco["value_source"] == "polygon"
+    assert scco["note"].startswith(
+        "Set aside automatically: a 1.0106-for-1 forward 'split' listed by Massive.com only, under x1.5"
+    )
+    n = split_repo.count_rows(db)
+    back = client.post(f"{BASE}/{scco['version_id']}/restore")
+    assert back.status_code == 200, back.text
+    b = back.json()
+    assert (b["status"], b["actions"]) == ("needs_review", ["confirm:polygon", "reject"])
+    assert b["decided_by"].startswith("restored by you, ") and b["review_reason"] == "one_source"
+    assert split_repo.count_rows(db) == n + 1
+    assert client.get("/admin/status").json()["splits_needs_review"] == 1
+
+
+# --- the tape window (W5-1): GNS's shape -----------------------------------------------------------------------
+
+GNS_SESSION = date(2026, 11, 20)  # a Friday; 11-21 / 11-22 are the weekend
+GNS_HALT = (
+    date(2026, 11, 12),
+    date(2026, 11, 13),
+    date(2026, 11, 16),
+    date(2026, 11, 17),
+    date(2026, 11, 18),
+)
+
+
+def _seed_gns(db) -> uuid.UUID:
+    """GNS's shape (synthetic closes): a 1-for-10 reverse split, first session 11-20. The bars before it were first
+    served on the old scale (the halt's 11-12..11-18 at 0.101 on no volume) and restated x10 after the split (a
+    second version stored 11-24); the 11-19 bar was first served already on the new scale (the vendor adjusted a
+    night early); the first session's bar arrived late (stored 11-23). Returns the split's version id. Commits.
+    """
+    sid = uuid.uuid4()
+    restated = _served(date(2026, 11, 24))
+    rows = [
+        (date(2026, 11, 10), 0.12, 400_000, _served(date(2026, 11, 10))),
+        (date(2026, 11, 10), 1.2, 40_000, restated),
+        (date(2026, 11, 11), 0.11, 350_000, _served(date(2026, 11, 11))),
+        (date(2026, 11, 11), 1.1, 35_000, restated),
+        *[(d, 0.101, 0, _served(d)) for d in GNS_HALT],
+        *[(d, 1.01, 0, restated) for d in GNS_HALT],
+        (date(2026, 11, 19), 1.014, 0, _served(date(2026, 11, 19))),
+        (GNS_SESSION, 0.499, 2_000_000, _served(date(2026, 11, 23))),
+        (date(2026, 11, 23), 0.45, 900_000, _served(date(2026, 11, 23))),
+        (date(2026, 11, 24), 0.41, 800_000, _served(date(2026, 11, 24))),
+    ]
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "GNS", date(2025, 1, 1)),
+        )
+        for d, close, volume, at in rows:
+            cur.execute(
+                "INSERT INTO fact_price_eod (tenant_id, security_id, d, close, volume, valid_from, recorded_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (DEFAULT_TENANT_ID, sid, d, close, volume, d, at),
+            )
+    db.commit()
+    seeded = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=GNS_SESSION,
+        values={
+            "effective_date": GNS_SESSION,
+            "ratio_from": 10,
+            "ratio_to": 1,
+            "status": "needs_review",
+            "value_source": "polygon",
+            "polygon_split_from": 10,
+            "polygon_split_to": 1,
+            "polygon_execution_date": GNS_SESSION,
+            "valid_from": GNS_SESSION,
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    return seeded.id
+
+
+def test_the_tape_window_shows_both_closes_either_side_of_the_first_session(client, db):
+    """The stored sessions around the split's first session (its ``key_date`` by default), each bar as first
+    served beside its newest version: the halt's bars show 0.101 as served and 1.01 restated, the 11-19 bar one
+    version already on the new scale, so the step at 11-20 as first served is x0.49, not the split's x10. A read.
+    """
+    version_id = _seed_gns(db)
+    n = split_repo.count_rows(db)
+    r = client.get(f"{BASE}/{version_id}/tape")
+    assert r.status_code == 200, r.text
+    w = r.json()
+    assert (w["version_id"], w["around"], w["sessions"]) == (str(version_id), "2026-11-20", 5)
+    bars = {b["d"]: b for b in w["bars"]}
+    assert list(bars) == [
+        "2026-11-13",
+        "2026-11-16",
+        "2026-11-17",
+        "2026-11-18",
+        "2026-11-19",
+        "2026-11-20",
+        "2026-11-23",
+        "2026-11-24",
+    ]  # five stored sessions before it, then it and the two after (the tape ends there)
+    halt = bars["2026-11-18"]
+    assert (halt["close"], halt["volume"], halt["newest_close"], halt["restated"]) == (
+        0.101,
+        0,
+        1.01,
+        True,
+    )
+    early = bars["2026-11-19"]
+    assert (early["close"], early["newest_close"], early["restated"]) == (1.014, 1.014, False)
+    first = bars["2026-11-20"]
+    assert (first["close"], first["volume"], first["restated"]) == (0.499, 2_000_000, False)
+    # the step at the first session, as tape_at reads it
+    assert w["prior_date"] == "2026-11-19" and w["step"] == pytest.approx(0.499 / 1.014)
+    assert w["volume_ratio"] is None  # no volume on the prior bar
+    assert w["prior_served_before"] is True
+    assert split_repo.count_rows(db) == n
+
+
+def test_the_tape_window_marks_a_massive_fill_and_the_step_never_reads_it(client, db):
+    """W6-3b: the first session's bar recorded as Massive.com's fill (``price_bar_fill``) is shown, marked ``filled``,
+    and the step at it reads nothing (a fill is never split evidence)."""
+    version_id = _seed_gns(db)
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO price_bar_fill (tenant_id, security_id, d, bar_recorded_at, source, vendor_symbol, "
+            "raw_close, raw_volume, factor, reason) SELECT tenant_id, security_id, d, recorded_at, 'massive', "
+            "'GNS', close, volume, 1, 'split_window' FROM fact_price_eod WHERE d = %s AND close = 0.499",
+            (GNS_SESSION,),
+        )
+    db.commit()
+    w = client.get(f"{BASE}/{version_id}/tape").json()
+    bars = {b["d"]: b for b in w["bars"]}
+    assert (bars["2026-11-20"]["close"], bars["2026-11-20"]["filled"]) == (0.499, True)
+    assert not any(b["filled"] for d, b in bars.items() if d != "2026-11-20")
+    assert (w["prior_date"], w["step"]) == (None, None)
+
+
+def test_the_tape_window_clips_at_the_tapes_ends_and_is_bounded(client, db):
+    version_id = _seed_gns(db)
+    url = f"{BASE}/{version_id}/tape"
+    start = client.get(url, params={"around": "2026-11-11", "sessions": 3}).json()
+    assert [b["d"] for b in start["bars"]] == [
+        "2026-11-10",
+        "2026-11-11",
+        "2026-11-12",
+        "2026-11-13",
+    ]
+    assert start["around"] == "2026-11-11" and start["step"] == pytest.approx(0.11 / 0.12)
+    assert start["bars"][0]["newest_close"] == 1.2 and start["bars"][0]["restated"] is True
+    one = client.get(url, params={"sessions": 1}).json()
+    assert [b["d"] for b in one["bars"]] == ["2026-11-19", "2026-11-20"]
+    every = client.get(url, params={"sessions": 10}).json()
+    assert len(every["bars"]) == 11  # every stored session: eight before it, it and two after
+    weekend = client.get(
+        url, params={"around": "2026-11-21"}
+    ).json()  # no bar on a Saturday: no step
+    assert [b["d"] for b in weekend["bars"]][-3:] == ["2026-11-20", "2026-11-23", "2026-11-24"]
+    assert weekend["step"] is None and weekend["prior_date"] is None
+    for bad in (
+        {"sessions": 0},
+        {"sessions": 11},
+        {"around": "1980-01-01"},
+        {"around": "x"},
+    ):
+        assert client.get(url, params=bad).status_code == 422, bad
+    assert client.get(f"{BASE}/{uuid.uuid4()}/tape").status_code == 404
+
+
+# --- the panel's hints (W2-8): the first stored bar and the share count a confirm rescales: TREO's shape ---------
+
+TREO_SESSION = date(2026, 8, 4)  # its split's first session, and its first stored bar
+TREO_SHARES = 13_524_682
+TREO_SHARES_DATE = date(2026, 7, 31)  # the cover's as-of: before the first session
+
+
+def _shares(db, sid: uuid.UUID, count: int, day: date) -> None:
+    """One platform share count (the Workbench's, the market cap's), stored by the machine a while back."""
+    append_fact(
+        db,
+        "fact_shares_outstanding",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": sid,
+            "shares": count,
+            "source": "cover",
+            "source_ref": f"https://www.sec.gov/Archives/edgar/data/1/{sid}-10q.htm",
+            "valid_from": day,
+            "ratified_by": "auto",
+            "recorded_at": _served(day),
+        },
+    )
+
+
+def _seed_treo(db) -> uuid.UUID:
+    """TREO's shape (synthetic closes): a 1-for-4 reverse split whose first session is the company's FIRST stored
+    bar (nothing before it on the tape to adjust), and a platform share count dated 07-31, before that session, so
+    confirming the split divides it by 4. Commits."""
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "TREO", date(2025, 1, 1)),
+        )
+        for d, close in ((TREO_SESSION, 12.4), (date(2026, 8, 5), 11.9), (date(2026, 8, 6), 12.1)):
+            cur.execute(
+                "INSERT INTO fact_price_eod (tenant_id, security_id, d, close, volume, valid_from, recorded_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (DEFAULT_TENANT_ID, sid, d, close, 500_000, d, _served(d)),
+            )
+    _shares(db, sid, TREO_SHARES, TREO_SHARES_DATE)
+    db.commit()
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=TREO_SESSION,
+        values={
+            "effective_date": TREO_SESSION,
+            "ratio_from": 4,
+            "ratio_to": 1,
+            "status": "needs_review",
+            "value_source": "polygon",
+            "polygon_split_from": 4,
+            "polygon_split_to": 1,
+            "polygon_execution_date": TREO_SESSION,
+            "valid_from": TREO_SESSION,
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    return sid
+
+
+def test_a_split_on_the_first_bar_says_so_and_names_the_share_count_a_confirm_rescales(
+    client, db, pinned
+):
+    """TREO: its split's first session is its first stored bar (a confirm adjusts nothing on the tape), and the
+    market cap's share count is dated before it (a confirm divides it by 4). POM, beside it: bars before its first
+    session and a share count dated after it (already on the new scale: nothing to rescale). Display only: the
+    confirm is unchanged, and a settled split carries neither hint.
+    """
+    _seed_treo(db)
+    pom = _seed_pom(db)
+    _shares(db, pom, 2_000_000, date(2026, 10, 30))
+    db.commit()
+    body = client.get(BASE).json()
+    _, treo = _find(body, "TREO", TREO_SESSION.isoformat())
+    assert treo["first_bar"] == "2026-08-04" == treo["effective_date"]
+    assert treo["shares_rescaled"] == {"count": TREO_SHARES, "date": "2026-07-31"}
+    _, pom_card = _find(body, "POM", POM_SESSION.isoformat())
+    assert pom_card["first_bar"] == "2026-10-16" and pom_card["shares_rescaled"] is None
+    n = split_repo.count_rows(db)
+    r = client.post(f"{BASE}/{treo['version_id']}/confirm", json={"source": "polygon"})
+    assert r.status_code == 200, r.text
+    assert (r.json()["status"], r.json()["price_factor"]) == ("confirmed", "4")
+    assert split_repo.count_rows(db) == n + 1  # one version, as before
+    bucket, settled = _find(client.get(BASE).json(), "TREO", TREO_SESSION.isoformat())
+    assert bucket == "confirmed"
+    assert settled["first_bar"] is None and settled["shares_rescaled"] is None
+
+
+def test_the_hints_are_read_once_for_the_whole_list(db, pinned, monkeypatch):
+    """One read of the first bars and one of the share counts per list read, over every open split at once,
+    never one per entry."""
+    treo, pom = _seed_treo(db), _seed_pom(db)
+    calls: dict[str, list[set]] = {"bars": [], "shares": []}
+    first_bars, read_states = admin_splits.first_bars, admin_splits.read_states
+
+    def bars_spy(conn, **kw):
+        calls["bars"].append(set(kw["security_ids"]))
+        return first_bars(conn, **kw)
+
+    def shares_spy(conn, ids, fact_type, **kw):
+        calls["shares"].append(set(ids))
+        return read_states(conn, ids, fact_type, **kw)
+
+    monkeypatch.setattr(admin_splits, "first_bars", bars_spy)
+    monkeypatch.setattr(admin_splits, "read_states", shares_spy)
+    out = admin_splits.splits_out(db, tenant_id=DEFAULT_TENANT_ID, asof=TODAY)
+    assert calls == {"bars": [{treo, pom}], "shares": [{treo, pom}]}
+    assert [e.first_bar for e in out.needs_review] == [date(2026, 10, 16), TREO_SESSION]
+
+
+def test_massives_label_rides_the_polygon_block(client, db, tmp_path):
+    """W6-1: a list the v1 reader filled carries Massive.com's label beside its ratio (evidence: the verdicts are the
+    v3 fill's, checked in ``test_backfill_splits``); a row stored without one shows null."""
+    seed_union(db)
+    polygon, _ = v1_source(tmp_path)
+    bf.backfill_splits(
+        db,
+        polygon=polygon,
+        edgar=EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False),
+        since=date(2025, 8, 1),
+        asof=date(2026, 10, 20),
+        apply=True,
+    )
+    body = client.get(BASE).json()
+    _, btoc = _find(body, "BTOC", "2026-10-15")
+    assert btoc["polygon"]["adjustment_type"] == "reverse_split"
+    assert btoc["polygon"]["split_from"] == "16" and btoc["decided_by"] == "auto: SEC + Massive.com"
+    _, mi = _find(body, "MI", "2026-05-18")
+    assert (mi["status"], mi["polygon"]["adjustment_type"]) == ("needs_review", "reverse_split")
+
+
+def test_a_row_stored_without_a_label_shows_null(client, db, tmp_path):
+    _fill(db, tmp_path)
+    _, btoc = _find(client.get(BASE).json(), "BTOC", "2026-10-15")
+    assert "adjustment_type" in btoc["polygon"] and btoc["polygon"]["adjustment_type"] is None

@@ -249,6 +249,11 @@ def test_the_ADMIN_readout_counts_orders_failed_first_and_Retry_requeues(client,
     assert [n["ticker"] for n in out["pending"]][0] == "FAIL"  # loud first
     assert out["pending"][0]["last_error"] == "form4: EDGAR said 503"
     assert {n["ticker"]: n["in_live_basket"] for n in out["pending"]}["PARK"] is False
+    assert {n["ticker"]: n["parked"] for n in out["pending"]} == {
+        "FAIL": False,
+        "WAIT": False,
+        "PARK": True,
+    }
     assert [n["ticker"] for n in out["recent_done"]] == ["DONE"]
     assert out["stalled"] is None and out["last_run"] is None
     assert out["window"].startswith("21:30-23:30")
@@ -258,6 +263,40 @@ def test_the_ADMIN_readout_counts_orders_failed_first_and_Retry_requeues(client,
     assert r.json()["counts"]["failed"] == 0 and _queue(db)[f] == "queued"
     assert client.post(f"/admin/onboarding/{q}/retry").status_code == 409  # only a failed name
     assert client.post(f"/admin/onboarding/{uuid.uuid4()}/retry").status_code == 404
+
+
+def test_the_ADMIN_readout_row_says_PARKED_for_a_name_no_live_card_holds(client, db, settings_env):
+    """An in-progress name in no live basket reads ``parked`` — the panel's word, now the row's own; a name a
+    live card holds, a failed name and a done name (the count's rule: queued or in progress only) do not.
+    """
+    settings_env(onboard_window_before_min=60, onboard_window_after_min=60)
+    ame = _add_security(db, "AME", "0001000011")  # loading, then its card was removed
+    live = _add_security(db, "LIVE", "0001000012")  # loading, held by a live card
+    gone = _add_security(db, "GONE", "0001000013")  # queued, no live card
+    fail = _add_security(db, "FAILX", "0001000014")  # failed, no live card
+    done = _add_security(db, "DONEX", "0001000015")  # done, no live card
+    _basket(db, live)
+    _seed(
+        db,
+        (ame, "in_progress", 1, None, 3),
+        (live, "in_progress", 1, None, 2),
+        (gone, "queued", 0, None, 1),
+        (fail, "failed", 3, "form4: EDGAR said 503", 4),
+        (done, "done", 0, None, 5),
+    )
+
+    out = client.get("/admin/onboarding").json()
+
+    by = {n["ticker"]: n for n in out["pending"]}
+    assert {t: n["parked"] for t, n in by.items()} == {
+        "FAILX": False,
+        "AME": True,
+        "LIVE": False,
+        "GONE": True,
+    }
+    assert by["AME"]["status"] == "in_progress" and by["AME"]["in_live_basket"] is False
+    assert out["counts"]["parked"] == sum(n["parked"] for n in out["pending"]) == 2
+    assert [(n["ticker"], n["parked"]) for n in out["recent_done"]] == [("DONEX", False)]
 
 
 def test_the_ADMIN_readout_says_STALLED_when_names_wait_and_no_run_finished(

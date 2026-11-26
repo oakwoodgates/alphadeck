@@ -66,9 +66,10 @@ The first card, from `GET /admin/status`.
 - **Stopped feeds** (`tape`): price tapes and ETF fund-shares samples past their staleness threshold, from the newest
   finished live pass that covered each card, with the thresholds that pass used. Loud rows, one per security; closed
   tapes in a quiet block. A plain gap is repaired by setting `security_master.price_symbol` ([DATA_SOURCES](DATA_SOURCES.md),
-  "Prices (Yahoo)"); renamed, never-priced and closed names move to Price feed repairs.
+  "Prices (Yahoo)"); renamed, never-priced and closed names move to Price feed repairs. Open rows carry Massive.com's
+  `massive_traded` and `massive_ref` ([FEED_MONITORS](FEED_MONITORS.md)).
 - **Missing closes:** one quiet line each night; loud only for a close still missing after the next session's pass;
-  never a page and never the verdict.
+  never a page and never the verdict. Beside it, `crosscheck` (the Massive.com cross-check).
 - **Split-basis defects:** loud rows per name and kind, marking those that paged; flaps no reader sees are one
   quiet settled line. They never change the verdict.
 
@@ -95,22 +96,23 @@ a decision and has no undo. Each value's history lists the recent extraction att
 
 ### Price feed repairs
 
-One card for every price-feed decision, shown only when it has something. Its inventory is the stopped-feed
-inventory; its decisions are read live from the repair log.
+The stopped-feed inventory's decisions, read live from the repair log; shown only when there is one.
 
-- **Renamed** (loud): a stopped tape whose company EDGAR lists under a symbol not priced, with the nightly splice
-  probe's verdict on each listed symbol and the EDGAR evidence. Adopt sets `price_symbol`; a symbol EDGAR does not
-  list for the name is refused (409; use Set).
-- **Never priced** (loud): Set price symbol (validated by one vendor fetch into a throwaway cache; no bars is 422,
-  nothing written), Acknowledge (kept unpriced, with a reason, revocable) or a link to the basket editor.
-- **Acknowledged, closed and in force** (quiet): acknowledged names, names that stopped trading, and every standing
-  Adopt or Set whose tape has healed, each with its inverse.
+- **Renamed** (loud): a stopped tape EDGAR lists under another symbol, with the splice probe's verdict on each.
+  Adopt sets `price_symbol`; an unlisted symbol is 409 (use Set).
+- **Never priced** (loud): Set price symbol (one vendor fetch into a throwaway cache; no bars is 422), Acknowledge
+  (kept unpriced, with a reason, revocable) or the basket editor. Adopt takes another listed symbol the probe
+  fetched with bars; another class needs `confirm_class` (setting `price_feed_cross_class_adopt`). A Form 15
+  filer EDGAR lists no symbol for shows the form, date and prior 8-K events with SEC's item titles; removal is
+  recommended.
+- **Acknowledged, closed and in force** (quiet): acknowledged names, closed names, and standing Adopts or Sets
+  whose tape healed, each with its inverse.
 - **Known feed limitations** (quiet): names whose vendor serves no history ([FEED_MONITORS](FEED_MONITORS.md), "Known
-  feed limitations"). A mark is made through the API with a required reason, after one vendor fetch shows the
-  vendor serves bars but no history (409 otherwise); it quiets nothing else and has an undo.
+  feed limitations"), marked through the API with a reason once a vendor fetch shows bars but no history (else
+  409). A mark quiets nothing else and has an undo.
 - **Successor CIK** (loud): a member whose CIK lists no symbol while SEC's ticker map gives its ticker to another
-  registrant. Adopt CIK re-points `security_master.cik` in place (only the recommended successor, read that night;
-  409 for anything else or a CIK another row holds); its undo restores every column it touched.
+  registrant. Adopt CIK re-points `security_master.cik` in place (only the recommended successor; else 409, as for
+  a CIK another row holds); undo restores every touched column.
 
 ### Insider amendments
 
@@ -138,27 +140,33 @@ date that cannot be true"). Each row sits in one bucket judged by the same ladde
 - **Owed your decision** (loud, the only loud bucket), with why the placement rule did not place it.
 - Quiet: placed by rule, corrected by the filer, decided, dismissed, and held in a Form 4/A.
 
-Each row shows the filing's own words and a suggested date (arithmetic on the filing, never a model). Approve takes a
-date, by default only a suggestion that agrees with the period of report; the date must pass the year rule and fall
-on or before the filing's market date (422 otherwise). Dismiss needs a reason; undo returns the row to the state
-before. A decision counts from when it was made, on the public clock. `GET /admin/status` carries
+Each row shows the filing's own words and a suggested date read from the filing, never a model
+(`domain.insider_holds.suggest`; withheld with the filing's date window when contradicted). A row held under two
+securities names its copy. Approve takes a date, by default only a suggestion that agrees; the date must pass the
+year rule and fall on or before the filing's market date (422 otherwise). Dismiss needs a reason; undo returns the
+row to the state before. A decision counts from when it was made, on the public clock. `GET /admin/status` carries
 `insider_holds_owed`.
 
 ### Splits
 
-The split list that `pipeline.backfill_splits` filled from Massive.com and each company's SEC filing
-(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings"). Shown only when the list has entries.
+The split list, filled from Massive.com and each company's SEC filing
+(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings"). Massive.com's label (forward split, reverse split or
+stock dividend) is evidence only.
 
-- **Needs review** (loud, the only loud list): a split one source cannot settle, with the SEC passage and
-  Massive.com's row side by side: confirm one source's values (or the only source's), or reject.
-- **Auto-confirmed, announced and set aside** (quiet). Revoke any confirmed split; Restore undoes a reject or a
-  revoke. Rejected and revoked splits stay listed, grayed.
+- **Needs review** (loud, the only loud list): a split one source cannot settle, the SEC passage beside
+  Massive.com's row: confirm a source's values, or reject. When neither is right (POM's ADR termination: 10 ADSs
+  -> 3 shares), confirm cited values: ratio, first session, required https URL, optional note. Unless overridden,
+  the server refuses a factor outside the tape tolerance of that session's stored step (first-served bars, never a
+  Massive.com fill), or a session with no bar; the version records the URL and any override.
+- **Auto-confirmed, announced and set aside** (quiet; set-aside ones grayed). Revoke any confirmed split; Restore
+  undoes a reject or revoke. An automatic set-aside (a distribution, [FILINGS](FILINGS.md)) restores to
+  review; no run touches it after.
 - **Split-shaped jumps with no split listed** (quiet): jumps the split-night hold released that no source lists.
-  Dismissing one as a real move, and its undo, are display only; the hold never reads them.
+  Dismiss (a real move) and its undo are display only; the hold never reads them.
 
-Every action appends one version naming the steward and the version it acts on, so a stale card is refused (409).
-A confirm lifts the split-night hold the next night; the nightly price leg and the repair tool keep stored tapes on
-the list's scale. Nothing here sends a push.
+Every action appends one version naming the steward and the version acted on, so a stale card is refused (409).
+A confirm lifts the split-night hold next night; the price leg and repair tool keep stored tapes on the list's
+scale. Nothing here sends a push.
 
 ### Data flags
 
@@ -176,7 +184,8 @@ job's newest artifact. Shown once the queue has held a name.
   checkpoint kept (409 not failed, 404 not queued).
 - **Stalled** (loud): names waiting and no run finished for `onboard_stalled_after_h`, so the sidecar's onboarding
   loop is not running. A day that hit its cap reads as quietly paused instead.
-- Waiting, loading and recently loaded names (quiet), each with its checkpoint; a name no live card holds is parked.
+- Waiting, loading and recently loaded names (quiet), each with its checkpoint; a name no live card holds is parked
+  (`parked: true` on its row in the API and in `get_admin_onboarding` / `get_onboarding`).
 
 `python -m pipeline.onboarding --status` prints the same from the CLI.
 
@@ -223,7 +232,7 @@ list (`GET /admin/backups`) and the last snapshot's age are reads. Schedule, ret
 
 ## Contracts
 
-Wire shapes: `backend/openapi.json`. Every route below is steward-only; seven sit under `/admin/splits` and twelve
+Wire shapes: `backend/openapi.json`. Every route below is steward-only; ten sit under `/admin/splits` and twelve
 under `/admin/platform-values`.
 
 | Route | Panel | What it does |
@@ -245,6 +254,8 @@ under `/admin/platform-values`.
 | `POST /admin/insider-holds/{hold_id}/approve`, `/dismiss`; `POST /admin/insider-holds/decisions/{decision_id}/revoke` | Held insider rows | date, dismiss, undo |
 | `GET /admin/splits` | Splits | the list and the unlisted jumps |
 | `POST /admin/splits/{version_id}/confirm`, `/reject`, `/revoke`, `/restore` | Splits | decide a split; undo |
+| `GET /admin/splits/{version_id}/tape-step`, `/tape` | Splits | a session's step, beside an entered ratio; the bars around it |
+| `POST /admin/splits/{version_id}/confirm-values` | Splits | confirm with cited values; undo is revoke |
 | `POST /admin/splits/jumps/{security_id}/{step_date}/dismiss` | Splits | dismiss a jump |
 | `POST /admin/splits/jumps/dismissals/{dismissal_id}/undo` | Splits | undo a dismissal |
 | `GET /admin/onboarding`, `POST /admin/onboarding/{security_id}/retry` | Onboarding | the queue; retry a failed name |
@@ -278,6 +289,7 @@ under `/admin/platform-values`.
 | `backup_stale_hours` | `domain/settings.py` | no |
 | `onboard_stalled_after_h`, `onboard_daily_max_names`, `onboard_max_attempts` | `domain/settings.py` | no |
 | `insider_amendment_review_horizon_days` (pins the review line) | `domain/settings.py` | no |
+| `insider_hold_one_row_por_agrees` | `domain/settings.py` | yes, backend |
 | The job time-to-live settings (`daily_job_*_ttl_s`, `backup_job_*_ttl_s`) | `domain/settings.py` | no |
 
 The feed thresholds are in [FEED_MONITORS](FEED_MONITORS.md); why "no" means the code default holds is in
