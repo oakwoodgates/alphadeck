@@ -68,6 +68,25 @@ PRICE_REPAIR_LISTS = (
 MISSED_SHOWN = 10
 NEWLY_STALE_SHOWN = 10
 PROBLEMS_SHOWN = 3
+STALE_LINES_SHOWN = 5
+# W6-3a — the Massive.com tape cross-check's scalars (``missing_closes.crosscheck``); its rows page as a list
+CROSSCHECK_KEYS = (
+    "session",
+    "status",
+    "note",
+    "error",
+    "massive_status",
+    "tolerance",
+    "judged",
+    "compared",
+    "disagree",
+    "vendor_gap",
+    "no_trade",
+    "unmapped",
+    "line",
+    "disagree_line",
+    "stale_lines",
+)
 
 
 def _pick(row: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
@@ -119,6 +138,10 @@ def _default(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
     else:
         out = _pick(tape, ("asof", "ran_at", "stale_days", "fund_shares_stale_days"))
         out["stale"] = len(tape.get("stale") or [])
+        # W6-3a — the stale price rows Massive.com shows traded that session (a vendor gap, not a rename)
+        out["massive_traded"] = sum(
+            1 for s in tape.get("stale") or [] if isinstance(s, dict) and s.get("massive_traded")
+        )
         head(out, "newly_stale", tape.get("newly_stale"), NEWLY_STALE_SHOWN)
         reply["tape"] = out
     defects = payload.get("split_defects")
@@ -150,6 +173,11 @@ def _default(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
         line = payload.get(name)
         if line is not None:
             lines[name] = _pick(line, keys)
+    cc = _crosscheck(payload.get("missing_closes"))
+    if cc is not None:
+        out = _pick(cc, ("line", "disagree_line"))
+        head(out, "stale_lines", cc.get("stale_lines"), STALE_LINES_SHOWN)
+        lines["tape_crosscheck"] = out
     reply["lines"] = lines
     for key in SCALARS:
         reply[key] = payload.get(key)
@@ -174,6 +202,12 @@ def _deregistered(row: Any) -> Any:
 
 def _scalars(panel: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
     return _pick(panel, keys)
+
+
+def _crosscheck(panel: Any) -> dict[str, Any] | None:
+    """W6-3a — the missing-close panel's Massive.com cross-check block, or ``None`` (absent / not produced)."""
+    cc = panel.get("crosscheck") if isinstance(panel, dict) else None
+    return cc if isinstance(cc, dict) else None
 
 
 def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
@@ -247,9 +281,13 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
                 ),
             )
         )
+        cc = _crosscheck(panel)
+        reply["crosscheck"] = _pick(cc, CROSSCHECK_KEYS) if cc is not None else None
         lists = [
             ("missing", panel.get("missing") or []),
             ("still_missing", panel.get("still_missing") or []),
             ("arrived", panel.get("arrived") or []),
+            # W6-3a — every company the cross-check names, each with its ``kind``
+            ("crosscheck_rows", (cc or {}).get("rows") or []),
         ]
     return paged(reply, lists, req.cursor, section)

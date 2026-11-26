@@ -61,6 +61,7 @@ from pipeline.name_errors import NameIngestError, name_errors_of
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan, defect_keys_of
 from pipeline.successor_cik import SuccessorScan
+from pipeline.tape_crosscheck import TapeCrossCheck
 
 if TYPE_CHECKING:  # avoid importing the pipeline module at import time (keeps the layering one-way)
     from pipeline.daily import ThesisRunResult
@@ -366,6 +367,7 @@ def build_run_payload(
     edgar_coverage: EdgarCoverage | None = None,
     split_detect: Any = None,
     missing_closes: MissingCloses | None = None,
+    tape_crosscheck: TapeCrossCheck | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -581,6 +583,12 @@ def build_run_payload(
         # row), ``arrived`` (late closes now stored, each with ``lag_h``), ``resolved`` (handed to the stale flag
         # / left the basket), ``usual_late_window``, ``duration_s``. ``None`` writes the not-evaluated block.
         **(missing_closes or MissingCloses()).payload(),
+        # W6-3a — THE TAPE CROSS-CHECK (``pipeline/tape_crosscheck.TapeCrossCheck.payload``) — one block:
+        # ``evaluated``, ``status`` / ``note`` (the Massive.com grouped read: on / off / not_served / uncached /
+        # failed / not_run), ``error``, ``session``, ``massive_status``, ``judged``, ``compared``, the
+        # ``disagree`` / ``vendor_gap`` / ``no_trade`` / ``unmapped`` rows and ``stale_traded`` (open stale rows
+        # Massive.com shows traded tonight). ``None`` writes the not-run block.
+        **(tape_crosscheck or TapeCrossCheck()).payload(),
         # EDGAR network pulls this run ATTEMPTED (a pull that then failed counts too) — "times we reached out".
         "edgar_fetches": edgar_fetches,
         # O5 — THE FREEZE DETECTOR: the attempts that COMPLETED (a 2xx body arrived). A frozen index and a
@@ -872,6 +880,7 @@ def write_cron_run_log(
     edgar_coverage: EdgarCoverage | None = None,
     split_detect: Any = None,
     missing_closes: MissingCloses | None = None,
+    tape_crosscheck: TapeCrossCheck | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -913,6 +922,7 @@ def write_cron_run_log(
             edgar_coverage=edgar_coverage,
             split_detect=split_detect,
             missing_closes=missing_closes,
+            tape_crosscheck=tape_crosscheck,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)
