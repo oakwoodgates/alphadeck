@@ -696,6 +696,39 @@ def _counted(tags: list[tuple[str, str]], cfg: ExtractorConfig) -> list[tuple[st
     )
 
 
+# THE COMPOSITION GUARDS (2026-11-26; the fork audit of the 18 AUTO-applied cash values found two wrong, both through a
+# cash-like tag on a line that is not a cash-like investment). Equity securities are never counted; their balances are
+# also the evidence that an investment tag of EQUAL value on the same date is that equity line under a cash-like tag
+# (``investments_equity_guard``; CNP's "Investment in equity securities", AT&T, Charter and WBD stock, tagged both
+# ``MarketableSecuritiesCurrent`` and ``EquitySecuritiesFvNiCurrentAndNoncurrent`` at 425M).
+_EQUITY_SECURITIES = (
+    "EquitySecuritiesFvNi",
+    "EquitySecuritiesFvNiCurrent",
+    "EquitySecuritiesFVNINoncurrent",
+    "EquitySecuritiesFvNiCurrentAndNoncurrent",
+    "EquitySecuritiesFvNiAndWithoutReadilyDeterminableFairValue",
+    "EquitySecuritiesWithoutReadilyDeterminableFairValueAmount",
+    "AvailableForSaleSecuritiesEquitySecurities",
+    "AvailableForSaleSecuritiesEquitySecuritiesCurrent",
+    "AvailableForSaleSecuritiesEquitySecuritiesNoncurrent",
+    "MarketableSecuritiesEquitySecurities",
+    "TradingSecuritiesEquity",
+)
+# The statement tables (``investments_statement_guard``): a table of the raw document holding the registrant's own cash
+# fact, or one of these balance-sheet totals, on the cash date. A counted investment tagged on that date outside them
+# and only in a DEFERRED-TAX table (one holding a ``_DEFERRED_TAX`` fact) is a tax-note line, never a balance (LEXX:
+# ``MarketableSecuritiesNoncurrent`` 349,120 on the "Marketable securities" deferred-tax row). Narrowed from "anywhere
+# outside the statements": on the fork's applied population that also moved 18 of 100 replayed values (13 to FLAG),
+# mostly debt securities a filer tags only in its investments note or in prose, the balance sheet printing them inside
+# a broader line.
+_STATEMENT_TOTALS = frozenset(
+    {"Assets", "AssetsCurrent", "AssetsNoncurrent", "LiabilitiesAndStockholdersEquity"}
+)
+_DEFERRED_TAX = ("DeferredTax", "DeferredIncomeTax")
+# the annual path's flag: an investment seen, quoted, not counted
+_UNCONFIRMED = "investments-unconfirmed"
+
+
 # UNSPLIT debt-security TOTALS (the 2026-11-16 re-audit: GKOS keeps 174.4M of short-term investments only under
 # ``AvailableForSaleSecuritiesDebtSecurities``), each mapped to its own (current, noncurrent) parts. Debt only:
 # ``AvailableForSaleSecurities`` and ``MarketableSecurities`` can hold equity stakes and are never read. A total
@@ -1225,6 +1258,10 @@ class _Composition:
     totals: list[tuple[str, float]] = field(default_factory=list)
     # (total tag, total, its own current + noncurrent parts on the cash date, "reconciles" | "short" | "exceeds")
     total_checks: list[tuple[str, float, float, str]] = field(default_factory=list)
+    # (tag, value, why, "sti" | "lt") of each investment tag on the cash date a guard left out (the note's sentence)
+    excluded: list[tuple[str, float, str, str]] = field(default_factory=list)
+    # the statement guard lowered the figure: a counted investment is tagged only in a deferred-tax table
+    unconfirmed: bool = False
 
     @staticmethod
     def _largest(seen: list[tuple[str, float]]) -> tuple[str, float] | None:
@@ -1244,7 +1281,7 @@ class _Composition:
     def unsplit(self) -> list[tuple[str, float]]:
         """The unsplit debt totals standing ALONE: no current or noncurrent investment tag is on the cash date
         (beside one, a total may restate it — a check or a name, never an addend)."""
-        return [] if self.sti or self.lt_marketable else self.totals
+        return [] if self.sti or self.lt_marketable or self.excluded else self.totals
 
     @property
     def unsplit_value(self) -> float | None:
@@ -1286,10 +1323,21 @@ class _Composition:
         return (self.sti_value or 0.0) + (self.lt_value or 0.0) + (counted or 0.0)
 
 
-def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Composition:
+def _compose(
+    facts: dict,
+    cash: float,
+    end: str,
+    cfg: ExtractorConfig,
+    outside: frozenset[str] = frozenset(),
+) -> _Composition:
     """The cash composition on ONE balance-sheet date (``end``, the cash instant's): the investments read AT that
     date (the largest per role, never a sum of overlapping tags), the never-cash lines named, the cash tags'
-    nesting checked, and the combined line used only as a reconciliation."""
+    nesting checked, and the combined line used only as a reconciliation.
+
+    The guards leave out a non-zero investment tag whose value equals a same-dated equity-securities balance
+    (``investments_equity_guard``) or that the raw document tags outside its statement tables and only in a
+    deferred-tax table (``outside``, ``_outside_statements``); each is named in the note, and the second sets
+    ``unconfirmed`` when it lowers a role's figure."""
 
     def seen(lst: list[tuple[str, str]]) -> list[tuple[str, float]]:
         out = [(c, _at(facts, c, end)) for _, c in lst]
@@ -1308,6 +1356,38 @@ def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Compo
     disagree = any(n in vals and w in vals and vals[n] > vals[w] for n, w in _CASH_NESTING)
     sti = seen(sti_tags)
     lt_marketable = seen(lt_tags)
+    equity = (
+        [(c, v) for c in _EQUITY_SECURITIES if (v := _at(facts, c, end))]
+        if cfg.investments_equity_guard
+        else []
+    )
+    excluded: list[tuple[str, float, str, str]] = []
+
+    def guard(role: list[tuple[str, float]], name: str) -> tuple[list[tuple[str, float]], bool]:
+        """The role's tags the guards keep, and whether the statement guard lowered its figure."""
+        kept: list[tuple[str, float]] = []
+        not_equity: list[tuple[str, float]] = []
+        for t, v in role:
+            eq = next((e for e, ev in equity if v and abs(v - ev) < 0.5), None)
+            if eq is not None:
+                why = f"equals the same-dated equity securities {eq} {_m(v)} (equity securities are never cash)"
+                excluded.append((t, v, why, name))
+                continue
+            not_equity.append((t, v))
+            if v and t in outside:
+                why = (
+                    "is tagged in the filing only outside the statement tables that present its cash, in a"
+                    " deferred-tax table (a tax-note line, not a balance), so it is quoted, not counted"
+                )
+                excluded.append((t, v, why, name))
+                continue
+            kept.append((t, v))
+        before = _Composition._largest(not_equity)
+        after = _Composition._largest(kept)
+        return kept, (before[1] if before else 0.0) > (after[1] if after else 0.0)
+
+    sti, sti_lowered = guard(sti, "sti")
+    lt_marketable, lt_lowered = guard(lt_marketable, "lt")
     totals = seen([("us-gaap", t) for t in _DEBT_TOTALS])
     tol = cfg.investments_reconcile_tolerance
 
@@ -1351,6 +1431,8 @@ def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Compo
         reconciled=reconciled,
         totals=totals,
         total_checks=total_checks,
+        excluded=excluded,
+        unconfirmed=sti_lowered or lt_lowered,
     )
 
 
@@ -1370,16 +1452,19 @@ def _composition_note(c: _Composition, cash_label: str) -> str:
     total = c.cash + (c.investments or 0.0)
     parts = [f"{cash_label} {_m(c.cash)}"]
     missing: list[str] = []
+    left_out = {role for _, _, _, role in c.excluded}
     if c.sti:
         parts.append(f"short-term investments {_m(c.sti_value or 0.0)} ({tags(c.sti)})")
     else:
-        missing.append("no short-term investments tagged on the cash date")
+        what = "counted" if "sti" in left_out else "tagged on the cash date"
+        missing.append(f"no short-term investments {what}")
     if c.lt_marketable:
         parts.append(
             f"long-term marketable securities {_m(c.lt_value or 0.0)} ({tags(c.lt_marketable)})"
         )
     else:
-        missing.append("no long-term marketable securities tagged on the cash date")
+        what = "counted" if "lt" in left_out else "tagged on the cash date"
+        missing.append(f"no long-term marketable securities {what}")
     if c.counted_unsplit:
         # the only investment tag on the cash date is an unsplit debt total the combined line confirms: counted
         parts.append(
@@ -1391,6 +1476,8 @@ def _composition_note(c: _Composition, cash_label: str) -> str:
     out = f"cash_usd {_m(total)} = " + " + ".join(parts)
     if missing:
         out += "; " + "; ".join(missing)
+    for t, v, why, _ in c.excluded:
+        out += f"; not counted: {t} {_m(v)} {why}"
     if c.quoted_unsplit:
         confirm = (
             f"no same-dated {_COMBINED} line confirms it"
@@ -1486,7 +1573,9 @@ def _cash_burn(
     companyfacts, and this sentence says so; it flags ``companyfacts-behind`` and rides the note. With
     ``cfg.cash_auto_companyfacts_behind`` (A2) it is AUTO instead when no other flag stands and the one-time check
     had the offered quarter's own lines to read (``_one_time_runs``; a derived quarter's lines derived like it).
-    ``raw`` (W1-4): the values filing's raw document, where a one-time line's passage is found by its tagged fact.
+    ``raw`` (W1-4): the values filing's raw document, where a one-time line's passage is found by its tagged fact,
+    and where a counted investment tagged only in a deferred-tax table is found (``_outside_statements``,
+    ``investments-unconfirmed``).
     """
     cash_pick = _pick_instant(facts, _CASH)
     cash_at = None if cash_pick is None else (cash_pick[0], cash_pick[1])
@@ -1528,7 +1617,12 @@ def _cash_burn(
     # eight-year-old balances into current cash). An OLDER one is excluded + named, never summed (conservative:
     # runway reads shorter); one only on a NEWER balance sheet means the composition at one date is not
     # established — ``investments-off-date``.
-    comp = _compose(facts, cash_at[0], cash_at[1], cfg) if cash_at else None
+    outside = (
+        _outside_statements(raw, cash_at[1], cash_pick[2], cfg)
+        if raw is not None and cash_pick is not None and cash_at and cfg.investments_statement_guard
+        else frozenset()
+    )
+    comp = _compose(facts, cash_at[0], cash_at[1], cfg, outside) if cash_at else None
     investments = comp.investments if comp else None
     cash_usd = (cash_at[0] + (investments or 0.0)) if cash_at else None
     asofs: list[str] = []
@@ -1661,6 +1755,8 @@ def _cash_burn(
             flags.append("investments-unreconciled")
         if comp.newer:
             flags.append("investments-off-date")
+        if comp.unconfirmed:
+            flags.append(_UNCONFIRMED)
     if behind is not None:
         # A2 (operator decision D4): AUTO when no other flag stands and the one-time check had lines to read for the
         # offered quarter; else W1-2's flag
@@ -1694,7 +1790,7 @@ def _cash_burn(
         (
             "balance-sheet",
             ["cash and cash equivalents"],
-            {"cash-after-period", COMPANYFACTS_BEHIND} & set(flags),
+            {"cash-after-period", COMPANYFACTS_BEHIND, _UNCONFIRMED} & set(flags),
         ),
     ):
         if raised and not any(p.kind == kind for p in passages):
@@ -1778,6 +1874,7 @@ def _filing_instants(cfg: ExtractorConfig) -> frozenset[str]:
     return frozenset(
         [c for _, c in _CASH + _counted(_STI, cfg) + _counted(_LT_MARKETABLE, cfg) + _NOT_CASH]
         + [*_DEBT_TOTALS, _COMBINED]
+        + list(_EQUITY_SECURITIES if cfg.investments_equity_guard else ())
     )
 
 
@@ -1808,6 +1905,40 @@ def _usd_facts(
 def _own(f: inline_xbrl.InlineFact) -> bool:
     """The registrant's own fact: no dimension at all."""
     return not f.context.members and not f.context.other_axis
+
+
+def _outside_statements(
+    raw: str, end: str, cash_concept: str, cfg: ExtractorConfig
+) -> frozenset[str]:
+    """The counted investment tags the raw document tags on the cash date (``end``) outside its statement tables (a
+    table holding the registrant's own ``cash_concept`` fact or a ``_STATEMENT_TOTALS`` fact on that date) and only in
+    deferred-tax tables (``_DEFERRED_TAX``). Empty when the guard cannot run: no table holds the cash fact (statements
+    laid out without tables, or a cash date the document does not tag). A tag the document never tags on that date, or
+    tags in prose or another note, is not judged."""
+    on = date.fromisoformat(end)
+    tags = {c for _, c in _counted(_STI, cfg) + _counted(_LT_MARKETABLE, cfg)}
+    spans = inline_xbrl.table_spans(raw)
+    contexts = inline_xbrl.read_contexts(raw)
+    tax = {
+        inline_xbrl.table_of(spans, f.offset)
+        for f in inline_xbrl.read_facts(raw, None, contexts)
+        if f.concept.startswith(_DEFERRED_TAX)
+    } - {None}
+    read = frozenset({*tags, cash_concept, *_STATEMENT_TOTALS})
+    at = [
+        (f.concept, inline_xbrl.table_of(spans, f.offset))
+        for f in _usd_facts(raw, contexts, read)
+        if _own(f) and f.context.instant == on
+    ]
+    cash_tables = {t for c, t in at if c == cash_concept and t is not None}
+    if not cash_tables or not tax:
+        return frozenset()
+    statements = cash_tables | {t for c, t in at if c in _STATEMENT_TOTALS and t is not None}
+    where: dict[str, set[int | None]] = {}
+    for c, t in at:
+        if c in tags:
+            where.setdefault(c, set()).add(t)
+    return frozenset(c for c, ts in where.items() if not ts & statements and ts <= tax)
 
 
 def _companyfacts_late(facts: dict, period_end: date, cfg: ExtractorConfig) -> list[str]:
@@ -1892,11 +2023,14 @@ def _filing_cash(
             facts, us, _prior_durations(prior, starts), prior.period_end.isoformat(), ""
         )
     merged = {**facts, "us-gaap": us}
-    shown = [x for x in added if not x[0].startswith(_LINE_PREFIX)]
+    # an equity balance is read only for the composition's guard, which names it when it applies
+    shown = [
+        x for x in added if not x[0].startswith(_LINE_PREFIX) and x[0] not in _EQUITY_SECURITIES
+    ]
     read = "; ".join(
         f"{c} {start} → {pe} {_m(v)}" if start else f"{c} {_m(v)}" for c, start, v in shown
     )
-    n_lines = len(added) - len(shown)
+    n_lines = sum(1 for x in added if x[0].startswith(_LINE_PREFIX))
     stated = (
         f"companyfacts is behind the cited filing ({' and '.join(late)}): read from the filing's own inline XBRL at "
         f"{pe}, the registrant's undimensioned USD facts only: {read}"

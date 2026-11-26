@@ -133,6 +133,19 @@ gives back the flagged offer (`tests/ingest/test_extract_auto_cases.py`).
 - **Changing a dial** moves the editions fingerprint (`domain/config.py` is an engine source): the next editions
   nightly runs a trial.
 
+Two guards keep a cash-like tag on a line that is not cash out of any cash value, AUTO or not (the fork audit of the
+18 applied on 2026-11-26 found two such; `tests/ingest/test_extract_cash_guards.py`):
+
+| Guard | Dial (default) | Not counted |
+|---|---|---|
+| Equity | `investments_equity_guard` (on) | a counted investment tag whose non-zero value equals a same-dated equity-securities balance of the registrant (`_EQUITY_SECURITIES`); the note names both. CNP: 425M of AT&T, Charter and WBD stock tagged `MarketableSecuritiesCurrent` |
+| Statement | `investments_statement_guard` (on) | with the raw document, a counted investment tagged outside the statement tables (those holding the cash fact or a balance-sheet total on the cash date) and only in a deferred-tax table; flagged `investments-unconfirmed` when that lowers the figure. LEXX: 349,120 on a deferred-tax row |
+
+- **Why the statement guard is narrow:** "anywhere outside the statements" moved 18 of 100 replayed applied values
+  (13 to FLAG), mostly debt securities a filer tags only in its investments note or in prose while the balance sheet
+  prints them inside a broader line. A deferred-tax row is never a balance.
+- **It cannot run** when no table holds the cash fact (statements laid out without tables): the value is as before.
+
 ## The nightly step
 
 `pipeline/nightly_extraction.run_nightly_extraction` is the last thing in the nightly pass

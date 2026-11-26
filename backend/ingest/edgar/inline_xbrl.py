@@ -17,6 +17,7 @@ deterministic, regex over the raw text (no XML parser: filings are not always we
 
 from __future__ import annotations
 
+import bisect
 import html
 import math
 import re
@@ -53,6 +54,7 @@ _FACT_CLOSE_RE = re.compile(r"</(?:[\w-]+:)?nonFraction\s*>", re.I)
 _NONNUMERIC_RE = re.compile(r"<(?:[\w-]+:)?nonNumeric\b([^>]*?)(?<!/)>", re.I)
 _ATTR_RE = re.compile(r"([\w:.-]+)\s*=\s*\"([^\"]*)\"")
 _TAG_RE = re.compile(r"<[^>]+>")
+_TABLE_RE = re.compile(r"<(/?)table\b[^>]*>", re.I)
 
 # Members of the class axis that are not a class of common stock, so never summed into a cover count: an ADR line
 # (ordinary shares held as ADSs, a subset of the ordinary count), a preferred class, warrants (pre-funded or not), a
@@ -255,16 +257,16 @@ def _number(shown: str, fmt: str) -> float | None:
 
 
 def read_facts(
-    raw: str, concepts: frozenset[str], contexts: dict[str, Context] | None = None
+    raw: str, concepts: frozenset[str] | None, contexts: dict[str, Context] | None = None
 ) -> list[InlineFact]:
-    """The ``ix:nonFraction`` facts whose concept's local name is in ``concepts``, in document order, nested ones
-    included. A fact whose context is not in the document is skipped."""
+    """The ``ix:nonFraction`` facts whose concept's local name is in ``concepts`` (None: every concept), in document
+    order, nested ones included. A fact whose context is not in the document is skipped."""
     ctx = read_contexts(raw) if contexts is None else contexts
     out: list[InlineFact] = []
     for m in _FACT_OPEN_RE.finditer(raw):
         attrs = dict(_ATTR_RE.findall(m.group(1)))
         concept = _local(attrs.get("name", ""))
-        if concept not in concepts:
+        if concepts is not None and concept not in concepts:
             continue
         c = ctx.get(attrs.get("contextRef", ""))
         close = _FACT_CLOSE_RE.search(raw, m.end())
@@ -283,6 +285,29 @@ def read_facts(
             value = -value
         out.append(InlineFact(concept, value, shown, c, m.start(), attrs.get("unitRef", "")))
     return out
+
+
+def table_spans(raw: str) -> list[tuple[int, int]]:
+    """Every outermost ``<table>`` of the document as (start, end) offsets, in document order (a nested table is
+    inside its outer one's span)."""
+    out: list[tuple[int, int]] = []
+    depth, start = 0, 0
+    for m in _TABLE_RE.finditer(raw):
+        if not m.group(1):
+            if depth == 0:
+                start = m.start()
+            depth += 1
+        elif depth:
+            depth -= 1
+            if depth == 0:
+                out.append((start, m.end()))
+    return out
+
+
+def table_of(spans: list[tuple[int, int]], offset: int) -> int | None:
+    """The index in ``spans`` (``table_spans``) of the table holding ``offset``, None outside every table."""
+    i = bisect.bisect_right([s for s, _ in spans], offset) - 1
+    return i if i >= 0 and offset < spans[i][1] else None
 
 
 def document_period_end(raw: str, contexts: dict[str, Context] | None = None) -> date | None:

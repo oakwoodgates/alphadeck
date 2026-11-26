@@ -110,6 +110,8 @@ class ExtractedFact(DomainModel):
     #             cash equivalents or restricted; the steward adds the eligible part)
     #           | "investments-off-date" (an investment tag sits on a NEWER balance sheet than the cash and
     #             not on the cash date: the composition at one date is not established)
+    #           | "investments-unconfirmed" (the raw document tags a counted investment outside its statement
+    #             tables and only in a deferred-tax table: it is quoted, not counted, and the figure offered is lower)
     #           | "burn-span" (the burn covers fewer than quarterly_span_min_days or more than
     #             quarterly_span_max_days, native or derived: not established as one quarter; offered as found)
     #           | "burn-off-period" (the burn does not end on the cited filing's period of report)
