@@ -227,15 +227,15 @@ no announcement date. `UsaSpendingClient` is cache-first like the EDGAR client, 
 Read with `MASSIVE_API_KEY`; its absence is the off switch: nothing keyless is sent. The adapters use the
 vendor's legacy host (`Settings.polygon_base`); the older files keep its name.
 
-- **Fund shares outstanding by date** (`ingest/funds/polygon.py`): the primary source for `fact_fund_shares`
-  when keyed, with real history for `pipeline.backfill_fund_shares`. A sample is dated by the queried date; a
-  null count is a miss, never a zero. The fallback chain is the issuer's fund page, then an aggregator
-  (`ingest/funds/source.py`), each dated by the page's own stated as-of date.
+- **Fund shares outstanding by date** (`ingest/funds/polygon.py`): the primary `fact_fund_shares` source
+  when keyed, with real history for `pipeline.backfill_fund_shares`. A sample takes the queried date; a
+  null count is a miss, never a zero. The fallbacks are the issuer's fund page, then an aggregator
+  (`ingest/funds/source.py`), each dated by the page's stated as-of date.
 - **The split reference** (`ingest/polygon_splits.py`): every split in the market from a date, one
-  `/stocks/v1/splits` query with no ticker; the second source the split list confirms against
+  `/stocks/v1/splits` query, no ticker; the second source the split list confirms against
   ([FILINGS](FILINGS.md#split-filings)). Massive.com's `adjustment_type` label is stored as evidence, not content.
 - **Pacing.** The free tier allows about five requests a minute; every adapter shares one limiter and waits out
-  a 429. Neither a cached URL nor a raised message carries the key.
+  a 429. No cached URL or raised message carries the key.
 
 ## Who can do what
 
