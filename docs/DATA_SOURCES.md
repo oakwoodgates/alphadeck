@@ -139,8 +139,9 @@ rule; every leg that stores an acceptance, and both repairs, call it.
 
 The live source is Yahoo's chart API: free, no key, unofficial and uncontracted. The ingest depends on the
 `PriceSource` seam (`ingest/prices/source.py`), so a new vendor is a new adapter; `YahooPriceSource` is the
-default and `StooqPriceSource` a fallback whose live endpoint is now gated. Massive.com's raw bars are only a
-nightly cross-check ([FEED_MONITORS](FEED_MONITORS.md)).
+default and `StooqPriceSource` a fallback whose live endpoint is now gated. Massive.com's raw bars are a nightly
+cross-check ([FEED_MONITORS](FEED_MONITORS.md)) and fill a session Yahoo served no close for around a split
+([INGEST](INGEST.md)).
 
 - The stored close is Yahoo's `quote.close`: split-adjusted, not dividend-adjusted. Yahoo re-bases a history on
   a split, but not always stably, so the price leg puts every bar on the scale of Alpha Deck's own split list
@@ -155,15 +156,14 @@ nightly cross-check ([FEED_MONITORS](FEED_MONITORS.md)).
 
 **The Yahoo gate.** Every Yahoo request passes one process-wide token bucket, `ingest.http.yahoo_limiter`, at
 `yahoo_rate_per_sec`. A 429 or 503 is retried after a jittered backoff that pushes the gate back for every
-puller, and each refusal is counted per host on the pass meter (`http_429:<host>`). It is process-local:
-Yahoo is not a fair-access requirement, and the nightly is the one heavy puller.
+puller, and each refusal is counted per host on the pass meter (`http_429:<host>`). It is process-local: the
+nightly is the one heavy puller.
 
 **When the symbol drifts.** The vendor may price a name under a symbol other than its SEC ticker (an OTC suffix,
 a new ticker after a rename); `security_master.price_symbol` (migration 0032) overrides the ticker for the price
 pull only. A renamed symbol's old series simply ends, which looks like a quiet market until the stale-tape
 monitor sees it ([FEED_MONITORS](FEED_MONITORS.md)). Renames are not followed automatically beyond the company
-list's pin and splice (below): a wrong guess files another company's tape under the member, which is worse than
-a visible gap.
+list's pin and splice (below): a wrong guess is worse than a visible gap.
 
 The nightly pass and the onboarding job pull with `force_refresh`; a steward can pull one name
 (`POST /workbench/securities/{security_id}/ingest-prices`, cache-first). The write path is in

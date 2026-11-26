@@ -22,6 +22,13 @@ empty list. Massive.com writes a class share with a dot (``BRK.B``; the master a
   vendor body; files of sessions more than ``CACHE_KEEP_DAYS`` old are pruned on write.
 - **Never a guess.** Values parse as exact decimals (``parse_float=Decimal``); a row missing its ticker,
   close or volume, or carrying a non-numeric or negative value, is skipped and COUNTED, never patched.
+
+**The per-ticker range (W6-3b, the price leg's fill).** ``GET {polygon_base}/v2/aggs/ticker/{T}/range/1/day/{start}/
+{end}?adjusted=false&sort=asc&limit=5000`` returns one symbol's raw bars for a span of sessions (MEASURED 2026-11-25
+on prod's host and on ``api.massive.com``: the same bodies; each row's ``t`` is the session's midnight, market time).
+``MassiveBarSource.bars`` reads it for the sessions a vendor served no close for (older than tonight's, which the
+grouped day already holds): the same limiter, key handling and errors as the grouped read, cached per (symbol,
+start, end, market day) under ``data/polygon_cache/range/`` (a compact form), pruned on write like the days.
 """
 
 from __future__ import annotations
@@ -31,19 +38,22 @@ import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Protocol
 
-from domain.market_time import market_today
+from domain.market_time import market_today, market_tz
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.funds import polygon as _funds_polygon
 from ingest.http import polite_get
 
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "polygon_cache" / "grouped"
+_DEFAULT_RANGE_CACHE = _DEFAULT_CACHE.parent / "range"
 GROUPED_PATH = "/v2/aggs/grouped/locale/us/market/stocks"
+RANGE_PATH = "/v2/aggs/ticker"
+RANGE_LIMIT = 5000  # one request covers ~20 years of sessions
 CACHE_KEEP_DAYS = 30
 
 # The ONE Massive.com request budget (``ingest/funds/polygon.py``): the split reference and the fund shares pace
@@ -59,6 +69,11 @@ _STATUS_HINTS = {
     403: " — the key's plan does not cover this endpoint",
 }
 _CACHE_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2})\.json$")
+# a range's cache file: ``<market day>__<symbol>__<start>__<end>.json`` (the day it was read names it first)
+_RANGE_NAME = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})__[A-Za-z0-9.]+__\d{4}-\d{2}-\d{2}__\d{4}-\d{2}-\d{2}\.json$"
+)
+_SYMBOL = re.compile(r"^[A-Za-z0-9.]+$")
 
 
 class MassiveBarsError(Exception):
@@ -103,6 +118,14 @@ def grouped_url(session: date) -> str:
     return (
         f"{get_settings().polygon_base}{GROUPED_PATH}/{session.isoformat()}"
         "?adjusted=false&include_otc=true"
+    )
+
+
+def range_url(symbol: str, start: date, end: date) -> str:
+    """One symbol's raw daily bars ``start..end`` (inclusive), WITHOUT the apiKey."""
+    return (
+        f"{get_settings().polygon_base}{RANGE_PATH}/{symbol}/range/1/day/{start.isoformat()}/"
+        f"{end.isoformat()}?adjusted=false&sort=asc&limit={RANGE_LIMIT}"
     )
 
 
@@ -151,6 +174,56 @@ def parse_grouped(text: str, *, session: date) -> GroupedDay:
             out.skipped += 1
             continue
         out.bars[sym.strip()] = bar  # the vendor's own spelling (a preferred reads ``SCHWpD``)
+    return out
+
+
+def _session_of_t(t: object) -> date | None:
+    """A row's ``t`` (epoch milliseconds: the session's midnight on a range row, its close on a grouped row) as
+    the market date it falls on."""
+    if isinstance(t, bool) or not isinstance(t, (int, Decimal)):
+        return None
+    try:
+        return datetime.fromtimestamp(int(t) / 1000, tz=market_tz()).date()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def parse_range(text: str) -> dict[date, MassiveBar]:
+    """One per-ticker range body as ``{session: MassiveBar}``. A row with no readable ``t`` / close / volume is
+    skipped (never patched). Raises ``ValueError`` on a body that is not a JSON object."""
+    payload = json.loads(text, parse_float=Decimal)
+    if not isinstance(payload, dict):
+        raise ValueError("Massive.com range bars: the body is not a JSON object")
+    out: dict[date, MassiveBar] = {}
+    for r in payload.get("results") or []:
+        if not isinstance(r, Mapping):
+            continue
+        d = _session_of_t(r.get("t"))
+        bar = _bar(r.get("o"), r.get("h"), r.get("l"), r.get("c"), r.get("v"), r.get("otc"))
+        if d is not None and bar is not None:
+            out[d] = bar
+    return out
+
+
+def _compact_range(bars: Mapping[date, MassiveBar]) -> str:
+    def num(d: Decimal | None) -> str:
+        return "null" if d is None else str(d)
+
+    rows = ",".join(
+        f'"{d.isoformat()}":[{num(b.open)},{num(b.high)},{num(b.low)},{num(b.close)},{num(b.volume)},'
+        f"{'true' if b.otc else 'false'}]"
+        for d, b in sorted(bars.items())
+    )
+    return f'{{"bars":{{{rows}}}}}'
+
+
+def _from_compact_range(text: str) -> dict[date, MassiveBar]:
+    payload = json.loads(text, parse_float=Decimal)
+    out: dict[date, MassiveBar] = {}
+    for d, row in (payload.get("bars") or {}).items():
+        bar = _bar(*row) if isinstance(row, list) and len(row) == 6 else None
+        if bar is not None:
+            out[date.fromisoformat(d)] = bar
     return out
 
 
@@ -215,11 +288,16 @@ class MassiveBarSource:
         limiter: Limiter | None = None,
         sleep: Callable[[float], None] | None = None,
         keep_days: int = CACHE_KEEP_DAYS,
+        range_cache_dir: Path | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("MassiveBarSource requires a non-empty api_key")
         self._api_key = api_key
         self._cache_dir = cache_dir or _DEFAULT_CACHE
+        # the range reads' cache: beside the grouped days by default, inside an explicit ``cache_dir`` otherwise
+        self._range_cache = range_cache_dir or (
+            _DEFAULT_RANGE_CACHE if cache_dir is None else cache_dir / "range"
+        )
         self._fetch = fetch or self._live_fetch
         self._today = today
         self._limiter = limiter or LIMITER
@@ -254,10 +332,11 @@ class MassiveBarSource:
                         "day)"
                     ) from None
                 raise MassiveBarsError(
-                    f"Massive.com grouped bars: HTTP {code} for {clean_url}{_STATUS_HINTS.get(code, '')}"
+                    f"Massive.com {_what(clean_url)}: HTTP {code} for {clean_url}"
+                    f"{_STATUS_HINTS.get(code, '')}"
                 ) from None
             raise MassiveBarsError(
-                f"Massive.com grouped bars: {clean_url} failed: {self._scrub(str(e))}"
+                f"Massive.com {_what(clean_url)}: {clean_url} failed: {self._scrub(str(e))}"
             ) from None
         return resp.text
 
@@ -291,11 +370,53 @@ class MassiveBarSource:
         self._prune()
         return day
 
-    def _prune(self) -> None:
-        """Remove the cached days of sessions more than ``keep_days`` before today (only ``<date>.json``)."""
+    def bars(
+        self, symbol: str, start: date, end: date, *, allow_live: bool
+    ) -> dict[date, MassiveBar]:
+        """One symbol's raw bars ``start..end`` (W6-3b) — cache-first per (symbol, start, end, market day): a
+        re-read the same day makes no request, the next day reads again (a ``DELAYED`` day may be revised).
+        Raises ``CacheMiss`` (cache-only and not cached), ``NotServedYet`` or ``MassiveBarsError``; ``ValueError``
+        for a symbol that cannot name a cache file (never a request)."""
+        if not _SYMBOL.match(symbol or ""):
+            raise ValueError(f"Massive.com range bars: not a symbol: {symbol!r}")
+        cache = self._range_dir()
+        path = cache / (
+            f"{self._today().isoformat()}__{symbol}__{start.isoformat()}__{end.isoformat()}.json"
+        )
+        if path.exists():
+            try:
+                return _from_compact_range(path.read_text(encoding="utf-8"))
+            except (ValueError, TypeError, AttributeError):
+                if not allow_live:
+                    raise CacheMiss(
+                        f"the cached Massive.com range {symbol} {start}..{end} is unreadable"
+                    ) from None
+        if not allow_live:
+            raise CacheMiss(
+                f"no cached Massive.com range for {symbol} {start}..{end} (live pulls disabled)"
+            )
+        clean = range_url(symbol, start, end)
+        text = self._fetch(clean)
+        try:
+            out = parse_range(text)
+        except ValueError as e:
+            raise MassiveBarsError(
+                f"Massive.com range bars: unreadable body for {clean}: {self._scrub(str(e))}"
+            ) from None
+        cache.mkdir(parents=True, exist_ok=True)
+        path.write_text(_compact_range(out), encoding="utf-8")
+        self._prune(cache, _RANGE_NAME)
+        return out
+
+    def _range_dir(self) -> Path:
+        return self._range_cache
+
+    def _prune(self, directory: Path | None = None, pattern: re.Pattern[str] = _CACHE_NAME) -> None:
+        """Remove the cached files of days more than ``keep_days`` before today (only names ``pattern`` reads:
+        ``<date>.json`` for a grouped day, ``<day>__<symbol>__<start>__<end>.json`` for a range)."""
         cutoff = self._today() - timedelta(days=self._keep_days)
-        for p in self._cache_dir.iterdir():
-            m = _CACHE_NAME.match(p.name)
+        for p in (directory or self._cache_dir).iterdir():
+            m = pattern.match(p.name)
             if m is None:
                 continue
             try:
@@ -310,6 +431,10 @@ def _body(resp: Any) -> str:
         return str(resp.text)
     except Exception:  # noqa: BLE001 — an unreadable error body reads as no body
         return ""
+
+
+def _what(clean_url: str) -> str:
+    return "range bars" if RANGE_PATH + "/" in clean_url else "grouped bars"
 
 
 def _session_of(clean_url: str) -> str:

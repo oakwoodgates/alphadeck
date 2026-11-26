@@ -262,6 +262,108 @@ def test_a_divide_back_is_counted_per_reason_and_the_price_leg_logs_nothing(db, 
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
+def test_a_vendor_gap_is_filled_from_massive_then_re_versioned_when_the_vendor_serves_it(db):
+    """W6-3b, DB-backed, COUNT THE TABLES. SNDK's REAL series (``tests/fixtures/massive/gap_fill``): the store ends
+    11-19 at 94.395 (the list's /8 applied), the 8-for-1 of 11-20 confirmed. Night one (11-20) Yahoo serves no 11-20
+    close: Massive.com's raw bar from tonight's grouped day is appended, its provenance recorded. Night two (11-23)
+    Yahoo serves 11-20 (STATED: Massive.com's close, the volume as Yahoo rounds it) and still nulls 11-23: the 11-20
+    fill is re-versioned to the vendor's bar through the ordinary compare (inside the trailing window: exact), and
+    11-23 is filled. Every other stored bar untouched; no request made (both nights read the grouped day).
+    """
+    from ingest.prices import gap_fill as gf
+    from tests.ingest.test_gap_fill import (
+        NOV19,
+        NOV20,
+        NOV23,
+        SNDK_8_FOR_1,
+        _grouped,
+        _night,
+        _range,
+        _Ranges,
+        _seed,
+        _yahoo,
+    )
+
+    sid = _seed(db, "SNDK", SNDK_8_FOR_1)
+    ingest_prices(
+        db, sid, [b for b in _yahoo("SNDK") if b["d"] <= NOV19], tenant_id=DEFAULT_TENANT_ID
+    )
+    db.commit()
+    n0 = _rows(db, sid)
+    sec = Security(id=sid, tenant_id=DEFAULT_TENANT_ID, ticker="SNDK")
+    ranges = _Ranges({"SNDK": _range("SNDK")})
+
+    def night(day, bars):
+        gap = gf.GapSource(ranges, tonight=_grouped(day), split_sessions=20, max_names=10)
+        res = ingest_bars_for_security(
+            db,
+            sec,
+            tenant_id=DEFAULT_TENANT_ID,
+            allow_live=True,
+            force_refresh=True,
+            source=_Vendor(bars),
+            now=_night(day),
+            gap_source=gap,
+        )
+        db.commit()
+        return res
+
+    def fills() -> int:
+        with db.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM price_bar_fill WHERE security_id = %s", (sid,))
+            return cur.fetchone()["n"]
+
+    first = night(NOV20, _yahoo("SNDK"))
+    assert (first.appended, first.reversioned, first.held, first.filled_dates) == (
+        1,
+        0,
+        0,
+        (NOV20,),
+    )
+    assert first.fill_split == "8-for-1 forward split of 2026-11-20" and first.normalized == 0
+    assert _rows(db, sid) == n0 + 1 and fills() == 1
+
+    served = [
+        *_yahoo("SNDK"),
+        {
+            "d": NOV20,
+            "open": 89.98,
+            "high": 90.67,
+            "low": 78.25,
+            "close": 79.24,
+            "volume": 127860900,
+        },
+    ]
+    second = night(NOV23, served)
+    assert (second.appended, second.reversioned, second.held, second.filled_dates) == (
+        1,
+        1,
+        0,
+        (NOV23,),
+    )
+    assert _rows(db, sid) == n0 + 3 and fills() == 2 and _holds(db, sid) == 0
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT p.d, p.close, p.volume, (f.id IS NOT NULL) AS filled FROM fact_price_eod p "
+            "LEFT JOIN price_bar_fill f ON f.security_id = p.security_id AND f.d = p.d "
+            "AND f.bar_recorded_at = p.recorded_at WHERE p.security_id = %s AND p.d >= %s "
+            "ORDER BY p.d, p.recorded_at",
+            (sid, NOV20),
+        )
+        versions = [
+            (r["d"], str(r["close"]), str(r["volume"]), r["filled"]) for r in cur.fetchall()
+        ]
+    assert versions == [
+        (NOV20, "79.24", "127860864.911014", True),  # night one: Massive.com's raw bar
+        (NOV20, "79.24", "127860900", False),  # night two: the vendor's, the newest version
+        (NOV23, "87.71", "114032554.13314", True),
+    ]
+    assert ranges.asked == []  # tonight's session each night: the grouped day, no request
+    third = night(NOV23, served)  # the same pull again: nothing
+    assert (third.appended, third.reversioned, third.filled) == (0, 0, 0)
+    assert _rows(db, sid) == n0 + 3 and fills() == 2
+
+
 def _names():
     import uuid
 
