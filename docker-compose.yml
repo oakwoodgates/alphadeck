@@ -68,6 +68,10 @@ services:
       # FIRST (exact counts + the historical backfill CLI); without it, the free scrapers keep covering
       # the forward sample. Fail-open like the two above.
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+      # W6-1 — the split reference's path (the onboarding split history runs here, the nightly detector on the cron);
+      # /v3/reference/splits falls back to the deprecated endpoint. The fallback equals the Settings default (pinned
+      # by test).
+      ALPHADECK_POLYGON_SPLITS_PATH: ${ALPHADECK_POLYGON_SPLITS_PATH:-/stocks/v1/splits}
       # W6-3a — the nightly Massive.com tape cross-check (backend/domain/settings.py), the SAME two on the cron
       # sidecar below (the nightly runs there; the Admin "Run daily now" pass runs here). Fallbacks equal to the
       # Settings defaults (pinned by test). ALPHADECK_TAPE_CROSSCHECK=false = off (so is no MASSIVE_API_KEY).
@@ -287,6 +291,8 @@ services:
       # The nightly fund-shares sample rides this ingest — the cron needs the SAME Massive.com key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+      # W6-1 — the SAME split-reference path as the backend's (see there).
+      ALPHADECK_POLYGON_SPLITS_PATH: ${ALPHADECK_POLYGON_SPLITS_PATH:-/stocks/v1/splits}
       # W6-3a — the SAME two tape cross-check dials as the backend's (see there).
       ALPHADECK_TAPE_CROSSCHECK: ${ALPHADECK_TAPE_CROSSCHECK:-true}
       ALPHADECK_TAPE_CROSSCHECK_TOLERANCE: ${ALPHADECK_TAPE_CROSSCHECK_TOLERANCE:-0.02}

@@ -707,3 +707,30 @@ def test_compose_passes_the_cross_class_adopt_setting_only_at_its_settings_defau
         m = re.search(rf"{_CROSS_CLASS_ENV}: \$\{{{_CROSS_CLASS_ENV}:-([a-z]*)\}}", block)
         assert m is not None, f"{service}: {_CROSS_CLASS_ENV} passed without a fallback"
         assert m.group(1) == default, f"{service}: compose fallback {m.group(1)} != {default}"
+
+
+def test_the_split_reader_path_defaults_to_v1_and_compose_passes_it_to_both_services(monkeypatch):
+    """W6-1: Massive.com's split reference is read from ``/stocks/v1/splits``; ``ALPHADECK_POLYGON_SPLITS_PATH=
+    /v3/reference/splits`` falls back to the deprecated endpoint while it lives. Compose lists the environment
+    explicitly (no ``env_file``), so the fallback reaches the nightly detector (cron) and the onboarding split history
+    (backend) only if both list it, each at the Settings default."""
+    import re
+    from pathlib import Path
+
+    monkeypatch.delenv("ALPHADECK_POLYGON_SPLITS_PATH", raising=False)
+    s = Settings()
+    assert s.polygon_splits_path == "/stocks/v1/splits"
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        m = re.search(
+            r"^\s+ALPHADECK_POLYGON_SPLITS_PATH: \$\{ALPHADECK_POLYGON_SPLITS_PATH:-([^}]*)\}",
+            block,
+            re.M,
+        )
+        assert m is not None, f"ALPHADECK_POLYGON_SPLITS_PATH is not passed to the {service}"
+        assert m.group(1) == s.polygon_splits_path, f"{service}: {m.group(1)}"
+    monkeypatch.setenv("ALPHADECK_POLYGON_SPLITS_PATH", "/v3/reference/splits")
+    assert Settings().polygon_splits_path == "/v3/reference/splits"

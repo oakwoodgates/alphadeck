@@ -224,17 +224,18 @@ no announcement date. `UsaSpendingClient` is cache-first like the EDGAR client, 
 
 ## Massive.com
 
-Read with `MASSIVE_API_KEY`; the key's absence is the off switch, and nothing keyless is sent. The adapters use
-the vendor's legacy host (`Settings.polygon_base`); the older files keep its name.
+Read with `MASSIVE_API_KEY`; its absence is the off switch: nothing keyless is sent. The adapters use the
+vendor's legacy host (`Settings.polygon_base`); the older files keep its name.
 
 - **Fund shares outstanding by date** (`ingest/funds/polygon.py`): the primary source for `fact_fund_shares`
   when keyed, with real history for `pipeline.backfill_fund_shares`. A sample is dated by the queried date; a
   null count is a miss, never a zero. The fallback chain is the issuer's fund page, then an aggregator
   (`ingest/funds/source.py`), each dated by the page's own stated as-of date.
-- **The split reference** (`ingest/polygon_splits.py`): every split in the market from a date, a paged query
-  that carries no ticker; the second source the split list confirms against ([FILINGS](FILINGS.md#split-filings)).
+- **The split reference** (`ingest/polygon_splits.py`): every split in the market from a date, one
+  `/stocks/v1/splits` query with no ticker; the second source the split list confirms against
+  ([FILINGS](FILINGS.md#split-filings)). Massive.com's `adjustment_type` label is stored as evidence, not content.
 - **Pacing.** The free tier allows about five requests a minute; every adapter shares one limiter and waits out
-  a 429. URLs are cached without the key, and raised messages are scrubbed of it.
+  a 429. Neither a cached URL nor a raised message carries the key.
 
 ## Who can do what
 
@@ -255,6 +256,7 @@ the vendor's legacy host (`Settings.polygon_base`); the older files keep its nam
 | `ALPHADECK_SEC_GLOBAL_RATE_PER_SEC` | `domain/settings.py` | Yes; every process must agree |
 | `ALPHADECK_YAHOO_RATE_PER_SEC` | `domain/settings.py` | Yes |
 | `MASSIVE_API_KEY` | `domain/settings.py` (`polygon_api_key`) | Yes |
+| `ALPHADECK_POLYGON_SPLITS_PATH` (`/v3/reference/splits` = fallback) | `domain/settings.py` | Yes |
 | `ALPHADECK_EDGAR_RATE_PER_SEC`, `ALPHADECK_USASPENDING_RATE_PER_SEC`, `ALPHADECK_HTTP_TIMEOUT_S` | `domain/settings.py` | No |
 | `ALPHADECK_PRICE_SETTLE_TIME`, `OPENFIGI_API_KEY`, vendor base URLs | `domain/settings.py` | No |
 

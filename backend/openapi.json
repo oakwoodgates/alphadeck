@@ -13202,6 +13202,17 @@
               }
             ],
             "title": "Ratio Label"
+          },
+          "adjustment_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adjustment Type"
           }
         },
         "type": "object",
@@ -13209,7 +13220,7 @@
           "id"
         ],
         "title": "AdminSplitListPolygonOut",
-        "description": "Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares."
+        "description": "Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares. ``adjustment_type`` is\nMassive.com's own label (``forward_split``, ``reverse_split`` or ``stock_dividend``), evidence only; null on a row\nstored before the label was read or from the v3 endpoint."
       },
       "AdminSplitListSecOut": {
         "properties": {

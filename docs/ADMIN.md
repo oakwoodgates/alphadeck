@@ -150,7 +150,8 @@ row to the state before. A decision counts from when it was made, on the public 
 ### Splits
 
 The split list `pipeline.backfill_splits` filled from Massive.com and each company's SEC filing
-(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings").
+(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings"). Massive.com's side names its own label (forward split,
+reverse split or stock dividend), evidence only.
 
 - **Needs review** (loud, the only loud list): a split one source cannot settle, the SEC passage beside
   Massive.com's row: confirm a source's values, or reject. When neither is right (POM's ADR termination: 10 ADSs

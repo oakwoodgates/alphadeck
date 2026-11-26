@@ -75,16 +75,26 @@ SOURCE_BOTH = "both"
 SESSION_TOLERANCE = 2
 
 
+# Massive.com's own word for a split row (``/stocks/v1/splits`` ``adjustment_type``, W6-1). EVIDENCE beside the
+# row, never a verdict: no rule here reads it yet, and a word outside these three reads as ``None``. MEASURED on the
+# 2026-11-25 pull from 2024-10-01 (3,521 rows): 596 forward_split, 2,527 reverse_split, 398 stock_dividend; the
+# label is not a factor band (HON's 1000 -> 1061 is ``forward_split``, MTH's 1 -> 2 ``stock_dividend``).
+ADJUSTMENT_TYPES = ("forward_split", "reverse_split", "stock_dividend")
+
+
 @dataclass(frozen=True)
 class PolygonEvidence:
     """One Massive.com split-reference row: the first session at the new price and ``split_from`` OLD shares ->
-    ``split_to`` NEW shares (16 -> 1 for a 1-for-16 reverse split)."""
+    ``split_to`` NEW shares (16 -> 1 for a 1-for-16 reverse split). ``adjustment_type`` is Massive.com's label
+    (one of ``ADJUSTMENT_TYPES``; ``None`` on the v3 endpoint, an unknown word or a row stored before W6-1).
+    """
 
     id: str
     ticker: str
     execution_date: date
     split_from: Decimal
     split_to: Decimal
+    adjustment_type: str | None = None
 
 
 @dataclass(frozen=True)

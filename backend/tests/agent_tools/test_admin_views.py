@@ -234,6 +234,26 @@ def test_one_reads_every_entry_and_jump_of_a_ticker_in_full_across_buckets():
     assert len(jumped["jumps"][0]["after"]) == 3 and "prior_volume" in jumped["jumps"][0]
 
 
+def test_the_brief_polygon_block_carries_massives_label_only_when_stated():
+    """W6-1: the API's ``polygon.adjustment_type`` (Massive.com's own label) rides the brief block when stated; a row
+    with none (stored before the label, or from the v3 endpoint) keeps the two keys it always had.
+    """
+    body = afx.splits()
+    body["needs_review"][0]["polygon"]["adjustment_type"] = "stock_dividend"
+    reply = ok(FakeApi(splits=body), "get_splits")
+    assert reply["needs_review"][0]["polygon"] == {
+        "execution_date": "2026-11-02",
+        "ratio_label": "1-for-10",
+        "adjustment_type": "stock_dividend",
+    }
+    assert reply["needs_review"][1]["polygon"] == {
+        "execution_date": "2026-11-02",
+        "ratio_label": "1-for-10",
+    }
+    one = ok(FakeApi(splits=body), "get_splits", section="one", t="TK01")
+    assert one["entries"][0]["polygon"]["adjustment_type"] == "stock_dividend"
+
+
 def test_one_for_an_unlisted_ticker_is_an_empty_page_not_an_error():
     reply = ok(FakeApi(), "get_splits", section="one", t="TK99")
     assert reply["found"] == 0 and reply["entries"] == [] and reply["jumps"] == []
