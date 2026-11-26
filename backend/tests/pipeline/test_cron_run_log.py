@@ -492,6 +492,7 @@ def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_p
         "unpriceable": False,  # Q8 — it HAS bars (an edge), so it is not the never-priced class
         "acknowledged": False,  # Q8 — ...and nothing the operator acknowledged
         "deregistered": None,  # W4-2 — only a never-priced row EDGAR lists nothing for carries a Form 15
+        "massive_ref": None,  # W6-4 — no Massive.com reference evidence on this row
     }
     assert rows[1]["ticker"] is None and rows[1]["edge"] is None  # a ticker-less, never-priced name
     assert rows[1]["unpriceable"] is True  # Q8 — no bar ever, neither closed nor renamed
@@ -561,6 +562,56 @@ def test_payload_writes_a_never_priced_rows_DEREGISTRATION_with_its_events(tmp_p
         ],
     }
     assert Deregistration.from_json(row["deregistered"]) == d
+
+
+def test_payload_writes_a_stale_rows_MASSIVE_REFERENCE_evidence(tmp_path):
+    """W6-4 — Massive.com's reference evidence rides the row as ``MassiveRef.to_json`` (the market day it was
+    read, active, type, delisted date, tonight's trade); a reader rebuilds the same value."""
+    from ingest.massive_reference import MassiveRef
+
+    ref = MassiveRef(
+        "INDV",
+        read_on=date(2026, 11, 25),
+        listed=True,
+        active=False,
+        type="CS",
+        delisted_utc=date(2026, 11, 3),
+    )
+    res = _thesis_result(
+        recorded=True,
+        tape_stale=(
+            StaleTape(
+                ticker="INDV",
+                security_id=uuid4(),
+                edge=date(2026, 11, 2),
+                renamed=True,
+                edgar_tickers=("SUPN",),
+                massive_ref=ref,
+            ),
+        ),
+    )
+    path = write_cron_run_log(
+        [res],
+        asof=date(2026, 11, 25),
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+        tape_stale_days=5,
+    )
+    (row,) = _read(path)["theses"][0]["tape_stale"]
+    assert row["massive_ref"] == {
+        "symbol": "INDV",
+        "read_on": "2026-11-25",
+        "listed": True,
+        "active": False,
+        "type": "CS",
+        "delisted_utc": "2026-11-03",
+        "traded_on": None,
+    }
+    assert row["renamed"] is True and row["closed_at"] is None  # a field, never a class
+    assert MassiveRef.from_json(row["massive_ref"]) == ref
 
 
 def test_payload_records_a_DISABLED_monitors_threshold_as_zero(tmp_path):

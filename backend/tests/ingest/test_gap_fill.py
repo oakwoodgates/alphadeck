@@ -373,12 +373,6 @@ def test_a_fill_is_never_rescaled_by_the_split_normalizer():
     assert norm.first_night == [] and norm.total == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="needs #654 (W0-1, origin/claude/w0-1-first-night-edge, held): normalize proves a first night's "
-    "'lacking' run against the vendor's post-split tail; without it the raw run is left to T5. With #654 merged "
-    "the fill IS that tail — remove this marker then.",
-)
 def test_with_w0_1_the_fill_is_the_tail_a_first_night_s_raw_history_is_proven_against():
     """GNS's real series, STATED edits (the W0 shape): the store holds the history already on the new scale (the
     vendor's early re-base landed, x10) and nothing on/after the 11-20 first session; on the first night the

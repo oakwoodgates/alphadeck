@@ -5,7 +5,7 @@ finished pass and any unfinished one, the newest backup, the identity pair, the 
 section pages one panel's rows whole, in the API's order (a never-priced row's Form 15 evidence without its EDGAR
 links, which the Admin panel carries). Every value is copied from the API's JSON; a thesis outside the caller's
 workspace already arrives as ``workspace <8 hex> . thesis <8 hex>`` and is never resolved here. A health readout: it
-never feeds a call.
+never feeds a call. A stale row's Massive.com evidence (``massive_ref``, W6-4) keeps only its stated fields.
 """
 
 from __future__ import annotations
@@ -200,6 +200,23 @@ def _deregistered(row: Any) -> Any:
     return {**row, "deregistered": {**_pick(d, ("form", "filed", "accession")), "events": events}}
 
 
+def _massive(row: Any) -> Any:
+    """W6-4 — a stale row with its ``massive_ref`` cut to what Massive.com stated (the reply budget): a null field
+    and a null block are dropped, and so is ``symbol`` when it is the row's own ticker. Any other row is copied
+    whole."""
+    if not isinstance(row, dict) or "massive_ref" not in row:
+        return row
+    ref = row["massive_ref"]
+    out = {k: v for k, v in row.items() if k != "massive_ref"}
+    if isinstance(ref, dict):
+        out["massive_ref"] = {
+            k: v
+            for k, v in ref.items()
+            if v is not None and not (k == "symbol" and v == row.get("ticker"))
+        }
+    return out
+
+
 def _scalars(panel: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
     return _pick(panel, keys)
 
@@ -243,7 +260,7 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
                 panel, ("asof", "ran_at", "stale_days", "fund_shares_stale_days", "newly_stale")
             )
         )
-        lists = [("stale", panel.get("stale") or [])]
+        lists = [("stale", [_massive(r) for r in panel.get("stale") or []])]
     elif section == "price_repairs":
         reply.update(
             _scalars(
@@ -261,7 +278,7 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
             )
         )
         lists = [(k, panel.get(k) or []) for k in PRICE_REPAIR_LISTS]
-        lists = [(k, [_deregistered(r) for r in rows]) for k, rows in lists]
+        lists = [(k, [_massive(_deregistered(r)) for r in rows]) for k, rows in lists]
     elif section == "split_defects":
         reply.update(_scalars(panel, ("asof", "ran_at", "window_days", "newly_flagged", "error")))
         lists = [("defects", panel.get("defects") or []), ("settled", panel.get("settled") or [])]

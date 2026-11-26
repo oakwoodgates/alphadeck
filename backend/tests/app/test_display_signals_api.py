@@ -476,7 +476,12 @@ def test_display_live_view_holds_a_bar_recorded_a_moment_ago(client, db, securit
     byte (``known_at=None``, the spy test above), so nothing here can differ from the old read."""
     today = market_today()
     _seed_bars(db, security_id, 60, end=today, recorded_at=datetime.now(timezone.utc))
+    # The newest seeded bar: today, or the last day before it when today is an NYSE full-day closure
+    # (_seed_bars skips closures) — a CI run on Thanksgiving read window_end 11-25 against today 11-26.
+    newest = today
+    while closure_name(newest) is not None:
+        newest -= timedelta(days=1)
     tid = _seed_thesis(db, [_member(security_id)])
     body = client.get(f"/theses/{tid}/display-signals", params={"asof": today.isoformat()}).json()
     (m,) = body["members"]
-    assert m["signals"] and m["signals"][0]["basis"]["window_end"] == today.isoformat()
+    assert m["signals"] and m["signals"][0]["basis"]["window_end"] == newest.isoformat()

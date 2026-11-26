@@ -5320,6 +5320,32 @@ export interface components {
             n_rows: number;
         };
         /**
+         * AdminMassiveRefOut
+         * @description What Massive.com says of a stale price row's symbol (W6-4) — EVIDENCE for the steward, never a class: the
+         *     row sits in the list it sits in without it. ``symbol`` = the Massive.com symbol it is about; ``read_on`` = the
+         *     market day its ticker overview was read (``null`` = not read yet: at most a few a night, newest stale first);
+         *     ``listed`` = Massive.com lists the symbol (``false`` = "Ticker not found."; ``null`` = not read); ``active``,
+         *     ``type`` (Massive.com's code: ``CS``, ``ADRC``, ``WARRANT`` ...) and ``delisted_utc`` = the overview's;
+         *     ``traded_on`` = the pass's session when Massive.com's grouped bars show the symbol traded (volume > 0).
+         *     Massive.com's words, never paraphrased.
+         */
+        AdminMassiveRefOut: {
+            /** Symbol */
+            symbol: string;
+            /** Read On */
+            read_on?: string | null;
+            /** Listed */
+            listed?: boolean | null;
+            /** Active */
+            active?: boolean | null;
+            /** Type */
+            type?: string | null;
+            /** Delisted Utc */
+            delisted_utc?: string | null;
+            /** Traded On */
+            traded_on?: string | null;
+        };
+        /**
          * AdminMasterRefreshOut
          * @description The weekly company-list refresh (``python -m pipeline.populate_master --live --apply``), as ONE
          *     plain-English line from its newest APPLIED run artifact (``data/master_runs``) — e.g. "Company list ·
@@ -5938,6 +5964,7 @@ export interface components {
             /** Price Symbol */
             price_symbol?: string | null;
             change?: components["schemas"]["AdminPriceSymbolChangeOut"] | null;
+            massive_ref?: components["schemas"]["AdminMassiveRefOut"] | null;
         };
         /**
          * AdminRunEnvOut
@@ -6754,6 +6781,7 @@ export interface components {
             massive_traded?: string | null;
             /** Massive Close */
             massive_close?: number | null;
+            massive_ref?: components["schemas"]["AdminMassiveRefOut"] | null;
         };
         /**
          * AdminStatusOut
@@ -7194,6 +7222,8 @@ export interface components {
          *     W4-2 — ``deregistered``: when EDGAR lists no symbol for the name and the company filed a Form 15, that
          *     filing and the 8-K events before it (``AdminDeregistrationOut``); removing the name in the basket editor
          *     is then the recommended action. ``null`` otherwise.
+         *
+         *     W6-4 — ``massive_ref``: what Massive.com says of the symbol (``AdminMassiveRefOut``; evidence only).
          */
         AdminUnpriceableRowOut: {
             /**
@@ -7230,6 +7260,7 @@ export interface components {
              */
             probed: boolean;
             deregistered?: components["schemas"]["AdminDeregistrationOut"] | null;
+            massive_ref?: components["schemas"]["AdminMassiveRefOut"] | null;
         };
         /**
          * AdoptionCardOut

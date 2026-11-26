@@ -469,6 +469,39 @@ def test_the_price_repairs_section_names_each_row_by_its_list():
     assert reply["limitations"][0]["reason"] == "synthetic limitation"
 
 
+def test_the_tape_and_price_repairs_sections_carry_each_rows_massive_reference():
+    """W6-4: a stale row's Massive.com reference evidence (the market day read, active, type, delisted date,
+    tonight's trade) rides both sections that page the rows, cut to what Massive.com stated (a null field, a null
+    block and a symbol that is the row's own ticker are dropped: the reply budget)."""
+    body = afx.status()
+    ref = {
+        "symbol": "TK01",
+        "read_on": "2026-11-05",
+        "listed": True,
+        "active": True,
+        "type": "WARRANT",
+        "delisted_utc": None,
+        "traded_on": None,
+    }
+    body["tape"]["stale"][0]["massive_ref"] = ref
+    body["tape"]["stale"][1]["massive_ref"] = None
+    # the steward pointed this name's vendor symbol elsewhere: the symbol read is named
+    body["price_repairs"]["renamed"][0]["massive_ref"] = {**ref, "symbol": "TK03N", "type": "CS"}
+    api = FakeApi(status=body)
+    tape = ok(api, "get_admin_status", section="tape")
+    assert tape["stale"][0]["massive_ref"] == {
+        "read_on": "2026-11-05",
+        "listed": True,
+        "active": True,
+        "type": "WARRANT",
+    }
+    assert "massive_ref" not in tape["stale"][1]
+    assert tape["stale"][0]["ticker"] == "TK01"  # the rest of the row whole
+    repairs = ok(api, "get_admin_status", section="price_repairs")
+    assert repairs["renamed"][0]["massive_ref"]["type"] == "CS"
+    assert repairs["renamed"][0]["massive_ref"]["symbol"] == "TK03N"
+
+
 def test_the_split_defects_missing_closes_and_record_sections_read_their_panel():
     api = FakeApi()
     defects = ok(api, "get_admin_status", section="split_defects")

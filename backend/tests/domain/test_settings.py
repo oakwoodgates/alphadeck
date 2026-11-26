@@ -839,3 +839,28 @@ def test_the_split_reader_path_defaults_to_v1_and_compose_passes_it_to_both_serv
         assert m.group(1) == s.polygon_splits_path, f"{service}: {m.group(1)}"
     monkeypatch.setenv("ALPHADECK_POLYGON_SPLITS_PATH", "/v3/reference/splits")
     assert Settings().polygon_splits_path == "/v3/reference/splits"
+
+
+def test_the_massive_reference_cap_defaults_to_five_and_compose_passes_it_to_both_services(
+    monkeypatch,
+):
+    """W6-4: at most ``massive_reference_max_names`` Massive.com ticker-overview reads a night for the stale price
+    rows (0 = none). Compose lists the environment explicitly (no ``env_file``), so the nightly (cron) and the Admin
+    "Run daily now" pass (backend) read the dial only if both list it, each at the Settings default.
+    """
+    import re
+    from pathlib import Path
+
+    var = "ALPHADECK_MASSIVE_REFERENCE_MAX_NAMES"
+    monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert s.massive_reference_max_names == 5
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        found = re.findall(rf"^\s+{var}: \$\{{{var}:-([0-9]+)\}}", block, re.M)
+        assert found == [str(s.massive_reference_max_names)], f"{service}: {found}"
+    monkeypatch.setenv(var, "0")
+    assert Settings().massive_reference_max_names == 0

@@ -2529,6 +2529,24 @@ class AdminCronOut(BaseModel):
     alarms: list[str] = []
 
 
+class AdminMassiveRefOut(BaseModel):
+    """What Massive.com says of a stale price row's symbol (W6-4) — EVIDENCE for the steward, never a class: the
+    row sits in the list it sits in without it. ``symbol`` = the Massive.com symbol it is about; ``read_on`` = the
+    market day its ticker overview was read (``null`` = not read yet: at most a few a night, newest stale first);
+    ``listed`` = Massive.com lists the symbol (``false`` = "Ticker not found."; ``null`` = not read); ``active``,
+    ``type`` (Massive.com's code: ``CS``, ``ADRC``, ``WARRANT`` ...) and ``delisted_utc`` = the overview's;
+    ``traded_on`` = the pass's session when Massive.com's grouped bars show the symbol traded (volume > 0).
+    Massive.com's words, never paraphrased."""
+
+    symbol: str
+    read_on: date | None = None
+    listed: bool | None = None
+    active: bool | None = None
+    type: str | None = None
+    delisted_utc: date | None = None
+    traded_on: date | None = None
+
+
 class AdminStaleTapeOut(BaseModel):
     """One basket name whose monitored FEED has stopped: ``edge`` is the latest stored date for that feed
     (``null`` = nothing stored at all), ``thesis`` the thesis it was seen under, and ``kind`` WHICH feed —
@@ -2577,6 +2595,9 @@ class AdminStaleTapeOut(BaseModel):
     # on Massive.com, the check off or not run, or an artifact written before it.
     massive_traded: date | None = None
     massive_close: float | None = None
+    # W6-4 — what Massive.com says of an open price row's symbol (evidence, never a class); null = nothing known
+    # (not read yet, a closed or fund-shares row, or an artifact written before it)
+    massive_ref: AdminMassiveRefOut | None = None
 
 
 class AdminTapeOut(BaseModel):
@@ -2798,6 +2819,8 @@ class AdminRenamedRowOut(BaseModel):
     probed: bool = False
     price_symbol: str | None = None
     change: AdminPriceSymbolChangeOut | None = None
+    # W6-4 — what Massive.com says of the (old) symbol: listed, active, type, delisted date (evidence only)
+    massive_ref: AdminMassiveRefOut | None = None
 
 
 class AdminDeregistrationEventOut(BaseModel):
@@ -2846,6 +2869,8 @@ class AdminUnpriceableRowOut(BaseModel):
     W4-2 — ``deregistered``: when EDGAR lists no symbol for the name and the company filed a Form 15, that
     filing and the 8-K events before it (``AdminDeregistrationOut``); removing the name in the basket editor
     is then the recommended action. ``null`` otherwise.
+
+    W6-4 — ``massive_ref``: what Massive.com says of the symbol (``AdminMassiveRefOut``; evidence only).
     """
 
     security_id: UUID
@@ -2860,6 +2885,7 @@ class AdminUnpriceableRowOut(BaseModel):
     recommended: str | None = None
     probed: bool = False
     deregistered: AdminDeregistrationOut | None = None
+    massive_ref: AdminMassiveRefOut | None = None
 
 
 class AdminFilingRefOut(BaseModel):

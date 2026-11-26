@@ -72,6 +72,9 @@ services:
       # /v3/reference/splits falls back to the deprecated endpoint. The fallback equals the Settings default (pinned
       # by test).
       ALPHADECK_POLYGON_SPLITS_PATH: ${ALPHADECK_POLYGON_SPLITS_PATH:-/stocks/v1/splits}
+      # W6-4 — Massive.com ticker-overview reads a night for the stale price rows (0 = none); the SAME on the cron
+      # sidecar below. The fallback equals the Settings default (pinned by test).
+      ALPHADECK_MASSIVE_REFERENCE_MAX_NAMES: ${ALPHADECK_MASSIVE_REFERENCE_MAX_NAMES:-5}
       # W6-3a — the nightly Massive.com tape cross-check (backend/domain/settings.py), the SAME two on the cron
       # sidecar below (the nightly runs there; the Admin "Run daily now" pass runs here). Fallbacks equal to the
       # Settings defaults (pinned by test). ALPHADECK_TAPE_CROSSCHECK=false = off (so is no MASSIVE_API_KEY).
@@ -307,6 +310,8 @@ services:
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
       # W6-1 — the SAME split-reference path as the backend's (see there).
       ALPHADECK_POLYGON_SPLITS_PATH: ${ALPHADECK_POLYGON_SPLITS_PATH:-/stocks/v1/splits}
+      # W6-4 — the SAME stale-row reference cap as the backend's (see there).
+      ALPHADECK_MASSIVE_REFERENCE_MAX_NAMES: ${ALPHADECK_MASSIVE_REFERENCE_MAX_NAMES:-5}
       # W6-3a — the SAME two tape cross-check dials as the backend's (see there).
       ALPHADECK_TAPE_CROSSCHECK: ${ALPHADECK_TAPE_CROSSCHECK:-true}
       ALPHADECK_TAPE_CROSSCHECK_TOLERANCE: ${ALPHADECK_TAPE_CROSSCHECK_TOLERANCE:-0.02}
