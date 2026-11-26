@@ -569,6 +569,10 @@ class Settings(BaseSettings):
     # The adapters were measured against this legacy host. Verify live requests before repointing it here
     # or via ALPHADECK_POLYGON_BASE.
     polygon_base: str = "https://api.polygon.io"
+    # W6-1 — the split reference's path (``ingest/polygon_splits.py``): ``/stocks/v1/splits`` (one page a night, each
+    # row with Massive.com's label). ``/v3/reference/splits`` falls back to the deprecated endpoint while it lives
+    # (no label). ALPHADECK_POLYGON_SPLITS_PATH; compose passes it to the backend and the cron at this default.
+    polygon_splits_path: str = "/stocks/v1/splits"
     openfigi_url: str = "https://api.openfigi.com/v3/mapping"  # the fixed POST endpoint
     usaspending_api_base: str = "https://api.usaspending.gov/api/v2"
     usaspending_award_url_base: str = (

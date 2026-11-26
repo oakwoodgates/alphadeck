@@ -27,7 +27,7 @@ from domain.splits import (
 from repositories import split_repo
 from repositories.split_repo import SplitConflict
 from tests.domain.test_splits import sec
-from tests.split_fixtures import polygon_row
+from tests.split_fixtures import polygon_row, v1_row
 from tests.workspaces import new_workspace
 
 ASOF = date(2026, 10, 20)
@@ -408,3 +408,87 @@ def test_a_source_confirm_carries_no_citation(db):
     c = split_repo.confirm(db, v1.id, source="polygon", tenant_id=DEFAULT_TENANT_ID, today=ASOF)
     db.commit()
     assert (c.value_source, c.cited_url, c.tape_override) == ("polygon", None, None)
+
+
+# --- W6-1: Massive.com's label is EVIDENCE on a version (migration 0216), never its content -----------------------
+
+
+def _btoc_v1():
+    """BTOC decided on the v1 reader's row: the same values as ``_btoc``, plus the label ``reverse_split``."""
+    return decide(
+        v1_row("BTOC", "2026-10-15"),
+        [sec("0001213900-26-108468.txt", form="8-K", filed="2026-10-09")],
+        asof=ASOF,
+    )
+
+
+def _wnrs_v1():
+    return decide(
+        v1_row("WNRS", "2026-05-13"),
+        [sec("WNRS_1aa.htm", form="1-A/A", filed="2026-04-14", accession="0001493152-26-016607")],
+        asof=ASOF,
+    )
+
+
+def test_the_label_is_written_and_read_but_is_never_content(db):
+    sid = _security(db, "BTOC")
+    d = _btoc_v1()
+    assert d.polygon.adjustment_type == "reverse_split"
+    v = _append(db, sid, d)
+    assert v.polygon_adjustment_type == "reverse_split"
+    assert split_repo.decision_values(d)["polygon_adjustment_type"] == "reverse_split"
+    assert split_repo.EVIDENCE_COLUMNS == ("polygon_adjustment_type",)
+    assert "polygon_adjustment_type" not in split_repo.CONTENT_COLUMNS
+    # a label-only difference is the SAME content: the v3 reader's unlabelled decision equals the stored version
+    assert split_repo.content_of(split_repo.decision_values(_btoc())) == v.content()
+    assert split_repo.content_of(split_repo.decision_values(d)) == v.content()
+
+
+def test_confirm_reject_restore_revoke_and_cited_values_carry_the_label(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs_v1())
+    rj = split_repo.reject(db, v1.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    back = split_repo.restore(db, rj.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    c = split_repo.confirm(db, back.id, source="polygon", tenant_id=DEFAULT_TENANT_ID, today=ASOF)
+    db.commit()
+    r = split_repo.revoke(db, c.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    again = split_repo.restore(db, r.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    chain = [v1, rj, back, c, r, again]
+    assert [v.status for v in chain] == [
+        STATUS_NEEDS_REVIEW,
+        STATUS_REJECTED,
+        STATUS_NEEDS_REVIEW,
+        STATUS_CONFIRMED,
+        STATUS_REVOKED,
+        STATUS_CONFIRMED,
+    ]
+    assert {v.polygon_adjustment_type for v in chain} == {"reverse_split"}
+    assert _n(db) == 6
+    other = _append(db, _security(db, "WNRS2"), _wnrs_v1())
+    cited = _steward(db, other.id)
+    db.commit()
+    assert (cited.value_source, cited.polygon_adjustment_type) == ("steward", "reverse_split")
+
+
+def test_a_rerun_whose_only_difference_is_the_label_is_unchanged(db):
+    """The backfill re-versions EVERY backfill-authored split whose content changed, confirmed ones included
+    (``plan_against_stored``): a stored split with no label (the v3 reader's) and tonight's labelled decision plan
+    UNCHANGED — and the reverse (a labelled row, a v3 fallback night) too. Nothing is appended for a label.
+    """
+    from pipeline import backfill_splits as bf
+
+    for stored_d, tonight in ((_btoc(), _btoc_v1()), (_btoc_v1(), _btoc())):
+        labels = {stored_d.polygon.adjustment_type, tonight.polygon.adjustment_type}
+        assert labels == {None, "reverse_split"}  # the two differ in the label only
+        sid = _security(db, "BTOC")
+        v = _append(db, sid, stored_d)
+        assert v.status == STATUS_CONFIRMED and v.author == split_repo.AUTHOR_BACKFILL
+        m = bf.Member(DEFAULT_TENANT_ID, sid, "BTOC", None, None)
+        p = bf.PlannedSplit(member=m, decision=tonight, stored=None, action=bf.APPEND)
+        bf.plan_against_stored([p], {sid: [v]})
+        assert (p.action, p.changed, p.stored.id) == (bf.UNCHANGED, (), v.id)
+    assert _n(db) == 2

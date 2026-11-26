@@ -42,12 +42,14 @@ export function secSays(s: Split): string {
   return `The SEC ${form}${filed} says ${sec.ratio_label}${date}.`;
 }
 
-/** What Massive.com says, in a sentence. */
+/** What Massive.com says, in a sentence, with its own label when it states one (W6-1): "Massive.com lists 1061-for-1000
+ *  forward split, first trading 2025-10-30; it labels it a forward split." */
 export function polygonSays(s: Split): string {
   const p = s.polygon;
   if (!p) return "Massive.com lists no split here.";
   const what = p.ratio_label ?? `${p.split_from} → ${p.split_to}`;
-  return `Massive.com lists ${what}${p.execution_date ? `, first trading ${p.execution_date}` : ""}.`;
+  const label = p.adjustment_type ? `; it labels it a ${p.adjustment_type.replace(/_/g, " ")}` : "";
+  return `Massive.com lists ${what}${p.execution_date ? `, first trading ${p.execution_date}` : ""}${label}.`;
 }
 
 /** What Confirm does with one source's values. */
