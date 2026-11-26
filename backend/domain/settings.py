@@ -33,6 +33,7 @@ from __future__ import annotations
 import ipaddress
 from datetime import time
 from functools import lru_cache
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, field_validator
@@ -278,6 +279,13 @@ class Settings(BaseSettings):
     # every code, this many calendar days back from the read's asof (a negative one reads as 0). Read via the
     # env_prefix (ALPHADECK_INSIDER_AMENDMENT_REVIEW_HORIZON_DAYS); NOT injected by docker-compose.
     insider_amendment_review_horizon_days: int | None = None
+    # W3-1 (decision W3-b): a HELD insider row of a ONE-ROW filing whose own date fits nothing the filing writes is
+    # suggested at the filing's period of report (``domain.insider_holds.suggest``). False (the default) = that
+    # suggestion does not AGREE: the steward reads it and sends the date; true = one click may ratify it. Display
+    # and the steward's Accept only (the read and the placement rule never read it); the steward's queue reads it
+    # (``repositories.insider_hold_repo``). ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES; docker-compose.yml passes it to
+    # the backend with the same default (tests/domain/test_settings.py).
+    insider_hold_one_row_por_agrees: bool = False
     # T1 — the CLOSED-TAPE PROXIMITY window: a stopped price tape reads "closed — stopped trading" (quiet,
     # never pages) only when a SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) was filed within this many
     # CALENDAR days BEFORE / AFTER its last bar (and EDGAR lists no different ticker for the company —
@@ -290,6 +298,17 @@ class Settings(BaseSettings):
     # docker-compose. The defaults are pinned equal to tape_health's DEFAULT_CLOSED_* by a test.
     tape_closed_before_days: int = 30
     tape_closed_after_days: int = 45
+    # W4-1 (decision W4-a) — ADOPTING A LISTING OF ANOTHER CLASS for a never-priced name: the nightly probe
+    # fetches the other symbols EDGAR lists for an unpriceable member (pipeline/rename_probe.py) and marks
+    # each one's class by convention (an EDGAR name ending "/ADR"; the OTC fifth letter, Y = ADR, F = foreign
+    # ordinary). The measured shape is an ADR member whose EDGAR list also carries the company's ordinary
+    # line: pricing the ADR card on the ordinary share puts its cap off by the ADS ratio once a share count
+    # exists. "confirm" (the default) = the Admin Adopt accepts such a cross-class symbol only when the
+    # request carries the steward's explicit confirm (``confirm_class``); "refuse" = never (409, use Set
+    # price symbol after checking the price basis by hand). Read via the env_prefix
+    # (ALPHADECK_PRICE_FEED_CROSS_CLASS_ADOPT); NOT injected by docker-compose (tests/domain/test_settings.py
+    # pins the default and fails on a compose fallback that differs from it).
+    price_feed_cross_class_adopt: Literal["confirm", "refuse"] = "confirm"
     # F1 — the FUND-SHARES RECENCY threshold: the same rule for the OTHER per-name feed (an ETF sleeve's
     # shares-outstanding sample, which the flow read is built on), with its own number because the cadences
     # differ. MEASURED on dev 2026-09-13 from the stored samples: the primary source (Massive.com) states the
@@ -550,6 +569,33 @@ class Settings(BaseSettings):
     # The adapters were measured against this legacy host. Verify live requests before repointing it here
     # or via ALPHADECK_POLYGON_BASE.
     polygon_base: str = "https://api.polygon.io"
+    # W6-1 — the split reference's path (``ingest/polygon_splits.py``): ``/stocks/v1/splits`` (one page a night, each
+    # row with Massive.com's label). ``/v3/reference/splits`` falls back to the deprecated endpoint while it lives
+    # (no label). ALPHADECK_POLYGON_SPLITS_PATH; compose passes it to the backend and the cron at this default.
+    polygon_splits_path: str = "/stocks/v1/splits"
+    # W6-3a — THE TAPE CROSS-CHECK (``pipeline/tape_crosscheck.py``): one Massive.com grouped raw-bars read a night
+    # (``ingest/massive_bars.py``) compared with the stored closes — a monitor (no tape write, never paged).
+    # ``tape_crosscheck`` = False turns it off (so does no MASSIVE_API_KEY); ``tape_crosscheck_tolerance`` is the
+    # log-ratio past which a stored close DISAGREES with Massive.com's raw close (and by more than a cent). MEASURED
+    # 2026-11-25: 192 of 195 (name, session) pairs within 0.001%, the widest 0.098% (MARA: the official close vs
+    # the last trade), so 0.02 (2%) flags only a real difference. ALPHADECK_TAPE_CROSSCHECK /
+    # ALPHADECK_TAPE_CROSSCHECK_TOLERANCE, injected into the backend AND the cron by docker-compose at these
+    # defaults (pinned by test).
+    tape_crosscheck: bool = True
+    tape_crosscheck_tolerance: float = 0.02
+    # W6-3b — THE PRICE GAP FILL (``ingest/prices/gap_fill.py``, decision W6-b): a session the price vendor served NO
+    # close for is filled from Massive.com's raw bar (only where it traded; never over a vendor or a stored bar;
+    # never before the newest split in force's first session or on/after a pending split's). ``price_gap_fill``:
+    # ``"split"`` (default) = within ``price_gap_fill_split_sessions`` sessions of a split in force's first session,
+    # or any session while the vendor has served nothing since it (SNDK, SCNI); ``"all"`` = every traded gap (the
+    # OTC late closes too); ``"off"``. The nightly looks back the same number of sessions; tonight's session reads
+    # the grouped day (no request), an older one one range read per name, at most ``price_gap_fill_max_names`` a
+    # night (past it: deferred, counted). No MASSIVE_API_KEY = off. ALPHADECK_PRICE_GAP_FILL /
+    # ALPHADECK_PRICE_GAP_FILL_SPLIT_SESSIONS / ALPHADECK_PRICE_GAP_FILL_MAX_NAMES, injected into the backend AND
+    # the cron by docker-compose at these defaults (pinned by test).
+    price_gap_fill: Literal["off", "split", "all"] = "split"
+    price_gap_fill_split_sessions: int = 20
+    price_gap_fill_max_names: int = 10
     openfigi_url: str = "https://api.openfigi.com/v3/mapping"  # the fixed POST endpoint
     usaspending_api_base: str = "https://api.usaspending.gov/api/v2"
     usaspending_award_url_base: str = (

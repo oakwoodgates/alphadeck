@@ -856,8 +856,10 @@ class PromoteOut(ThesisDetail):
 
 class OnboardingNameOut(BaseModel):
     """X1 — one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;
-    ``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it — re-adding the
-    name resumes it). ``last_error`` is the latest leg failure (on a ``done`` row: a tail leg's note).
+    ``parked`` = waiting (queued or in progress) and ``in_live_basket`` false: no live basket holds it any more,
+    so the job leaves it — re-adding the name resumes it (the readout's ``counts.parked`` counts these rows; a
+    failed or done name is never parked). ``last_error`` is the latest leg failure (on a ``done`` row: a tail
+    leg's note).
     """
 
     security_id: UUID
@@ -869,6 +871,7 @@ class OnboardingNameOut(BaseModel):
     last_error: str | None = None
     source: str
     in_live_basket: bool
+    parked: bool
     enqueued_at: datetime
     last_attempt_at: datetime | None = None
     finished_at: datetime | None = None
@@ -2568,6 +2571,12 @@ class AdminStaleTapeOut(BaseModel):
     # artifact written before the keys.
     unpriceable: bool = False
     acknowledged: bool = False
+    # W6-3a — the Massive.com tape cross-check on that pass (``pipeline/tape_crosscheck.py``): set on an open price
+    # row whose symbol Massive.com shows TRADED on ``massive_traded`` (the pass's session) at ``massive_close`` (its
+    # raw close) — a vendor gap, not a rename: the symbol is right and the vendor has no close. ``null`` = no trade
+    # on Massive.com, the check off or not run, or an artifact written before it.
+    massive_traded: date | None = None
+    massive_close: float | None = None
 
 
 class AdminTapeOut(BaseModel):
@@ -2664,6 +2673,10 @@ class AdminProbeCandidateOut(BaseModel):
     close / ours over them, ``verified`` = at least 5 shared dates with the ratio within 1% (the same
     company's tape under its new symbol). ``bars`` / ``last_bar`` say what the vendor serves under it (whether
     adopting it would extend our tape); ``error`` = its one fetch failed (then nothing else is known).
+    For a NEVER-PRICED name (W4-1) there is no stored tape to splice against: ``verified`` is false, with no
+    overlap or ratio, and ``listing_class`` is the symbol's class mark by the OTC naming convention
+    (``adr`` = a five-letter symbol ending Y, ``ordinary`` = one ending F, a foreign ordinary share; ``null``
+    = unknown, and always ``null`` on a renamed name's candidates). A convention, never proof.
     """
 
     symbol: str
@@ -2673,6 +2686,7 @@ class AdminProbeCandidateOut(BaseModel):
     bars: int = 0
     last_bar: date | None = None
     error: str | None = None
+    listing_class: str | None = None
 
 
 class AdminFormerNameOut(BaseModel):
@@ -2786,12 +2800,52 @@ class AdminRenamedRowOut(BaseModel):
     change: AdminPriceSymbolChangeOut | None = None
 
 
+class AdminDeregistrationEventOut(BaseModel):
+    """One 8-K-family filing filed in the 45 days up to a Form 15 (W4-2): its form, FILING date and
+    accession, the evidence items it carries (1.03 / 2.01 / 3.03 / 5.01; ``[]`` for an 8-K15D5 carrying none)
+    and ``item_titles`` — SEC's own titles for them, in order (never a word read from the filing).
+    ``filing_url`` = the filing's EDGAR index."""
+
+    form: str
+    filed: date
+    accession: str
+    items: list[str] = []
+    item_titles: list[str] = []
+    filing_url: HttpUrlOut = None
+
+
+class AdminDeregistrationOut(BaseModel):
+    """A never-priced name's DEREGISTRATION evidence (W4-2): the company's newest Form 15 (15-12B / 15-12G /
+    15-15D or a 15F variant: its form, FILING date, accession and EDGAR index link) and the 8-K events filed
+    before it (``events``, newest first). Set only when EDGAR lists no symbol for the company. Evidence for
+    the steward's removal in the basket editor; nothing is removed or silenced by it."""
+
+    form: str
+    filed: date
+    accession: str
+    filing_url: HttpUrlOut = None
+    events: list[AdminDeregistrationEventOut] = []
+
+
 class AdminUnpriceableRowOut(BaseModel):
     """An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)
     — WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor
     fetch), acknowledge it ("keep it, unpriced"), or remove it from the basket in the editor (``theses``).
     ``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists
-    (``[]`` = none). ``change`` = a standing operator Set (waiting for the next pass, with its Undo).
+    (``[]`` = none). ``change`` = a standing operator Set or Adopt (waiting for the next pass, with its
+    Undo).
+
+    W4-1 — when EDGAR lists another symbol for the name, the nightly probe fetched each one once
+    (``probed``): ``candidates`` carry what the vendor serves and each one's ``listing_class``;
+    ``member_class`` is the member's own mark (``adr`` when EDGAR's entity name ends "/ADR" or the symbol
+    ends Y, ``ordinary`` when it ends F, ``null`` unknown). ``recommended`` = the first candidate with bars,
+    no fetch error, a fresh last bar and the member's own class (``null`` = none). Adopt takes a probed
+    candidate with bars; one whose class is known to differ from the member's (the foreign ordinary line
+    for an ADR member) needs the request's ``confirm_class``.
+
+    W4-2 — ``deregistered``: when EDGAR lists no symbol for the name and the company filed a Form 15, that
+    filing and the 8-K events before it (``AdminDeregistrationOut``); removing the name in the basket editor
+    is then the recommended action. ``null`` otherwise.
     """
 
     security_id: UUID
@@ -2801,6 +2855,11 @@ class AdminUnpriceableRowOut(BaseModel):
     vendor_error: str | None = None
     price_symbol: str | None = None
     change: AdminPriceSymbolChangeOut | None = None
+    member_class: str | None = None
+    candidates: list[AdminProbeCandidateOut] = []
+    recommended: str | None = None
+    probed: bool = False
+    deregistered: AdminDeregistrationOut | None = None
 
 
 class AdminFilingRefOut(BaseModel):
@@ -2924,9 +2983,14 @@ class AdminPriceRepairsOut(BaseModel):
 
 
 class AdminPriceSymbolIn(BaseModel):
-    """The operator's chosen vendor symbol (an Adopt of a probed candidate, or a typed Set)."""
+    """The operator's chosen vendor symbol (an Adopt of a probed candidate, or a typed Set).
+    ``confirm_class`` (Adopt on a never-priced name only) = the steward checked the price basis and adopts a
+    listing whose class mark differs from the member's (the foreign ordinary line for an ADR member);
+    absent or ``null`` reads as not confirmed (optional, so existing callers send ``{symbol}`` unchanged);
+    ignored by Set and by a renamed name's Adopt."""
 
     symbol: str = Field(min_length=1, max_length=24)
+    confirm_class: bool | None = None
 
 
 class AdminAcknowledgeIn(BaseModel):
@@ -3025,6 +3089,56 @@ class AdminArrivedCloseOut(BaseModel):
     otc: bool = False
 
 
+class AdminTapeCrosscheckRowOut(BaseModel):
+    """One company the Massive.com tape cross-check names (``pipeline/tape_crosscheck.py``). ``kind``: ``disagree``
+    (both have a bar for the session and they differ past the tolerance and by more than a cent; ``split_shaped`` =
+    the ratio sits near a listed split's factor, ``split`` names it), ``vendor_gap`` (Massive.com traded it, we have
+    no close), ``no_trade`` (we have a bar, Massive.com shows no trade: a placeholder on a halt, or a symbol it
+    writes differently) or ``unmapped`` (no symbol to look up). ``ours`` = our newest stored close, ``massive`` =
+    Massive.com's raw close on our tape's scale, ``ratio`` = ours / massive, ``symbol`` = the Massive.com symbol
+    read, ``otc`` = Massive.com's venue flag."""
+
+    security_id: UUID
+    ticker: str | None = None
+    kind: str
+    symbol: str | None = None
+    ours: float | None = None
+    massive: float | None = None
+    volume: float | None = None
+    ratio: float | None = None
+    split_shaped: bool = False
+    split: str | None = None
+    otc: bool = False
+
+
+class AdminTapeCrosscheckOut(BaseModel):
+    """The Massive.com TAPE CROSS-CHECK (W6-3a) on the same pass as the missing-close flag: one grouped raw-bars
+    read a night, compared with the stored closes — a monitor (no tape write, never paged, never the cron
+    verdict). ``status`` is the read's (``on``, ``off`` = no key or switched off, ``not_served`` = Massive.com had
+    not served the session yet, ``uncached``, ``failed``, ``not_run``) with its ``note``; ``error`` = the check
+    itself failed. ``line`` is the backend-authored quiet line; ``disagree_line`` names the disagreements;
+    ``stale_lines`` one line per open stale price row whose symbol traded on Massive.com that session ("a vendor
+    gap, not a rename"). The counts are per class; ``rows`` carry every named company with its ``kind``.
+    """
+
+    session: date | None = None
+    status: str
+    note: str | None = None
+    error: str | None = None
+    massive_status: str | None = None
+    tolerance: float | None = None
+    judged: int = 0
+    compared: int = 0
+    disagree: int = 0
+    vendor_gap: int = 0
+    no_trade: int = 0
+    unmapped: int = 0
+    line: str
+    disagree_line: str | None = None
+    stale_lines: list[str] = []
+    rows: list[AdminTapeCrosscheckRowOut] = []
+
+
 class AdminMissingClosesOut(BaseModel):
     """MISSING CLOSES (operator decision 2026-10-23) — did every live basket company get the session's close
     by the night's run? Read from the newest finished live run artifact that ran the check (a file read, no
@@ -3048,6 +3162,8 @@ class AdminMissingClosesOut(BaseModel):
     loud_lines: list[str] = []
     arrived: list[AdminArrivedCloseOut] = []
     error: str | None = None
+    # W6-3a — the same pass's Massive.com tape cross-check (null = an artifact written before it)
+    crosscheck: AdminTapeCrosscheckOut | None = None
 
 
 class AdminEditionsCutOut(BaseModel):

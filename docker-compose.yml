@@ -68,6 +68,21 @@ services:
       # FIRST (exact counts + the historical backfill CLI); without it, the free scrapers keep covering
       # the forward sample. Fail-open like the two above.
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+      # W6-1 — the split reference's path (the onboarding split history runs here, the nightly detector on the cron);
+      # /v3/reference/splits falls back to the deprecated endpoint. The fallback equals the Settings default (pinned
+      # by test).
+      ALPHADECK_POLYGON_SPLITS_PATH: ${ALPHADECK_POLYGON_SPLITS_PATH:-/stocks/v1/splits}
+      # W6-3a — the nightly Massive.com tape cross-check (backend/domain/settings.py), the SAME two on the cron
+      # sidecar below (the nightly runs there; the Admin "Run daily now" pass runs here). Fallbacks equal to the
+      # Settings defaults (pinned by test). ALPHADECK_TAPE_CROSSCHECK=false = off (so is no MASSIVE_API_KEY).
+      ALPHADECK_TAPE_CROSSCHECK: ${ALPHADECK_TAPE_CROSSCHECK:-true}
+      ALPHADECK_TAPE_CROSSCHECK_TOLERANCE: ${ALPHADECK_TAPE_CROSSCHECK_TOLERANCE:-0.02}
+      # W6-3b — the price gap fill (backend/domain/settings.py): a session the vendor served no close for, filled
+      # from Massive.com's raw bar; the SAME three on the cron sidecar below. Fallbacks equal to the Settings
+      # defaults (pinned by test). ALPHADECK_PRICE_GAP_FILL=off = off (so is no MASSIVE_API_KEY).
+      ALPHADECK_PRICE_GAP_FILL: ${ALPHADECK_PRICE_GAP_FILL:-split}
+      ALPHADECK_PRICE_GAP_FILL_SPLIT_SESSIONS: ${ALPHADECK_PRICE_GAP_FILL_SPLIT_SESSIONS:-20}
+      ALPHADECK_PRICE_GAP_FILL_MAX_NAMES: ${ALPHADECK_PRICE_GAP_FILL_MAX_NAMES:-10}
       # Optional discovery BACKSTOP caps, PER TIER, exposed for tuning: SIGNAL terms enumerate DEEP (a seed hit
       # places a name; unset -> 5000) and BROAD terms SHALLOW (collision-prone, corroboration only; unset ->
       # 1000). NOT recall limiters — only a pathological-keyword bound; speed comes from the parallel EFTS
@@ -202,6 +217,10 @@ services:
       ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR: ${ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR:-300}
       ALPHADECK_PASSWORD_CHECK_CONCURRENCY: ${ALPHADECK_PASSWORD_CHECK_CONCURRENCY:-4}
       ALPHADECK_PASSWORD_CHECK_WAIT_S: ${ALPHADECK_PASSWORD_CHECK_WAIT_S:-10}
+      # W3-1 (decision W3-b): a held insider row of a one-row filing is suggested at the filing's period of report;
+      # true lets one click ratify that suggestion (Admin > Held insider rows). Fallback `false` = the Settings
+      # default (pinned by test; NOT empty: an empty value can't parse as a bool).
+      ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES: ${ALPHADECK_INSIDER_HOLD_ONE_ROW_POR_AGREES:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -278,6 +297,15 @@ services:
       # The nightly fund-shares sample rides this ingest — the cron needs the SAME Massive.com key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+      # W6-1 — the SAME split-reference path as the backend's (see there).
+      ALPHADECK_POLYGON_SPLITS_PATH: ${ALPHADECK_POLYGON_SPLITS_PATH:-/stocks/v1/splits}
+      # W6-3a — the SAME two tape cross-check dials as the backend's (see there).
+      ALPHADECK_TAPE_CROSSCHECK: ${ALPHADECK_TAPE_CROSSCHECK:-true}
+      ALPHADECK_TAPE_CROSSCHECK_TOLERANCE: ${ALPHADECK_TAPE_CROSSCHECK_TOLERANCE:-0.02}
+      # W6-3b — the SAME three price gap fill dials as the backend's (see there).
+      ALPHADECK_PRICE_GAP_FILL: ${ALPHADECK_PRICE_GAP_FILL:-split}
+      ALPHADECK_PRICE_GAP_FILL_SPLIT_SESSIONS: ${ALPHADECK_PRICE_GAP_FILL_SPLIT_SESSIONS:-20}
+      ALPHADECK_PRICE_GAP_FILL_MAX_NAMES: ${ALPHADECK_PRICE_GAP_FILL_MAX_NAMES:-10}
       # The SAME one host variable the backend reads (see its block above) — the sidecar's shell fires
       # RUN_AT on this container's TZ while `pipeline.daily` derives the as-of and the guard's cutoff from
       # ALPHADECK_MARKET_TZ, so the two MUST come from one name or the night the shell fires for and the

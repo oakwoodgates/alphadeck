@@ -109,7 +109,15 @@ sits behind `ingest/prices/source.py`'s `PriceSource` ([DATA_SOURCES](DATA_SOURC
 2. **No-session days** (`settle.withhold_closed_days`): a bar dated a weekend or NYSE closure
    (`domain.trading_days.is_scheduled_day`) is never stored. Bars stored before this rule stay, and
    `signals.base.window_prices` skips closures on read.
-3. **Split normalization** (`split_normalize.py`): each vendor bar dated before a split in force is put on the
+3. **Vendor gaps** (`gap_fill.py`; the nightly and `pipeline.fill_price_gaps` only, never the Workbench pull): a
+   session the vendor served no close for joins the pull as Massive.com's raw bar when Massive.com traded it, it
+   is on or after the newest split in force's first session (the raw bar is already on the list's scale) and
+   before no pending split's, and it falls within `price_gap_fill_split_sessions` of that first session or the
+   vendor has served nothing since it. Why: Yahoo nulls sessions around some splits (SNDK, SCNI). A vendor or
+   stored bar is never replaced. Each fill's provenance is a `price_bar_fill` row (migration 0217), never split
+   evidence; a later vendor close re-versions it in step 5. Tonight's session reads the nightly's grouped day;
+   an older one is one range read, at most `price_gap_fill_max_names` a night, the rest deferred.
+4. **Split normalization** (`split_normalize.py`): each vendor bar dated before a split in force is put on the
    split list's scale before storing. A run of bars is rescaled only when the store's own boundary proves the
    step is the vendor's, never on a read alone, because a genuine vendor re-base of a raw store reads the same
    as a doubled split. A company's first night after a split puts its history on the new scale; that night the
@@ -117,7 +125,7 @@ sits behind `ingest/prices/source.py`'s `PriceSource` ([DATA_SOURCES](DATA_SOURC
    beside a late first post-split bar is still put back on the new scale. Counts ride
    `BarsResult.split_normalized`; a divide-back is named whenever it changes. Stored bars off the list's scale
    are repaired with `pipeline.repair_split_basis` (the `data-repair` skill).
-4. **Restatements** (`restatement.py`): bars in the pull's newest three sessions use the exact compare, so late
+5. **Restatements** (`restatement.py`): bars in the vendor pull's newest three sessions use the exact compare, so late
    volume lands. An older bar re-versions only when its close or volume moved past the module's tolerances. An
    older set whose every bar returns to a value the store already replaced is a revert and is held whole until
    a pull on a later market date agrees; a value the store never held applies at once, so a genuine re-base is
@@ -125,7 +133,7 @@ sits behind `ingest/prices/source.py`'s `PriceSource` ([DATA_SOURCES](DATA_SOURC
    flip out of the tape. The pending hold is an operational row in `price_restatement_hold` (migration 0047);
    `fact_price_eod` stays insert-only. A hold is never silent: `price_bars_held` on the artifact and one quiet
    line.
-5. **Append:** new and restated bars go in as new versions stamped now.
+6. **Append:** new and restated bars go in as new versions stamped now.
 
 The benchmark leg (SPY, IWM) stamps `recorded_at` from the database clock and compares exactly over the newest
 `benchmark_restate_window` settled sessions; older benchmark bars are never re-versioned by a pass. It feeds
@@ -207,6 +215,7 @@ it leads to stay append-only.
 | Onboarding panel and Retry: `GET /admin/onboarding`, `POST /admin/onboarding/{security_id}/retry` | Steward | `require_super_admin` on the router; `tests/app/test_auth_gate.py` |
 | `python -m pipeline.onboarding` (`--status`, `--enqueue-thesis`, `--retry-failed`) | Machine (the sidecar); the operator by hand | Shell access; refuses inside the nightly window |
 | `python -m pipeline.ingest_thesis`, `pipeline.ingest_fundamentals`, `pipeline.ingest_benchmarks` | The operator | Shell access |
+| `python -m pipeline.fill_price_gaps` (`--ticker`, `--since`, `--apply`) | The operator | Dry run by default; `--apply` takes the call-of-record lock and refuses inside the nightly window |
 
 ## Settings
 
@@ -218,6 +227,7 @@ it leads to stay append-only.
 | `ALPHADECK_PRICE_SETTLE_TIME`, `ALPHADECK_BENCHMARK_RESTATE_WINDOW` | `domain/settings.py` | No |
 | `ALPHADECK_INGEST_LOCK_WAIT_S` | `domain/settings.py` | No |
 | `ALPHADECK_ONBOARD_*` (fast lane, window, batch, daily cap, attempts, nightly window and cap) | `domain/settings.py` | No |
+| `ALPHADECK_PRICE_GAP_FILL` (`split`, `all`, `off`), `_SPLIT_SESSIONS` (20), `_MAX_NAMES` (10) | `domain/settings.py` | Yes (backend, cron) |
 
 ## Known limits
 

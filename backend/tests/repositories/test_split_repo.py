@@ -27,7 +27,7 @@ from domain.splits import (
 from repositories import split_repo
 from repositories.split_repo import SplitConflict
 from tests.domain.test_splits import sec
-from tests.split_fixtures import polygon_row
+from tests.split_fixtures import polygon_row, v1_row
 from tests.workspaces import new_workspace
 
 ASOF = date(2026, 10, 20)
@@ -285,3 +285,210 @@ def test_reject_moves_the_companys_change_stamp(db):
     db.commit()
     assert stamp_map(db)[sid] > before
     db.rollback()
+
+
+# --- D3: the steward's cited values (migration 0215, platform fixes W2-1) ---------------------------------------
+
+CITED = "https://example.test/wnrs/1-a-a"
+
+
+def _steward(db, version_id, **over):
+    kw = {
+        "ratio_from": Decimal(300),
+        "ratio_to": Decimal(2),
+        "first_session": date(2026, 5, 13),
+        "cited_url": CITED,
+        "note": "the offering circular's own words",
+        "tape_why": None,
+        "override_tape": False,
+        "tenant_id": DEFAULT_TENANT_ID,
+        "today": ASOF,
+    }
+    kw.update(over)
+    return split_repo.confirm_steward(db, version_id, **kw)
+
+
+def test_a_system_versions_content_is_unchanged_by_the_steward_columns(db):
+    """A system version carries NULL in both 0215 columns, and its content still equals the matcher's decision —
+    the compare a re-run makes to decide "unchanged" (``content_of(decision_values(d))``)."""
+    sid = _security(db, "BTOC")
+    for d in (_btoc(), _wnrs()):
+        v = _append(db, sid, d)
+        assert (v.cited_url, v.tape_override) == (None, None)
+        assert split_repo.content_of(split_repo.decision_values(d)) == v.content()
+    assert split_repo.CONTENT_COLUMNS[-2:] == ("cited_url", "tape_override")
+
+
+def test_confirm_steward_stores_the_cited_values_and_revoke_restore_is_exact(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    c = _steward(db, v1.id)
+    db.commit()
+    assert (c.status, c.confirmed_via, c.value_source, c.author, c.action) == (
+        STATUS_CONFIRMED,
+        VIA_OPERATOR,
+        split_repo.SOURCE_STEWARD,
+        "operator",
+        "confirm",
+    )
+    assert (c.ratio_from, c.ratio_to, c.price_factor, c.effective_date) == (
+        Decimal(300),
+        Decimal(2),
+        150,
+        date(2026, 5, 13),
+    )
+    assert (c.cited_url, c.tape_override, c.note) == (
+        CITED,
+        False,
+        "the offering circular's own words",
+    )
+    # the evidence the split carried rides on: Massive.com's row and the 1-A/A
+    assert (c.polygon_split_from, c.sec_accession) == (v1.polygon_split_from, v1.sec_accession)
+    assert split_repo.allowed_actions(c) == ["revoke"]
+    r = split_repo.revoke(db, c.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert (r.status, r.cited_url, r.value_source) == (STATUS_REVOKED, CITED, "steward")
+    back = split_repo.restore(db, r.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert back.content() == c.content()  # the citation and the override come back with it
+    assert _n(db) == 4
+
+
+def test_confirm_steward_needs_the_tape_or_an_override(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    why = "the tape steps x4.53 on 2026-05-13, not within x1.65 of the entered x150"
+    with pytest.raises(SplitConflict, match="the tape steps x4.53"):
+        _steward(db, v1.id, tape_why=why)
+    db.rollback()
+    assert _n(db) == 1
+    c = _steward(db, v1.id, tape_why=why, override_tape=True)
+    db.commit()
+    assert (c.status, c.tape_override) == (STATUS_CONFIRMED, True)
+
+
+def test_confirm_steward_refusals_write_nothing(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    btoc = _append(db, sid, _btoc())  # another LIVE split of the same security, on 2026-10-15
+    with pytest.raises(SplitConflict, match="already listed on 2026-10-15"):
+        _steward(db, v1.id, first_session=date(2026, 10, 15))
+    db.rollback()
+    with pytest.raises(SplitConflict, match="only a split that needs review"):
+        _steward(db, btoc.id)
+    db.rollback()
+    with pytest.raises(ValueError, match="not a split ratio"):
+        _steward(db, v1.id, ratio_to=Decimal(300))
+    db.rollback()
+    with pytest.raises(ValueError, match="cited URL"):
+        _steward(db, v1.id, cited_url="")
+    db.rollback()
+    with pytest.raises(LookupError):
+        _steward(db, uuid.uuid4())
+    db.rollback()
+    rj = split_repo.reject(db, v1.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    with pytest.raises(SplitConflict, match="changed since you looked"):
+        _steward(db, v1.id)
+    db.rollback()
+    assert rj.status == STATUS_REJECTED and _n(db) == 3
+
+
+def test_confirm_steward_ahead_of_the_first_session_is_announced(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    c = _steward(db, v1.id, today=date(2026, 5, 12), tape_why="no stored bar", override_tape=True)
+    db.commit()
+    assert (c.status, c.value_source, c.tape_override) == (STATUS_ANNOUNCED, "steward", True)
+
+
+def test_a_source_confirm_carries_no_citation(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    c = split_repo.confirm(db, v1.id, source="polygon", tenant_id=DEFAULT_TENANT_ID, today=ASOF)
+    db.commit()
+    assert (c.value_source, c.cited_url, c.tape_override) == ("polygon", None, None)
+
+
+# --- W6-1: Massive.com's label is EVIDENCE on a version (migration 0216), never its content -----------------------
+
+
+def _btoc_v1():
+    """BTOC decided on the v1 reader's row: the same values as ``_btoc``, plus the label ``reverse_split``."""
+    return decide(
+        v1_row("BTOC", "2026-10-15"),
+        [sec("0001213900-26-108468.txt", form="8-K", filed="2026-10-09")],
+        asof=ASOF,
+    )
+
+
+def _wnrs_v1():
+    return decide(
+        v1_row("WNRS", "2026-05-13"),
+        [sec("WNRS_1aa.htm", form="1-A/A", filed="2026-04-14", accession="0001493152-26-016607")],
+        asof=ASOF,
+    )
+
+
+def test_the_label_is_written_and_read_but_is_never_content(db):
+    sid = _security(db, "BTOC")
+    d = _btoc_v1()
+    assert d.polygon.adjustment_type == "reverse_split"
+    v = _append(db, sid, d)
+    assert v.polygon_adjustment_type == "reverse_split"
+    assert split_repo.decision_values(d)["polygon_adjustment_type"] == "reverse_split"
+    assert split_repo.EVIDENCE_COLUMNS == ("polygon_adjustment_type",)
+    assert "polygon_adjustment_type" not in split_repo.CONTENT_COLUMNS
+    # a label-only difference is the SAME content: the v3 reader's unlabelled decision equals the stored version
+    assert split_repo.content_of(split_repo.decision_values(_btoc())) == v.content()
+    assert split_repo.content_of(split_repo.decision_values(d)) == v.content()
+
+
+def test_confirm_reject_restore_revoke_and_cited_values_carry_the_label(db):
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs_v1())
+    rj = split_repo.reject(db, v1.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    back = split_repo.restore(db, rj.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    c = split_repo.confirm(db, back.id, source="polygon", tenant_id=DEFAULT_TENANT_ID, today=ASOF)
+    db.commit()
+    r = split_repo.revoke(db, c.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    again = split_repo.restore(db, r.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    chain = [v1, rj, back, c, r, again]
+    assert [v.status for v in chain] == [
+        STATUS_NEEDS_REVIEW,
+        STATUS_REJECTED,
+        STATUS_NEEDS_REVIEW,
+        STATUS_CONFIRMED,
+        STATUS_REVOKED,
+        STATUS_CONFIRMED,
+    ]
+    assert {v.polygon_adjustment_type for v in chain} == {"reverse_split"}
+    assert _n(db) == 6
+    other = _append(db, _security(db, "WNRS2"), _wnrs_v1())
+    cited = _steward(db, other.id)
+    db.commit()
+    assert (cited.value_source, cited.polygon_adjustment_type) == ("steward", "reverse_split")
+
+
+def test_a_rerun_whose_only_difference_is_the_label_is_unchanged(db):
+    """The backfill re-versions EVERY backfill-authored split whose content changed, confirmed ones included
+    (``plan_against_stored``): a stored split with no label (the v3 reader's) and tonight's labelled decision plan
+    UNCHANGED — and the reverse (a labelled row, a v3 fallback night) too. Nothing is appended for a label.
+    """
+    from pipeline import backfill_splits as bf
+
+    for stored_d, tonight in ((_btoc(), _btoc_v1()), (_btoc_v1(), _btoc())):
+        labels = {stored_d.polygon.adjustment_type, tonight.polygon.adjustment_type}
+        assert labels == {None, "reverse_split"}  # the two differ in the label only
+        sid = _security(db, "BTOC")
+        v = _append(db, sid, stored_d)
+        assert v.status == STATUS_CONFIRMED and v.author == split_repo.AUTHOR_BACKFILL
+        m = bf.Member(DEFAULT_TENANT_ID, sid, "BTOC", None, None)
+        p = bf.PlannedSplit(member=m, decision=tonight, stored=None, action=bf.APPEND)
+        bf.plan_against_stored([p], {sid: [v]})
+        assert (p.action, p.changed, p.stored.id) == (bf.UNCHANGED, (), v.id)
+    assert _n(db) == 2

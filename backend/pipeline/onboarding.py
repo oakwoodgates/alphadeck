@@ -308,6 +308,13 @@ def rows(
         return [_row(r) for r in cur.fetchall()]
 
 
+def is_parked(row: OnboardingRow) -> bool:
+    """PARKED = still waiting (queued or in progress) and held by no live basket. The one rule behind the
+    readout's ``parked`` count and its waiting list, and each API / MCP row's ``parked``. A failed name is loud
+    on its own and a done one is finished: neither is parked."""
+    return row.status in (STATUS_QUEUED, STATUS_IN_PROGRESS) and not row.in_live_basket
+
+
 def work_list(conn: psycopg.Connection) -> list[OnboardingRow]:
     """The job's work list: the queued / in-progress rows whose security a LIVE basket holds — a resumed
     ``in_progress`` row first, then the oldest enqueue. A row no live basket holds is PARKED (left queued, never
@@ -1405,7 +1412,7 @@ def readout(
     counts = {k: 0 for k in (*PENDING_STATUSES, STATUS_DONE, "parked")}
     for r in all_rows:
         counts[r.status] = counts.get(r.status, 0) + 1
-        if r.status in (STATUS_QUEUED, STATUS_IN_PROGRESS) and not r.in_live_basket:
+        if is_parked(r):
             counts["parked"] += 1
     order = {STATUS_FAILED: 0, STATUS_IN_PROGRESS: 1, STATUS_QUEUED: 2}
     pending = sorted(
@@ -1429,7 +1436,7 @@ def readout(
     stalled = None
     paused = None
     waiting = [
-        r for r in pending if r.status in (STATUS_QUEUED, STATUS_IN_PROGRESS) and r.in_live_basket
+        r for r in pending if r.status in (STATUS_QUEUED, STATUS_IN_PROGRESS) and not is_parked(r)
     ]
     if waiting and s.onboard_daily_max_names > 0:
         midnight = datetime.combine(now.astimezone(tz).date(), time(0, 0), tzinfo=tz)

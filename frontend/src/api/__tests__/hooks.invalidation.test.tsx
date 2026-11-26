@@ -14,6 +14,7 @@ import {
   useAdoptPriceSymbol,
   useApplyAmendment,
   useConfirmSplit,
+  useConfirmSplitValues,
   usePutCatalysts,
   usePutExclusions,
   usePutKillCriteria,
@@ -199,6 +200,20 @@ describe("a write that can change a dashboard marks dashboard queries stale", ()
     ["a price-feed repair (useAdoptPriceSymbol)", () => useAdoptPriceSymbol(), { securityId: "sec-1", symbol: "TSTX" }],
     ["an insider-amendment decision (useApplyAmendment)", () => useApplyAmendment(), { securityId: "sec-1", accession: "a-1" }],
     ["a split action (useConfirmSplit)", () => useConfirmSplit(), { versionId: "v1", source: "sec" }],
+    [
+      "a split confirmed with cited values (useConfirmSplitValues)",
+      () => useConfirmSplitValues(),
+      {
+        versionId: "v1",
+        body: {
+          ratio_from: "10",
+          ratio_to: "3",
+          first_session: "2026-09-24",
+          cited_url: "https://example.com/notice",
+          override_tape: false,
+        },
+      },
+    ],
     // the resolve can flip an existing company's master row to a fund
     ["useResolveEtf", () => useResolveEtf(), "TSTX"],
   ];

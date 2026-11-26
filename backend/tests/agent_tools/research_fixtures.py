@@ -236,6 +236,7 @@ def _onboard_name(i: int, status: str, **kw: Any) -> dict[str, Any]:
         "last_error": kw.pop("last_error", None),
         "source": "promote",
         "in_live_basket": True,
+        "parked": False,
         "enqueued_at": f"{ASOF}T21:00:00Z",
         "last_attempt_at": kw.pop("last_attempt_at", f"{ASOF}T21:30:00Z"),
         "finished_at": kw.pop("finished_at", None),

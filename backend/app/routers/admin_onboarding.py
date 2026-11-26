@@ -38,6 +38,7 @@ def _name_out(r: onboarding.OnboardingRow) -> OnboardingNameOut:
         last_error=r.last_error,
         source=r.source,
         in_live_basket=r.in_live_basket,
+        parked=onboarding.is_parked(r),
         enqueued_at=r.enqueued_at,
         last_attempt_at=r.last_attempt_at,
         finished_at=r.finished_at,

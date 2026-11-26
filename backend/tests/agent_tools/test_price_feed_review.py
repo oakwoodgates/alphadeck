@@ -67,6 +67,33 @@ def test_the_price_feed_review_call_plan_costs_at_most_three_calls_and_24000_cha
     assert unprobed["probed"] is False and unprobed["recommended"] is None
     assert verified["edgar_tickers"] == ["TK01N"] and verified["former_names"]
     assert repairs["unpriceable"][0]["vendor_error"].startswith("404 Not Found")
+    # W4-1: a never-priced ADR member's probed candidate rides with both class marks, nothing recommended
+    adr = repairs["unpriceable"][0]
+    assert adr["member_class"] == "adr" and adr["probed"] is True and adr["recommended"] is None
+    (cand,) = adr["candidates"]
+    assert (cand["symbol"], cand["listing_class"], cand["bars"]) == ("TKTAF", "ordinary", 240)
+    assert cand["last_bar"] == "2026-11-05"
+    # W4-2: a deregistered never-priced name rides with its Form 15 and the 8-K event's SEC item titles; the
+    # EDGAR links and item codes stay on the Admin panel (the reply budget)
+    dereg = repairs["unpriceable"][1]["deregistered"]
+    assert dereg == {
+        "form": "15-12G",
+        "filed": "2026-10-20",
+        "accession": "0000000021-26-000052",
+        "events": [
+            {
+                "form": "8-K",
+                "filed": "2026-10-14",
+                "accession": "0000000021-26-000051",
+                "item_titles": [
+                    "Completion of Acquisition or Disposition of Assets",
+                    "Material Modification to Rights of Security Holders",
+                    "Changes in Control of Registrant",
+                ],
+            }
+        ],
+    }
+    assert counts["deregistered"] == 1
     ok_row, ambiguous = repairs["successor"]
     assert ok_row["recommended"] == ok_row["candidates"][0]["cik"]
     assert ok_row["candidates"][0]["identity_read"] is True and ok_row["stored_cik"]
@@ -97,8 +124,13 @@ def test_the_prompt_suggests_only_the_probe_verified_symbol_and_the_recommended_
         "remove it in the basket editor",
         "Adopt CIK",
         "identity_read",
+        "member_class",
+        "listing_class",
+        "the classes differ",
         "Admin > Price feed repairs",
         "propose none",
+        "a deregistered name: suggest removing it in the basket editor, quoting the form, date and item "
+        "titles",
     ):
         assert needle in text, needle
 

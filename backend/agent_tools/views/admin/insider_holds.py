@@ -8,9 +8,10 @@ cursor to read on; a bucket section pages that bucket's brief rows in the API's 
 that ticker's rows in full, every bucket, with each row's history of decisions.
 
 Every value is copied from the API's JSON: the view never sorts, derives a date or decides whether a suggested date
-is right (``suggested_date`` and ``agrees`` are the API's own arithmetic on the filing's fields, and the dates "as
-filed" are the filing's text verbatim: evidence, never a correction). A decision's ``decided_by`` is the steward's
-user id and display name, never an email (the API's own rule).
+is right (``suggested_date``, ``agrees``, ``suggestion_basis``, ``suggestion_words`` and the filing's window
+``window_from`` / ``window_to`` are the API's own reading of the filing's fields, ``copies`` its other securities'
+holds of the same row, and the dates "as filed" are the filing's text verbatim: evidence, never a correction). A
+decision's ``decided_by`` is the steward's user id and display name, never an email (the API's own rule).
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ SECTIONS = tuple((b, None) for b in BUCKETS) + (("one", "t"),)
 T_RULE = "t narrows section=one only."
 
 OWED_WHY_BRIEF = 200
+SUGGESTION_WORDS_BRIEF = 200
 WHY_BRIEF = 200
 DECISION_REASON_BRIEF = 200
 FULL_CUT = 600
@@ -55,6 +57,10 @@ BRIEF_KEYS = (
     "market_date",
     "suggested_date",
     "agrees",
+    "suggestion_basis",
+    "window_from",
+    "window_to",
+    "copies",
     "filing_url",
 )
 DECISION_KEYS = ("id", "action", "ratified_date", "recorded_at", "decided_by")
@@ -71,6 +77,7 @@ def _decision(d: dict[str, Any] | None, cut: int) -> dict[str, Any] | None:
 
 def _brief(h: dict[str, Any], bucket: str) -> dict[str, Any]:
     out = pick(h, BRIEF_KEYS)
+    put_cut(out, "suggestion_words", h.get("suggestion_words"), SUGGESTION_WORDS_BRIEF)
     if bucket == "owed":
         put_cut(out, "owed_why", h.get("owed_why"), OWED_WHY_BRIEF)
     elif bucket == "filer_corrected":
@@ -84,8 +91,13 @@ def _brief(h: dict[str, Any], bucket: str) -> dict[str, Any]:
 
 def _full(h: dict[str, Any]) -> dict[str, Any]:
     """The whole row: every field the API carries, the long strings cut, the history capped (its total beside it)."""
-    out = {k: v for k, v in h.items() if k not in ("owed_why", "why", "decision", "history")}
+    out = {
+        k: v
+        for k, v in h.items()
+        if k not in ("owed_why", "why", "suggestion_words", "decision", "history")
+    }
     put_cut(out, "owed_why", h.get("owed_why"), FULL_CUT)
+    put_cut(out, "suggestion_words", h.get("suggestion_words"), FULL_CUT)
     put_cut(out, "why", h.get("why"), FULL_CUT)
     out["decision"] = _decision(h.get("decision"), DECISION_REASON_FULL)
     history = h.get("history") or []

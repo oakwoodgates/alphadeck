@@ -77,6 +77,7 @@ from domain.trading_days import is_first_session_of_week
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.filing_index import SKIP_REASONS as FILING_INDEX_SKIP_REASONS
 from ingest.edgar.form25 import delisted_class_is_other
+from ingest.prices.gap_fill import GapSource, default_gap_source
 from notify import (
     DigestThesis,
     HealthEvent,
@@ -114,6 +115,7 @@ from pipeline.ingest_thesis import (
     ingest_thesis,
     print_acceptance_line,
     print_closed_day_line,
+    print_fill_line,
     print_held_lines,
     print_split_lines,
     print_withheld_line,
@@ -138,7 +140,7 @@ from pipeline.price_feed import (
     expected_miss_reasons,
     mark_acknowledged,
 )
-from pipeline.rename_probe import RenameProbe, run_auto_adopt, run_rename_probe
+from pipeline.rename_probe import RenameProbe, describe_unpriced, run_auto_adopt, run_rename_probe
 from pipeline.rename_probe import describe as describe_rename
 from pipeline.run_lock import (
     EXIT_ALREADY_RUNNING,
@@ -160,6 +162,13 @@ from pipeline.split_jumps import JumpScan, run_jump_scan
 from pipeline.split_jumps import report_lines as jump_report_lines
 from pipeline.successor_cik import SuccessorScan, previous_successor_keys, run_successor_scan
 from pipeline.successor_cik import report_lines as successor_report_lines
+from pipeline.tape_crosscheck import (
+    GroupedFetch,
+    TapeCrossCheck,
+    fetch_grouped,
+    run_tape_crosscheck,
+)
+from pipeline.tape_crosscheck import report_lines as tape_crosscheck_report_lines
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
 from repositories import calls_repo, price_feed_repo, thesis_repo, user_meta_repo
 from securities import master
@@ -599,6 +608,7 @@ def run_daily(
     catch_up: bool = False,
     known_skips: Collection[str] | None = None,
     split_detector: SplitDetector | None = None,
+    gap_source: GapSource | None = None,
 ) -> list[ThesisRunResult]:
     """Run the daily pass over every thesis. ``asof`` defaults to today, ``known_at`` to now (a live read).
     Returns one ``ThesisRunResult`` per thesis. Never raises for a single thesis — failures are captured.
@@ -724,6 +734,8 @@ def run_daily(
                 **({"onboarding": onboarding_windows} if onboarding_windows else {}),
                 # S4 — the pass's split detector (each company checked once, before its price leg)
                 **({"split_detector": split_detector} if split_detector is not None else {}),
+                # W6-3b — the pass's price gap fill (Massive.com's raw bar for a close the vendor lacks)
+                **({"gap_source": gap_source} if gap_source is not None else {}),
             )
         except Exception as e:  # noqa: BLE001 — one thesis's ingest never aborts the cron
             conn.rollback()
@@ -1177,6 +1189,10 @@ class DailyPassOutcome:
     # session after their price leg, the older sessions' closes still missing (loud), and the late ones that
     # arrived — computed ONCE in the pass, so the artifact, the printed report and the Admin poll agree
     missing_closes: MissingCloses = field(default_factory=MissingCloses)
+    # W6-3a — THE TAPE CROSS-CHECK (``pipeline/tape_crosscheck.py``): tonight's stored closes against Massive.com's
+    # raw grouped day (disagreements, closes Massive.com traded that we lack, stale rows that traded tonight) —
+    # computed ONCE in the pass, so the artifact, the printed report and the Admin poll agree. Never paged.
+    tape_crosscheck: TapeCrossCheck = field(default_factory=TapeCrossCheck)
     # V2 W3c — the platform-extraction step's block (``pipeline/nightly_extraction.py``): the LAST thing in the pass,
     # added to the FINISHED artifact afterwards (``cron_run_log.amend_run_block``). Not a ``payload_kwargs`` field:
     # it does not exist yet when the artifact is written. None = the step did not report (a direct caller).
@@ -1216,7 +1232,21 @@ class DailyPassOutcome:
             "edgar_coverage": self.edgar_coverage,
             "split_detect": self.split_detect,
             "missing_closes": self.missing_closes,
+            "tape_crosscheck": self.tape_crosscheck,
         }
+
+
+def build_gap_source(grouped: GroupedFetch | None, *, allow_live: bool) -> GapSource | None:
+    """W6-3b — the pass's price gap fill context (``gap_fill.default_gap_source``) over tonight's grouped day, or
+    ``None`` (off, no key, or a fault reading the settings: printed, never raised — the pass fills nothing).
+    """
+    try:
+        return default_gap_source(
+            tonight=grouped.day if grouped is not None else None, allow_live=allow_live
+        )
+    except Exception as e:  # noqa: BLE001 — a fill that cannot start never costs the pass
+        print(f"WARNING: price gap fill off for this pass: {type(e).__name__}: {e}")
+        return None
 
 
 def run_daily_pass(
@@ -1516,6 +1546,15 @@ def _run_daily_pass_locked(
     split_detector = timed("split_detect_start")(SplitDetector.start)(
         asof=asof, allow_live=allow_live
     )
+    # W6-3a — THE TAPE CROSS-CHECK's ONE Massive.com read (`pipeline/tape_crosscheck.py`): tonight's grouped raw
+    # bars, fetched once here, beside the split reference, so a later price-leg fill can share the day. Fail-open:
+    # off (no MASSIVE_API_KEY / ALPHADECK_TAPE_CROSSCHECK=false), not served yet (HTTP 403 before Massive.com's end
+    # of day), uncached on a --no-live pass or failed is a status on the outcome. Judged after the loop.
+    grouped = timed("tape_crosscheck_fetch")(fetch_grouped)(asof=asof, allow_live=allow_live)
+    # W6-3b — THE PRICE GAP FILL's context (`ingest/prices/gap_fill.py`), built once: tonight's session reads the
+    # grouped day above (no request), an older one costs one range read per name, capped per night. Fail-open:
+    # off (`price_gap_fill = "off"`, no MASSIVE_API_KEY) or a fault building it is no fill, never a failed pass.
+    gap_source = timed("price_gap_fill_start")(build_gap_source)(grouped, allow_live=allow_live)
     conn = _pass_connect()
     try:
         results = run_daily(
@@ -1527,6 +1566,7 @@ def _run_daily_pass_locked(
             catch_up=catch_up,
             known_skips=known_keys(prior_skips),
             split_detector=split_detector,
+            **({"gap_source": gap_source} if gap_source is not None else {}),
         )
     finally:
         conn.close()
@@ -1643,6 +1683,21 @@ def _run_daily_pass_locked(
         payloads=list_run_logs,
         clock=perf_counter,
     )
+    # W6-3a — THE TAPE CROSS-CHECK (`pipeline/tape_crosscheck.py`): the companies the missing-close check judged,
+    # their newest stored close for tonight against Massive.com's raw bar (disagree / Massive.com traded what we
+    # lack / no Massive.com trade), and each open stale price row whose symbol traded tonight (a vendor gap, not a
+    # rename). A MONITOR: no tape write, never a call input, never paged. AFTER `run_daily` (it reads tonight's
+    # stored closes) and BEFORE the artifact; its own read-only connection; fail-open (a fault rides `error`).
+    tape_crosscheck = timed("tape_crosscheck")(run_tape_crosscheck)(
+        results=results,
+        asof=asof,
+        allow_live=allow_live,
+        grouped=grouped,
+        tenant_id=DATA_TENANT_ID,  # the price tape and the split list are DATA (domain.scopes)
+        connect=_pass_connect,
+        clock=perf_counter,
+        tolerance=settings.tape_crosscheck_tolerance,
+    )
     # S5 — THE SPLIT-NIGHT HOLD's ESCALATION (`pipeline/split_jumps.py`): a split-shaped jump the hold has
     # released (three sessions on) that no source ever listed goes to the operator — one quiet report line,
     # never a page (#7). The hold itself is on tonight's cards. Its own read-only connection; fail-open.
@@ -1657,13 +1712,16 @@ def _run_daily_pass_locked(
     # against our stored tape (>= 5 shared dates, median close ratio within 1% = verified). A pending
     # RECOMMENDATION only — it writes nothing; the operator's Adopt on the Admin page applies it. Fail-open
     # for the pass (a fault rides `rename_probe.error`, printed loud and shown on Admin). Nothing to probe
-    # (the common night) opens no connection and makes no request.
+    # (the common night) opens no connection and makes no request. W4-1 — the same probe also fetches the
+    # OTHER symbols EDGAR lists for a never-priced (unpriceable, unacknowledged) name, marks each one's
+    # listing class, and recommends only a same-class candidate whose tape is fresh by `tape_stale_days`.
     rename_probe = timed("rename_probe")(run_rename_probe)(
         results=results,
         asof=asof,
         allow_live=allow_live,
         connect=_pass_connect,
         clock=perf_counter,
+        stale_days=tape_stale_days,
     )
     # THE AUTO-ADOPT (the company-list refresh's hand-off, 2026-10-24): a renamed name the refresh PINNED to its
     # old ticker (`system:rename-pin`) whose probe splice-verifies SEC's NEW ticker under the strict rule
@@ -1784,6 +1842,7 @@ def _run_daily_pass_locked(
         split_detect=split_detector.result,
         jumps=jumps,
         missing_closes=missing_closes,
+        tape_crosscheck=tape_crosscheck,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -2111,6 +2170,7 @@ def _report(
     # noise (#7). Quiet by casing: the STALE headers are UPPERCASE (loud), the closed header is lowercase.
     stale = {f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale}
     recs = probe.by_security() if probe is not None else {}
+    unpriced_recs = probe.unpriced_by_security() if probe is not None else {}
     for kind in FEED_KINDS.values():
         rows = [s for s in stale.values() if feed_kind(s.kind).key == kind.key and not s.quiet]
         if not rows:
@@ -2132,6 +2192,17 @@ def _report(
                 if s.unpriceable
                 else ""
             )
+            # W4-1 — and the never-priced probe's verdict on the OTHER symbols EDGAR lists for it (a
+            # cross-class one named with both class marks, never offered as the Adopt)
+            if s.unpriceable and s.security_id in unpriced_recs:
+                unpriceable += f" · {describe_unpriced(unpriced_recs[s.security_id])}"
+            # W4-2 — EDGAR lists no symbol and the company filed a Form 15: the form, its date and the 8-K
+            # events before it with SEC's item titles, and the recommended action (the steward's click)
+            if s.deregistered is not None:
+                unpriceable += (
+                    f" · DEREGISTERED — {s.deregistered.describe()}; recommended: remove it from the "
+                    "basket (basket editor)"
+                )
             print(
                 f"  {s.label}: last {kind.edge_noun} {s.edge.isoformat() if s.edge else 'never'}"
                 f"{renamed}{unpriceable}"
@@ -2228,6 +2299,9 @@ def _report(
     # S2 — the split list's reads (one quiet totals line; a line per divide-back that CHANGED since the last
     # live pass, and per first night), deduped
     print_split_lines((x for r in results for x in r.ingested), previous=split_reads_prev)
+    # W6-3b — the sessions Massive.com's raw bar filled where the vendor served no close (ONE quiet line, deduped
+    # across theses; a failed Massive.com read one line per name)
+    print_fill_line(x for r in results for x in r.ingested)
     # the acceptance clock — the new Form 4 / 4/A filings whose listed SEC time was set aside (ONE quiet line)
     print_acceptance_line(x for r in results for x in r.ingested)
     if skipped:
@@ -2453,6 +2527,10 @@ def main(argv: list[str] | None = None) -> None:
     # MISSING CLOSES — the night's quiet count line (+ the arrivals), LOUD only for an older session's close
     # still missing after a later session's pass, and a failed check loud
     for line in missing_close_report_lines(outcome.missing_closes):
+        print(line)
+    # W6-3a — the Massive.com cross-check: one quiet line, the disagreements named, one line per stale row that
+    # traded tonight (a vendor gap, not a rename); a failed check loud. Never paged.
+    for line in tape_crosscheck_report_lines(outcome.tape_crosscheck):
         print(line)
     # X5 — ONE timings line: the total, the three slowest legs, the slowest thesis, the peak RSS
     timings_line = pass_timings.summary_line(outcome.timings)
