@@ -35,6 +35,14 @@ def _pager():
     return pages, SimpleNamespace(notify_health=pages.append)
 
 
+# How long to wait for a state ANOTHER PROCESS has to bring about: the spawned child importing, connecting and
+# taking the lock; Postgres ending a dead client's session. A wait on a condition costs nothing once it holds,
+# so these are generous (a spawn on a loaded ``pytest -n 4`` runner has taken seconds); the worst case of both
+# plus the stub's timeout stays under the suite's 120 s hang guard, which would kill the whole worker.
+_STARTUP_WAIT_S = 40.0
+_RELEASE_WAIT_S = 30.0
+
+
 def _until(predicate, within_s: float) -> bool:
     """Poll ``predicate`` for up to ``within_s`` — for a state another PROCESS changes (the child taking
     the lock; Postgres ending a dead client's session), which this one can only observe."""
@@ -46,10 +54,47 @@ def _until(predicate, within_s: float) -> bool:
     return predicate()
 
 
+def _lock_released() -> bool:
+    """Is the call-of-record lock free again — waited for, since Postgres frees a dead client's session lock
+    when it notices the socket close, not at the instant the process ends. Only called once no child is left
+    to take the lock, so the probe can never make a pass refuse."""
+    return _until(lambda: probe_pass_lock() is None, within_s=_RELEASE_WAIT_S)
+
+
+class _TimeoutFromTheLockHeld:
+    """``run_bounded``'s clock, HELD AT ZERO until ``start()`` — so the run timeout counts from the moment
+    the test has seen the pass running, not from the launch of the child.
+
+    ``run_bounded`` counts its timeout from launch (the sidecar's ``timeout`` does too), and the launch is a
+    ``spawn``: a fresh interpreter that has to import the pass body and connect to Postgres before it holds
+    the lock. A fixed timeout therefore raced that startup (a few hundred ms on a quiet host, seconds on a
+    loaded runner): stopped while still starting, the pass was never seen holding the lock and the test
+    failed. Held at zero the timeout cannot fire early; ``start()`` lets it run at the real speed.
+    """
+
+    def __init__(self) -> None:
+        self._t0: float | None = None
+
+    def __call__(self) -> float:
+        t0 = self._t0
+        return 0.0 if t0 is None else monotonic() - t0
+
+    def start(self) -> None:
+        if self._t0 is None:
+            self._t0 = monotonic()
+
+
 def _stopped_run(stub, tmp_path, *, timeout_s: float, grace_s: float):
     """Run ``stub`` bounded, in a thread, and return (the error it ended with, whether the child was seen
-    HOLDING the lock while it ran, the pages sent)."""
+    HOLDING the lock while it ran, the pages sent, seconds from the timeout starting to the job's end).
+
+    The child is waited for, not raced: the stub takes the lock and THEN writes its start artifact, so the
+    artifact is the proof the lock is held — no probe may take the lock before then (a probe that holds it
+    at the instant the child tries makes the child REFUSE, ``PassAlreadyRunning``, instead of hang). Once it
+    is there, the probe sees the lock held, and only then does the run timeout start counting."""
     pages, notifier = _pager()
+    clock = _TimeoutFromTheLockHeld()
+    held = False
     with ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(
             run_bounded,
@@ -59,10 +104,20 @@ def _stopped_run(stub, tmp_path, *, timeout_s: float, grace_s: float):
             grace_s=grace_s,
             runs_dir=tmp_path,
             notifier=notifier,
+            clock=clock,
         )
-        held = _until(lambda: probe_pass_lock() is not None, within_s=timeout_s)
+        try:
+            started = _until(
+                lambda: bool(cron_run_log.list_run_logs(base_dir=tmp_path)),
+                within_s=_STARTUP_WAIT_S,
+            )
+            held = started and probe_pass_lock() is not None
+        finally:
+            clock.start()  # whatever happened above, never leave the job waiting on a stopped clock
+        t_start = monotonic()
         err = fut.exception(timeout=timeout_s + grace_s + 60)
-    return err, held, pages
+        ran_s = monotonic() - t_start
+    return err, held, pages, ran_s
 
 
 def test_a_pass_past_the_timeout_is_STOPPED_its_lock_RELEASED_its_artifact_CRASHED_and_it_PAGES(
@@ -72,15 +127,16 @@ def test_a_pass_past_the_timeout_is_STOPPED_its_lock_RELEASED_its_artifact_CRASH
     way, the lock it held is free again (Postgres ended its session with the process), its start artifact
     reads ``crashed`` with the reason, ONE crash page goes out, and the job's error says what happened.
     """
-    t0 = monotonic()
-    err, held, pages = _stopped_run(stubs.hang_holding_the_lock, tmp_path, timeout_s=12, grace_s=5)
+    err, held, pages, ran_s = _stopped_run(
+        stubs.hang_holding_the_lock, tmp_path, timeout_s=12, grace_s=5
+    )
 
-    assert held  # the child really held the call-of-record lock while it ran
-    assert isinstance(err, PassTimedOut)
+    assert held, "the child never held the call-of-record lock"  # ...while it ran
+    assert isinstance(err, PassTimedOut), repr(err)
     assert "ran past the run timeout (12 s) and was stopped" in str(err)
     assert "its run artifact is marked crashed and the run lock was released" in str(err)
-    assert monotonic() - t0 < 12 + 5 + 30  # bounded: never the stub's hour-long sleep
-    assert _until(lambda: probe_pass_lock() is None, within_s=15)  # the lock was released
+    assert ran_s < 12 + 5 + 30  # bounded: never the stub's hour-long sleep
+    assert _lock_released()  # the lock was released
     (doc,) = cron_run_log.list_run_logs(base_dir=tmp_path)
     assert doc["status"] == "crashed" and doc["run_kind"] == "manual"
     assert doc["error"].startswith("PassTimedOut: the pass ran past the run timeout (12 s)")
@@ -109,9 +165,10 @@ def test_a_pass_stopped_BEFORE_it_started_says_so_and_marks_nothing(tmp_path):
 @pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM can be ignored only on POSIX")
 def test_a_pass_that_IGNORES_SIGTERM_is_KILLED_after_the_grace(db, tmp_path):
     """``timeout -k``'s second signal: a process the SIGTERM does not stop is SIGKILLed after the grace."""
-    err, held, _ = _stopped_run(stubs.hang_ignoring_sigterm, tmp_path, timeout_s=12, grace_s=2)
-    assert held and isinstance(err, PassTimedOut)
-    assert _until(lambda: probe_pass_lock() is None, within_s=15)
+    err, held, _, _ = _stopped_run(stubs.hang_ignoring_sigterm, tmp_path, timeout_s=12, grace_s=2)
+    assert held, "the child never held the call-of-record lock"
+    assert isinstance(err, PassTimedOut), repr(err)
+    assert _lock_released()
     (doc,) = cron_run_log.list_run_logs(base_dir=tmp_path)
     assert doc["status"] == "crashed"
 
@@ -129,7 +186,7 @@ def test_a_pass_process_that_DIES_is_marked_crashed_pages_and_frees_the_lock(db,
             runs_dir=tmp_path,
             notifier=notifier,
         )
-    assert _until(lambda: probe_pass_lock() is None, within_s=15)
+    assert _lock_released()
     (doc,) = cron_run_log.list_run_logs(base_dir=tmp_path)
     assert doc["status"] == "crashed" and doc["error"].startswith("PassDied:")
     assert len(pages) == 1
