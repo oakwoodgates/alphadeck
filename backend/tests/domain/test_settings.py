@@ -429,6 +429,64 @@ def test_compose_injects_the_tape_crosscheck_dials_into_BOTH_services_at_the_set
             assert got == want, f"{service}: {var} fallback {found[0]} != {default}"
 
 
+# W6-3b — the price gap fill's three dials
+_PRICE_GAP_FILL_DIALS = {
+    "ALPHADECK_PRICE_GAP_FILL": "price_gap_fill",
+    "ALPHADECK_PRICE_GAP_FILL_SPLIT_SESSIONS": "price_gap_fill_split_sessions",
+    "ALPHADECK_PRICE_GAP_FILL_MAX_NAMES": "price_gap_fill_max_names",
+}
+
+
+def test_the_price_gap_fill_dials_have_the_planned_defaults(monkeypatch):
+    import pydantic
+
+    for var in _PRICE_GAP_FILL_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert (s.price_gap_fill, s.price_gap_fill_split_sessions, s.price_gap_fill_max_names) == (
+        "split",
+        20,
+        10,
+    )
+    monkeypatch.setenv("ALPHADECK_PRICE_GAP_FILL", "off")  # the off switch
+    monkeypatch.setenv("ALPHADECK_PRICE_GAP_FILL_SPLIT_SESSIONS", "30")
+    monkeypatch.setenv("ALPHADECK_PRICE_GAP_FILL_MAX_NAMES", "3")
+    s = Settings()
+    assert (s.price_gap_fill, s.price_gap_fill_split_sessions, s.price_gap_fill_max_names) == (
+        "off",
+        30,
+        3,
+    )
+    monkeypatch.setenv(
+        "ALPHADECK_PRICE_GAP_FILL", "everything"
+    )  # a word outside the three: refused
+    with pytest.raises(pydantic.ValidationError):
+        Settings()
+
+
+def test_compose_injects_the_price_gap_fill_dials_into_BOTH_services_at_the_settings_defaults(
+    monkeypatch,
+):
+    """The fill's off switch (``ALPHADECK_PRICE_GAP_FILL=off``) must reach the nightly (cron) and the Admin "Run
+    daily now" pass (backend): each dial listed once per service, with a fallback equal to the Settings default.
+    """
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for var in _PRICE_GAP_FILL_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        for var, field in _PRICE_GAP_FILL_DIALS.items():
+            found = re.findall(rf"{var}: \$\{{{var}:-([a-z0-9]+)\}}", block)
+            assert len(found) == 1, f"{service}: {var} must be injected once, found {len(found)}"
+            assert found[0] == str(getattr(s, field)), f"{service}: {var} fallback {found[0]}"
+
+
 # --- the late-read rule (D5): the 3 env-toggled vars, monkeypatched AFTER import ---
 
 

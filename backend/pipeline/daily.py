@@ -77,6 +77,7 @@ from domain.trading_days import is_first_session_of_week
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.filing_index import SKIP_REASONS as FILING_INDEX_SKIP_REASONS
 from ingest.edgar.form25 import delisted_class_is_other
+from ingest.prices.gap_fill import GapSource, default_gap_source
 from notify import (
     DigestThesis,
     HealthEvent,
@@ -114,6 +115,7 @@ from pipeline.ingest_thesis import (
     ingest_thesis,
     print_acceptance_line,
     print_closed_day_line,
+    print_fill_line,
     print_held_lines,
     print_split_lines,
     print_withheld_line,
@@ -160,7 +162,12 @@ from pipeline.split_jumps import JumpScan, run_jump_scan
 from pipeline.split_jumps import report_lines as jump_report_lines
 from pipeline.successor_cik import SuccessorScan, previous_successor_keys, run_successor_scan
 from pipeline.successor_cik import report_lines as successor_report_lines
-from pipeline.tape_crosscheck import TapeCrossCheck, fetch_grouped, run_tape_crosscheck
+from pipeline.tape_crosscheck import (
+    GroupedFetch,
+    TapeCrossCheck,
+    fetch_grouped,
+    run_tape_crosscheck,
+)
 from pipeline.tape_crosscheck import report_lines as tape_crosscheck_report_lines
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
 from repositories import calls_repo, price_feed_repo, thesis_repo, user_meta_repo
@@ -601,6 +608,7 @@ def run_daily(
     catch_up: bool = False,
     known_skips: Collection[str] | None = None,
     split_detector: SplitDetector | None = None,
+    gap_source: GapSource | None = None,
 ) -> list[ThesisRunResult]:
     """Run the daily pass over every thesis. ``asof`` defaults to today, ``known_at`` to now (a live read).
     Returns one ``ThesisRunResult`` per thesis. Never raises for a single thesis — failures are captured.
@@ -726,6 +734,8 @@ def run_daily(
                 **({"onboarding": onboarding_windows} if onboarding_windows else {}),
                 # S4 — the pass's split detector (each company checked once, before its price leg)
                 **({"split_detector": split_detector} if split_detector is not None else {}),
+                # W6-3b — the pass's price gap fill (Massive.com's raw bar for a close the vendor lacks)
+                **({"gap_source": gap_source} if gap_source is not None else {}),
             )
         except Exception as e:  # noqa: BLE001 — one thesis's ingest never aborts the cron
             conn.rollback()
@@ -1226,6 +1236,19 @@ class DailyPassOutcome:
         }
 
 
+def build_gap_source(grouped: GroupedFetch | None, *, allow_live: bool) -> GapSource | None:
+    """W6-3b — the pass's price gap fill context (``gap_fill.default_gap_source``) over tonight's grouped day, or
+    ``None`` (off, no key, or a fault reading the settings: printed, never raised — the pass fills nothing).
+    """
+    try:
+        return default_gap_source(
+            tonight=grouped.day if grouped is not None else None, allow_live=allow_live
+        )
+    except Exception as e:  # noqa: BLE001 — a fill that cannot start never costs the pass
+        print(f"WARNING: price gap fill off for this pass: {type(e).__name__}: {e}")
+        return None
+
+
 def run_daily_pass(
     *,
     asof: date | None = None,
@@ -1528,6 +1551,10 @@ def _run_daily_pass_locked(
     # off (no MASSIVE_API_KEY / ALPHADECK_TAPE_CROSSCHECK=false), not served yet (HTTP 403 before Massive.com's end
     # of day), uncached on a --no-live pass or failed is a status on the outcome. Judged after the loop.
     grouped = timed("tape_crosscheck_fetch")(fetch_grouped)(asof=asof, allow_live=allow_live)
+    # W6-3b — THE PRICE GAP FILL's context (`ingest/prices/gap_fill.py`), built once: tonight's session reads the
+    # grouped day above (no request), an older one costs one range read per name, capped per night. Fail-open:
+    # off (`price_gap_fill = "off"`, no MASSIVE_API_KEY) or a fault building it is no fill, never a failed pass.
+    gap_source = timed("price_gap_fill_start")(build_gap_source)(grouped, allow_live=allow_live)
     conn = _pass_connect()
     try:
         results = run_daily(
@@ -1539,6 +1566,7 @@ def _run_daily_pass_locked(
             catch_up=catch_up,
             known_skips=known_keys(prior_skips),
             split_detector=split_detector,
+            **({"gap_source": gap_source} if gap_source is not None else {}),
         )
     finally:
         conn.close()
@@ -2271,6 +2299,9 @@ def _report(
     # S2 — the split list's reads (one quiet totals line; a line per divide-back that CHANGED since the last
     # live pass, and per first night), deduped
     print_split_lines((x for r in results for x in r.ingested), previous=split_reads_prev)
+    # W6-3b — the sessions Massive.com's raw bar filled where the vendor served no close (ONE quiet line, deduped
+    # across theses; a failed Massive.com read one line per name)
+    print_fill_line(x for r in results for x in r.ingested)
     # the acceptance clock — the new Form 4 / 4/A filings whose listed SEC time was set aside (ONE quiet line)
     print_acceptance_line(x for r in results for x in r.ingested)
     if skipped:

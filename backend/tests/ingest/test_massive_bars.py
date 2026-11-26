@@ -214,3 +214,96 @@ def test_no_key_is_the_off_switch(monkeypatch):
 
     monkeypatch.setattr(mb, "get_settings", lambda: _S())
     assert mb.default_bar_source() is None
+
+
+# --- W6-3b: the per-ticker range (the price leg's fill reads an older session here) ----------------------------
+
+RANGE = Path(__file__).resolve().parents[1] / "fixtures" / "massive" / "gap_fill"
+
+
+def _range_text(tk: str) -> str:
+    return (RANGE / f"range_{tk}_2026-11-02_2026-11-25.json").read_text(encoding="utf-8")
+
+
+def test_a_range_parses_each_session_from_its_t_in_market_time():
+    """SNDK's real raw range 11-02..11-25 (``t`` = the session's midnight ET): 18 sessions, exact decimals, the
+    8-for-1 visible as traded (11-19 755.16, 11-20 79.24); GNS's has no bar 11-10..11-19 (no trade).
+    """
+    sndk = mb.parse_range(_range_text("SNDK"))
+    assert len(sndk) == 18 and min(sndk) == date(2026, 11, 2) and max(sndk) == NOV25
+    assert (sndk[date(2026, 11, 19)].close, sndk[date(2026, 11, 20)].close) == (
+        Decimal("755.16"),
+        Decimal("79.24"),
+    )
+    assert sndk[date(2026, 11, 20)].volume == Decimal("127860864.911014")
+    gns = mb.parse_range(_range_text("GNS"))
+    assert sorted(gns) == [
+        date(2026, 11, 2),
+        date(2026, 11, 3),
+        date(2026, 11, 4),
+        date(2026, 11, 5),
+        date(2026, 11, 6),
+        date(2026, 11, 9),
+        date(2026, 11, 20),
+        date(2026, 11, 23),
+        date(2026, 11, 24),
+        date(2026, 11, 25),
+    ]
+    with pytest.raises(ValueError):
+        mb.parse_range("[]")
+
+
+def test_the_range_url_is_key_stripped_and_raw():
+    assert mb.range_url("SNDK", date(2026, 11, 20), date(2026, 11, 24)) == (
+        f"{get_settings().polygon_base}/v2/aggs/ticker/SNDK/range/1/day/2026-11-20/2026-11-24"
+        "?adjusted=false&sort=asc&limit=5000"
+    )
+
+
+def test_a_live_range_is_cached_per_symbol_span_and_day_and_re_read_the_next_day(tmp_path):
+    asked: list[str] = []
+
+    def fetch(url):
+        asked.append(url)
+        return _range_text("SNDK")
+
+    day = {"today": NOV25}
+    grouped = tmp_path / "grouped"
+    src = mb.MassiveBarSource(
+        api_key="sekrit-key-123", cache_dir=grouped, fetch=fetch, today=lambda: day["today"]
+    )
+    a, b = date(2026, 11, 20), date(2026, 11, 24)
+    got = src.bars("SNDK", a, b, allow_live=True)
+    assert got[a].close == Decimal("79.24") and len(asked) == 1 and "apiKey" not in asked[0]
+    (cached,) = list((grouped / "range").iterdir())
+    assert cached.name == "2026-11-25__SNDK__2026-11-20__2026-11-24.json"
+    assert "sekrit-key-123" not in cached.read_text(encoding="utf-8")
+    assert src.bars("SNDK", a, b, allow_live=False) == got and len(asked) == 1  # a cache hit
+    with pytest.raises(CacheMiss):
+        src.bars("SNDK", a, date(2026, 11, 23), allow_live=False)  # another span: never read
+    day["today"] = date(2026, 11, 27)
+    src.bars(
+        "SNDK", a, b, allow_live=True
+    )  # the next market day reads again (a DELAYED day may move)
+    assert len(asked) == 2
+    day["today"] = date(
+        2026, 12, 26
+    )  # 31 days after the first read: its file is pruned on this write
+    src.bars("SNDK", a, b, allow_live=True)
+    assert sorted(p.name[:10] for p in (grouped / "range").iterdir()) == [
+        "2026-11-27",
+        "2026-12-26",
+    ]
+    with pytest.raises(ValueError):
+        src.bars(
+            "../SNDK", a, b, allow_live=True
+        )  # never a request, never a path outside the cache
+
+
+def test_a_range_error_names_the_range_read_and_never_the_key(tmp_path, monkeypatch):
+    _answers(monkeypatch, (401, {"status": "ERROR"}))
+    src = _source(tmp_path, api_key="sekrit-key-123", limiter=_Limiter(), sleep=lambda s: None)
+    with pytest.raises(mb.MassiveBarsError) as err:
+        src.bars("SNDK", date(2026, 11, 20), date(2026, 11, 24), allow_live=True)
+    assert "Massive.com range bars: HTTP 401" in str(err.value)
+    assert "sekrit-key-123" not in str(err.value) and not (tmp_path / "range").exists()
