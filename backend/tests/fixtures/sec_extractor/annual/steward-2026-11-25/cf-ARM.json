@@ -1,0 +1,936 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-26 through the steward review's sec.py), cut to the cash, operating-cash-flow and short-term-investment concepts the runway path reads, rows ending on or after 2024-01-01; every row is verbatim.",
+ "cik": "0001973239",
+ "entityName": "ARM HOLDINGS PLC /UK",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "label": "Cash and Cash Equivalents, at Carrying Value",
+    "description": "Amount of currency on hand as well as demand deposits with banks or financial institutions. Includes other kinds of accounts that have the general characteristics of demand deposits. Also includes short-term, highly liquid investments that are both readily convertible to known amounts of cash and so near their maturity that they present insignificant risk of changes in value because of changes in interest rates. Excludes cash and cash equivalents within disposal group and discontinued operation.",
+    "units": {
+     "USD": [
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-24-000012",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2024-05-29"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-24-000019",
+       "fy": 2024,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2024-08-01"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-24-000040",
+       "fy": 2025,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2024-11-07"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-25-000007",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2025-02-05"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-25-000016",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-05-28",
+       "frame": "CY2024Q1I"
+      },
+      {
+       "end": "2024-06-30",
+       "val": 1465000000,
+       "accn": "0001973239-24-000019",
+       "fy": 2024,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2024-08-01",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2024-09-30",
+       "val": 1498000000,
+       "accn": "0001973239-24-000040",
+       "fy": 2025,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2024-11-07",
+       "frame": "CY2024Q3I"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 2036000000,
+       "accn": "0001973239-25-000007",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2025-02-05",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-25-000016",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-05-28"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26",
+       "frame": "CY2025Q1I"
+      },
+      {
+       "end": "2025-06-30",
+       "val": 1956000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30",
+       "frame": "CY2025Q2I"
+      },
+      {
+       "end": "2025-09-30",
+       "val": 2518000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05",
+       "frame": "CY2025Q3I"
+      },
+      {
+       "end": "2025-12-31",
+       "val": 2807000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04",
+       "frame": "CY2025Q4I"
+      },
+      {
+       "end": "2026-03-31",
+       "val": 2751000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26"
+      },
+      {
+       "end": "2026-03-31",
+       "val": 2751000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29"
+      },
+      {
+       "end": "2026-03-31",
+       "val": 2751000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04",
+       "frame": "CY2026Q1I"
+      },
+      {
+       "end": "2026-06-30",
+       "val": 3058000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29",
+       "frame": "CY2026Q2I"
+      },
+      {
+       "end": "2026-09-30",
+       "val": 3251000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04",
+       "frame": "CY2026Q3I"
+      }
+     ]
+    }
+   },
+   "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": {
+    "label": "Cash, Cash Equivalents, Restricted Cash and Restricted Cash Equivalents",
+    "description": "Amount of cash and cash equivalents, and cash and cash equivalents restricted to withdrawal or usage. Excludes amount for disposal group and discontinued operations. Cash includes, but is not limited to, currency on hand, demand deposits with banks or financial institutions, and other accounts with general characteristics of demand deposits. Cash equivalents include, but are not limited to, short-term, highly liquid investments that are both readily convertible to known amounts of cash and so near their maturity that they present insignificant risk of changes in value because of changes in interest rates.",
+    "units": {
+     "USD": [
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-24-000012",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2024-05-29"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-24-000019",
+       "fy": 2024,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2024-08-01"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-24-000040",
+       "fy": 2025,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2024-11-07"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-25-000007",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2025-02-05"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-25-000016",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-05-28"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1923000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26",
+       "frame": "CY2024Q1I"
+      },
+      {
+       "end": "2024-06-30",
+       "val": 1465000000,
+       "accn": "0001973239-24-000019",
+       "fy": 2024,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2024-08-01"
+      },
+      {
+       "end": "2024-06-30",
+       "val": 1465000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2024-09-30",
+       "val": 1498000000,
+       "accn": "0001973239-24-000040",
+       "fy": 2025,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2024-11-07"
+      },
+      {
+       "end": "2024-09-30",
+       "val": 1498000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05",
+       "frame": "CY2024Q3I"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 2036000000,
+       "accn": "0001973239-25-000007",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2025-02-05"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 2036000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-25-000016",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-05-28"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 2085000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04",
+       "frame": "CY2025Q1I"
+      },
+      {
+       "end": "2025-06-30",
+       "val": 1956000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30"
+      },
+      {
+       "end": "2025-06-30",
+       "val": 1956000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29",
+       "frame": "CY2025Q2I"
+      },
+      {
+       "end": "2025-09-30",
+       "val": 2518000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05"
+      },
+      {
+       "end": "2025-09-30",
+       "val": 2518000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04",
+       "frame": "CY2025Q3I"
+      },
+      {
+       "end": "2025-12-31",
+       "val": 2807000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04",
+       "frame": "CY2025Q4I"
+      },
+      {
+       "end": "2026-03-31",
+       "val": 2751000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26"
+      },
+      {
+       "end": "2026-03-31",
+       "val": 2751000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29"
+      },
+      {
+       "end": "2026-03-31",
+       "val": 2751000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04",
+       "frame": "CY2026Q1I"
+      },
+      {
+       "end": "2026-06-30",
+       "val": 3058000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29",
+       "frame": "CY2026Q2I"
+      },
+      {
+       "end": "2026-09-30",
+       "val": 3251000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04",
+       "frame": "CY2026Q3I"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "label": "Net Cash Provided by (Used in) Operating Activities",
+    "description": "Amount of cash inflow (outflow) from operating activities, including discontinued operations. Operating activity cash flows include transactions, adjustments, and changes in value not defined as investing or financing activities.",
+    "units": {
+     "USD": [
+      {
+       "start": "2023-04-01",
+       "end": "2024-03-31",
+       "val": 1090000000,
+       "accn": "0001973239-24-000012",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2024-05-29"
+      },
+      {
+       "start": "2023-04-01",
+       "end": "2024-03-31",
+       "val": 1090000000,
+       "accn": "0001973239-25-000016",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-05-28"
+      },
+      {
+       "start": "2023-04-01",
+       "end": "2024-03-31",
+       "val": 1090000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26",
+       "frame": "CY2023"
+      },
+      {
+       "start": "2024-04-01",
+       "end": "2024-06-30",
+       "val": -290000000,
+       "accn": "0001973239-24-000019",
+       "fy": 2024,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2024-08-01"
+      },
+      {
+       "start": "2024-04-01",
+       "end": "2024-06-30",
+       "val": -290000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30",
+       "frame": "CY2024Q2"
+      },
+      {
+       "start": "2024-04-01",
+       "end": "2024-09-30",
+       "val": -284000000,
+       "accn": "0001973239-24-000040",
+       "fy": 2025,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2024-11-07"
+      },
+      {
+       "start": "2024-04-01",
+       "end": "2024-09-30",
+       "val": -284000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05"
+      },
+      {
+       "start": "2024-04-01",
+       "end": "2024-12-31",
+       "val": 139000000,
+       "accn": "0001973239-25-000007",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2025-02-05"
+      },
+      {
+       "start": "2024-04-01",
+       "end": "2024-12-31",
+       "val": 139000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04"
+      },
+      {
+       "start": "2024-04-01",
+       "end": "2025-03-31",
+       "val": 397000000,
+       "accn": "0001973239-25-000016",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-05-28"
+      },
+      {
+       "start": "2024-04-01",
+       "end": "2025-03-31",
+       "val": 397000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2025-04-01",
+       "end": "2025-06-30",
+       "val": 332000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30"
+      },
+      {
+       "start": "2025-04-01",
+       "end": "2025-06-30",
+       "val": 332000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29",
+       "frame": "CY2025Q2"
+      },
+      {
+       "start": "2025-04-01",
+       "end": "2025-09-30",
+       "val": 899000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05"
+      },
+      {
+       "start": "2025-04-01",
+       "end": "2025-09-30",
+       "val": 899000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04"
+      },
+      {
+       "start": "2025-04-01",
+       "end": "2025-12-31",
+       "val": 1264000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04"
+      },
+      {
+       "start": "2025-04-01",
+       "end": "2026-03-31",
+       "val": 1524000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26",
+       "frame": "CY2025"
+      },
+      {
+       "start": "2026-04-01",
+       "end": "2026-06-30",
+       "val": 902000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29",
+       "frame": "CY2026Q2"
+      },
+      {
+       "start": "2026-04-01",
+       "end": "2026-09-30",
+       "val": 1109000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04"
+      }
+     ]
+    }
+   },
+   "ShortTermInvestments": {
+    "label": "Short-term Investments",
+    "description": "Amount of investments including trading securities, available-for-sale securities, held-to-maturity securities, and short-term investments classified as other and current.",
+    "units": {
+     "USD": [
+      {
+       "end": "2024-03-31",
+       "val": 1000000000,
+       "accn": "0001973239-24-000012",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2024-05-29"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1000000000,
+       "accn": "0001973239-24-000019",
+       "fy": 2024,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2024-08-01"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1000000000,
+       "accn": "0001973239-24-000040",
+       "fy": 2025,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2024-11-07"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1000000000,
+       "accn": "0001973239-25-000007",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2025-02-05"
+      },
+      {
+       "end": "2024-03-31",
+       "val": 1000000000,
+       "accn": "0001973239-25-000016",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-05-28",
+       "frame": "CY2024Q1I"
+      },
+      {
+       "end": "2024-06-30",
+       "val": 1000000000,
+       "accn": "0001973239-24-000019",
+       "fy": 2024,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2024-08-01",
+       "frame": "CY2024Q2I"
+      },
+      {
+       "end": "2024-09-30",
+       "val": 860000000,
+       "accn": "0001973239-24-000040",
+       "fy": 2025,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2024-11-07",
+       "frame": "CY2024Q3I"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 635000000,
+       "accn": "0001973239-25-000007",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2025-02-05",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 740000000,
+       "accn": "0001973239-25-000016",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-05-28"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 740000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 740000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 740000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04"
+      },
+      {
+       "end": "2025-03-31",
+       "val": 740000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26",
+       "frame": "CY2025Q1I"
+      },
+      {
+       "end": "2025-06-30",
+       "val": 950000000,
+       "accn": "0001973239-25-000024",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2025-07-30",
+       "frame": "CY2025Q2I"
+      },
+      {
+       "end": "2025-09-30",
+       "val": 740000000,
+       "accn": "0001973239-25-000043",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2025-11-05",
+       "frame": "CY2025Q3I"
+      },
+      {
+       "end": "2025-12-31",
+       "val": 735000000,
+       "accn": "0001973239-26-000006",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "6-K",
+       "filed": "2026-02-04",
+       "frame": "CY2025Q4I"
+      },
+      {
+       "end": "2026-03-31",
+       "val": 850000000,
+       "accn": "0001973239-26-000097",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-26"
+      },
+      {
+       "end": "2026-03-31",
+       "val": 850000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29"
+      },
+      {
+       "end": "2026-03-31",
+       "val": 850000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04",
+       "frame": "CY2026Q1I"
+      },
+      {
+       "end": "2026-06-30",
+       "val": 830000000,
+       "accn": "0001973239-26-000114",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "6-K",
+       "filed": "2026-07-29",
+       "frame": "CY2026Q2I"
+      },
+      {
+       "end": "2026-09-30",
+       "val": 370000000,
+       "accn": "0001973239-26-000142",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2026-11-04",
+       "frame": "CY2026Q3I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,273 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-26 through the steward review's sec.py), cut to the cash, operating-cash-flow and short-term-investment concepts the runway path reads, rows ending on or after 2024-01-01; every row is verbatim.",
+ "cik": "0001997403",
+ "entityName": "ZenaTech, Inc.",
+ "facts": {
+  "ifrs-full": {
+   "Cash": {
+    "label": null,
+    "description": null,
+    "units": {
+     "CAD": [
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-25-000389",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-04-25"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000195",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-02-20"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000218",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-02-27",
+       "frame": "CY2024Q4I"
+      }
+     ]
+    }
+   }
+  },
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "label": "Cash and Cash Equivalents, at Carrying Value",
+    "description": "Amount of currency on hand as well as demand deposits with banks or financial institutions. Includes other kinds of accounts that have the general characteristics of demand deposits. Also includes short-term, highly liquid investments that are both readily convertible to known amounts of cash and so near their maturity that they present insignificant risk of changes in value because of changes in interest rates. Excludes cash and cash equivalents within disposal group and discontinued operation.",
+    "units": {
+     "CAD": [
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-25-000389",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-04-25"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000195",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-02-20"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000218",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-02-27"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000322",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-04-29"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000330",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-05-04",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-12-31",
+       "val": 5980366,
+       "accn": "0001376474-26-000322",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-04-29"
+      },
+      {
+       "end": "2025-12-31",
+       "val": 5980366,
+       "accn": "0001376474-26-000330",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-05-04",
+       "frame": "CY2025Q4I"
+      }
+     ]
+    }
+   },
+   "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": {
+    "label": "Cash, Cash Equivalents, Restricted Cash and Restricted Cash Equivalents",
+    "description": "Amount of cash and cash equivalents, and cash and cash equivalents restricted to withdrawal or usage. Excludes amount for disposal group and discontinued operations. Cash includes, but is not limited to, currency on hand, demand deposits with banks or financial institutions, and other accounts with general characteristics of demand deposits. Cash equivalents include, but are not limited to, short-term, highly liquid investments that are both readily convertible to known amounts of cash and so near their maturity that they present insignificant risk of changes in value because of changes in interest rates.",
+    "units": {
+     "CAD": [
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-25-000389",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-04-25"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000195",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-02-20"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000218",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-02-27"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000322",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-04-29"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 3754075,
+       "accn": "0001376474-26-000330",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-05-04",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-12-31",
+       "val": 5980366,
+       "accn": "0001376474-26-000322",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-04-29"
+      },
+      {
+       "end": "2025-12-31",
+       "val": 5980366,
+       "accn": "0001376474-26-000330",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-05-04",
+       "frame": "CY2025Q4I"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "label": "Net Cash Provided by (Used in) Operating Activities",
+    "description": "Amount of cash inflow (outflow) from operating activities, including discontinued operations. Operating activity cash flows include transactions, adjustments, and changes in value not defined as investing or financing activities.",
+    "units": {
+     "CAD": [
+      {
+       "start": "2024-01-01",
+       "end": "2024-12-31",
+       "val": -9865255,
+       "accn": "0001376474-25-000389",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-04-25"
+      },
+      {
+       "start": "2024-01-01",
+       "end": "2024-12-31",
+       "val": -9865255,
+       "accn": "0001376474-26-000195",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-02-20"
+      },
+      {
+       "start": "2024-01-01",
+       "end": "2024-12-31",
+       "val": -9865255,
+       "accn": "0001376474-26-000218",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-02-27"
+      },
+      {
+       "start": "2024-01-01",
+       "end": "2024-12-31",
+       "val": -9834420,
+       "accn": "0001376474-26-000322",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-04-29"
+      },
+      {
+       "start": "2024-01-01",
+       "end": "2024-12-31",
+       "val": -9834420,
+       "accn": "0001376474-26-000330",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-05-04",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": -35461668,
+       "accn": "0001376474-26-000322",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-04-29"
+      },
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": -35461668,
+       "accn": "0001376474-26-000330",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2026-05-04",
+       "frame": "CY2025"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

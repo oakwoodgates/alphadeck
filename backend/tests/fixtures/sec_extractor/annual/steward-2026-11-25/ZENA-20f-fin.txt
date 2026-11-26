@@ -1,0 +1,41 @@
+at the Company’s actual future results may be materially different from what is currently anticipated. CURRENCY All amounts in this Annual Report are presented in Canadian dollars and references to "$" are to Canadian dollars unless the context otherwise requires. United States dollars are presented as "US$" or "USD" whether be
+
+[… trimmed …]
+
+segment was established in March 2025, prior to which all capital expenditures related to the Company’s enterprise software division. All amounts are presented in Canadian dollars. See “Management’s Discussion and Analysis of Financial Condition and Results of Operations” for the year ended December 31, 2025 for additional info
+
+[… trimmed …]
+
+in this summary. For the purposes of the Tax Act, all amounts relating to the acquisition, holding or disposition of Common Shares must generally be expressed in Canadian dollars. Amounts denominated in United States currency generally must be converted into Canadian dollars using a rate of exchange that is acceptable to the C
+
+[… trimmed …]
+
+ART III Item 17. Financial Statements. Not applicable. Our financial statements were prepared in accordance with IFRS, as issued by the IASB, and are presented in Canadian dollars and are filed as part of this Annual Report. - 111 - INDEX TO FINANCIAL STATEMENTS Page Report of Independent Registered Public Accounting Firm 114 ZenaTech, Inc. Consolidated Statements of Financial Position for the Years Ended December 31, 2025 and 2024 - Expressed in Canadian dollars 117 ZenaTech, Inc. Consolidated Income Statements of Comprehensive Loss for the Years Ended December 31, 2025 and 2024 118 ZenaTech, Inc. Consolidate
+
+[… trimmed …]
+
+the Years Ended December 31, 2025 and 2024 120 Notes to financial statements 121 - 112 - ZenaTech, Inc. Consolidated Statements of Financial Position For the Year Ended December 31, 2025 and December 31, 2024 Expressed in Canadian Dollars - 113 - - 114 - - 115 - - 116 - ZenaTech, Inc. Consolidated Statements of Financial Position Expressed in Canadian Dollars As of As of December 31, December 31, Notes 2025 2024 Assets Current assets Cash 3 $ 5,980,366 $ 3,754,075 Marketable securities 3 9,093,887 - Accounts receivable, net 3 4,166,885 206,434 Short-term advance to affiliate 17 9,095,545 1,918,918 Inventory of Drone Components 3 2,842,794 - Other current assets 3 2,030,715 399,050 Total current assets 33,210,192 6,278,477 Long–term assets Property, plant & equipment, net 6 11,692,444 416,695 Right of Use assets 3 4,087,653 210,560 Note receivable from affiliate 5, 17 341,850 341,850 Long-term advance to affiliates 17 15,216,049 13,639,055 Capital advances 7 1,708,194 522,176 Loan initiation fees 11, 17 3,282,221 3,656,109 Product development costs, net 9 6,682,795 4,825,348 Intangibles 8 10,355,079 2,287,367 Goodwill 3,8 12,106,307 2,468,722 Other long-term assets 3 1,080,656 - Total long–term assets 66,553,249 28,367,882 Total assets 99,763,441 34,646,359 Liabilities and shareholders’ equity Current liabilities Accounts payable and accrued liabilities 9,074,281 1,423,545 Contract Liabilities 3 1,270,958 1,283,892 Lease liability 3 921,068 58,979 Loans Payable 10 3,689,457 124,696 Total current liabilities 14,955,764 2,891,112 Long–term liabilities Long-term lease obligation 3 3,279,270 152,365 Loans payable 11 13,566,956 9,783,539 Total long–term liabilities 16,846,226 9,935,904 Total liabilities 31,801,990 12,827,016 Shareholders’ equity Preferred stock 13 51,810,000 51,450,000 Super voting stock 13 1,800,000 1,800,000 Common stock 13 14,406,266 7,530,337 Warrants 13 361,058 751,000 Contributed surplus 110,671,268 16,594,870 Accumulated other comprehensive items reserve 2 (606,722 ) 397,061 Accumulated deficit (53,742,186 ) (8,524,113 ) Common Control Adjustment Account (56,738,233 ) (48,179,812 ) Total shareholders’ equity 67,961,451 21,819,343 Total liabilities and shareholders’ equity $ 99,763,441
+
+[… trimmed …]
+
+Delhi, India Place: Chicago, Illinois, USA Place: Chicago, Illinois, USA - 117 - ZenaTech, Inc. Consolidated Income Statements of Comprehensive Loss Expressed in Canadian dollars For the Year Ended December 31, 2025, and 2024 Year Ended Year Ended December 31, December 31, Notes 2025 2024 Revenue Drone as a Service 3 $10,105,7
+
+[… trimmed …]
+
+: Chicago, Illinois, USA Place: Chicago, Illinois, USA - 118 - ZenaTech, Inc. Consolidated Statements of Changes in Shareholder’s Equity (Deficiency) Expressed in Canadian Dollars For the Year Ended December 31, 2025, and 2024 Particular Preferred Stock Super Voting Stock Common Stock Warrants Contributed Surplus Comprehensive
+
+[… trimmed …]
+
+rs /s/ Indra Bansal Indra Bansal /s/ James Sherman James Sherman /s/ Craig Passley Craig Passley Partner Director Director Date: April 28, 2026 Date: April 28, 2026 Date: April 28, 2026 Place: New Delhi, India Place: Chicago, IL, USA Place: Chicago, Illinois, USA - 119 - ZenaTech, Inc. Consolidated Statements of Cash Flows Expressed in Canadian Dollars For the Year Ended December 31, 2025, and 2024 Year Ended Year Ended December 31, December 31, 2025 2024 Operating Activities: Net loss for the period $ (45,218,074 ) $ (4,481,751 ) Item not affecting cash: Amortization and depreciation 2,181,760 281,749 Bad debts 368,228 – Amortization of loan initiation fees 373,888 82,891 Finance expenses 1,764,835 480,692 Loan derivative finance expense 18,112,444 712,652 Stock–based compensation 2,888,503 521,547 Stocks issued for services 319,982 817,772 Loss on the sale of assets 14,122 - Changes in non–cash working capital: Accounts receivable (976,977 ) 80,361 Inventory of Drone Components (2,842,794 ) - Other current assets (883,380 ) (55,335 ) Accounts payable and accrued liabilities (2,520,991 ) 167,604 Contract Liabilities (289,593 ) (7,784 ) Change in dues from affiliate (8,753,621 ) (8,434,818 ) Cash Used in Operating Activities (35,461,668 ) (9,834,420 ) Investing Activities: Purchase of PPE (7,969,908 ) (398,475 ) Proceeds from sale of assets 4,630 - Note receivable – principal - 23,975 Marketable securities (9,233,029 ) - Acquisition costs (7,604,441 ) 20,882 Product development costs (2,245,754 ) (1,050,450 ) Long-term Assets (Capital Advances) (2,266,674 ) (522,176 ) Cash Used in Investing Activities (29,315,176 ) (1,926,244 ) Financing activities: Loans Borrowed 65,308,316 10,784,633 Lease payments (333,180 ) (30,835 ) Warrants exercised 3,321,290 Proceeds from the issuance of debentures - 402,773 Proceeds from
+
+[… trimmed …]
+
+ical cost basis, except for certain financial instruments, which are measured at fair value. These consolidated financial statements are prepared and presented in Canadian dollar (“CAD”) and represented by a dollar sign ($). The functional currency of the Company is the Canadian dollar, and the functional currency of the subsi
+
+[… trimmed …]
+
+ly, the Company has not presented segment assets, segment liabilities or additions to non-current assets by reportable segment. All amounts below are presented in thousands of Canadian dollars. Segment Financial Information Year ended December 31, 2025 (in thousands of CAD) Drone as a Service Enterprise Software Corporate Unallocated Consolidated Revenue $ 10,106 $ 2,807 $ — $ 12,913 Cost of revenue (140) (4,134) — (4,2
+
+[… trimmed …]
+
+(25,323) Reconciliation to Consolidated Results The following table reconciles consolidated operating loss to consolidated loss before income taxes (in thousands of Canadian dollars): Reconciliation of operating loss to consolidated loss before income taxes 2025 Operating loss $ (25,323) Interest income 88 Interest expense (19,87

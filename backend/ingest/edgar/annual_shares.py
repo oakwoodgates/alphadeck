@@ -21,19 +21,24 @@ the operator chose (Option B). Two STRICT instructions, tried in order: the clas
 the direct-count secondary (PBM). PBM is the discriminator: its cue-lookalike is an EPS note ~400k chars
 deep ("number of outstanding shares - basic and diluted", which lacks "the issuer's" and so matches
 NEITHER instruction), while its real cover ("The number of the issuer's outstanding common shares … was
-2,293,277") is read by the secondary — the deep lookalike must stay unmatched. Deterministic parse only
+2,293,277") is read by the secondary — the deep lookalike must stay unmatched. THE INLINE EXCEPTION
+(decision D5): when the cover's own inline XBRL tags its count per class of common stock (NVO's A and B
+shares), two or more such classes, each printed on the cover, are offered as their SUM, still flagged
+``multi-value-cover`` so the steward ratifies (``_inline_classes``). Deterministic parse only
 (#3): no LLM anywhere on this path.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 from domain.market_time import market_today
+from ingest.edgar import inline_xbrl as ix
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.converts import clean_filing_text
 from ingest.edgar.extract import (
@@ -230,6 +235,65 @@ def _detect_ads_ratio(
     return None, None, hits
 
 
+# The cover's class axes: a us-gaap filer tags a cover count per StatementClassOfStockAxis member, an IFRS
+# filer per ClassesOfShareCapitalAxis member (NVO's A and B shares, AZN's ordinary and preference shares).
+_CLASS_AXES = frozenset({"StatementClassOfStockAxis", "ClassesOfShareCapitalAxis"})
+
+
+@dataclass(frozen=True)
+class _InlineClasses:
+    """Two or more classes of common stock tagged on an annual cover: (member, count) each and the members set
+    aside (member, count, why)."""
+
+    counted: tuple[tuple[str, float], ...]
+    set_aside: tuple[tuple[str, float, str], ...]
+
+    @property
+    def figure(self) -> float:
+        return sum(v for _, v in self.counted)
+
+
+def _inline_classes(raw: str, report_date: date, printed: list[float]) -> _InlineClasses | None:
+    """THE INLINE PER-CLASS COVER (decision D5): the annual document's own
+    ``dei:EntityCommonStockSharesOutstanding`` facts at the period of report, one per member of a class axis
+    (``_CLASS_AXES``). Counted: each class of common stock. Set aside, never summed: a preferred class, an ADR
+    line, warrants, a fully diluted figure, exchangeable units (``inline_xbrl.set_aside_reason``; AZN's 50,000
+    redeemable preference shares). ``None``, so the printed reading stands, unless two or more classes are
+    counted and each counted figure is printed in the cover segment (``printed``: the passage shows what is
+    summed); also ``None`` when a class is tagged twice with two figures, a fact sits on another axis, or an
+    undimensioned count beside the classes is not their total."""
+    ctx = ix.read_contexts(raw)
+    facts = [
+        f
+        for f in ix.read_facts(raw, frozenset({ix.COVER_CONCEPT}), ctx)
+        if f.context.instant == report_date and f.value is not None
+    ]
+    counted: dict[str, float] = {}
+    aside: list[tuple[str, float, str]] = []
+    totals: list[float] = []
+    for f in facts:
+        c, value = f.context, float(f.value or 0.0)
+        if not c.members and not c.other_axis:
+            totals.append(value)
+            continue
+        if c.other_axis or len(c.members) != 1 or c.members[0][0] not in _CLASS_AXES:
+            return None
+        member = c.members[0][1]
+        why = ix.set_aside_reason(member)
+        if why:
+            aside.append((member, value, why))
+        elif member in counted and counted[member] != value:
+            return None
+        elif value:
+            counted[member] = value
+    if len(counted) < 2:
+        return None
+    classes = _InlineClasses(tuple(counted.items()), tuple(aside))
+    if any(t != classes.figure for t in totals) or any(v not in printed for v in counted.values()):
+        return None
+    return classes
+
+
 def _dei_cover_rows(companyfacts: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Every ``dei:EntityCommonStockSharesOutstanding`` row, unscreened."""
     return (
@@ -266,6 +330,7 @@ def extract_annual_shares(
     today: date,
     has_f6_filing: bool = False,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+    raw: str | None = None,
 ) -> list[ExtractedFact]:
     """Pure + deterministic: (companyfacts-or-None + the CLEANED annual filing text) -> the one
     shares_outstanding FLAG candidate, or ``[]`` when the cover cannot be read (FAIL CLOSED — the
@@ -273,7 +338,9 @@ def extract_annual_shares(
     the SEC instruction dates the cover count to; ``today`` ages the chosen count for the staleness
     flag + the note (time is a parameter, never an implicit now). ``has_f6_filing`` = an F-6-family
     registration exists on EDGAR for this issuer — POSITIVE ADR evidence for the ratio detector
-    (spec §10; its absence proves nothing and is never used as a negative).
+    (spec §10; its absence proves nothing and is never used as a negative). ``raw``: the same
+    document's raw text, whose inline XBRL may tag the cover per class (``_inline_classes``); None reads
+    the cleaned text alone.
     """
     # primary (class-enumeration) instruction, then the secondary (direct-count) phrasing. The primary
     # short-circuits, so the 43 primary names keep their exact behavior; PBM is read by the secondary.
@@ -288,11 +355,19 @@ def extract_annual_shares(
         return (
             []
         )  # cue but no parseable count (measured empty across all 48) — same fail-closed reason
-    # FIRST number, NEVER a sum: CAJPY's second number is an ADS *subset* of the first ("1,015,513,368
-    # shares of common stock, including 17,371,450 ADSs"), so summing overstates; CRLBF's four are real
-    # classes but composition is the operator's ratify, guided by the passage. (Deliberately NOT the
-    # 10-Q ``_cover_class_sum`` behavior — a different form with a different cover convention.)
-    cover_value = float(re.sub(r"[,\s]", "", nums[0].group(0)))
+    # FIRST number, NEVER a sum of printed numbers: CAJPY's second number is an ADS *subset* of the first
+    # ("1,015,513,368 shares of common stock, including 17,371,450 ADSs"), so summing overstates; CRLBF's four
+    # are real classes but composition is the operator's ratify, guided by the passage. (Deliberately NOT the
+    # 10-Q ``_cover_class_sum`` behavior — a different form with a different cover convention.) The one
+    # exception is the filing's own inline XBRL naming two or more classes of common stock (D5, NVO): their
+    # sum, still multi-value.
+    printed = [float(re.sub(r"[,\s]", "", n.group(0))) for n in nums]
+    cover_value = first_value = printed[0]
+    classes = (
+        _inline_classes(raw, report_date, printed) if raw is not None and len(nums) > 1 else None
+    )
+    if classes is not None:
+        cover_value = classes.figure
     cover_asof = report_date
 
     cf = _latest_dei_cover(companyfacts)
@@ -341,7 +416,22 @@ def extract_annual_shares(
             f" IMPLAUSIBLY SMALL (< {cfg.annual_implausible_floor_shares:,.0f} shares) — verify "
             "against the cover passage before ratifying; a data-source can carry garbage."
         )
-    if "multi-value-cover" in flags:
+    if classes is not None:
+        parts = " + ".join(f"{ix.member_label(m)} {v:,.0f}" for m, v in classes.counted)
+        note += (
+            f" The cover carries more than one count; its inline XBRL tags {len(classes.counted)} "
+            f"classes of common stock ({parts}), and their SUM is offered (the first printed count "
+            f"is {first_value:,.0f}); ratify the composition against the passage."
+        )
+        if classes.set_aside:
+            note += (
+                " Set aside, never summed: "
+                + "; ".join(
+                    f"{ix.member_label(m)} {v:,.0f} ({why})" for m, v, why in classes.set_aside
+                )
+                + "."
+            )
+    elif "multi-value-cover" in flags:
         note += (
             " The cover carries more than one count (classes / an ADS subset / a second date) — "
             "the FIRST is offered, never a sum; ratify the composition against the passage."
@@ -428,8 +518,8 @@ def extract_annual_shares(
 
 def _latest_annual_filing(
     client: EdgarClient, cik: int, *, subs: dict[str, Any] | None = None
-) -> tuple[str, str, date, str] | None:
-    """(doc_url, CLEANED text, report_date, form) of the latest annual foreign filing across 20-F AND
+) -> tuple[str, str, str, date, str] | None:
+    """(doc_url, raw, CLEANED text, report_date, form) of the latest annual foreign filing across 20-F AND
     40-F — selected from submissions METADATA first, then ONE document fetched (these run 0.2-25 MB;
     fetching both to compare would double the spend the cost thread bounds).
 
@@ -453,10 +543,8 @@ def _latest_annual_filing(
         return None
     d, form, f = best
     url = _doc_url(cik, f["accession"], f["primary_doc"])
-    text = clean_filing_text(
-        client.get_text(url, f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}")
-    )
-    return url, text, d, form
+    raw = client.get_text(url, f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}")
+    return url, raw, clean_filing_text(raw), d, form
 
 
 def _companyfacts_or_none(client: EdgarClient, cik: int) -> dict[str, Any] | None:
@@ -495,7 +583,7 @@ def annual_shares_for_security(
     filing = _latest_annual_filing(client, cik, subs=subs)
     if filing is None:
         return ExtractionResult(facts=[], empty_reason="no-annual-filing")
-    url, text, report_dt, form = filing
+    url, raw, text, report_dt, form = filing
     # F-6-family registrations (F-6, F-6/A, F-6EF, F-6 POS) = POSITIVE ADR evidence for the ratio
     # detector. Positive only — a real 5:1 name with no recent F-6 was measured, so absence proves
     # nothing (spec §10).
@@ -510,6 +598,7 @@ def annual_shares_for_security(
         today=today or market_today(),
         has_f6_filing=has_f6,
         cfg=cfg,
+        raw=raw,
     )
     if not facts:
         return ExtractionResult(facts=[], empty_reason="cover-not-located")

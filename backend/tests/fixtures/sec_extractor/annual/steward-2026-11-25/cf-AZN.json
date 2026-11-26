@@ -1,0 +1,8 @@
+{
+ "_fixture": "The real companyfacts (data.sec.gov, read 2026-11-26 through the steward review's sec.py), cut to the dei taxonomy; every row is verbatim.",
+ "cik": 901832,
+ "entityName": "ASTRAZENECA PLC",
+ "facts": {
+  "dei": {}
+ }
+}
