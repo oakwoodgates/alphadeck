@@ -478,3 +478,156 @@ def test_wrapper_no_annual_filing_keeps_slice1_shape():
     res = annual_facts_for_security(_FakeClient(subs=subs), 1234, today=_TODAY)
     assert res.facts == [] and res.empty_reason == "no-annual-filing"
     assert res.runway_empty_reason is None
+
+
+# ---------------------------------------------------------------------------------------------------------
+# the steward review of 2026-11-25 (W1-3): real 20-F statements and real companyfacts, cut down
+# (``fixtures/sec_extractor/annual/steward-2026-11-25/README.md`` says what each pins). Every candidate stays
+# a FLAG: annual cash and burn wait for the steward (the 2026-11-15 decision).
+# ---------------------------------------------------------------------------------------------------------
+
+_SR = _FX / "steward-2026-11-25"
+_SR_TODAY = date(2026, 11, 25)
+_SR_REF = {
+    "ASND": "https://www.sec.gov/Archives/edgar/data/1612042/000119312526046590/asnd-20251231.htm",
+    "ARM": "https://www.sec.gov/Archives/edgar/data/1973239/000197323926000097/arm-20260331.htm",
+    "ZENA": "https://www.sec.gov/Archives/edgar/data/1997403/000137647426000319/zt_20f.htm",
+}
+
+
+def _sr_cf(name: str) -> dict:
+    return json.loads((_SR / f"cf-{name}.json").read_text(encoding="utf-8"))
+
+
+def _sr_text(name: str) -> str:
+    return (_SR / f"{name}-20f-fin.txt").read_text(encoding="utf-8")
+
+
+def _sr(name: str, *, report_date: date, text: str | None = None):
+    facts, reason = extract_annual_runway(
+        _sr_cf(name),
+        _sr_text(name) if text is None else text,
+        annual_ref=_SR_REF[name],
+        annual_form="20-F",
+        report_date=report_date,
+        today=_SR_TODAY,
+    )
+    assert reason is None and len(facts) == 1, (name, reason)
+    f = facts[0]
+    assert f.tier is Tier.FLAG and f.source == "annual-statements"  # ALWAYS a flag
+    return f
+
+
+def test_asnd_note_reference_pair_is_never_the_cash():
+    """ASND prints TWO note references before its figures: "Cash and cash equivalents 17, 18 616,041 559,543",
+    under a "(EUR’000)" header. Before: only the first note number was dropped, so the second (18) was read as
+    the cash (EUR 18, scale unread, both figures "disagreeing" with companyfacts). After: the pair is the
+    row's note references and the cash is 616,041 thousand euros, which companyfacts reproduces exactly.
+    """
+    text = _sr_text("ASND")
+    assert (
+        "Cash and cash equivalents 17, 18 616,041 559,543" in text
+    )  # the pair stays in the fixture
+    assert "(EUR’000)" in text
+    f = _sr("ASND", report_date=date(2025, 12, 31))
+    assert f.cash_usd == 616_041_000.0  # was 18.0
+    assert f.statement_currency == "EUR"
+    assert "unit-scale-unread" not in f.flags and "figures-disagree" not in f.flags
+    assert (
+        f.quarterly_burn_usd is not None and f.quarterly_burn_usd < 0
+    )  # +53,897 thousand: generative
+    assert "companyfacts agrees with the statement's cash balance" in f.note
+
+
+def test_a_lone_note_reference_still_drops_one_number():
+    """CONTROL (passes before and after): one note reference before the figures is dropped as before (GHRS's
+    "Cash and cash equivalents 8 246,251 100,791"), and a figure grouped with a comma is never a note list.
+    """
+    f, _ = _one("GHRS-20f-fin.txt", cf=_cf("GHRS"), report_date=date(2025, 12, 31))
+    assert f is not None and f.cash_usd is not None
+    assert f.cash_usd - (f.investments_usd or 0.0) == 246_251_000.0
+
+
+def test_arm_cites_the_6k_behind_the_fresher_companyfacts_rows():
+    """ARM's March 20-F is older than companyfacts' rows from its Q2 6-K (accession 0001973239-26-000142,
+    filed 2026-11-04): cash 3,251 + short-term investments 370 (USD millions) at 2026-09-30, and operating
+    cash flow 1,109 for the six months to 2026-09-30. Before: the candidate cited the March 20-F for those
+    numbers, and the six-month figure was pro-rated as a quarter (-556.4M). After: it cites the 6-K, and the
+    quarter is derived from the prior on file (the three months to 2026-06-30, 902): 1,109 - 902 = 207 over 92
+    days."""
+    f = _sr("ARM", report_date=date(2026, 3, 31))
+    assert "000197323926000142" in f.source_ref  # the 6-K, never the 20-F's 000197323926000097
+    assert f.cash_usd == 3_621_000_000.0 and f.investments_usd == 370_000_000.0  # unchanged
+    assert f.event_date == date(2026, 9, 30)
+    assert f.quarterly_burn_usd == pytest.approx(-207_000_000 / 92 * (365.25 / 4))
+    assert f.quarterly_burn_usd != pytest.approx(
+        -1_109_000_000 / 182 * (365.25 / 4)
+    )  # never pro-rated
+    assert "1,109,000,000 - 902,000,000" in f.note
+    assert "0001973239-26-000142" in f.note
+    assert f.flags == ["annual-statements"]
+
+
+def test_arm_through_the_wrapper_cites_the_6k_document():
+    """The live wrapper maps the accession to its document from the submissions index it already read (no new
+    request): the candidate cites the 6-K's primary document."""
+    subs = json.loads((_SR / "subs-ARM.json").read_text(encoding="utf-8"))
+    text = _text("ARM-20f.txt") + "\n\n" + _sr_text("ARM")
+    client = _FakeClient(subs=subs, texts={"arm-20260331.htm": text}, cf=_sr_cf("ARM"))
+    res = annual_facts_for_security(client, 1973239, today=_SR_TODAY)
+    cash = next(f for f in res.facts if f.fact_type == "cash_burn")
+    assert cash.source_ref == (
+        "https://www.sec.gov/Archives/edgar/data/1973239/000197323926000142/arm-20260930.htm"
+    )
+    assert cash.tier is Tier.FLAG
+
+
+def test_a_half_year_with_no_prior_on_file_stays_span_normalized():
+    """CONTROL: with no three-month prior in companyfacts, the six-month figure is normalized by its own span
+    (the PBM rule), never halved by guess and never derived."""
+    cf = _sr_cf("ARM")
+    for concept in cf["facts"]["us-gaap"].values():
+        for rows in concept["units"].values():
+            rows[:] = [
+                r for r in rows if not (r.get("start") == "2026-04-01" and r["end"] == "2026-06-30")
+            ]
+    facts, _ = extract_annual_runway(
+        cf,
+        _sr_text("ARM"),
+        annual_ref=_SR_REF["ARM"],
+        annual_form="20-F",
+        report_date=date(2026, 3, 31),
+        today=_SR_TODAY,
+    )
+    assert facts[0].quarterly_burn_usd == pytest.approx(-1_109_000_000 / 182 * (365.25 / 4))
+    assert "derived" not in facts[0].note
+
+
+def test_zena_marketable_securities_row_counts_like_short_term_investments():
+    """ZENA's balance sheet prints its own current line "Marketable securities 3 9,093,887 -" under the cash
+    row (CAD). Before: not read (cash 5,980,366: about 2.0 months of runway). After (decision D6): counted
+    like a short-term investments row: cash 15,074,253, the part carried on its own."""
+    assert "Marketable securities 3 9,093,887 -" in _sr_text("ZENA")
+    f = _sr("ZENA", report_date=date(2025, 12, 31))
+    assert f.cash_usd == 15_074_253.0  # was 5,980,366
+    assert f.investments_usd == 9_093_887.0
+    assert f.statement_currency == "CAD"
+    assert f.quarterly_burn_usd == pytest.approx(35_461_668 / 364 * (365.25 / 4))  # unchanged
+    assert "marketable securities 9,093,887" in f.note
+
+
+def test_a_noncurrent_marketable_securities_row_is_never_cash():
+    """D6's bound: a marketable-securities row is current only by its section. An IFRS balance sheet lists the
+    non-current assets FIRST; a "Marketable securities" row there, before the "Current assets" heading, is
+    never counted, and neither is one after "Total current assets" (GHRS's non-current 33,300 for 2024).
+    """
+    text = (
+        _sr_text("ZENA")
+        .replace(
+            "Assets Current assets Cash 3 $ 5,980,366",
+            "Assets Non-current assets Marketable securities 3 1,111,111 - Current assets Cash 3 $ 5,980,366",
+        )
+        .replace("Marketable securities 3 9,093,887 -", "Inventory 3 9,093,887 -")
+    )
+    f = _sr("ZENA", report_date=date(2025, 12, 31), text=text)
+    assert f.cash_usd == 5_980_366.0 and f.investments_usd is None
