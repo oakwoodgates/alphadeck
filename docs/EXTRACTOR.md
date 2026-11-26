@@ -167,37 +167,34 @@ A foreign private issuer files a 20-F (or a 40-F) instead of a 10-K or 10-Q. `an
 from the annual cover; `annual_facts_for_security` fetches the annual document once for both annual paths. The tests
 are the oracle: `tests/ingest/test_annual_shares.py` and `tests/fixtures/sec_extractor/annual/`.
 
-- **FLAG only, by construction.** The periodic AUTO gate assumes a cover dated after the period end; a 20-F cover is
-  dated at the period end by form instruction, so the gate would pass on a count a year old. The module never names
-  AUTO (`test_annual_path_never_returns_auto`, a source scan); every candidate carries `annual-cover`. Whether the
-  machine applies a clean one is the machine writer's rule: [PLATFORM_VALUES](PLATFORM_VALUES.md) "The annual
-  share-count rule".
-- **The cover is located by the form instruction, strictly.** The primary accepts "issuer" or "registrant" (the 40-F
-  wording), an optional "each of", and a possessive written as an apostrophe, a space or an entity
-  (`clean_filing_text` unescapes it); a secondary catches the direct-count phrasing when the primary fails. No match:
-  no value, never a looser pattern (`cover-not-located`). Why: an EPS note ("number of outstanding shares, basic and
-  diluted") deep in a large filing is a confident wrong match, and both instructions need "the issuer's" or "the
-  registrant's".
-- **Never sum the numbers on an annual cover.** "N shares, including M ADSs" names a subset; more than one number
-  flags `multi-value-cover`. This differs on purpose from the periodic `_cover_class_sum`; do not unify them.
+- **FLAG only, by construction.** A 20-F cover is dated at the period end by form instruction, so the periodic AUTO
+  gate (a cover dated after the period end) would pass a count a year old. The module never names AUTO
+  (`test_annual_path_never_returns_auto`, a source scan); every candidate carries `annual-cover`. Whether the machine
+  applies a clean one is the machine writer's rule: [PLATFORM_VALUES](PLATFORM_VALUES.md) "The annual share-count
+  rule".
+- **The cover is located by the form instruction, strictly**: the class enumeration ("issuer" or "registrant"), else
+  the direct-count phrasing. No match: no value, never a looser pattern (`cover-not-located`). Why: an EPS note
+  ("number of outstanding shares, basic and diluted") deep in a large filing is a confident wrong match; both
+  instructions need "the issuer's" or "the registrant's".
+- **Never sum the printed numbers on an annual cover.** "N shares, including M ADSs" names a subset; more than one
+  number flags `multi-value-cover` and the first is offered. One exception: when the document's inline XBRL tags two
+  or more classes of common stock on the cover, each printed there, their sum is offered, still `multi-value-cover`
+  (never a preferred class or an ADR line: AZN). This differs on purpose from the periodic `_cover_class_sum`.
 - **The later as-of date wins** between the cover and companyfacts' `dei` row; a tie goes to the cover, which carries
   the passage. A disagreement flags `source-disagreement`. A count below `annual_implausible_floor_shares` flags
   `implausible-count`, never dropped; one older than `annual_stale_cover_days` flags `stale-cover`.
 - **The ADS ratio: apply where read, withhold where not.** The cover states ordinary shares; the price feed carries
-  the ADS price. The ratio is read from the document already fetched (prose, the securities-registered table row,
-  number words). `known`: the market cap divides by it and the fact keeps the ordinary count. `unread` (ADR
-  evidence, no defensible ratio: missing, fractional or conflicting; `ads-ratio-unread`): the market cap is
+  the ADS price. `known`: the market cap divides by the ratio read and the fact keeps the ordinary count. `unread`
+  (ADR evidence, no defensible ratio: missing, fractional or conflicting; `ads-ratio-unread`): the market cap is
   withheld, never guessed at 1:1, because a wrong ratio is a silent multiplying error. No ADR evidence: 1:1, stored
-  NULL/NULL, which must read as not applicable: every domestic and older row has it, so "withhold" would blank
-  every market cap (`tests/workbench/test_scoring.py::test_domestic_10q_market_cap_unchanged`). An F-6 filing is a
-  positive ADR signal only; its absence proves nothing.
-- Purity is not covered for an annual filer.
+  NULL/NULL and read as not applicable: every domestic row has it, so "withhold" would blank every market cap
+  (`tests/workbench/test_scoring.py::test_domestic_10q_market_cap_unchanged`). An F-6 filing is a positive ADR signal
+  only; its absence proves nothing.
 
 ## The annual-statements runway path
 
 `annual_runway.extract_annual_runway` reads cash and a span-normalized operating cash burn from the annual statements.
-The tests are the oracle: `tests/ingest/test_annual_runway.py`, `test_statement_sources.py`,
-`test_annual_statement_checks.py`, `test_annual_deposits_guard.py`, `test_annual_reaudit3.py` and their fixtures.
+The tests are the oracle: `tests/ingest/test_annual_*.py`, `test_statement_sources.py` and their fixtures.
 
 - **FLAG only.** Every candidate carries `annual-statements` and both rows (balance-sheet cash, operating-cash-flow
   total) as passages; no passage, no fact (`test_runway_path_never_returns_auto`). Annual cash and burn always wait
@@ -205,40 +202,41 @@ The tests are the oracle: `tests/ingest/test_annual_runway.py`, `test_statement_
 - **The sign is the state.** Positive operating cash flow is cash-generative: no runway, a negative burn, a note.
 - **Span-normalize.** Burn per day is the operating cash flow over its span, so a 3-, 6- or 9-month column is never a
   year. The span comes from an exact companyfacts row ending at the period of report, else the statement's period
-  phrase, else a bare fiscal-year column on an annual form.
-- **Unit scale is read**: the nearest marker in the row's own table header, shared by one filing's statements; none
-  anywhere flags `unit-scale-unread`, figures as printed.
+  phrase, else a bare fiscal-year column on an annual form. A fresher companyfacts year to date becomes its quarter
+  when the same tag's prior is on file (ARM: 1,109 - 902), never pro-rated.
+- **Unit scale is read**: the nearest marker in the row's own table header (`EUR’000` too), shared by one filing's
+  statements; none anywhere flags `unit-scale-unread`, figures as printed.
 - **The current column** matches the report year to the year tokens of the row's own table header (not a row label's
-  years or another table's). A duplicated report-year header flags `column-ambiguous` and withholds the value; a sign
-  shared by every column still gives the state.
-- **Currency is established, never guessed**, in order: (1) a same-date companyfacts row (us-gaap or ifrs-full, any
-  unit) equal to the figure at its printed precision; a header naming another is `currency-mismatch`; (2) explicit
-  header markers (`_CURRENCY_MARKERS`), a home currency beside a US$ convenience column winning
-  (`convenience-column` when unconfirmed); (3) the filing's own presentation-currency statement with an explicit
-  marker. A bare `$` or "dollars" names nothing (Canadian filers print `$`). Otherwise `currency-unread`: no currency
-  stored, screens show `?`. Nothing converts figures (`domain/cash_currency.py`).
+  years or another table's); a note-reference list ("17, 18") is never a figure. A duplicated report-year header flags
+  `column-ambiguous` and withholds the value; a sign shared by every column gives the state.
+- **Currency is established, never guessed**, in order: (1) a same-date companyfacts row equal to the figure at its
+  printed precision; a header naming another is `currency-mismatch`; (2) explicit header markers
+  (`_CURRENCY_MARKERS`), a home currency beside a US$ convenience column winning (`convenience-column` when
+  unconfirmed); (3) the filing's own presentation-currency statement with an explicit marker. A bare `$` or "dollars"
+  names nothing (Canadian filers print `$`). Otherwise `currency-unread` (screens show `?`). Nothing converts
+  figures (`domain/cash_currency.py`).
 - **The consolidated statement, not a breakdown.** The cash row picked is the one companyfacts reproduces, else the
-  first whose heading shows no breakdown cue (`_BREAKDOWN_CUE_RE`: parent-only, consolidating, VIE, segment), else
-  the first, flagged `table-unverified`. The operating cash flow comes from the same statement set; a notes line is
-  never the total (`_OCF_NOTE_GUARD_RE`). A located, unreadable cash row is `cash-unread`.
+  first whose heading shows no breakdown cue (`_BREAKDOWN_CUE_RE`), else the first, flagged `table-unverified`. The
+  operating cash flow comes from the same statement set; a notes line is never the total (`_OCF_NOTE_GUARD_RE`). A
+  located, unreadable cash row is `cash-unread`.
 - **Cash is a closing balance, never a flow.** A movement, exchange-rate or opening-balance row is never valued. The
-  cash-flow statement's closing line is the fallback when no balance-sheet row was read. A balance-sheet statement row
-  beats a note or MD&A table printing the same figure.
-- **Deposits and short-term investments come only from the same statement.** A row counts only when the cash row is a
-  balance-sheet statement row, the row is its own line (not a component, total or summary), it shares the cash row's
-  column grid, and its report-year cell holds a value (a dash, or a blank beside a note reference, is empty). The part
-  comes from the cash value's currency column, never a convenience translation. Otherwise it is quoted, not counted:
-  `investments-unconfirmed`. Marketable securities and long-term investments are not read here.
+  cash-flow statement's closing line is the fallback when no balance-sheet row was read. A statement row beats a note
+  or MD&A table.
+- **Deposits, short-term investments and marketable securities come only from the same statement.** A row counts
+  only when the cash row is a balance-sheet statement row, the row is its own line (not a component, total or
+  summary), it shares the cash row's column grid, and its report-year cell holds a value (a dash, or a blank beside a
+  note reference, is empty). The part comes from the cash value's currency column, never a convenience translation.
+  Otherwise it is quoted, not counted: `investments-unconfirmed`. A "Marketable securities" row needs no assets
+  heading between it and the cash row; long-term investments never count.
 - **The cross-check**: companyfacts on the statement's own date must match exactly at the printed precision; a
   same-date row that reproduces nothing is `figures-disagree`, with both numbers. A deposits figure agrees only in the
   statement's currency, within its concept family, never with a concept another counted row owns. No same-date row is
   "not cross-checked", never a pass. A lag is stated, not flagged (normal for annual filers). The later as-of wins per
-  quantity.
+  quantity; when every figure offered comes from one later filing (a 6-K), the candidate cites it.
 - **Where statements come from** (`statement_sources.STATEMENT_SOURCES`, first hit wins): `main_doc_statements` (the
   document already fetched), then `exhibit_statements` (the 40-F wrapper shape: statements in an EX-99 exhibit).
-  Exhibits are chosen by SGML header type, not file name, fetched cache-first (unknown size first, then largest), at
-  most `exhibit_scan_max`, each skipped one logged. The winner must carry both statement rows (`has_statement_rows`, the
-  extractor's own locators); more than one is `exhibit-ambiguous`. Passages cite the winning document; cover shares
+  Exhibits are chosen by SGML header type, at most `exhibit_scan_max`. The winner must carry both statement rows
+  (`has_statement_rows`); more than one is `exhibit-ambiguous`. Passages cite the winning document; cover shares
   always come from the primary document.
 - **Runway empty states** (`runway_empty_reason`): `cash-generative` (a state, not a gap), `financials-in-exhibit`
   (a burning company whose statements were in no document read), `exhibit-ambiguous`, `statements-not-located`.
