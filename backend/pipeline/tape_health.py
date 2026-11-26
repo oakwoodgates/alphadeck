@@ -129,6 +129,13 @@ carries that DEREGISTRATION as evidence (``StaleTape.deregistered``: the Form 15
 it, with SEC's item titles), so removing it is the recommended action. A field, never a class: the row stays
 unpriceable and loud, and nothing here removes or silences it.
 
+W6-4 — an OPEN (not closed) stopped price row also carries what Massive.com says of its symbol
+(``StaleTape.massive_ref``, ``ingest.massive_reference.MassiveRef``): whether it lists it, ``active``, its
+instrument ``type`` and delisting date, and whether it traded tonight. EVIDENCE, never a class, exactly like
+``deregistered``: ACLEW and IXQWF (stale since 2025-10) are OTC WARRANTS on Massive.com, INDV is delisted there
+(2026-11-03), SNDK traded tonight (a vendor gap) — every one still the row it was. The reads are
+``pipeline/massive_evidence.py``'s, after the per-thesis loop; ``mark_massive`` here only places them.
+
 A closed name is NEVER dropped from the roster, the monitor, or the panel (#9) — the marker only
 RECLASSIFIES the stopped tape, and it is EXPECTED so it renders quietly and does not page as newly-stale
 (#7/WB#3). A name that moves the other way, closed → stale-repair (VRME the first night this ships), is
@@ -152,6 +159,7 @@ from domain.price_feed_basis import is_rename_pin
 
 if TYPE_CHECKING:  # avoid importing the ingest module at import time (keeps the layering one-way)
     from ingest.edgar.submissions import DelistingFiling, Deregistration
+    from ingest.massive_reference import MassiveRef
     from pipeline.ingest_thesis import NameResult
 
 # The proximity window's defaults, in calendar days around the tape's last bar (``classify_stop``). The
@@ -220,7 +228,11 @@ class StaleTape:
     ``deregistered`` (W4-2) is EVIDENCE, never a class: the company's newest Form 15 and the 8-K events filed
     before it (``ingest.edgar.submissions.deregistration``), set only on an unpriceable row whose EDGAR list
     was read and is EMPTY (``mark_deregistered``). ``closed`` / ``quiet`` / ``unpriceable`` read exactly as
-    without it; the steward removes the name in the basket editor."""
+    without it; the steward removes the name in the basket editor.
+
+    ``massive_ref`` (W6-4) is EVIDENCE, never a class: Massive.com's word on an OPEN price row's symbol (listed,
+    active, type, delisted date, traded tonight — ``mark_massive``). Every class reads exactly as without it.
+    """
 
     ticker: str | None
     security_id: UUID
@@ -231,6 +243,7 @@ class StaleTape:
     edgar_tickers: tuple[str, ...] | None = None
     acknowledged: bool = False
     deregistered: Deregistration | None = None
+    massive_ref: MassiveRef | None = None
 
     @property
     def label(self) -> str:
@@ -365,6 +378,15 @@ def mark_deregistered(row: StaleTape, evidence: Deregistration | None) -> StaleT
     if evidence is None or not row.unpriceable or row.edgar_tickers != ():
         return row
     return replace(row, deregistered=evidence)
+
+
+def mark_massive(row: StaleTape, evidence: MassiveRef | None) -> StaleTape:
+    """W6-4 — ``row`` carrying Massive.com's ``evidence`` when it is an OPEN (not closed) PRICE row; else ``row``
+    unchanged. A closed row is SEC's explained stop and a fund-shares row is not a listing: neither carries it.
+    Pure; the class fields are untouched (a field, never a class)."""
+    if evidence is None or feed_kind(row.kind).key != PRICE.key or row.closed:
+        return row
+    return replace(row, massive_ref=evidence)
 
 
 def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:

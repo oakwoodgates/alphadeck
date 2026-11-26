@@ -1,8 +1,8 @@
 // The Price feed repairs panel's never-priced rows in PLAIN ENGLISH: what a probed candidate is (bars, its class mark
-// by the OTC naming convention, and how that sits against the member's own) and what a deregistered name's evidence
-// says. Pure words over the GET /admin/price-feed payload (W4-1 / W4-2) — never a different decision, only how it is
-// explained. A class mark is a naming convention, never proof, and the line says so. Backend:
-// app/routers/admin_price_feed.py.
+// by the OTC naming convention, and how that sits against the member's own), what a deregistered name's evidence
+// says, and what Massive.com says of a stale row's symbol. Pure words over the GET /admin/price-feed payload (W4-1 /
+// W4-2 / W6-4) — never a different decision, only how it is explained. A class mark is a naming convention, never
+// proof, and the line says so. Backend: app/routers/admin_price_feed.py.
 import type {
   AdminDeregistrationEventOut,
   AdminProbeCandidateOut,
@@ -69,3 +69,20 @@ export function edgarClause(u: AdminUnpriceableRowOut): string | null {
 
 /** "Bankruptcy or Receivership; Changes in Control of Registrant" — SEC's own item titles, in order; "" for none. */
 export const eventTitles = (e: AdminDeregistrationEventOut): string => e.item_titles.join("; ");
+
+type MassiveRef = AdminUnpriceableRowOut["massive_ref"];
+
+/** W6-4 — what Massive.com says of a stale row's symbol, in one line (its own type code, never paraphrased):
+ *  "Massive.com: WARRANT, active" / "Massive.com: CS, inactive, delisted 2026-11-03" / "Massive.com lists no ticker
+ *  TMRC" / "Massive.com: traded 2026-11-25"; "" when nothing is known. Evidence, never a decision. */
+export function massiveClause(m: MassiveRef | undefined): string {
+  if (!m) return "";
+  if (m.listed === false) return `Massive.com lists no ticker ${m.symbol}`;
+  const parts = [
+    m.type,
+    m.active == null ? null : m.active ? "active" : "inactive",
+    m.delisted_utc ? `delisted ${m.delisted_utc}` : null,
+    m.traded_on ? `traded ${m.traded_on}` : null,
+  ].filter(Boolean);
+  return parts.length ? `Massive.com: ${parts.join(", ")}` : "";
+}

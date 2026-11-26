@@ -957,3 +957,65 @@ def test_the_deregistration_does_not_move_any_class_and_survives_the_acknowledgm
     (acked,) = mark_acknowledged((with_it,), {sid})
     assert acked.acknowledged is True and acked.quiet is True
     assert acked.deregistered == with_it.deregistered
+
+
+# --- W6-4: Massive.com's reference evidence rides an open stale price row -----------------------------------
+#
+# A FIELD, never a class (the `deregistered` discipline): the row's closed / renamed / unpriceable / quiet read
+# exactly as without it, and only an open (not closed) PRICE row can carry it. The values are the measured ones
+# (ACLEW: an OTC WARRANT, active; INDV: inactive, delisted 2026-11-03; TMRC: 404).
+
+
+def _ref(symbol: str, **kw):
+    from ingest.massive_reference import MassiveRef
+
+    return MassiveRef(symbol, **{"read_on": date(2026, 11, 25), "listed": True, **kw})
+
+
+def test_W6_4_the_evidence_is_a_field_that_moves_no_class():
+    from dataclasses import replace
+
+    from pipeline.tape_health import mark_massive
+
+    plain = StaleTape("ACLEW", uuid.uuid4(), date(2025, 10, 15))
+    renamed = StaleTape(
+        "INDV", uuid.uuid4(), date(2026, 11, 2), renamed=True, edgar_tickers=("SUPN",)
+    )
+    never = StaleTape("TMRC", uuid.uuid4(), None, edgar_tickers=())
+    for row, ref in (
+        (plain, _ref("ACLEW", active=True, type="WARRANT")),
+        (renamed, _ref("INDV", active=False, type="CS", delisted_utc=date(2026, 11, 3))),
+        (never, _ref("TMRC", listed=False)),
+    ):
+        marked = mark_massive(row, ref)
+        assert marked.massive_ref == ref
+        assert replace(marked, massive_ref=None) == row  # every other field as it was
+        assert (marked.closed, marked.renamed, marked.unpriceable, marked.quiet) == (
+            row.closed,
+            row.renamed,
+            row.unpriceable,
+            row.quiet,
+        )
+    assert mark_massive(plain, None) is plain
+
+
+def test_W6_4_a_closed_row_and_a_fund_shares_row_never_carry_it():
+    from pipeline.tape_health import mark_massive
+
+    ref = _ref("ACA", active=False, type="CS", delisted_utc=date(2026, 10, 26))
+    closed = StaleTape("ACA", uuid.uuid4(), date(2026, 10, 22), closed_at=date(2026, 10, 23))
+    fund = StaleTape("ETF1", uuid.uuid4(), date(2026, 6, 2), kind="fund_shares")
+    assert mark_massive(closed, ref) is closed and closed.massive_ref is None
+    assert mark_massive(fund, ref) is fund and fund.massive_ref is None
+    assert StaleTape("AAA", uuid.uuid4(), None).massive_ref is None  # the default: no evidence
+
+
+def test_W6_4_the_evidence_survives_the_acknowledgment():
+    from pipeline.price_feed import mark_acknowledged
+    from pipeline.tape_health import mark_massive
+
+    sid = uuid.uuid4()
+    ref = _ref("TMRC", listed=False)
+    row = mark_massive(StaleTape("TMRC", sid, None, edgar_tickers=()), ref)
+    (acked,) = mark_acknowledged((row,), {sid})
+    assert acked.quiet is True and acked.massive_ref == ref

@@ -3315,6 +3315,84 @@ def test_main_PRINTS_the_crosscheck_lines_beside_the_missing_closes(monkeypatch,
     ) in out
 
 
+# --- W6-4: Massive.com's reference evidence on the stale price rows (after the loop, before the artifact) -------
+
+
+def test_pass_runs_the_massive_reference_after_the_loop_over_the_grouped_day_before_the_artifact(
+    monkeypatch,
+):
+    from pipeline import massive_evidence as me
+    from pipeline import tape_crosscheck as tc
+
+    order, _, _ = _prime_pass(monkeypatch)
+    grouped = tc.GroupedFetch(session=_ASOF, status=tc.STATUS_ON, day=_grouped_fixture(_ASOF))
+    monkeypatch.setattr(daily, "fetch_grouped", lambda **kw: grouped)
+    ran = me.ReferenceRun(status="on", cap=5, read=("SNDK",))
+    seen: dict = {}
+
+    def _reference(**kw):
+        order.append("massive_reference")
+        seen.update(kw)
+        return ran
+
+    def _log(results, **kw):
+        order.append("artifact")
+
+    monkeypatch.setattr(daily, "run_massive_reference", _reference)
+    monkeypatch.setattr(daily, "write_cron_run_log", _log)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    assert order.index("run_daily") < order.index("massive_reference") < order.index("artifact")
+    assert seen["grouped"] is grouped and seen["asof"] == _ASOF and seen["allow_live"] is True
+    assert (
+        seen["payloads"] is daily.list_run_logs
+    )  # the earlier passes' reads are carried, not re-read
+    assert seen["results"] is out.results
+    assert out.massive_reference is ran
+
+
+def test_a_keyless_pass_reads_no_reference_and_never_fails(monkeypatch):
+    """The suite has no MASSIVE_API_KEY (conftest): the REAL unit runs, reads nothing, and the pass finishes."""
+    _prime_pass(monkeypatch)
+    sid = uuid.uuid4()
+    stale = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        tape_stale=(daily.StaleTape("ACLEW", sid, date(2025, 10, 15)),),
+    )
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: [stale])
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert (out.massive_reference.status, out.massive_reference.error) == ("off", None)
+    assert out.results[0].tape_stale[0].massive_ref is None
+
+
+def test_report_names_a_stale_rows_massive_evidence_and_main_prints_the_reads_line(
+    monkeypatch, capsys
+):
+    """The stale row's line names Massive.com's word (a field: the row stays in the loud STALE block), and the
+    reads are one quiet line beside the cross-check's."""
+    from ingest.massive_reference import MassiveRef
+    from pipeline import massive_evidence as me
+
+    row = daily.StaleTape(
+        "ACLEW",
+        uuid.uuid4(),
+        date(2025, 10, 15),
+        massive_ref=MassiveRef("ACLEW", date(2026, 11, 25), True, active=True, type="WARRANT"),
+    )
+    outcome = _outcome_with([_res(recorded=True, tape_stale=(row,))])
+    outcome.massive_reference = me.ReferenceRun(status="on", cap=5, read=("ACLEW",))
+    monkeypatch.setattr(daily, "run_daily_pass", lambda **kw: outcome)
+    _tonight(monkeypatch, _ASOF)
+    daily.main(["--asof", _ASOF.isoformat()])
+    out = capsys.readouterr().out.splitlines()
+
+    line = next(x for x in out if x.strip().startswith("ACLEW: last bar 2025-10-15"))
+    assert line.endswith(" · Massive.com: WARRANT, active")
+    assert "Massive.com reference · 1 stale symbol read (5-a-night cap)" in out
+
+
 # --- W6-3b: the price gap fill rides the pass (built once before the loop, over the grouped day) -----------------
 
 

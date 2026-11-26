@@ -94,6 +94,11 @@ def test_the_price_feed_review_call_plan_costs_at_most_three_calls_and_24000_cha
         ],
     }
     assert counts["deregistered"] == 1
+    # W6-4: Massive.com's reference evidence rides each row whole (a delisted renamed name; a 404 never-priced one)
+    assert verified["massive_ref"]["active"] is False
+    assert verified["massive_ref"]["delisted_utc"] == "2026-11-03"
+    assert repairs["unpriceable"][2]["massive_ref"] == {"read_on": "2026-11-05", "listed": False}
+    assert "massive_ref" not in none_verified  # nothing Massive.com stated: no block
     ok_row, ambiguous = repairs["successor"]
     assert ok_row["recommended"] == ok_row["candidates"][0]["cik"]
     assert ok_row["candidates"][0]["identity_read"] is True and ok_row["stored_cik"]
@@ -104,13 +109,15 @@ def test_the_price_feed_review_call_plan_costs_at_most_three_calls_and_24000_cha
 
 def test_a_cut_panel_is_read_to_its_next_page_within_the_budget():
     listed, prompt, status, repairs, more, spent = _run_the_plan(
-        renamed=8, unpriceable=10, successor=4
+        renamed=8,
+        unpriceable=9,
+        successor=4,  # W6-4: two rows carry Massive.com evidence (was 10 never priced)
     )
     assert repairs["next_cursor"] is not None and more is not None and len(spent) == 3
     check_the_spend(spent, calls=MAX_CALLS, chars=MAX_CHARS)
     print("price-feed-review cost:", len(spent), "calls,", sum(n for _, n in spent), "chars", spent)
     seen = {k: len(repairs[k]) + len(more[k]) for k in ("renamed", "unpriceable", "successor")}
-    assert seen == {"renamed": 8, "unpriceable": 10, "successor": 4}  # none lost between the pages
+    assert seen == {"renamed": 8, "unpriceable": 9, "successor": 4}  # none lost between the pages
     assert more["next_cursor"] is None
 
 
@@ -131,6 +138,7 @@ def test_the_prompt_suggests_only_the_probe_verified_symbol_and_the_recommended_
         "propose none",
         "a deregistered name: suggest removing it in the basket editor, quoting the form, date and item "
         "titles",
+        "massive_ref",  # W6-4: Massive.com's reference evidence, quoted as the vendor's
     ):
         assert needle in text, needle
 
