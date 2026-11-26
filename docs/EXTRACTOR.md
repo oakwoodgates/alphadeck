@@ -71,7 +71,7 @@ the values filing, an annual document or an exhibit. A company whose newest peri
 
 | Tier | Meaning | Used for |
 |---|---|---|
-| AUTO | companyfacts reproduces one clean value | a current single-class cover count; a clean quarter of cash and burn |
+| AUTO | one clean value from companyfacts, or a confirmed inline reading | a current single-class cover count; a clean quarter of cash and burn |
 | FLAG | the raw value (or none), the flags observed, the located passages | whatever cannot be established; every annual candidate |
 | HUMAN | located only, never valued | purity, always |
 
@@ -94,15 +94,15 @@ anchors a person to a wrong number.
   (`tests/ingest/test_cover_dates.py`). `pipeline.repair_shares_cover_dates` re-dates stored versions (the
   `data-repair` skill).
 - **The filing's own cover** (`_inline_shares`, `ingest/edgar/inline_xbrl.py`): companyfacts also misses combined
-  filings for months, so a FLAG count is re-read from the raw document already fetched; the tier never changes
-  (`tests/ingest/test_extract_inline_shares.py`). Counted: the cover facts at their latest instant, scaled,
-  undimensioned or per `StatementClassOfStockAxis` member; never another registrant's (`dei:LegalEntityAxis`), an ADR
-  line, a preferred class, warrants or exchangeable units, and a count equal to the others' sum is their total. Two
-  or more classes: their sum, dated by the cover, `dual-class`; one count newer than companyfacts':
+  filings for months, so a FLAG count is re-read from the raw document already fetched; AUTO when the EPS share base
+  confirms it ([PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md)). Counted: the cover facts at their latest instant,
+  scaled, undimensioned or per `StatementClassOfStockAxis` member; never another registrant's (`dei:LegalEntityAxis`),
+  an ADR line, a preferred class, warrants or exchangeable units, and a count equal to the others' sum is their total.
+  Two or more classes: their sum, dated by the cover, `dual-class`; one count newer than companyfacts':
   `companyfacts-behind`; the passage is the printed counts.
 - **`class-outside-eps`**: the filing's EPS share base (basic weighted average for the period, per-class facts first)
-  leaves a class out; the sum is still offered, both figures in the note. Why that base: the inline fact is the printed
-  number, not a second reading.
+  leaves a class out, the cover over `cover_eps_tolerance` above it; the sum is still offered, both figures noted.
+  Why that base: the inline fact is the printed number, not a second reading.
 
 ## Cash and burn on the periodic path
 
@@ -118,7 +118,7 @@ tag lists are constants in `ingest/edgar/extract.py`, pinned by
 | Constant | Role |
 |---|---|
 | `_CASH` | cash and equivalents; the newest label wins, list order breaks a tie; the restricted-cash total is last and the note says when it is used |
-| `_STI`, `_LT_MARKETABLE` | counted investments, read at the cash date; per role the largest, never the sum (the tags restate one another) |
+| `_STI`, `_LT_MARKETABLE` | counted investments, read at the cash date; per role the largest, never the sum (the tags restate one another); the `DebtSecurities` pair per `debt_securities_counted` |
 | `_DEBT_TOTALS` | unsplit debt-securities totals: a check beside their own parts; named, not counted, beside other tags; alone, counted only when the `_COMBINED` line equals cash plus the total |
 | `_NOT_CASH` | generic long-term investments, often stakes in other companies: never cash, named in the note |
 | `_COMBINED` | the combined cash-and-short-term line: a check, never an addend |
@@ -140,7 +140,7 @@ tag lists are constants in `ingest/edgar/extract.py`, pinned by
 - **Operating cash flow** is read under its most current label (`_OCF` or `_OCF_CONTINUING`; on a tie the plain
   total). A derivation subtracts within one tag only.
 - **One quarter of the cited filing.** A year-to-date column minus the same-start prior is a derived quarter: AUTO,
-  stated in the note. Without one, a prior of the same tag starting at most `_YTD_START_SLACK_DAYS` (7) days away (a
+  stated in the note. Without one, a prior of the same tag starting at most `ytd_start_slack_days` (7) days away (a
   52/53-week year) is subtracted, flagged `ytd-derived-across-filings`; else the raw year to date is flagged
   `ytd-raw`, never offered as a quarter. The span must lie within `quarterly_span_min_days` to
   `quarterly_span_max_days` (`burn-span`) and end on the cited period (`burn-off-period`); the cash must be of that
@@ -148,12 +148,12 @@ tag lists are constants in `ingest/edgar/extract.py`, pinned by
   into AUTO.
 - **The filing's own cash** (`_cash_candidate`, `tests/ingest/test_extract_inline_cash.py`): when companyfacts' newest
   cash or operating cash flow predates the cited period (combined filings lag for months), the raw document's
-  undimensioned USD rows at the period end join it. The checks above run unchanged (two quarters behind is
-  `burn-span`); flag `companyfacts-behind`. A FLAG's note names uncounted debt-security tags (NVDA) and a quoted total
-  equal to the cash-equivalents fair value (AMGN).
+  undimensioned USD rows at the period end join it and the checks above run on them: flag `companyfacts-behind`, or
+  AUTO when all pass ([PLATFORM_EXTRACTION](PLATFORM_EXTRACTION.md)). A FLAG's note names a quoted total equal to the
+  cash-equivalents fair value (AMGN).
 - **`possible-one-time`**: a non-routine reconciliation line of at least `one_time_line_fraction` of the operating
   cash use; the note names each such line's tag and figure, and a passage each printed line. Routine working-capital
-  lines (`_ROUTINE_WC`) never trip it: category, not size. Backing it out is a person's call
+  lines (`_ROUTINE_WC`, the aggregate line too) never trip it: category, not size. Backing it out is a person's call
   ([WORKBENCH_SCORING](WORKBENCH_SCORING.md) "The recurring-vs-one-time burn pattern").
 - **Missing inputs** carry no value: `no-companyfacts`, `no-cashflow-column`, `no-cash-instant`. Screens show them as
   data gaps, not warnings (`MISSING_FLAGS` in `frontend/src/components/LocatedPassages.tsx`).
@@ -312,7 +312,7 @@ no untangling and purity is the user's.
 
 | Knob | Owner | Passed by compose? |
 |---|---|---|
-| Extractor dials (spans, one-time fraction, reconcile tolerance, pace, annual ages and floors, `exhibit_scan_max`) | `ExtractorConfig` in `domain/config.py` | no |
+| Extractor dials (spans, one-time fraction, reconcile tolerance, pace, annual ages and floors, `exhibit_scan_max`, the AUTO cases) | `ExtractorConfig` in `domain/config.py` | no |
 | `ALPHADECK_LLM_MODEL`, `_MAX_TOKENS`, `_TIMEOUT_S` (explain); `ALPHADECK_LLM_PURITY_*` (purity estimate) | `domain/settings.py` | no |
 | `ANTHROPIC_API_KEY` (absent: both seams return nothing) | `domain/settings.py` | yes |
 | `ALPHADECK_USER_AGENT` (SEC requires it) | `domain/settings.py` | yes |
@@ -324,8 +324,7 @@ no untangling and purity is the user's.
 - The explain prompt's no-final-figure rule has no structural check; a post-filter for numbers absent from the passage
   is not built.
 - The periodic cover-date bound is the filing date, not the acceptance.
-- `class-outside-eps` has no tolerance: a class near the size of the cover sum's gap to the EPS base, or an unscaled
-  base, reads as outside.
+- An unscaled EPS base reads as a class outside (TEM).
 
 ## Related
 

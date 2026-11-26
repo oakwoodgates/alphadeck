@@ -11,8 +11,11 @@ change: every candidate here was a FLAG and stays one.
   note names every line that trips, by tag and figure, and a passage sits on each as printed, anchored by the line's
   label and figure (given the raw document, on the tagged figure itself).
 - ``ytd-derived-across-filings``: with no earlier year to date of the same start, one of the same tag whose start is
-  at most ``_YTD_START_SLACK_DAYS`` away is subtracted (FUBO's 10-K year starts 2025-09-28, its 10-Qs' 2025-10-01).
+  at most ``ExtractorConfig.ytd_start_slack_days`` away is subtracted (FUBO's 10-K year starts 2025-09-28, its 10-Qs' 2025-10-01).
   A wider start gap (AMSC's mis-tagged 2026-01-01, 90 days off) or another tag (KULR) stays ``ytd-raw``.
+
+The fixture candidates are read with W1-AUTO's A6 dial off (``_W14``): with it on FEIM's aggregate working-capital line
+is routine and only its second line trips (``test_extract_auto_cases.py``).
 """
 
 from __future__ import annotations
@@ -31,6 +34,8 @@ from ingest.edgar.converts import clean_filing_text
 from platform_values.machine import plan
 
 _FX = Path(__file__).resolve().parent.parent / "fixtures" / "sec_extractor" / "burn_flags"
+# W1-4's behaviour: the aggregate working-capital line can trip ``possible-one-time`` (W1-AUTO's A6 off)
+_W14 = ExtractorConfig(operating_capital_routine=False)
 
 # (cik, accession, primary document, filed, period of report, form) of each cited filing (README in the fixture folder)
 FILINGS: dict[str, tuple[int, str, str, str, str, str]] = {
@@ -113,6 +118,7 @@ def _pure(ticker: str, **kw: Any) -> ExtractedFact:
         tenq_date=period,
         tenk_date=period,
         values_form=FILINGS[ticker][5],
+        cfg=_W14,
         **kw,
     )
     return next(f for f in facts if f.fact_type == "cash_burn")

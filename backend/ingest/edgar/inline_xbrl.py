@@ -69,6 +69,12 @@ _SET_ASIDE = (
 # of one class match even when the filer names them differently (GOOGL: goog:CapitalClassCMember on the cover,
 # us-gaap:CommonClassCMember in the EPS table).
 _CLASS_KEY_RE = re.compile(r"Class([A-Z]\d*)(?![a-z])")
+# Why a cover count of another registrant of a combined filing is set aside (EXC's six subsidiaries): the parent's own
+# count beside them is still a plain count.
+OTHER_REGISTRANT = "another registrant of this combined filing (LegalEntityAxis)"
+# The class member that names common stock without a class: beside class members it is their total under another
+# name (KNSA) or a class of its own (REGN, SDGR), which the tags alone cannot tell.
+_GENERIC_COMMON = "CommonStockMember"
 
 
 @dataclass(frozen=True)
@@ -120,17 +126,31 @@ class CoverReading:
     their sum, or ``total`` when the filing tags a count equal to the sum of the others beside them (KNSA's
     ``CommonStockMember``: the total, never added to its parts). ``set_aside`` names every other count at the instant
     and why it is not summed: an ADR line, a preferred class, warrants, another registrant of a combined filing
-    (``dei:LegalEntityAxis``) or a context on another axis."""
+    (``dei:LegalEntityAxis``) or a context on another axis. ``instants`` are every as-of instant the document tags a
+    usable cover count at (one, on a plain cover)."""
 
     asof: date
     counted: tuple[CoverCount, ...]
     figure: float
     total: CoverCount | None = None
     set_aside: tuple[tuple[CoverCount, str], ...] = ()
+    instants: tuple[date, ...] = ()
 
     @property
     def multi_class(self) -> bool:
         return len(self.counted) >= 2
+
+    @property
+    def plain(self) -> bool:
+        """Every count is a plain class of common stock: no total tagged beside its parts, nothing set aside but
+        another registrant's count (``OTHER_REGISTRANT``), and no class-less common-stock member beside class ones.
+        """
+        if self.total is not None or any(why != OTHER_REGISTRANT for _, why in self.set_aside):
+            return False
+        return not (
+            self.multi_class
+            and any(c.member and _local(c.member) == _GENERIC_COMMON for c in self.counted)
+        )
 
 
 @dataclass(frozen=True)
@@ -317,11 +337,7 @@ def read_cover(raw: str, contexts: dict[str, Context] | None = None) -> CoverRea
         count = CoverCount(member, f.value, f.shown, f.offset)
         if not ok:
             axes = {a for a, _ in f.context.members}
-            why = (
-                "another registrant of this combined filing (LegalEntityAxis)"
-                if _ENTITY_AXIS in axes
-                else "a context on another axis"
-            )
+            why = OTHER_REGISTRANT if _ENTITY_AXIS in axes else "a context on another axis"
             aside.append((CoverCount(_entity_member(f.context), f.value, f.shown, f.offset), why))
             continue
         why = set_aside_reason(member) if member else None
@@ -335,13 +351,16 @@ def read_cover(raw: str, contexts: dict[str, Context] | None = None) -> CoverRea
             counted.append(count)
     if not counted:
         return None
+    instants = tuple(sorted({f.context.instant for f in usable}))  # type: ignore[type-var]
     total = _total_beside(counted)
     if total is not None:
         parts = tuple(c for c in counted if c is not total)
-        return CoverReading(asof, parts, total.value, total, tuple(aside))
+        return CoverReading(asof, parts, total.value, total, tuple(aside), instants)
     if len(counted) > 1 and any(c.member is None for c in counted):
         return None  # an undimensioned count beside class counts it does not total: ambiguous
-    return CoverReading(asof, tuple(counted), sum(c.value for c in counted), None, tuple(aside))
+    return CoverReading(
+        asof, tuple(counted), sum(c.value for c in counted), None, tuple(aside), instants
+    )
 
 
 def _entity_member(c: Context) -> str | None:
@@ -476,6 +495,7 @@ def classes_outside_eps(cover: CoverReading, eps: EpsBase | None) -> OutsideEps 
 __all__ = [
     "COVER_CONCEPT",
     "EPS_CONCEPT",
+    "OTHER_REGISTRANT",
     "Context",
     "CoverCount",
     "CoverReading",
