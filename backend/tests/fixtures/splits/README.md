@@ -21,6 +21,15 @@ hand-written or edited; the only change is TRIMMING, and the source's spelling i
   cached pages in the dev container), that pair with the filings added from that run (below).
 - `polygon/rows_2026-10-22.json` — S4: the 6 real rows for GAME / NXL / MDCX / VRME / AXG / ENHA from the
   nightly-shaped pull of 2026-10-22 (`execution_date.gte=2026-07-24`), `results` filtered to those tickers.
+- `polygon/v1_2026-11-25.json` — W6-1: Massive.com
+  `/stocks/v1/splits?execution_date.gte=2024-10-01&limit=5000&sort=execution_date.asc` as the 2026-11-25 probe
+  pulled it (`api.massive.com`, one page, 3,521 rows, no `next_url`; the probe cached it parsed, so the rows are
+  re-serialized, keys and values as served), `results` filtered to 42 rows: the 32 Massive.com ids of
+  `page{1,2,3}.json` (the same rows on the new endpoint), GAME and NXL (S4), and the label cases: SCCO 2026-08-11
+  and 2026-11-03, MTH 2025-01-03 and GPUS 2024-12-13 (`stock_dividend`), HON 2025-10-30 and SNDK 2026-11-20
+  (`forward_split`), GNS 2026-11-20 (`reverse_split`), JZ 2026-12-24 (one of the 97 rows with no
+  `historical_adjustment_factor`). No row carries an unknown label; `tests/ingest/test_polygon_splits.py`
+  synthesizes one from HON's row, marked there.
 - `tape_2026-10-22.json` — S4: EVERY stored version (close, volume, `recorded_at`) of the price bars around the
   GAME / NXL / VRME / MDCX / FDCT splits, read from a read-only copy of prod on 2026-10-22, untouched — the
   tape-confirmation tests read each bar's FIRST-served version from it, exactly as the detector does.

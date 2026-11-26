@@ -1789,6 +1789,8 @@ export type AdminUnpriceableRowOut = components["schemas"]["AdminUnpriceableRowO
 export type AdminPriceSymbolChangeOut = components["schemas"]["AdminPriceSymbolChangeOut"];
 export type AdminPriceFeedAckOut = components["schemas"]["AdminPriceFeedAckOut"];
 export type AdminProbeCandidateOut = components["schemas"]["AdminProbeCandidateOut"];
+export type AdminDeregistrationOut = components["schemas"]["AdminDeregistrationOut"];
+export type AdminDeregistrationEventOut = components["schemas"]["AdminDeregistrationEventOut"];
 
 function useAdminRepair<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
   const qc = useQueryClient();
@@ -1803,12 +1805,15 @@ function useAdminRepair<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
   });
 }
 
-// ADOPT a renamed name's probed successor (sets price_symbol, basis operator:adopt; Undo restores it).
+// ADOPT a renamed name's probed successor, or a never-priced name's probed candidate (sets price_symbol, basis
+// operator:adopt; Undo restores it). `confirmClass` (W4-3) = the steward checked the price basis of a candidate whose
+// class mark differs from the member's: sent as `confirm_class: true`, and only then, so every other Adopt keeps the
+// body it always sent.
 export function useAdoptPriceSymbol() {
-  return useAdminRepair(async (vars: { securityId: string; symbol: string }) => {
+  return useAdminRepair(async (vars: { securityId: string; symbol: string; confirmClass?: boolean }) => {
     const { data, error } = await api.POST("/admin/price-feed/{security_id}/adopt", {
       params: { path: { security_id: vars.securityId } },
-      body: { symbol: vars.symbol },
+      body: vars.confirmClass ? { symbol: vars.symbol, confirm_class: true } : { symbol: vars.symbol },
     });
     if (error) throw error;
     return data;
@@ -2487,6 +2492,10 @@ export function useClosedFlagPages(securityId: string, extraPages: number, limit
 // refreshes this read and the status (its "N splits need review" count).
 export type AdminSplitListOut = components["schemas"]["AdminSplitListOut"];
 export type AdminSplitListEntryOut = components["schemas"]["AdminSplitListEntryOut"];
+// D3 — the steward's own cited values for a needs-review split (the write's body), and the stored tape's step at a
+// first session beside the entered factor (the read the form shows)
+export type AdminSplitConfirmValuesIn = components["schemas"]["AdminSplitConfirmValuesIn"];
+export type AdminSplitTapeStepOut = components["schemas"]["AdminSplitTapeStepOut"];
 // S5 — a split-shaped price jump the split-night hold released that no source listed (the operator's
 // "is this real?"); read with the list, no write of its own
 export type AdminSplitJumpOut = components["schemas"]["AdminSplitJumpOut"];
@@ -2560,6 +2569,49 @@ export function useConfirmSplit() {
     });
     if (error) throw error;
     return data;
+  });
+}
+
+// CONFIRM a split that needs review with the steward's OWN cited values (D3): old -> new shares, the first session at
+// the new price and the https document that states them. The server re-reads the stored tape's step at that
+// session and answers 409 outside the tolerance (or with no bar to read) unless `override_tape`; its sentence is
+// the error the form shows. A write only on the steward's click, never retried; undone by Revoke.
+export function useConfirmSplitValues() {
+  return useSplitAction(async (vars: { versionId: string; body: AdminSplitConfirmValuesIn }) => {
+    const { data, error } = await api.POST("/admin/splits/{version_id}/confirm-values", {
+      params: { path: { version_id: vars.versionId } },
+      body: vars.body,
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// The stored tape's STEP at a first session (each bar as first served), beside the factor of the ratio entered
+// (both sides or neither) — the same check confirm-values makes, read while the steward types. A read: never
+// stored, fired only once a first session is entered (`args` null = the form has none yet).
+export function useSplitTapeStep(
+  versionId: string,
+  args: { firstSession: string; ratioFrom?: string; ratioTo?: string } | null,
+) {
+  return useQuery({
+    queryKey: ["admin-split-tape-step", versionId, args] as const,
+    enabled: args !== null,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/splits/{version_id}/tape-step", {
+        params: {
+          path: { version_id: versionId },
+          query: {
+            first_session: args?.firstSession ?? "",
+            ratio_from: args?.ratioFrom,
+            ratio_to: args?.ratioTo,
+          },
+        },
+      });
+      if (error) throw error;
+      return data;
+    },
   });
 }
 

@@ -18,7 +18,7 @@ this before you add a vendor call, a fetch client or a cache. What each SEC fili
 | Prices: source seam, Yahoo fetch, request gate | `ingest/prices/source.py`, `ingest/prices/eod_loader.py`, `ingest/http.py` |
 | Company list, fund tickers, successor CIK | `securities/sec_tickers.py`, `securities/master_refresh.py`, `pipeline/populate_master.py`, `securities/fund_tickers.py`, `pipeline/successor_cik.py` |
 | USASpending (DOE awards) | `ingest/doe/` |
-| Massive.com | `ingest/funds/polygon.py`, `ingest/polygon_splits.py` |
+| Massive.com | `ingest/funds/polygon.py`, `ingest/polygon_splits.py`, `ingest/massive_bars.py`, `ingest/massive_reference.py` |
 
 ## Sources
 
@@ -32,7 +32,7 @@ this before you add a vendor call, a fetch client or a cache. What each SEC fili
 | SEC ticker files | `company_tickers_exchange.json` (companies), `company_tickers_mf.json` (funds) | The company list, fund resolution, the successor-CIK scan |
 | SEC browse-edgar feed | N-PORT filings of one fund series | ETF holdings |
 | Yahoo chart API | End-of-day bars, symbol search | The price leg, benchmarks, the rename probe |
-| Massive.com | Fund shares outstanding by date; the market's split reference | ETF net flow, the split list |
+| Massive.com | Fund shares by date; the market's splits; raw bars; ticker overviews | ETF net flow, the split list, the tape cross-check, stale-row evidence |
 | Issuer and aggregator fund pages | Fund shares outstanding (fallback) | ETF net flow |
 | Nasdaq Trader symbol directory | Listed ETF symbols | The fund launch radar (`radar/funds.py`) |
 | OpenFIGI | Ticker to identifier mapping | `securities/master.resolve` |
@@ -139,7 +139,9 @@ rule; every leg that stores an acceptance, and both repairs, call it.
 
 The live source is Yahoo's chart API: free, no key, unofficial and uncontracted. The ingest depends on the
 `PriceSource` seam (`ingest/prices/source.py`), so a new vendor is a new adapter; `YahooPriceSource` is the
-default and `StooqPriceSource` a fallback whose live endpoint is now gated. There is no Massive.com price client.
+default and `StooqPriceSource` a fallback whose live endpoint is now gated. Massive.com's raw bars are a nightly
+cross-check ([FEED_MONITORS](FEED_MONITORS.md)) and fill a session Yahoo served no close for around a split
+([INGEST](INGEST.md)).
 
 - The stored close is Yahoo's `quote.close`: split-adjusted, not dividend-adjusted. Yahoo re-bases a history on
   a split, but not always stably, so the price leg puts every bar on the scale of Alpha Deck's own split list
@@ -154,15 +156,14 @@ default and `StooqPriceSource` a fallback whose live endpoint is now gated. Ther
 
 **The Yahoo gate.** Every Yahoo request passes one process-wide token bucket, `ingest.http.yahoo_limiter`, at
 `yahoo_rate_per_sec`. A 429 or 503 is retried after a jittered backoff that pushes the gate back for every
-puller, and each refusal is counted per host on the pass meter (`http_429:<host>`). It is process-local:
-Yahoo is not a fair-access requirement, and the nightly is the one heavy puller.
+puller, and each refusal is counted per host on the pass meter (`http_429:<host>`). It is process-local: the
+nightly is the one heavy puller.
 
 **When the symbol drifts.** The vendor may price a name under a symbol other than its SEC ticker (an OTC suffix,
 a new ticker after a rename); `security_master.price_symbol` (migration 0032) overrides the ticker for the price
 pull only. A renamed symbol's old series simply ends, which looks like a quiet market until the stale-tape
 monitor sees it ([FEED_MONITORS](FEED_MONITORS.md)). Renames are not followed automatically beyond the company
-list's pin and splice (below): a wrong guess files another company's tape under the member, which is worse than
-a visible gap.
+list's pin and splice (below): a wrong guess is worse than a visible gap.
 
 The nightly pass and the onboarding job pull with `force_refresh`; a steward can pull one name
 (`POST /workbench/securities/{security_id}/ingest-prices`, cache-first). The write path is in
@@ -223,17 +224,18 @@ no announcement date. `UsaSpendingClient` is cache-first like the EDGAR client, 
 
 ## Massive.com
 
-Read with `MASSIVE_API_KEY`; the key's absence is the off switch, and nothing keyless is sent. The adapters use
-the vendor's legacy host (`Settings.polygon_base`), which is why their files keep the old name.
+Read with `MASSIVE_API_KEY`; without it nothing is sent. The adapters use the vendor's legacy host
+(`Settings.polygon_base`), as older file names do.
 
-- **Fund shares outstanding by date** (`ingest/funds/polygon.py`): the primary source for `fact_fund_shares`
-  when keyed, with real history for `pipeline.backfill_fund_shares`. A sample is dated by the queried date; a
-  null count is a miss, never a zero. The fallback chain is the issuer's fund page, then an aggregator
-  (`ingest/funds/source.py`), each dated by the page's own stated as-of date.
-- **The split reference** (`ingest/polygon_splits.py`): every split in the market from a date, a paged query
-  that carries no ticker; the second source the split list confirms against ([FILINGS](FILINGS.md#split-filings)).
-- **Pacing.** The free tier allows about five requests a minute; both adapters share one limiter and wait out
-  a 429. URLs are cached without the key, and raised messages are scrubbed of it.
+- **Fund shares outstanding by date** (`ingest/funds/polygon.py`): the primary `fact_fund_shares` source
+  when keyed, with real history for `pipeline.backfill_fund_shares`. A sample takes the queried date; a
+  null count is a miss, never a zero. The fallbacks are the issuer's fund page, then an aggregator
+  (`ingest/funds/source.py`), each dated by the page's stated as-of date.
+- **The split reference** (`ingest/polygon_splits.py`): every split in the market from a date, one
+  `/stocks/v1/splits` query, no ticker; the second source the split list confirms against
+  ([FILINGS](FILINGS.md#split-filings)). Massive.com's `adjustment_type` label is stored as evidence, not content.
+- **Pacing.** The free tier allows about five requests a minute; every adapter shares one limiter and waits out
+  a 429. No cached URL or raised message carries the key.
 
 ## Who can do what
 
@@ -254,6 +256,7 @@ the vendor's legacy host (`Settings.polygon_base`), which is why their files kee
 | `ALPHADECK_SEC_GLOBAL_RATE_PER_SEC` | `domain/settings.py` | Yes; every process must agree |
 | `ALPHADECK_YAHOO_RATE_PER_SEC` | `domain/settings.py` | Yes |
 | `MASSIVE_API_KEY` | `domain/settings.py` (`polygon_api_key`) | Yes |
+| `ALPHADECK_POLYGON_SPLITS_PATH` (`/v3/reference/splits` = fallback) | `domain/settings.py` | Yes |
 | `ALPHADECK_EDGAR_RATE_PER_SEC`, `ALPHADECK_USASPENDING_RATE_PER_SEC`, `ALPHADECK_HTTP_TIMEOUT_S` | `domain/settings.py` | No |
 | `ALPHADECK_PRICE_SETTLE_TIME`, `OPENFIGI_API_KEY`, vendor base URLs | `domain/settings.py` | No |
 

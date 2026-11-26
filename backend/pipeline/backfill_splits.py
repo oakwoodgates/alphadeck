@@ -26,6 +26,11 @@ every non-archived thesis):
    company's periodic reports, ADR registrations, prospectuses and information statements filed
    ``[first session - 60, + 120]`` days — a periodic report from its primary document alone — each through the
    restatement screen; one that agrees exactly confirms it by the same rule, otherwise the note names them.
+   A forward split under x1.5 that Massive.com alone lists, with no SEC filing in its window stating it or
+   mentioning a split, is SET ASIDE as a distribution (D2, ``distribution_cap``: the settings
+   ``split_distribution_*``) — after the wide forms had their look, which can still confirm it. So is one
+   Massive.com labels a stock dividend whose filing mentions a split without a ratio (W6-2,
+   ``distribution_label_overrides_abstain``).
 4. **Plan** against the stored list: a split not on it yet is APPENDED; one whose newest version the
    backfill wrote and whose content is unchanged is left alone (``unchanged``); one whose evidence changed
    gets a new backfill version; one whose newest version the OPERATOR wrote is never touched
@@ -75,12 +80,14 @@ from domain.splits import (
     AUTO_VIA_LABELS,
     SOURCE_POLYGON,
     STATUS_NEEDS_REVIEW,
+    STATUS_REJECTED,
     STATUSES,
     PolygonEvidence,
     SecEvidence,
     SplitDecision,
     decide,
     ratio_label,
+    related,
     same_ratio,
 )
 from ingest import CacheMiss
@@ -160,6 +167,28 @@ WIDE_WINDOW_AFTER_DAYS = 120
 PRIMARY_ONLY_FORMS = frozenset(
     {"10-Q", "10-Q/A", "10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"}
 )
+
+
+def distribution_cap() -> Decimal | None:
+    """D2 (2026-11-25): the bound under which ``domain.splits.decide`` sets a forward split Massive.com alone lists
+    aside as a distribution (the setting ``split_distribution_max_factor``), or ``None`` when
+    ``split_distribution_auto_set_aside`` is off. Read once per run by its edges — this backfill, the newcomer fill
+    (``pipeline/split_history.py``), the nightly detector — and passed down: the pure rule reads no settings.
+    """
+    s = get_settings()
+    return (
+        Decimal(str(s.split_distribution_max_factor))
+        if s.split_distribution_auto_set_aside
+        else None
+    )
+
+
+def distribution_label_overrides_abstain() -> bool:
+    """W6-2 (decision W6-a): whether Massive.com's ``stock_dividend`` label settles a distribution whose filing
+    mentions a split but states no ratio (the setting ``split_distribution_label_overrides_abstain``). Read beside
+    ``distribution_cap`` by the same three edges and passed down with it."""
+    return get_settings().split_distribution_label_overrides_abstain
+
 
 # How each filing is read (``screen_of``): the catch-all 8-K screen (8.01 / 7.01 only, 2026-10-23), the
 # RESTATEMENT screen (6-Ks, charter 8-Ks, an 8-K whose items are not resolved, every wide form — 2026-10-24), or
@@ -245,6 +274,9 @@ class BackfillResult:
     polygon_rows: int = 0
     polygon_pages: int = 0
     polygon_skipped: int = 0
+    polygon_unlabeled: int = (
+        0  # W6-1: rows with no known Massive.com label (kept; 0 on the v3 fallback)
+    )
     polygon_matched: int = 0
     planned: list[PlannedSplit] = field(default_factory=list)
     stored_not_seen: int = 0
@@ -716,14 +748,20 @@ def with_wide(
     *,
     asof: date,
 ) -> SplitDecision:
-    """THE CONFIRMATION SEARCH (pure): a needs-review decision re-decided with the wide forms added — kept when
-    a wide form now agrees exactly (confirmed / announced by S1's own ``decide``); otherwise the decision its
-    own window gave, with the wide forms' readings named in the note."""
-    if d.status != STATUS_NEEDS_REVIEW or not (wide_read or wide_unread):
+    """THE CONFIRMATION SEARCH (pure): a needs-review decision — or one set aside as a distribution (D2) —
+    re-decided with the wide forms added — kept when a wide form now agrees exactly (confirmed / announced by S1's
+    own ``decide``); otherwise the decision its own window gave, with the wide forms' readings named in the note.
+    A set-aside whose wide forms state its ratio or a date that agrees (``domain.splits.related``) without
+    agreeing exactly goes back to review instead: a filing states it, so it is not Massive.com's alone.
+    """
+    if d.status not in (STATUS_NEEDS_REVIEW, STATUS_REJECTED) or not (wide_read or wide_unread):
         return d
     settled = decide(poly, read + wide_read, asof=asof, unread=unread)
     if settled.status != STATUS_NEEDS_REVIEW:
         return settled
+    if d.status == STATUS_REJECTED and any(related(s, poly) for s in wide_read):
+        # the window's own verdict without the set-aside: needs review
+        d = decide(poly, read, asof=asof, unread=unread)
     return replace(d, note=d.note + _wide_note(wide_read, wide_unread))
 
 
@@ -734,19 +772,29 @@ def decide_polygon_group(
     group: list[PolygonEvidence],
     *,
     asof: date,
+    distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
 ) -> GroupDecision:
     """S1's verdict for one member's Massive.com rows on one date: every SEC filing in the row's window read,
-    ``domain.splits.decide``, and the notes for a missing index / CIK and for Massive.com listing different ratios
+    ``domain.splits.decide`` (with D2's ``distribution_max_factor``, ``distribution_cap``, and W6-2's
+    ``label_overrides_abstain``), and the notes for a missing index / CIK and for Massive.com listing different ratios
     on the date. When the window holds no agreeing filing, the TARGETED WIDE-FORM READER looks once more
-    (``WIDE_FORMS`` filed in ``wide_window``): a wide form that agrees exactly settles it by the same rule;
-    otherwise the decision stands and its note names what the wide forms said."""
+    (``WIDE_FORMS`` filed in ``wide_window``): a wide form that agrees exactly settles it by the same rule; otherwise
+    the decision stands and its note names what the wide forms said (``with_wide``)."""
     poly = group[0]
     lo, hi = _window(poly.execution_date)
     read, unread = reader.read(m, reader.refs(conn, m, lo, hi))
-    d = decide(poly, read, asof=asof, unread=unread)
+    d = decide(
+        poly,
+        read,
+        asof=asof,
+        unread=unread,
+        distribution_max_factor=distribution_max_factor,
+        label_overrides_abstain=label_overrides_abstain,
+    )
     wide_read: list[SecEvidence] = []
     wide_unread = 0
-    if d.status == STATUS_NEEDS_REVIEW and m.cik:
+    if d.status in (STATUS_NEEDS_REVIEW, STATUS_REJECTED) and m.cik:
         wide = reader.wide_refs(m, *wide_window(poly.execution_date))
         if wide:
             wide_read, wide_unread = reader.read(m, wide)
@@ -826,6 +874,8 @@ def plan_members(
     matched: dict[Member, list[PolygonEvidence]],
     *,
     asof: date,
+    distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
 ) -> list[PlannedSplit]:
     """S1's decision for every Massive.com date of every member in ``matched`` (``decide_polygon_group``), each a
     ``PlannedSplit`` still to be planned against the stored list (``plan_against_stored``). Reads only.
@@ -835,7 +885,15 @@ def plan_members(
         if m.cik:
             reader.index(m)
         for group in _group(matched[m]):
-            g = decide_polygon_group(conn, reader, m, group, asof=asof)
+            g = decide_polygon_group(
+                conn,
+                reader,
+                m,
+                group,
+                asof=asof,
+                distribution_max_factor=distribution_max_factor,
+                label_overrides_abstain=label_overrides_abstain,
+            )
             planned.append(
                 PlannedSplit(
                     member=m,
@@ -941,12 +999,20 @@ def backfill_splits(
         pull.pages,
         pull.skipped,
     )
+    result.polygon_unlabeled = pull.unlabeled
     matched = match_polygon(pull.rows, members)
     result.polygon_matched = sum(len(v) for v in matched.values())
 
     fetches_before = edgar.live_fetches
     reader = SecReader(edgar)
-    planned = plan_members(conn, reader, matched, asof=asof)
+    planned = plan_members(
+        conn,
+        reader,
+        matched,
+        asof=asof,
+        distribution_max_factor=distribution_cap(),
+        label_overrides_abstain=distribution_label_overrides_abstain(),
+    )
     result.submissions_failed = dict(reader.submissions_failed)
     result.sec_live_fetches = edgar.live_fetches - fetches_before
 
@@ -1032,9 +1098,10 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
             f"session {d.effective_date.isoformat()}  {d.status.upper()}{via}  -> {verb}\n"
         )
         poly = d.polygon
+        label = f" ({poly.adjustment_type})" if poly.adjustment_type else ""
         w(
             f"      Massive.com {poly.ticker} {poly.id[:14]}…: {poly.split_from} -> {poly.split_to} on "
-            f"{poly.execution_date.isoformat()}\n"
+            f"{poly.execution_date.isoformat()}{label}\n"
         )
         s = d.sec
         if s is not None:
@@ -1060,7 +1127,9 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
     st = result.by_status()
     w(
         f"MASSIVE.COM: {result.polygon_rows} rows in {result.polygon_pages} page(s) since "
-        f"{result.since.isoformat()} ({result.polygon_skipped} unreadable) · {result.polygon_matched} on the "
+        f"{result.since.isoformat()} ({result.polygon_skipped} unreadable"
+        + (f", {result.polygon_unlabeled} unlabeled" if result.polygon_unlabeled else "")
+        + f") · {result.polygon_matched} on the "
         f"{result.members} union member(s) -> {len(result.planned)} split(s)\n"
     )
     w(

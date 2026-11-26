@@ -152,6 +152,23 @@ def _admin_splits(api: FakeApi, query: dict[str, str]):
     return _admin(api, query, lambda: api.splits if api.splits is not None else afx.splits())
 
 
+def _admin_split_tape(api: FakeApi, query: dict[str, str], version_id: str):
+    """``GET /admin/splits/{version_id}/tape``: the synthetic window around the listed version's key date (404 for
+    a version the list does not hold); ``api.tape_status`` makes every tape read answer that status instead.
+    """
+    if not api.steward:
+        return 403, {"detail": "stewards only"}
+    if api.tape_status is not None:
+        return api.tape_status, {"detail": "the tape read failed"}
+    body = api.splits if api.splits is not None else afx.splits()
+    listed = [
+        e for b in afx.SPLIT_BUCKETS for e in body.get(b) or [] if e["version_id"] == version_id
+    ]
+    if not listed:
+        return 404, {"detail": f"no split version {version_id}"}
+    return 200, afx.split_tape(version_id, query.get("around", listed[0]["key_date"]))
+
+
 def _admin_status(api: FakeApi, query: dict[str, str]):
     return _admin(api, query, lambda: api.status if api.status is not None else afx.status())
 
@@ -197,6 +214,7 @@ ROUTES: tuple[tuple[str, str | re.Pattern[str], Callable[..., tuple[int, object]
     ("GET", "/clock", _clock),
     ("GET", "/auth/me", _auth_me),
     ("GET", "/admin/splits", _admin_splits),
+    ("GET", re.compile(r"^/admin/splits/(?P<version_id>[^/]+)/tape$"), _admin_split_tape),
     ("GET", "/admin/status", _admin_status),
     ("GET", "/admin/platform-values/queue", _admin_queue),
     ("GET", re.compile(r"^/admin/platform-values/(?P<security_id>[^/]+)$"), _admin_company),
@@ -236,6 +254,7 @@ class FakeApi:
         company: dict | None = None,
         holds: dict | None = None,
         admin_onboarding: dict | None = None,
+        tape_status: int | None = None,
     ) -> None:
         # GET /auth/me answers this role (None = 404): what a stdio server learns its scopes from
         self.me_role = me_role
@@ -243,6 +262,8 @@ class FakeApi:
         self.steward = steward
         self.splits = splits  # the GET /admin/splits payload (default: afx.splits())
         self.status = status  # the GET /admin/status payload (default: afx.status())
+        # every GET /admin/splits/{version_id}/tape answers this status (None: the synthetic window)
+        self.tape_status = tape_status
         # the whole Shared facts queue (the fake pages and filters it like the route; default: afx.queue_items()),
         # the company page of TK01 (afx.company()), the held rows (afx.holds()) and the shared onboarding queue
         # (the card's own fixture, the same wire shape)

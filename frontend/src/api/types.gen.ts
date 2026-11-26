@@ -1804,13 +1804,19 @@ export interface paths {
         put?: never;
         /**
          * Adopt Successor
-         * @description ADOPT a renamed name's successor symbol — the operator's ratification of the nightly splice probe.
-         *     The symbol must be one EDGAR lists for this name on the newest pass that looked (verified or not: the
-         *     probe recommends, the operator decides). Sets ``price_symbol`` through the existing writer (basis
-         *     ``operator:adopt``) and refreshes the display name from EDGAR's current entity name when it differs;
-         *     the change row records the prior values, so ``POST /admin/price-feed/changes/{id}/undo`` restores them
-         *     exactly. The next nightly pass re-pulls the tape under the new symbol. **404** unknown security, **409**
-         *     not a listed candidate / no rename recommendation / nothing to change, **422** a malformed symbol.
+         * @description ADOPT a probed symbol — the operator's ratification of the nightly probe. A RENAMED name: the symbol
+         *     must be one EDGAR lists for it on the newest pass that looked (verified or not: the probe recommends,
+         *     the operator decides); the display name is refreshed from EDGAR's current entity name when it differs.
+         *     A NEVER-PRICED name (W4-1): the symbol must be one of the other symbols EDGAR lists for it that the probe
+         *     fetched with bars and no error; the name is not touched. When the candidate's listing class is known to
+         *     differ from the member's (the foreign ordinary line for an ADR member), **409** unless ``confirm_class``
+         *     is true and the setting ``price_feed_cross_class_adopt`` is ``confirm`` (``refuse``: always 409). Sets
+         *     ``price_symbol`` through the existing writer (basis ``operator:adopt``); the change row records the
+         *     prior values and the probe (for a never-priced name both class marks and the confirm), so ``POST
+         *     /admin/price-feed/changes/{id}/undo`` restores them exactly. The next nightly pass re-pulls the tape
+         *     under the new symbol. **404** unknown security, **409** not a listed or probed candidate / no rename or
+         *     never-priced row / a cross-class symbol without the confirm / nothing to change, **422** a malformed
+         *     symbol.
          */
         post: operations["adopt_successor_admin_price_feed__security_id__adopt_post"];
         delete?: never;
@@ -2194,9 +2200,10 @@ export interface paths {
          * List Holds
          * @description Every held insider row with its evidence, bucketed for the panel: owed your decision (loud); placed by
          *     rule, corrected by the filer, decided, dismissed and held Form 4/A rows (quiet). Each row carries the date
-         *     the filing wrote, its period of report and signature date, the suggested date and whether it agrees with
-         *     the filing, the filing's market date, why the rule did not place an owed row, and its standing decision;
-         *     the response names each bucket in the backend's words. Read-only.
+         *     the filing wrote, its period of report and signature date, the suggested date, where the filing writes it
+         *     and whether it agrees with the filing (or, withheld, the filing's own date window), its copies under the
+         *     issuer's other securities, the filing's market date, why the rule did not place an owed row, and its standing
+         *     decision; the response names each bucket in the backend's words. Read-only.
          */
         get: operations["list_holds_admin_insider_holds_get"];
         put?: never;
@@ -2220,10 +2227,11 @@ export interface paths {
          * Approve Hold
          * @description RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from
          *     now on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date — only a
-         *     suggestion that agrees with the filing's period of report; a weak one must be sent as the date. Undo
+         *     suggestion that agrees with the filing; one that does not must be sent as the date. Undo
          *     with ``POST /admin/insider-holds/decisions/{id}/revoke``. **404** unknown held row, **409** a decision
-         *     already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion,
-         *     no date and a suggestion that does not agree with the filing, a date that fails the year rule, or one
+         *     already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion (a
+         *     withheld one: the filing's window is in the message), no date and a suggestion that does not agree with the
+         *     filing, a date that fails the year rule, or one
          *     after the filing's market date (or none is known).
          */
         post: operations["approve_hold_admin_insider_holds__hold_id__approve_post"];
@@ -2318,6 +2326,78 @@ export interface paths {
          *     date.
          */
         post: operations["confirm_split_admin_splits__version_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/{version_id}/tape-step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Split Tape Step
+         * @description The stored tape's STEP at ``first_session`` for the split ``version_id`` names, each bar as first served,
+         *     beside the factor ``ratio_from`` -> ``ratio_to`` the steward entered (both or neither): what ``POST
+         *     .../confirm-values`` checks. **404** unknown version, **422** one side of the ratio only. Read-only.
+         */
+        get: operations["split_tape_step_admin_splits__version_id__tape_step_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/{version_id}/tape": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Split Tape Window
+         * @description The stored closes and volumes around the split ``version_id`` names (W5-1): ``sessions`` stored sessions
+         *     each side of ``around`` (default the split's ``key_date``), each bar as first served beside its newest close,
+         *     and the step at ``around`` as first served. **404** unknown version, **422** ``sessions`` outside 1-10 or a
+         *     bad date. Read-only.
+         */
+        get: operations["split_tape_window_admin_splits__version_id__tape_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/{version_id}/confirm-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Split Values
+         * @description CONFIRM a split that needs review with the steward's OWN cited values (decision D3): ``ratio_from`` ->
+         *     ``ratio_to``, ``first_session`` and the ``cited_url`` of the document that states them become the list's
+         *     (``value_source`` ``steward``; a first session still ahead lands as ``announced``). The server reads the stored
+         *     tape's step at ``first_session`` as first served and refuses a factor outside the tape tolerance, or a session
+         *     with no bar, unless ``override_tape`` (stored as ``tape_override``). Undo with ``POST
+         *     /admin/splits/{version_id}/revoke``. **404** unknown version, **409** not the split's newest version / not
+         *     awaiting review / another split is listed on that date / the tape does not support the values, **422** a bad
+         *     ratio, date or URL.
+         */
+        post: operations["confirm_split_values_admin_splits__version_id__confirm_values_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2425,8 +2505,8 @@ export interface paths {
         /**
          * Restore Split
          * @description RESTORE a rejected or revoked split to exactly the state before (a rejected split back to review, a
-         *     revoked one back to confirmed). **404** unknown version, **409** not the newest version / not set
-         *     aside.
+         *     revoked one back to confirmed; one the system set aside as a distribution back to review). **404** unknown
+         *     version, **409** not the newest version / not set aside.
          */
         post: operations["restore_split_admin_splits__version_id__restore_post"];
         delete?: never;
@@ -4387,6 +4467,61 @@ export interface components {
             alarms: string[];
         };
         /**
+         * AdminDeregistrationEventOut
+         * @description One 8-K-family filing filed in the 45 days up to a Form 15 (W4-2): its form, FILING date and
+         *     accession, the evidence items it carries (1.03 / 2.01 / 3.03 / 5.01; ``[]`` for an 8-K15D5 carrying none)
+         *     and ``item_titles`` — SEC's own titles for them, in order (never a word read from the filing).
+         *     ``filing_url`` = the filing's EDGAR index.
+         */
+        AdminDeregistrationEventOut: {
+            /** Form */
+            form: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Accession */
+            accession: string;
+            /**
+             * Items
+             * @default []
+             */
+            items: string[];
+            /**
+             * Item Titles
+             * @default []
+             */
+            item_titles: string[];
+            /** Filing Url */
+            filing_url?: string | null;
+        };
+        /**
+         * AdminDeregistrationOut
+         * @description A never-priced name's DEREGISTRATION evidence (W4-2): the company's newest Form 15 (15-12B / 15-12G /
+         *     15-15D or a 15F variant: its form, FILING date, accession and EDGAR index link) and the 8-K events filed
+         *     before it (``events``, newest first). Set only when EDGAR lists no symbol for the company. Evidence for
+         *     the steward's removal in the basket editor; nothing is removed or silenced by it.
+         */
+        AdminDeregistrationOut: {
+            /** Form */
+            form: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Accession */
+            accession: string;
+            /** Filing Url */
+            filing_url?: string | null;
+            /**
+             * Events
+             * @default []
+             */
+            events: components["schemas"]["AdminDeregistrationEventOut"][];
+        };
+        /**
          * AdminEditionsCutOut
          * @description The automatic cut (editions S7), as ONE line for seven days after it published the newest Scoreboard
          *     edition — e.g. "Edition 2 · rule change: … · includes data that arrived since Edition 1 · 37
@@ -4568,6 +4703,19 @@ export interface components {
             ratified_date?: string | null;
             /** Reason */
             reason?: string | null;
+        };
+        /**
+         * AdminHoldCopyOut
+         * @description The same filing row held under another security of the same issuer: its own held row (decided on its own).
+         */
+        AdminHoldCopyOut: {
+            /**
+             * Hold Id
+             * Format: uuid
+             */
+            hold_id: string;
+            /** Ticker */
+            ticker?: string | null;
         };
         /**
          * AdminHoldDeciderOut
@@ -4898,12 +5046,18 @@ export interface components {
          *     never a correction). ``filed`` / ``accepted`` = SEC's filing date and acceptance instant (``None`` when not
          *     known). ``bucket`` = where it sits (owed / placed_by_rule / filer_corrected / decided / dismissed /
          *     amendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);
-         *     ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic
-         *     suggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.
-         *     ``market_date`` = the filing's market date, the latest date a ratified date may be (``None`` when unknown);
-         *     ``owed_why`` = why the placement rule did not place it, in plain words (``owed`` rows only, else ``None``).
-         *     ``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the
-         *     row, Undos included, oldest first. ``filing_url`` = the filing on EDGAR.
+         *     ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the suggestion
+         *     (``None`` = withheld because the filing contradicts it, or none can be made); ``agrees`` = it fits the filing's
+         *     period of report (a ``00YY`` year read as ``20YY``) and the filing's balances, so Approve may take it with no
+         *     date; ``suggestion_basis`` = where it comes from (``footnote`` / ``sibling_row`` / ``period_of_report`` — the
+         *     filing writes it —, ``arithmetic`` — the written month and day, a year back —, ``period_of_report_one_row``);
+         *     ``suggestion_words`` = the same in plain words, or why no date is offered; ``window_from`` / ``window_to`` =
+         *     the filing's own range for the row (``None`` when unknown). ``copies`` = the same filing row held under the
+         *     issuer's other securities, each decided on its own. ``market_date`` = the filing's market date, the latest
+         *     date a ratified date may be (``None`` when unknown); ``owed_why`` = why the placement rule did not place it,
+         *     in plain words (``owed`` rows only, else ``None``). ``decision`` = the standing steward decision (decided /
+         *     dismissed); ``history`` = every decision about the row, Undos included, oldest first. ``filing_url`` = the
+         *     filing on EDGAR.
          */
         AdminInsiderHoldOut: {
             /**
@@ -4954,6 +5108,16 @@ export interface components {
              * @default false
              */
             agrees: boolean;
+            /** Suggestion Basis */
+            suggestion_basis?: string | null;
+            /** Suggestion Words */
+            suggestion_words?: string | null;
+            /** Window From */
+            window_from?: string | null;
+            /** Window To */
+            window_to?: string | null;
+            /** Copies */
+            copies?: components["schemas"]["AdminHoldCopyOut"][];
             /** Market Date */
             market_date?: string | null;
             /** Owed Why */
@@ -5156,6 +5320,32 @@ export interface components {
             n_rows: number;
         };
         /**
+         * AdminMassiveRefOut
+         * @description What Massive.com says of a stale price row's symbol (W6-4) — EVIDENCE for the steward, never a class: the
+         *     row sits in the list it sits in without it. ``symbol`` = the Massive.com symbol it is about; ``read_on`` = the
+         *     market day its ticker overview was read (``null`` = not read yet: at most a few a night, newest stale first);
+         *     ``listed`` = Massive.com lists the symbol (``false`` = "Ticker not found."; ``null`` = not read); ``active``,
+         *     ``type`` (Massive.com's code: ``CS``, ``ADRC``, ``WARRANT`` ...) and ``delisted_utc`` = the overview's;
+         *     ``traded_on`` = the pass's session when Massive.com's grouped bars show the symbol traded (volume > 0).
+         *     Massive.com's words, never paraphrased.
+         */
+        AdminMassiveRefOut: {
+            /** Symbol */
+            symbol: string;
+            /** Read On */
+            read_on?: string | null;
+            /** Listed */
+            listed?: boolean | null;
+            /** Active */
+            active?: boolean | null;
+            /** Type */
+            type?: string | null;
+            /** Delisted Utc */
+            delisted_utc?: string | null;
+            /** Traded On */
+            traded_on?: string | null;
+        };
+        /**
          * AdminMasterRefreshOut
          * @description The weekly company-list refresh (``python -m pipeline.populate_master --live --apply``), as ONE
          *     plain-English line from its newest APPLIED run artifact (``data/master_runs``) — e.g. "Company list ·
@@ -5288,6 +5478,7 @@ export interface components {
             arrived: components["schemas"]["AdminArrivedCloseOut"][];
             /** Error */
             error?: string | null;
+            crosscheck?: components["schemas"]["AdminTapeCrosscheckOut"] | null;
         };
         /**
          * AdminNameChangeFilingOut
@@ -5564,10 +5755,16 @@ export interface components {
         /**
          * AdminPriceSymbolIn
          * @description The operator's chosen vendor symbol (an Adopt of a probed candidate, or a typed Set).
+         *     ``confirm_class`` (Adopt on a never-priced name only) = the steward checked the price basis and adopts a
+         *     listing whose class mark differs from the member's (the foreign ordinary line for an ADR member);
+         *     absent or ``null`` reads as not confirmed (optional, so existing callers send ``{symbol}`` unchanged);
+         *     ignored by Set and by a renamed name's Adopt.
          */
         AdminPriceSymbolIn: {
             /** Symbol */
             symbol: string;
+            /** Confirm Class */
+            confirm_class?: boolean | null;
         };
         /**
          * AdminProbeCandidateOut
@@ -5576,6 +5773,10 @@ export interface components {
          *     close / ours over them, ``verified`` = at least 5 shared dates with the ratio within 1% (the same
          *     company's tape under its new symbol). ``bars`` / ``last_bar`` say what the vendor serves under it (whether
          *     adopting it would extend our tape); ``error`` = its one fetch failed (then nothing else is known).
+         *     For a NEVER-PRICED name (W4-1) there is no stored tape to splice against: ``verified`` is false, with no
+         *     overlap or ratio, and ``listing_class`` is the symbol's class mark by the OTC naming convention
+         *     (``adr`` = a five-letter symbol ending Y, ``ordinary`` = one ending F, a foreign ordinary share; ``null``
+         *     = unknown, and always ``null`` on a renamed name's candidates). A convention, never proof.
          */
         AdminProbeCandidateOut: {
             /** Symbol */
@@ -5601,6 +5802,8 @@ export interface components {
             last_bar?: string | null;
             /** Error */
             error?: string | null;
+            /** Listing Class */
+            listing_class?: string | null;
         };
         /**
          * AdminReconstructedNightOut
@@ -5761,6 +5964,7 @@ export interface components {
             /** Price Symbol */
             price_symbol?: string | null;
             change?: components["schemas"]["AdminPriceSymbolChangeOut"] | null;
+            massive_ref?: components["schemas"]["AdminMassiveRefOut"] | null;
         };
         /**
          * AdminRunEnvOut
@@ -5955,6 +6159,34 @@ export interface components {
             runs: components["schemas"]["AdminRunOut"][];
         };
         /**
+         * AdminSplitConfirmValuesIn
+         * @description The steward's OWN values for a needs-review split (decision D3): ``ratio_from`` old shares -> ``ratio_to`` new
+         *     shares (decimal text, above 0 and at most 100,000, never equal), ``first_session`` = the first session at the
+         *     new price, ``cited_url`` = the https URL of the document that states them (required), ``note`` (optional).
+         *     ``override_tape`` = confirm although the stored tape's step at that session sits outside the tolerance of the
+         *     entered factor, or no bar can be read (the server checks it either way: ``GET .../tape-step``).
+         */
+        AdminSplitConfirmValuesIn: {
+            /** Ratio From */
+            ratio_from: string;
+            /** Ratio To */
+            ratio_to: string;
+            /**
+             * First Session
+             * Format: date
+             */
+            first_session: string;
+            /** Cited Url */
+            cited_url: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Override Tape
+             * @default false
+             */
+            override_tape: boolean;
+        };
+        /**
          * AdminSplitDefectOut
          * @description One flagged split-basis defect (T4, ``pipeline/split_basis.py``): a basket name whose STORED price
          *     tape mixes two split bases, as the pass's scan found it. ``kind``:
@@ -6083,7 +6315,12 @@ export interface components {
          *     Massive.com", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
          *     ``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state
          *     different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
-         *     both a ratio and a date).
+         *     both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the
+         *     document that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both
+         *     ``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on
+         *     the list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before
+         *     it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
+         *     none dated before the first session).
          */
         AdminSplitListEntryOut: {
             /**
@@ -6154,6 +6391,13 @@ export interface components {
             restore_to?: string | null;
             /** Review Reason */
             review_reason?: ("sources_differ" | "extractor_abstained" | "one_source") | null;
+            /** Cited Url */
+            cited_url?: string | null;
+            /** Tape Override */
+            tape_override?: boolean | null;
+            /** First Bar */
+            first_bar?: string | null;
+            shares_rescaled?: components["schemas"]["AdminSplitSharesOut"] | null;
         };
         /**
          * AdminSplitListOptionOut
@@ -6210,7 +6454,9 @@ export interface components {
         };
         /**
          * AdminSplitListPolygonOut
-         * @description Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares.
+         * @description Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares. ``adjustment_type`` is
+         *     Massive.com's own label (``forward_split``, ``reverse_split`` or ``stock_dividend``), evidence only; null on a row
+         *     stored before the label was read or from the v3 endpoint.
          */
         AdminSplitListPolygonOut: {
             /** Id */
@@ -6225,6 +6471,8 @@ export interface components {
             split_to?: string | null;
             /** Ratio Label */
             ratio_label?: string | null;
+            /** Adjustment Type */
+            adjustment_type?: string | null;
         };
         /**
          * AdminSplitListSecOut
@@ -6336,6 +6584,134 @@ export interface components {
             reason: string;
         };
         /**
+         * AdminSplitSharesOut
+         * @description The platform share count a confirm would RESCALE (W2-8): the count the market cap reads (the Workbench's,
+         *     ``dashboards.market_cap.cap_cell``), dated before the split's first session, so the split puts it on the new
+         *     scale (divided by the price factor). ``count`` = as stored; ``date`` = the day it was true (its
+         *     ``valid_from``).
+         */
+        AdminSplitSharesOut: {
+            /** Count */
+            count: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+        };
+        /**
+         * AdminSplitTapeBarOut
+         * @description One stored session in a split's tape window. ``close`` / ``volume`` = the bar as the vendor FIRST served it
+         *     (the version ``tape_at`` reads: the as-traded print); ``newest_close`` = its newest stored version (the store's
+         *     scale today); ``restated`` = the two closes differ (re-based later: by the vendor, or by the split list's own
+         *     rescale of the stored tape); ``filled`` = the vendor never served this session: the bar is Massive.com's raw bar
+         *     the price leg filled in (W6-3b), never read as split evidence.
+         */
+        AdminSplitTapeBarOut: {
+            /**
+             * D
+             * Format: date
+             */
+            d: string;
+            /** Close */
+            close?: number | null;
+            /** Volume */
+            volume?: number | null;
+            /** Newest Close */
+            newest_close?: number | null;
+            /**
+             * Restated
+             * @default false
+             */
+            restated: boolean;
+            /**
+             * Filled
+             * @default false
+             */
+            filled: boolean;
+        };
+        /**
+         * AdminSplitTapeOut
+         * @description The stored tape around a split's first session (W5-1): what was served each session either side of it.
+         *     ``bars`` = up to ``sessions`` stored sessions before ``around`` and up to ``sessions`` from ``around`` on (it
+         *     first, when stored), oldest first, fewer where the tape ends; ``around`` defaults to the split's ``key_date``.
+         *     ``prior_date`` / ``step`` / ``volume_ratio`` / ``prior_served_before`` = the step at ``around`` as first served,
+         *     the reading ``GET .../tape-step`` shows (the bar on ``around`` and the stored bar before it, at most 14 days
+         *     back; ``null`` when either is missing). A read.
+         */
+        AdminSplitTapeOut: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /**
+             * Around
+             * Format: date
+             */
+            around: string;
+            /** Sessions */
+            sessions: number;
+            /** Bars */
+            bars?: components["schemas"]["AdminSplitTapeBarOut"][];
+            /** Prior Date */
+            prior_date?: string | null;
+            /** Step */
+            step?: number | null;
+            /** Volume Ratio */
+            volume_ratio?: number | null;
+            /** Prior Served Before */
+            prior_served_before?: boolean | null;
+        };
+        /**
+         * AdminSplitTapeStepOut
+         * @description The stored tape at a first session, beside the factor the steward entered (D3) — what the confirm-values
+         *     route checks. Each bar is read as the vendor FIRST served it (``pipeline.detect_splits.tape_at``: the bar on
+         *     ``first_session`` and the stored bar before it, at most 14 days back). ``step`` = close / prior close;
+         *     ``volume_ratio`` = volume / prior volume. ``price_factor`` = old / new shares of the entered ratio (``null``
+         *     when none was entered); ``step_low`` .. ``step_high`` = the steps ``tolerance`` (``domain.splits.
+         *     TAPE_TOLERANCE``, in ln, either direction) accepts around it. ``within_tolerance`` = the step sits inside
+         *     (``null`` with no ratio, ``false`` when no bar can be read); ``reason`` says why not. A read.
+         */
+        AdminSplitTapeStepOut: {
+            /**
+             * First Session
+             * Format: date
+             */
+            first_session: string;
+            /** Prior Date */
+            prior_date?: string | null;
+            /** Prior Close */
+            prior_close?: number | null;
+            /** Close */
+            close?: number | null;
+            /** Prior Volume */
+            prior_volume?: number | null;
+            /** Volume */
+            volume?: number | null;
+            /** Step */
+            step?: number | null;
+            /** Volume Ratio */
+            volume_ratio?: number | null;
+            /** Prior Served Before */
+            prior_served_before?: boolean | null;
+            /** Price Factor */
+            price_factor?: number | null;
+            /**
+             * Tolerance
+             * @default 0.5
+             */
+            tolerance: number;
+            /** Step Low */
+            step_low?: number | null;
+            /** Step High */
+            step_high?: number | null;
+            /** Within Tolerance */
+            within_tolerance?: boolean | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
          * AdminStaleTapeOut
          * @description One basket name whose monitored FEED has stopped: ``edge`` is the latest stored date for that feed
          *     (``null`` = nothing stored at all), ``thesis`` the thesis it was seen under, and ``kind`` WHICH feed —
@@ -6401,6 +6777,11 @@ export interface components {
              * @default false
              */
             acknowledged: boolean;
+            /** Massive Traded */
+            massive_traded?: string | null;
+            /** Massive Close */
+            massive_close?: number | null;
+            massive_ref?: components["schemas"]["AdminMassiveRefOut"] | null;
         };
         /**
          * AdminStatusOut
@@ -6613,6 +6994,117 @@ export interface components {
             change?: components["schemas"]["AdminCikChangeOut"] | null;
         };
         /**
+         * AdminTapeCrosscheckOut
+         * @description The Massive.com TAPE CROSS-CHECK (W6-3a) on the same pass as the missing-close flag: one grouped raw-bars
+         *     read a night, compared with the stored closes — a monitor (no tape write, never paged, never the cron
+         *     verdict). ``status`` is the read's (``on``, ``off`` = no key or switched off, ``not_served`` = Massive.com had
+         *     not served the session yet, ``uncached``, ``failed``, ``not_run``) with its ``note``; ``error`` = the check
+         *     itself failed. ``line`` is the backend-authored quiet line; ``disagree_line`` names the disagreements;
+         *     ``stale_lines`` one line per open stale price row whose symbol traded on Massive.com that session ("a vendor
+         *     gap, not a rename"). The counts are per class; ``rows`` carry every named company with its ``kind``.
+         */
+        AdminTapeCrosscheckOut: {
+            /** Session */
+            session?: string | null;
+            /** Status */
+            status: string;
+            /** Note */
+            note?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Massive Status */
+            massive_status?: string | null;
+            /** Tolerance */
+            tolerance?: number | null;
+            /**
+             * Judged
+             * @default 0
+             */
+            judged: number;
+            /**
+             * Compared
+             * @default 0
+             */
+            compared: number;
+            /**
+             * Disagree
+             * @default 0
+             */
+            disagree: number;
+            /**
+             * Vendor Gap
+             * @default 0
+             */
+            vendor_gap: number;
+            /**
+             * No Trade
+             * @default 0
+             */
+            no_trade: number;
+            /**
+             * Unmapped
+             * @default 0
+             */
+            unmapped: number;
+            /** Line */
+            line: string;
+            /** Disagree Line */
+            disagree_line?: string | null;
+            /**
+             * Stale Lines
+             * @default []
+             */
+            stale_lines: string[];
+            /**
+             * Rows
+             * @default []
+             */
+            rows: components["schemas"]["AdminTapeCrosscheckRowOut"][];
+        };
+        /**
+         * AdminTapeCrosscheckRowOut
+         * @description One company the Massive.com tape cross-check names (``pipeline/tape_crosscheck.py``). ``kind``: ``disagree``
+         *     (both have a bar for the session and they differ past the tolerance and by more than a cent; ``split_shaped`` =
+         *     the ratio sits near a listed split's factor, ``split`` names it), ``vendor_gap`` (Massive.com traded it, we have
+         *     no close), ``no_trade`` (we have a bar, Massive.com shows no trade: a placeholder on a halt, or a symbol it
+         *     writes differently) or ``unmapped`` (no symbol to look up). ``ours`` = our newest stored close, ``massive`` =
+         *     Massive.com's raw close on our tape's scale, ``ratio`` = ours / massive, ``symbol`` = the Massive.com symbol
+         *     read, ``otc`` = Massive.com's venue flag.
+         */
+        AdminTapeCrosscheckRowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Kind */
+            kind: string;
+            /** Symbol */
+            symbol?: string | null;
+            /** Ours */
+            ours?: number | null;
+            /** Massive */
+            massive?: number | null;
+            /** Volume */
+            volume?: number | null;
+            /** Ratio */
+            ratio?: number | null;
+            /**
+             * Split Shaped
+             * @default false
+             */
+            split_shaped: boolean;
+            /** Split */
+            split?: string | null;
+            /**
+             * Otc
+             * @default false
+             */
+            otc: boolean;
+        };
+        /**
          * AdminTapeOut
          * @description The FEED freshness panel (G5a price tapes · F1 ETF fund shares), read from the newest run artifact
          *     that actually EVALUATED recency — not a fresh DB scan, so this surface still owns no tables. ``asof`` /
@@ -6716,7 +7208,22 @@ export interface components {
          *     — WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor
          *     fetch), acknowledge it ("keep it, unpriced"), or remove it from the basket in the editor (``theses``).
          *     ``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists
-         *     (``[]`` = none). ``change`` = a standing operator Set (waiting for the next pass, with its Undo).
+         *     (``[]`` = none). ``change`` = a standing operator Set or Adopt (waiting for the next pass, with its
+         *     Undo).
+         *
+         *     W4-1 — when EDGAR lists another symbol for the name, the nightly probe fetched each one once
+         *     (``probed``): ``candidates`` carry what the vendor serves and each one's ``listing_class``;
+         *     ``member_class`` is the member's own mark (``adr`` when EDGAR's entity name ends "/ADR" or the symbol
+         *     ends Y, ``ordinary`` when it ends F, ``null`` unknown). ``recommended`` = the first candidate with bars,
+         *     no fetch error, a fresh last bar and the member's own class (``null`` = none). Adopt takes a probed
+         *     candidate with bars; one whose class is known to differ from the member's (the foreign ordinary line
+         *     for an ADR member) needs the request's ``confirm_class``.
+         *
+         *     W4-2 — ``deregistered``: when EDGAR lists no symbol for the name and the company filed a Form 15, that
+         *     filing and the 8-K events before it (``AdminDeregistrationOut``); removing the name in the basket editor
+         *     is then the recommended action. ``null`` otherwise.
+         *
+         *     W6-4 — ``massive_ref``: what Massive.com says of the symbol (``AdminMassiveRefOut``; evidence only).
          */
         AdminUnpriceableRowOut: {
             /**
@@ -6738,6 +7245,22 @@ export interface components {
             /** Price Symbol */
             price_symbol?: string | null;
             change?: components["schemas"]["AdminPriceSymbolChangeOut"] | null;
+            /** Member Class */
+            member_class?: string | null;
+            /**
+             * Candidates
+             * @default []
+             */
+            candidates: components["schemas"]["AdminProbeCandidateOut"][];
+            /** Recommended */
+            recommended?: string | null;
+            /**
+             * Probed
+             * @default false
+             */
+            probed: boolean;
+            deregistered?: components["schemas"]["AdminDeregistrationOut"] | null;
+            massive_ref?: components["schemas"]["AdminMassiveRefOut"] | null;
         };
         /**
          * AdoptionCardOut
@@ -15563,8 +16086,10 @@ export interface components {
         /**
          * OnboardingNameOut
          * @description X1 — one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;
-         *     ``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it — re-adding the
-         *     name resumes it). ``last_error`` is the latest leg failure (on a ``done`` row: a tail leg's note).
+         *     ``parked`` = waiting (queued or in progress) and ``in_live_basket`` false: no live basket holds it any more,
+         *     so the job leaves it — re-adding the name resumes it (the readout's ``counts.parked`` counts these rows; a
+         *     failed or done name is never parked). ``last_error`` is the latest leg failure (on a ``done`` row: a tail
+         *     leg's note).
          */
         OnboardingNameOut: {
             /**
@@ -15591,6 +16116,8 @@ export interface components {
             source: string;
             /** In Live Basket */
             in_live_basket: boolean;
+            /** Parked */
+            parked: boolean;
             /**
              * Enqueued At
              * Format: date-time
@@ -24140,6 +24667,115 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AdminSplitListConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitListEntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    split_tape_step_admin_splits__version_id__tape_step_get: {
+        parameters: {
+            query: {
+                /** @description the first session at the new price */
+                first_session: string;
+                /** @description old shares (decimal text) */
+                ratio_from?: string | null;
+                /** @description new shares (decimal text) */
+                ratio_to?: string | null;
+            };
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitTapeStepOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    split_tape_window_admin_splits__version_id__tape_get: {
+        parameters: {
+            query?: {
+                /** @description the session to center on (default: the split's key_date) */
+                around?: string | null;
+                /** @description stored sessions each side (1-10) */
+                sessions?: number;
+            };
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitTapeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_split_values_admin_splits__version_id__confirm_values_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSplitConfirmValuesIn"];
             };
         };
         responses: {

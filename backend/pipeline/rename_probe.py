@@ -42,10 +42,28 @@ WHAT THIS IS, AND IS NOT:
   recorded with its ``error`` and is simply not verified; a fault reading our own tape fails the whole probe
   into ``RenameProbe.error``, which the report prints loudly and the Admin panel shows — never an exception
   into the cron.
+
+NEVER-PRICED NAMES (W4-1). An UNPRICEABLE row (no stored bar ever, neither closed nor renamed — Q8) whose
+EDGAR list holds a symbol other than our ticker / price symbol is probed beside the renamed rows
+(``unpriced_rows``), through the SAME one-fetch-per-symbol cache. The measured shape: an ADR member EDGAR
+files as "<name>/ADR" whose own symbol 404s at the vendor every night, while EDGAR's list for its CIK also
+carries the company's foreign ORDINARY line. It is not renamed (our ticker is in the list), so before this
+nothing looked at the other symbol. There is no stored tape to splice against, so a candidate is judged only
+by what the vendor serves (``bars``, ``last_bar``, ``error``) and by its LISTING CLASS (``listing_class``: an
+EDGAR name ending "/ADR" marks an ADR; otherwise a five-letter alphabetic OTC symbol ending Y reads ADR and
+one ending F a foreign ordinary — a naming CONVENTION, never proof; anything else is unknown).
+``recommended`` is the first candidate with bars, no error, a last bar fresh by the tape monitor's own rule
+and the member's own class mark (both unknown counts as the same): a CROSS-CLASS candidate is never
+recommended, because pricing an ADR card on the ordinary line puts its cap off by the ADS ratio once a share
+count exists. Adopting one anyway is the operator's explicit, confirmed click
+(``app/routers/admin_price_feed.py``, setting ``price_feed_cross_class_adopt``). The rows ride the artifact
+as ``rename_probe.unpriced`` beside ``rows``; ``run_auto_adopt`` reads ``rows`` only, so nothing here is
+ever applied automatically.
 """
 
 from __future__ import annotations
 
+import re
 import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -58,6 +76,7 @@ from uuid import UUID
 from domain.feed_kinds import PRICE, feed_kind
 from ingest.edgar.submissions import FormerName, NameChangeFiling
 from ingest.prices.source import DEFAULT_RANGE, PriceSource, YahooPriceSource
+from pipeline.tape_health import is_tape_stale
 
 if TYPE_CHECKING:  # the probe opens a connection; the pure core never needs psycopg
     import psycopg
@@ -79,6 +98,17 @@ _MAX_ERROR = 300
 # ratio reads exactly x1.000 at the three decimals the report prints (the same issuer's tape matches ours to
 # float noise — MEASURED SDCO / SVIA medians 1.000000). Anything less stays the operator's Adopt on Admin.
 AUTO_ADOPT_MIN_OVERLAP = 20
+
+# W4-1 — the LISTING-CLASS marks (``listing_class``). A naming convention, never proof: EDGAR appends "/ADR"
+# to the entity name of an ADR filer (the measured members read "<name> PLC/ADR", "<name> LTD/ADR"; the
+# older "<name> /ADR/" spelling is read the same), and the OTC market's fifth letter marks a five-letter
+# symbol's class (Y = an American depositary receipt, F = a foreign ordinary share).
+CLASS_ADR = "adr"
+CLASS_ORDINARY = "ordinary"
+_ADR_NAME = re.compile(r"/\s*ADR\s*/?\s*$")
+# The tape monitor's default freshness window (``Settings.tape_stale_days``); the nightly passes the live
+# value, so a never-priced candidate is "fresh" by exactly the rule that would call its tape stale.
+_DEFAULT_STALE_DAYS = 5
 
 
 @dataclass(frozen=True)
@@ -184,12 +214,84 @@ class AutoAdoption:
         )
 
 
+def listing_class(symbol: str | None, name: str | None = None) -> str | None:
+    """The class mark of one listing (W4-1): ``"adr"``, ``"ordinary"`` or ``None`` (unknown — never
+    guessed). An EDGAR entity ``name`` ending "/ADR" (or "/ADR/") marks an ADR; otherwise a five-letter
+    alphabetic OTC ``symbol`` ending Y reads ADR and one ending F a foreign ordinary. A convention, labeled
+    as one wherever it is shown. Pure."""
+    if name and _ADR_NAME.search(name.strip().upper()):
+        return CLASS_ADR
+    s = (symbol or "").strip().upper()
+    if len(s) == 5 and s.isascii() and s.isalpha():
+        if s.endswith("Y"):
+            return CLASS_ADR
+        if s.endswith("F"):
+            return CLASS_ORDINARY
+    return None
+
+
+@dataclass(frozen=True)
+class UnpricedCandidate:
+    """One other symbol EDGAR lists for a NEVER-PRICED name, as the probe fetched it (W4-1): what the vendor
+    serves under it (``bars`` and the newest, ``last_bar``) or the fetch ``error``, and its ``listing_class``
+    mark. There is no stored tape to splice against, so ``to_json`` carries the probe-candidate shape with
+    ``verified`` False, no overlap and no ratio — the Admin panel renders both lists with one model.
+    """
+
+    symbol: str
+    bars: int = 0
+    last_bar: date | None = None
+    error: str | None = None
+    listing_class: str | None = None
+
+    def to_json(self) -> dict:
+        return {
+            "symbol": self.symbol,
+            "verified": False,
+            "overlap": 0,
+            "ratio": None,
+            "bars": self.bars,
+            "last_bar": self.last_bar.isoformat() if self.last_bar else None,
+            "error": self.error,
+            "listing_class": self.listing_class,
+        }
+
+
+@dataclass(frozen=True)
+class UnpricedRecommendation:
+    """One never-priced name's probe (W4-1): who it is (``security_id``), what EDGAR lists and calls it,
+    the member's own class mark (``member_class``, from our ticker and EDGAR's entity name), each other
+    symbol's fetch, and ``recommended`` — the first candidate with bars, no error, a fresh last bar and the
+    member's class (``None`` = none qualifies; a cross-class candidate never does, and the operator may
+    still adopt one with the explicit class confirm)."""
+
+    security_id: UUID
+    ticker: str | None
+    edgar_tickers: tuple[str, ...]
+    candidates: tuple[UnpricedCandidate, ...]
+    member_class: str | None = None
+    edgar_name: str | None = None
+    recommended: str | None = None
+
+    def to_json(self) -> dict:
+        return {
+            "security_id": str(self.security_id),
+            "ticker": self.ticker,
+            "edgar_tickers": list(self.edgar_tickers),
+            "edgar_name": self.edgar_name,
+            "member_class": self.member_class,
+            "recommended": self.recommended,
+            "candidates": [c.to_json() for c in self.candidates],
+        }
+
+
 @dataclass
 class RenameProbe:
     """One pass's rename-probe outcome. ``evaluated`` = the probe ran (a live pass whose stored-tape read
     succeeded — including the common night with nothing to probe); ``error`` = why it did not, on a live
-    pass; ``fetches`` = vendor requests made (the Q7 cost, one per distinct candidate symbol).
-    ``auto_adopted`` / ``auto_adopt_error`` — what ``run_auto_adopt`` did with tonight's rows."""
+    pass; ``fetches`` = vendor requests made (the Q7 cost, one per distinct candidate symbol, across both
+    lists). ``auto_adopted`` / ``auto_adopt_error`` — what ``run_auto_adopt`` did with tonight's rows.
+    ``unpriced`` (W4-1) — the never-priced names probed beside the renamed ``rows``."""
 
     evaluated: bool = False
     rows: tuple[RenameRecommendation, ...] = ()
@@ -198,9 +300,13 @@ class RenameProbe:
     duration_s: float = 0.0
     auto_adopted: tuple[AutoAdoption, ...] = ()
     auto_adopt_error: str | None = None
+    unpriced: tuple[UnpricedRecommendation, ...] = ()
 
     def by_security(self) -> dict[UUID, RenameRecommendation]:
         return {r.security_id: r for r in self.rows}
+
+    def unpriced_by_security(self) -> dict[UUID, UnpricedRecommendation]:
+        return {r.security_id: r for r in self.unpriced}
 
     def payload(self) -> dict:
         """The run artifact's ``rename_probe`` key (ONE nested object, beside the flat split keys). Readers
@@ -215,6 +321,7 @@ class RenameProbe:
                 "rows": [r.to_json() for r in self.rows],
                 "auto_adopted": [a.to_json() for a in self.auto_adopted],
                 "auto_adopt_error": self.auto_adopt_error,
+                "unpriced": [r.to_json() for r in self.unpriced],
             }
         }
 
@@ -284,6 +391,73 @@ def renamed_rows(results: Iterable) -> list[tuple]:
     return out
 
 
+def _ours(s, name) -> set[str]:
+    """Our own symbols for a stale row: the master ticker and the price symbol the ingest priced it under."""
+    return {
+        x.strip().upper()
+        for x in (s.ticker, getattr(name, "price_symbol", None))
+        if isinstance(x, str) and x.strip()
+    }
+
+
+def unpriced_candidates(s, name) -> tuple[str, ...]:
+    """The symbols EDGAR lists for a never-priced row other than our own, in EDGAR's order, de-duplicated
+    (case-insensitive) — what the probe fetches for it. Pure."""
+    ours = _ours(s, name)
+    out: dict[str, None] = {}
+    for t in s.edgar_tickers or ():
+        sym = str(t).strip().upper()
+        if sym and sym not in ours:
+            out.setdefault(sym)
+    return tuple(out)
+
+
+def unpriced_rows(results: Iterable) -> list[tuple]:
+    """``[(StaleTape, NameResult | None)]`` — W4-1: every stopped PRICE row that is UNPRICEABLE (no stored
+    bar ever, neither closed nor renamed) and NOT acknowledged, whose EDGAR list holds a symbol other than
+    our ticker / price symbol (``unpriced_candidates``), across the pass's thesis results — deduped by
+    security (first seen wins, the ``renamed_rows`` shape), each paired with that security's ingest result
+    (EDGAR's entity name, which marks an ADR filer, rides it). An acknowledged name is the operator's
+    "keep it, unpriced" and is never probed; a row EDGAR lists nothing else for has nothing to probe.
+    """
+    out: list[tuple] = []
+    seen: set[UUID] = set()
+    for r in results:
+        names = {x.security_id: x for x in getattr(r, "ingested", ()) or ()}
+        for s in getattr(r, "tape_stale", ()) or ():
+            if feed_kind(s.kind).key != PRICE.key or not s.unpriceable or s.acknowledged:
+                continue
+            if s.security_id in seen:
+                continue
+            name = names.get(s.security_id)
+            if not unpriced_candidates(s, name):
+                continue
+            seen.add(s.security_id)
+            out.append((s, name))
+    return out
+
+
+def recommend_unpriced(
+    candidates: Iterable[UnpricedCandidate],
+    *,
+    member_class: str | None,
+    asof: date,
+    stale_days: int,
+) -> str | None:
+    """The first candidate a never-priced name may be pointed at on the probe's word (W4-1): bars served,
+    no fetch error, a last bar the tape monitor would NOT call stale on ``asof``, and the member's own class
+    mark (both unknown counts as the same). A cross-class candidate is never recommended. Pure."""
+    for c in candidates:
+        if c.error or c.bars <= 0 or c.last_bar is None:
+            continue
+        if is_tape_stale(c.last_bar, asof=asof, stale_days=stale_days):
+            continue
+        if c.listing_class != member_class:
+            continue
+        return c.symbol
+    return None
+
+
 # Our stored tape, latest version per date — the SAME pick the as-of read makes (recorded_at DESC, id DESC),
 # tenant-joined through the master so a row can never be read under another tenant's security.
 _STORED_SQL = """
@@ -316,44 +490,61 @@ def run_rename_probe(
     connect: Callable[[], psycopg.Connection],
     clock: Callable[[], float],
     source_factory: Callable[[Path], PriceSource] | None = None,
+    stale_days: int = _DEFAULT_STALE_DAYS,
 ) -> RenameProbe:
-    """The nightly unit: collect the renamed rows, read our stored tapes (its own ``read_only``
-    connection), fetch each distinct candidate ONCE into a throwaway cache, judge. FAIL-OPEN for the pass
-    (see the module docstring). ``source_factory`` builds the ``PriceSource`` over the throwaway dir (tests
-    inject a fake; default Yahoo with the member range)."""
+    """The nightly unit: collect the renamed rows and (W4-1) the never-priced ones, read our stored tapes
+    for the renamed rows only (its own ``read_only`` connection — an unpriced row has no tape, so a night
+    with none renamed opens no connection), fetch each distinct candidate ONCE into a throwaway cache shared
+    by both lists, judge. FAIL-OPEN for the pass (see the module docstring). ``source_factory`` builds the
+    ``PriceSource`` over the throwaway dir (tests inject a fake; default Yahoo with the member range);
+    ``stale_days`` is the tape monitor's threshold (``Settings.tape_stale_days``), which a never-priced
+    name's candidate must be fresh under to be recommended."""
     if not allow_live:
         return RenameProbe()
     t0 = clock()
     rows = renamed_rows(results)
-    if not rows:
+    unpriced = unpriced_rows(results)
+    if not rows and not unpriced:
         return RenameProbe(evaluated=True, duration_s=clock() - t0)
-    try:
-        conn = connect()
+    stored: dict[UUID, dict[date, float]] = {}
+    if rows:
         try:
-            conn.read_only = True  # the probe reads our tape; structurally it cannot write a row
-            stored = {
-                s.security_id: read_stored_closes(conn, s.security_id, asof=asof) for s, _ in rows
-            }
-            conn.rollback()
-        finally:
-            conn.close()
-    except Exception as e:  # noqa: BLE001 — a probe fault is reported, never a failed pass
-        return RenameProbe(error=f"{type(e).__name__}: {_clip(str(e))}", duration_s=clock() - t0)
+            conn = connect()
+            try:
+                conn.read_only = (
+                    True  # the probe reads our tape; structurally it cannot write a row
+                )
+                stored = {
+                    s.security_id: read_stored_closes(conn, s.security_id, asof=asof)
+                    for s, _ in rows
+                }
+                conn.rollback()
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001 — a probe fault is reported, never a failed pass
+            return RenameProbe(
+                error=f"{type(e).__name__}: {_clip(str(e))}", duration_s=clock() - t0
+            )
     fetched: dict[str, list[dict] | str] = (
         {}
     )  # symbol -> bars, or the fetch error (one request each)
     out: list[RenameRecommendation] = []
+    out_unpriced: list[UnpricedRecommendation] = []
     with tempfile.TemporaryDirectory(prefix="alphadeck-t2-probe-") as tmp:
         src = (source_factory or _default_source)(Path(tmp))
+
+        def _fetch(sym: str) -> list[dict] | str:
+            if sym not in fetched:
+                try:
+                    fetched[sym] = list(src.get_bars(sym, allow_live=True, force_refresh=True))
+                except Exception as e:  # noqa: BLE001 — one candidate's fetch, recorded
+                    fetched[sym] = f"{type(e).__name__}: {_clip(str(e))}"
+            return fetched[sym]
+
         for s, name in rows:
             candidates: list[CandidateProbe] = []
             for sym in dict.fromkeys(s.edgar_tickers):  # EDGAR order, de-duplicated
-                if sym not in fetched:
-                    try:
-                        fetched[sym] = list(src.get_bars(sym, allow_live=True, force_refresh=True))
-                    except Exception as e:  # noqa: BLE001 — one candidate's fetch, recorded
-                        fetched[sym] = f"{type(e).__name__}: {_clip(str(e))}"
-                got = fetched[sym]
+                got = _fetch(sym)
                 if isinstance(got, str):
                     candidates.append(CandidateProbe(symbol=sym, error=got))
                 else:
@@ -370,8 +561,44 @@ def run_rename_probe(
                     name_change_filings=tuple(getattr(name, "name_change_filings", ()) or ()),
                 )
             )
+        for s, name in unpriced:
+            edgar_name = getattr(name, "edgar_name", None)
+            member = listing_class(s.ticker, edgar_name)
+            found: list[UnpricedCandidate] = []
+            for sym in unpriced_candidates(s, name):
+                got = _fetch(sym)
+                mark = listing_class(sym)
+                if isinstance(got, str):
+                    found.append(UnpricedCandidate(symbol=sym, error=got, listing_class=mark))
+                    continue
+                days = [b.get("d") for b in got if b.get("d") is not None]
+                found.append(
+                    UnpricedCandidate(
+                        symbol=sym,
+                        bars=len(got),
+                        last_bar=max(days) if days else None,
+                        listing_class=mark,
+                    )
+                )
+            out_unpriced.append(
+                UnpricedRecommendation(
+                    security_id=s.security_id,
+                    ticker=s.ticker,
+                    edgar_tickers=tuple(s.edgar_tickers or ()),
+                    candidates=tuple(found),
+                    member_class=member,
+                    edgar_name=edgar_name,
+                    recommended=recommend_unpriced(
+                        found, member_class=member, asof=asof, stale_days=stale_days
+                    ),
+                )
+            )
     return RenameProbe(
-        evaluated=True, rows=tuple(out), fetches=len(fetched), duration_s=clock() - t0
+        evaluated=True,
+        rows=tuple(out),
+        fetches=len(fetched),
+        duration_s=clock() - t0,
+        unpriced=tuple(out_unpriced),
     )
 
 
@@ -533,3 +760,40 @@ def describe(rec: RenameRecommendation) -> str:
         else:
             bits.append(f"{c.symbol}: x{c.ratio:.3f} over {c.overlap}")
     return "no candidate splice-verified (" + "; ".join(bits) + ")" if bits else "nothing to probe"
+
+
+_CLASS_WORDS = {CLASS_ADR: "ADR", CLASS_ORDINARY: "foreign ordinary"}
+_MEMBER_WORDS = {CLASS_ADR: "an ADR", CLASS_ORDINARY: "a foreign ordinary"}
+
+
+def describe_unpriced(rec: UnpricedRecommendation) -> str:
+    """The one-line summary of a never-priced name's probe (W4-1) the cron report prints beside its
+    UNPRICEABLE row, e.g. ``"EDGAR also lists TKAAF — TKAAF: 480 bars to 2026-11-24, foreign ordinary (OTC
+    naming convention) while the member is an ADR: cross-class, Adopt only with the class confirm (Admin
+    page)"`` or ``"EDGAR also lists TKMMN — Adopt TKMMN on the Admin page (30 bars to 2026-11-24)"``.
+    """
+    head = "EDGAR also lists " + ", ".join(c.symbol for c in rec.candidates)
+    best = next((c for c in rec.candidates if c.symbol == rec.recommended), None)
+    if best is not None:
+        to = f" to {best.last_bar.isoformat()}" if best.last_bar else ""
+        return f"{head} — Adopt {best.symbol} on the Admin page ({best.bars} bars{to})"
+    member = _MEMBER_WORDS.get(rec.member_class or "", "of unknown class")
+    bits = []
+    for c in rec.candidates:
+        if c.error:
+            bits.append(f"{c.symbol}: fetch failed")
+            continue
+        if not c.bars:
+            bits.append(f"{c.symbol}: no bars")
+            continue
+        to = f" to {c.last_bar.isoformat()}" if c.last_bar else ""
+        bit = f"{c.symbol}: {c.bars} bars{to}"
+        if rec.member_class and c.listing_class and c.listing_class != rec.member_class:
+            bit += (
+                f", {_CLASS_WORDS[c.listing_class]} (OTC naming convention) while the member is "
+                f"{member}: cross-class, Adopt only with the class confirm (Admin page)"
+            )
+        else:
+            bit += f", class {_CLASS_WORDS.get(c.listing_class or '', 'unknown')}"
+        bits.append(bit)
+    return f"{head} — no candidate recommended ({'; '.join(bits)})"

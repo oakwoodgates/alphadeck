@@ -61,6 +61,8 @@ from pipeline.backfill_splits import (
     Member,
     SecReader,
     append_planned,
+    distribution_cap,
+    distribution_label_overrides_abstain,
     match_polygon,
     member_of,
     plan_against_stored,
@@ -281,7 +283,14 @@ def _fill_one(
     """One company: S1's decisions (reads only, no lock held), then — with ``apply`` — under its W1 lock the
     plan against the stored list, the append (count-verified) and the marker, in ONE transaction."""
     m = c.member
-    planned = plan_members(conn, reader, {m: rows} if rows else {}, asof=asof)
+    planned = plan_members(
+        conn,
+        reader,
+        {m: rows} if rows else {},
+        asof=asof,
+        distribution_max_factor=distribution_cap(),  # D2, as the backfill and the nightly decide
+        label_overrides_abstain=distribution_label_overrides_abstain(),  # W6-2, beside it
+    )
     conn.rollback()
     c.polygon_splits = len(planned)
     c.note = _incomplete(reader, m, planned)

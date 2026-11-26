@@ -44,11 +44,13 @@ Every monitor here follows one discipline, and a new one must too:
 | Stale feeds | `pipeline/tape_health.py`, `domain/feed_kinds.py` | A price tape `tape_stale_days` behind the as-of; an ETF sleeve's fund-shares sample `fund_shares_stale_days` behind | Newly stale pages once |
 | Stopped-tape classes | `tape_health.classify_stop`, `ingest/edgar/form25.py` | A stale price tape is closed, renamed, unpriceable or a plain feed gap | Closed is quiet; the others are loud until repaired |
 | Expected price misses | `pipeline/price_feed.py` | A vendor 404 on a name classified closed or acknowledged unpriceable | Quiet; removed from the name's errors |
-| Rename probe and auto-adopt | `pipeline/rename_probe.py` (`run_rename_probe`, `run_auto_adopt`) | A splice-verified successor symbol for each renamed tape; adopts it only for a name the company-list refresh pinned | Recommendation on Admin; one quiet line |
+| Rename probe and auto-adopt | `pipeline/rename_probe.py` (`run_rename_probe`, `run_auto_adopt`) | A splice-verified successor symbol for each renamed tape, and a same-class fresh one for an unpriceable name; adopts only for a name the company-list refresh pinned | Recommendation on Admin; one quiet line |
 | Successor CIK | `pipeline/successor_cik.py`, `ingest/edgar/succession.py` | A member whose company now files under a new CIK | New ones page once |
 | Split-basis defects | `pipeline/split_basis.py` | A stored tape that mixes two split bases (island, cliff, flap); a flap no reader sees is settled and named, never a defect | New ones page once |
 | Split-shaped jumps | `pipeline/split_jumps.py` | A jump the split-night hold released with no split listed | Admin Splits panel and one quiet line; never a page |
 | Missing closes | `pipeline/missing_closes.py` | A company with no close for the night's session | Quiet nightly; loud on Admin once still missing after the next session's pass; never a page |
+| Tape cross-check | `pipeline/tape_crosscheck.py`, `ingest/massive_bars.py` | Tonight's stored closes against Massive.com's raw bars; a stale price row whose symbol traded tonight | One quiet line, one line per stale row that traded; on Admin beside missing closes; never a page |
+| Stale-row reference | `pipeline/massive_evidence.py`, `ingest/massive_reference.py` | What Massive.com says of an open stale price row's symbol | Evidence on the row; one quiet line; never a page |
 | Form 4/A inventory | `pipeline/insider_amendment_scan.py` | Amendments owed a steward decision; amendments the system applied | New owed items page, named; system applications are one quiet count |
 | Held insider rows | `pipeline/insider_hold_scan.py` | Rows held for an impossible transaction date, by bucket | New rows the read does not count page; the rest are quiet |
 | SEC freshness | `pipeline/edgar_coverage.py` | Fewer than `freeze_completed_floor` of the EDGAR-eligible companies got a completed SEC fetch | Pages (the freeze alarm) |
@@ -72,7 +74,12 @@ cached (`classify_stop`, nothing persisted):
   probe fetches each candidate once into a throwaway cache and splices it against the stored tape; it is
   verified only on enough shared closes at a ratio near 1, which rejects another class such as warrants. The
   probe writes nothing.
-- **Unpriceable** (loud): no stored bar ever, neither closed nor renamed.
+- **Unpriceable** (loud): no stored bar ever, neither closed nor renamed. When EDGAR lists another symbol for
+  it, the same probe fetches each once and marks its class by convention (an EDGAR name ending /ADR; the OTC
+  fifth letter, Y an ADR, F a foreign ordinary). Only a same-class candidate with a fresh tape is recommended.
+  When EDGAR lists no symbol and the company filed a Form 15, the row carries that filing and the 8-K events
+  of the 45 days before it (items 1.03, 2.01, 3.03 or 5.01, or an 8-K15D5), worded only with SEC's item titles.
+  The row stays loud; removing the name in the basket editor is the recommended action.
 - Otherwise a **stale** repair row.
 
 The repair is the steward's, because an automatic rename-follower could file another company's tape under a
@@ -83,6 +90,32 @@ expected (`ExpectedPriceMiss`): it leaves the name's errors so `ingest_fresh` st
 quiet line. The fetch still runs for those names, so a relisted name or a vendor that starts serving is
 noticed. A renamed name not yet adopted, an unacknowledged unpriceable name and every non-404 failure stay
 loud.
+
+#### The tape cross-check
+
+One Massive.com request a night: the grouped raw bars of the as-of session (`ingest/massive_bars.py`, cached
+compact per session, paced on the shared Massive.com limiter), fetched before the per-thesis loop and judged
+after it. The judged set is the missing-close check's. Per company: `disagree` (both have a bar, more than
+`tape_crosscheck_tolerance` apart in log terms and more than a cent; `split_shaped` when the ratio sits near a
+listed split's factor), `vendor_gap` (Massive.com traded it, we have no close), `no_trade` (we have a bar,
+Massive.com shows no trade: a halt placeholder, or a symbol it writes differently, as it writes preferreds) and
+`unmapped` (no symbol). A stale price row whose symbol traded tonight gets its own line, "a vendor gap, not a
+rename", naming the split on the list after its edge: Yahoo nulls sessions around some splits (SNDK, SCNI), so
+the stale advice to look for a rename is wrong there. No key, `ALPHADECK_TAPE_CROSSCHECK=false`, a session
+Massive.com has not served yet (a 403) or a failed read is a status on the block; nothing is judged. It never
+writes the tape; the price leg's fill does, from the same grouped day, around a split ([INGEST](INGEST.md)), and
+the pass prints one quiet line naming the sessions it filled.
+
+#### Massive.com's word on a stale row
+
+Each open stale price row (closed rows excluded) carries `massive_ref`: whether Massive.com lists its symbol,
+`active`, its `type` code and delisting date from the ticker overview (`/v3/reference/tickers/{T}`), and
+`traded_on` from tonight's grouped day (no request). The overview is read once per row an earlier pass did not
+read, at most `massive_reference_max_names` (5) a night, newest stale first, cached per symbol and market day;
+the next pass carries the read from the artifact. Evidence, never a class: OTC warrants (ACLEW), a delisting
+(INDV) or a vendor gap (SNDK) leave each row in its list. A failed read stops the night's reads; the rest wait.
+Shown on Admin's stopped-feed and Price feed repairs rows and through the steward MCP (the tape row's
+`massive_traded` is the cross-check's).
 
 #### Known feed limitations
 
@@ -112,7 +145,7 @@ returns ok, failed or not applicable; not applicable is never read as a pass. A 
 | `every_thesis_finished` | Every thesis the pass started reached its outcome, appended or unchanged; a `--no-live` withhold counts as finished |
 | `split_defects_flagged` | The split-basis scan ran. It reports the defect count and fails only when the scan could not run |
 | `no_unsettled_bars` | No `fact_price_eod` row for day d was recorded before d's settle instant, judged over the rows recorded since the previous judging pass |
-| `splits_applied` | Every split in force on the list is applied to its stored tape. A recent unapplied split fails; an older one is the repair backlog, named and passed; a split the tape cannot judge is named "not verified" |
+| `splits_applied` | Every split in force on the list is applied to its stored tape. A recent unapplied split (never applied, or undone by a vendor revert) fails; an older one is the repair backlog, named and passed. Each name carries its own command, `python -m pipeline.repair_split_basis --ticker X` (dry run, then `--apply`). A split the tape cannot judge is named "not verified" |
 
 A new check is a pure `check_x(ctx: AuditContext) -> AuditResult` appended to `DEFAULT_CHECKS`.
 
@@ -150,7 +183,7 @@ never a thesis name or card content.
 | The monitors, self-audit, artifact and health page | Machine (the nightly pass) | Run only inside `run_daily_pass` |
 | `GET /admin/status`: the cron verdict, freshness, feeds, monitors, missing closes | Steward | `require_super_admin` on the admin router (`app/main.py`); `tests/app/test_auth_gate.py` |
 | Price feed repairs: `/admin/price-feed/...` adopt, set-symbol, acknowledge, limited-history, adopt-cik and their undo or revoke | Steward | Same |
-| Splits panel: `/admin/splits/...` confirm, reject, revoke, restore, jump dismiss and undo | Steward | Same |
+| Splits panel: `/admin/splits/...` confirm (a source's or cited values), reject, revoke, restore, jump dismiss and undo | Steward | Same |
 | Form 4/A and held-row queues: `/admin/insider-amendments/...`, `/admin/insider-holds/...` | Steward | Same |
 | The Cockpit data flag and the "price history limited" note | Any signed-in user, for their workspace's theses | `require_user`; display only |
 
@@ -163,6 +196,8 @@ Every steward decision here is an append-only row with an undo; nothing is appli
 | `ALPHADECK_TAPE_STALE_DAYS`, `ALPHADECK_FUND_SHARES_STALE_DAYS` | `domain/settings.py` | No |
 | `ALPHADECK_TAPE_CLOSED_BEFORE_DAYS`, `ALPHADECK_TAPE_CLOSED_AFTER_DAYS` | `domain/settings.py` | No |
 | `ALPHADECK_FREEZE_COMPLETED_FLOOR` | `domain/settings.py` | No |
+| `ALPHADECK_TAPE_CROSSCHECK`, `ALPHADECK_TAPE_CROSSCHECK_TOLERANCE` | `domain/settings.py` | Yes, and to the backend |
+| `ALPHADECK_MASSIVE_REFERENCE_MAX_NAMES` | `domain/settings.py` | Yes, and to the backend |
 
 ## Known limits
 

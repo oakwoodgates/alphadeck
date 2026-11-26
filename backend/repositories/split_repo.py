@@ -1,5 +1,5 @@
 """The split list (migration 0052, split plan S1) — every version of every split, its as-of read, and the
-operator's four verbs, each with a visible inverse (WB#1).
+operator's verbs, each with a visible inverse (WB#1).
 
 **The history read (S2, the public clock).** ``current_rows`` / ``as_of_rows(clock="public")``: a split counts
 from its OWN publication (``db.public_clock.split_versions_sql``), and a view reads its newest version.
@@ -17,10 +17,22 @@ the caller names the CURRENT version — a stale click is refused, never applied
   first session. A first session still ahead lands as ``announced`` (a split is never "in effect" before
   its day). A date that differs from the key re-dates the split — still the same logical split, refused if
   another live split of the same security already sits on that date. Inverse: ``revoke``.
+- ``confirm_steward`` a needs-review split with the steward's OWN values (decision D3, migration 0215: a ratio and
+  a first session neither source states — POM's ADR termination), citing a document (``cited_url``): the same
+  refusals as ``confirm``, plus the stored tape's verdict the caller read (``tape_why``), refused unless the
+  steward overrides it (``tape_override`` records that). ``value_source`` ``steward``. Inverse: ``revoke``.
 - ``reject`` a needs-review (or announced) split. Inverse: ``restore``.
 - ``revoke`` a confirmed split, whoever confirmed it. Inverse: ``restore``.
 - ``restore`` a rejected or revoked split to EXACTLY the state the reject/revoke replaced — the version
-  before it, re-appended (a rejected split goes back to review; a revoked one back to confirmed).
+  before it, re-appended (a rejected split goes back to review; a revoked one back to confirmed). A split the
+  SYSTEM set aside as a distribution (D2, ``is_auto_set_aside``) goes back to review with the evidence it carries,
+  whether it was born set aside (no version before it) or re-decided from review; the restored version names the
+  operator, so neither the backfill nor the nightly detector ever touches it again.
+
+**Evidence, not content (W6-1, migration 0216).** ``EVIDENCE_COLUMNS`` ride a version beside its content but are
+never compared: Massive.com's label (``polygon_adjustment_type``). A re-run whose only difference is the label is
+UNCHANGED, so no stored split is re-versioned for it; a version appended for another reason carries tonight's label,
+and every verb carries the label of the version it acts on.
 
 Value-free like every repository: what a split IS comes from the matcher (``domain/splits.py``) and the
 operator; this module stores and returns versions. The caller owns the transaction.
@@ -52,6 +64,9 @@ from domain.splits import (
     SplitDecision,
     same_ratio,
 )
+
+# D3 (migration 0215): the row carries the steward's own cited values (``domain.splits`` names the other three)
+SOURCE_STEWARD = "steward"
 
 AUTHOR_BACKFILL = "system:backfill_splits"
 # S4 — the nightly detector (``pipeline/detect_splits.py``); its versions carry action ``detect`` (0061)
@@ -93,7 +108,14 @@ CONTENT_COLUMNS: tuple[str, ...] = (
     "note",
     "valid_from",
     "valid_to",
+    # D3 (0215): the steward's citation and tape override — NULL on every system version, so a system re-run's
+    # content compare is unchanged
+    "cited_url",
+    "tape_override",
 )
+# W6-1 (0216): stored and carried, NEVER compared — Massive.com's label is evidence about the row, and as content it
+# would re-version every backfill-authored split on the next backfill (``backfill_splits.plan_against_stored``)
+EVIDENCE_COLUMNS: tuple[str, ...] = ("polygon_adjustment_type",)
 
 _LIVE = (STATUS_ANNOUNCED, STATUS_CONFIRMED, STATUS_NEEDS_REVIEW)
 
@@ -137,9 +159,12 @@ class SplitVersion(BaseModel):
     polygon_execution_date: date | None = None
     polygon_split_from: Decimal | None = None
     polygon_split_to: Decimal | None = None
+    polygon_adjustment_type: str | None = None
     note: str | None = None
     valid_from: date
     valid_to: date | None = None
+    cited_url: str | None = None
+    tape_override: bool | None = None
     recorded_at: datetime
     ticker: str | None = None
     name: str | None = None
@@ -162,7 +187,7 @@ def content_of(values: dict[str, Any]) -> tuple[Any, ...]:
 
 def decision_values(d: SplitDecision) -> dict[str, Any]:
     """A matcher decision as the columns a system version carries (an SEC-only decision has no Massive.com side:
-    its ``polygon_*`` columns are NULL)."""
+    its ``polygon_*`` columns are NULL): the content, and the evidence (Massive.com's label)."""
     s, p = d.sec, d.polygon
     return {
         "effective_date": d.effective_date,
@@ -187,6 +212,7 @@ def decision_values(d: SplitDecision) -> dict[str, Any]:
         "polygon_execution_date": p.execution_date if p else None,
         "polygon_split_from": p.split_from if p else None,
         "polygon_split_to": p.split_to if p else None,
+        "polygon_adjustment_type": p.adjustment_type if p else None,
         "note": d.note,
         "valid_from": d.valid_from,
         "valid_to": None,
@@ -351,15 +377,16 @@ def append_version(
     author: str,
 ) -> SplitVersion:
     """INSERT one version (``recorded_at`` = the column default, the DB's now() — never passed, never
-    backdated). Returns it as stored."""
-    cols = ["tenant_id", "security_id", "key_date", "action", "author", *CONTENT_COLUMNS]
+    backdated): its content and its evidence. Returns it as stored."""
+    stored = (*CONTENT_COLUMNS, *EVIDENCE_COLUMNS)
+    cols = ["tenant_id", "security_id", "key_date", "action", "author", *stored]
     row = {
         "tenant_id": tenant_id,
         "security_id": security_id,
         "key_date": key_date,
         "action": action,
         "author": author,
-        **{c: values.get(c) for c in CONTENT_COLUMNS},
+        **{c: values.get(c) for c in stored},
     }
     placeholders = ", ".join(f"%({c})s" for c in cols)
     with conn.cursor() as cur:
@@ -401,7 +428,8 @@ def _current(conn: psycopg.Connection, version_id: UUID, *, tenant_id: UUID) -> 
 
 
 def _carry(v: SplitVersion, **changes: Any) -> dict[str, Any]:
-    vals = {c: getattr(v, c) for c in CONTENT_COLUMNS}
+    """``v``'s content and evidence (its Massive.com label rides every verb), with ``changes`` applied."""
+    vals = {c: getattr(v, c) for c in (*CONTENT_COLUMNS, *EVIDENCE_COLUMNS)}
     vals.update(changes)
     return vals
 
@@ -443,6 +471,12 @@ def confirm_options(v: SplitVersion) -> list[str]:
     return out
 
 
+def is_auto_set_aside(v: SplitVersion) -> bool:
+    """A split the SYSTEM set aside as a distribution (D2, ``domain.splits.distribution_reason``): ``rejected`` by
+    the backfill or the nightly detector — no system path writes ``rejected`` otherwise."""
+    return v.status == STATUS_REJECTED and v.author != AUTHOR_OPERATOR
+
+
 def allowed_actions(v: SplitVersion) -> list[str]:
     """The verbs the split's current status allows (the panel renders exactly these)."""
     if v.status == STATUS_NEEDS_REVIEW:
@@ -479,17 +513,7 @@ def confirm(
             "split — confirm the other source, or reject it"
         )
     ratio_from, ratio_to, first_session = vals
-    if first_session != v.key_date:
-        for other in latest_versions(conn, tenant_id=tenant_id, security_ids=[v.security_id]):
-            if (
-                other.key_date != v.key_date
-                and other.status in _LIVE
-                and other.effective_date == first_session
-            ):
-                raise SplitConflict(
-                    f"another split of {v.ticker or v.security_id} is already listed on "
-                    f"{first_session.isoformat()} ({other.status}) — resolve that one first"
-                )
+    _refuse_a_redate_onto_a_live_split(conn, v, first_session, tenant_id=tenant_id)
     status = STATUS_ANNOUNCED if first_session > today else STATUS_CONFIRMED
     return append_version(
         conn,
@@ -504,6 +528,87 @@ def confirm(
             status=status,
             confirmed_via=VIA_OPERATOR,
             value_source=source,
+            cited_url=None,
+            tape_override=None,
+        ),
+        action=ACTION_CONFIRM,
+        author=author,
+    )
+
+
+def _refuse_a_redate_onto_a_live_split(
+    conn: psycopg.Connection, v: SplitVersion, first_session: date, *, tenant_id: UUID
+) -> None:
+    """A confirm that re-dates ``v`` onto a date another LIVE split of the same security holds is refused."""
+    if first_session == v.key_date:
+        return
+    for other in latest_versions(conn, tenant_id=tenant_id, security_ids=[v.security_id]):
+        if (
+            other.key_date != v.key_date
+            and other.status in _LIVE
+            and other.effective_date == first_session
+        ):
+            raise SplitConflict(
+                f"another split of {v.ticker or v.security_id} is already listed on "
+                f"{first_session.isoformat()} ({other.status}) — resolve that one first"
+            )
+
+
+def confirm_steward(
+    conn: psycopg.Connection,
+    version_id: UUID,
+    *,
+    ratio_from: Decimal,
+    ratio_to: Decimal,
+    first_session: date,
+    cited_url: str,
+    note: str | None,
+    tape_why: str | None,
+    override_tape: bool,
+    tenant_id: UUID,
+    today: date,
+    author: str = AUTHOR_OPERATOR,
+) -> SplitVersion:
+    """CONFIRM a needs-review split with the steward's own CITED values (decision D3): ``ratio_from`` old shares ->
+    ``ratio_to`` new shares, first trading on ``first_session``, as the document at ``cited_url`` states them.
+    The same refusals as ``confirm`` (unknown version, a stale card, not awaiting review, a re-date onto another
+    live split); then ``tape_why`` — why the stored tape at ``first_session`` does not support the values, read by
+    the caller (``None`` = it does) — is refused unless ``override_tape``. ``value_source`` ``steward``,
+    ``confirmed_via`` ``operator``; ``tape_override`` records whether the steward confirmed past the tape. ``note``
+    (the steward's) replaces the carried note when given. The evidence the split carried (both sources) rides on.
+    """
+    v = _current(conn, version_id, tenant_id=tenant_id)
+    if v.status != STATUS_NEEDS_REVIEW:
+        raise SplitConflict(
+            f"only a split that needs review can be confirmed (this one is {v.status})"
+        )
+    if not cited_url:
+        raise ValueError("cited values need a cited URL")
+    if ratio_from <= 0 or ratio_to <= 0 or ratio_from == ratio_to:
+        raise ValueError(f"{ratio_from} -> {ratio_to} is not a split ratio")
+    _refuse_a_redate_onto_a_live_split(conn, v, first_session, tenant_id=tenant_id)
+    if tape_why is not None and not override_tape:
+        raise SplitConflict(
+            f"{tape_why} — check the values against the cited document; confirm with the tape override if "
+            "the document is right"
+        )
+    status = STATUS_ANNOUNCED if first_session > today else STATUS_CONFIRMED
+    return append_version(
+        conn,
+        tenant_id=tenant_id,
+        security_id=v.security_id,
+        key_date=v.key_date,
+        values=_carry(
+            v,
+            ratio_from=ratio_from,
+            ratio_to=ratio_to,
+            effective_date=first_session,
+            status=status,
+            confirmed_via=VIA_OPERATOR,
+            value_source=SOURCE_STEWARD,
+            cited_url=cited_url,
+            tape_override=tape_why is not None,
+            note=note or v.note,
         ),
         action=ACTION_CONFIRM,
         author=author,
@@ -553,22 +658,27 @@ def restore(
     conn: psycopg.Connection, version_id: UUID, *, tenant_id: UUID, author: str = AUTHOR_OPERATOR
 ) -> SplitVersion:
     """RESTORE a rejected or revoked split to exactly the state before the reject/revoke (that version's
-    content re-appended)."""
+    content re-appended) — a split the system set aside as a distribution back to review, with its own content
+    (``is_auto_set_aside``)."""
     v = _current(conn, version_id, tenant_id=tenant_id)
     if v.status not in SET_ASIDE:
         raise SplitConflict(
             f"only a rejected or revoked split can be restored (this one is {v.status})"
         )
-    hist = history(conn, tenant_id=tenant_id, security_id=v.security_id, key_date=v.key_date)
-    if len(hist) < 2:
-        raise SplitConflict("nothing to restore to — this split was never in another state")
-    prior = hist[-2]
+    if is_auto_set_aside(v):
+        # D2: the system's set-aside goes back to review with its own evidence (it may have no version before it)
+        values = _carry(v, status=STATUS_NEEDS_REVIEW, confirmed_via=None)
+    else:
+        hist = history(conn, tenant_id=tenant_id, security_id=v.security_id, key_date=v.key_date)
+        if len(hist) < 2:
+            raise SplitConflict("nothing to restore to — this split was never in another state")
+        values = _carry(hist[-2])
     return append_version(
         conn,
         tenant_id=tenant_id,
         security_id=v.security_id,
         key_date=v.key_date,
-        values=_carry(prior),
+        values=values,
         action=ACTION_RESTORE,
         author=author,
     )
@@ -578,5 +688,7 @@ def prior_status(conn: psycopg.Connection, v: SplitVersion) -> str | None:
     """The status a ``restore`` would return ``v`` to (``None`` unless ``v`` is set aside)."""
     if v.status not in SET_ASIDE:
         return None
+    if is_auto_set_aside(v):
+        return STATUS_NEEDS_REVIEW
     hist = history(conn, tenant_id=v.tenant_id, security_id=v.security_id, key_date=v.key_date)
     return hist[-2].status if len(hist) >= 2 else None

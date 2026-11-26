@@ -146,6 +146,34 @@ const LRHC_REJECTED = {
   restore_to: "needs_review",
 };
 
+// D2 — SCCO's stock dividend as the nightly sets it aside (backend/tests/app/test_admin_split_list_api.py)
+const SCCO_AUTO = {
+  ...LRHC_REJECTED,
+  version_id: "5cc0a51d-0000-4000-8000-00000000d200",
+  security_id: "5cc0a51d-0000-4000-8000-00000000d201",
+  ticker: "SCCO",
+  key_date: "2026-11-03",
+  effective_date: "2026-11-03",
+  ratio_from: "1",
+  ratio_to: "1.0106",
+  price_factor: "0.989511",
+  direction: "forward",
+  label: "1.0106-for-1 forward split",
+  author: "system:detect_splits",
+  action: "detect",
+  decided_by: "set aside automatically: a distribution",
+  valid_from: "2026-11-03",
+  note: "Set aside automatically: a 1.0106-for-1 forward 'split' listed by Massive.com only, under x1.5 — a stock dividend or distribution, not a split (the 2026-10-23/24 rule). Restore returns it to review. Massive.com only — no SEC filing read in the window states this split (0 filing(s) read).",
+  polygon: {
+    id: "E-scco-2026-11-03",
+    ticker: "SCCO",
+    execution_date: "2026-11-03",
+    split_from: "1",
+    split_to: "1.0106",
+    ratio_label: "1.0106-for-1 forward split",
+  },
+};
+
 const DISAGREE = {
   ...MI,
   version_id: "0b6f0c55-0000-4000-8000-0000000000d1",
@@ -193,9 +221,34 @@ const GAME_JUMP = {
   ],
 };
 
+// W2-8 — TREO's shape as GET /admin/splits states it (backend/tests/app/test_admin_split_list_api.py): its split's
+// first session is its first stored bar, and the market cap's share count is dated before that session
+const TREO = {
+  ...MI,
+  version_id: "7e0a0000-0000-4000-8000-0000000000f1",
+  security_id: "7e0a0000-0000-4000-8000-0000000000f2",
+  ticker: "TREO",
+  key_date: "2026-08-04",
+  effective_date: "2026-08-04",
+  ratio_from: "4",
+  price_factor: "4",
+  label: "1-for-4 reverse split",
+  note: null,
+  sec: null,
+  polygon: { ...MI.polygon, id: "E-treo", ticker: "TREO", execution_date: "2026-08-04", split_from: "4", ratio_label: "1-for-4 reverse split" },
+  confirm_options: [
+    { source: "polygon", ratio_from: "4", ratio_to: "1", effective_date: "2026-08-04", label: "1-for-4 reverse split, first session 2026-08-04" },
+  ],
+  first_bar: "2026-08-04",
+  shares_rescaled: { count: 13524682, date: "2026-07-31" },
+};
+
 const h = vi.hoisted(() => ({
   q: {} as Record<string, unknown>,
   confirm: {} as Record<string, unknown>,
+  confirmValues: {} as Record<string, unknown>,
+  tape: {} as Record<string, unknown>,
+  tapeCall: vi.fn(),
   reject: {} as Record<string, unknown>,
   revoke: {} as Record<string, unknown>,
   restore: {} as Record<string, unknown>,
@@ -206,6 +259,11 @@ const h = vi.hoisted(() => ({
 vi.mock("../../api/hooks", () => ({
   useSplitList: () => h.q,
   useConfirmSplit: () => h.confirm,
+  useConfirmSplitValues: () => h.confirmValues,
+  useSplitTapeStep: (versionId: string, args: unknown) => {
+    h.tapeCall(versionId, args);
+    return h.tape;
+  },
   useRejectSplit: () => h.reject,
   useRevokeSplit: () => h.revoke,
   useRestoreSplit: () => h.restore,
@@ -220,13 +278,40 @@ function serve(data: Record<string, unknown>) {
   h.q = { data, isError: false, error: null };
 }
 
+/** GET /admin/splits/{id}/tape-step as the server answers it (AdminSplitTapeStepOut): a 1-for-80 reverse split's
+ *  stored step at MI's first session, x80 on a x0.0125 volume. Tests spread overrides over it. */
+const TAPE_STEP = {
+  first_session: "2026-05-18",
+  prior_date: "2026-05-15",
+  prior_close: 0.42,
+  close: 33.6,
+  prior_volume: 1486400,
+  volume: 18580,
+  step: 80,
+  volume_ratio: 0.0125,
+  prior_served_before: false,
+  price_factor: 80,
+  tolerance: 0.5,
+  step_low: 48.52,
+  step_high: 131.9,
+  within_tolerance: true,
+  reason: null,
+};
+
+const tapeAnswers = (data: Record<string, unknown> | undefined) => {
+  h.tape = { data, isFetching: false, isError: false, error: null };
+};
+
 beforeEach(() => {
   h.confirm = m();
+  h.confirmValues = m();
   h.reject = m();
   h.revoke = m();
   h.restore = m();
   h.dismiss = m();
   h.undoDismiss = m();
+  h.tapeCall.mockClear();
+  tapeAnswers(undefined);
   serve({ needs_review: [MI], announced: [], confirmed: [BTOC], set_aside: [LRHC_REJECTED], total: 3 });
 });
 
@@ -296,6 +381,20 @@ describe("SplitList", () => {
     expect(restore).toHaveAttribute("title", "back to needs review");
     await userEvent.click(restore);
     expect(fn(h.restore)).toHaveBeenCalledWith({ versionId: LRHC_REJECTED.version_id });
+  });
+
+  it("names a distribution the system set aside as such, with Restore back to review", async () => {
+    serve({ needs_review: [], announced: [], confirmed: [], set_aside: [SCCO_AUTO, LRHC_REJECTED], total: 2 });
+    render(<SplitList />);
+    const [auto, mine] = screen.getAllByTestId("adm-split-set-aside-row");
+    expect(auto).toHaveTextContent("SCCO");
+    expect(auto).toHaveTextContent("set aside automatically: a distribution");
+    expect(auto).not.toHaveTextContent("rejected ·");
+    expect(mine).toHaveTextContent("rejected · rejected by you, 10-20");
+    const restore = within(auto).getByRole("button", { name: "Restore" });
+    expect(restore).toHaveAttribute("title", "back to needs review");
+    await userEvent.click(restore);
+    expect(fn(h.restore)).toHaveBeenCalledWith({ versionId: SCCO_AUTO.version_id });
   });
 
   it("asks 'is this real?' about a released split-shaped jump no source listed — loud, one Dismiss", async () => {
@@ -369,10 +468,355 @@ describe("SplitList", () => {
     expect(lines[1]).toContain("Confirm Massive.com's values (1-for-15 reverse split, first session 2026-10-15)");
   });
 
+  // D3 (W2-2) — "Confirm with other values": the steward's own ratio, first session and cited document, for a split
+  // the two sources could not settle. The server (W2-1) checks the stored tape's step at that session and answers
+  // 409 outside the tolerance unless the body says override_tape; the form reads the same check from GET
+  // .../tape-step and shows it beside the entered factor. The write's body is exactly AdminSplitConfirmValuesIn.
+  describe("Confirm with other values", () => {
+    const CITED = "https://www.sec.gov/Archives/edgar/data/1/000121390026099999/ex99-1.htm";
+    const OPEN = "Confirm with other values";
+    const SUBMIT = "Confirm these values";
+    // POM's shape (the plan's D3 case): 10 ADSs -> 3 shares, the tape stepped x4.53, inside the tolerance of x3.33
+    const POM_TAPE = {
+      ...TAPE_STEP,
+      first_session: "2026-09-24",
+      prior_date: "2026-09-23",
+      prior_close: 1.2,
+      close: 5.43,
+      step: 4.53,
+      volume_ratio: 0.22,
+      price_factor: 3.3333,
+      step_low: 2.02,
+      step_high: 5.5,
+    };
+
+    const row = () => screen.getByTestId("adm-split-review-row");
+    const openForm = async () => userEvent.click(within(row()).getByRole("button", { name: OPEN }));
+    async function enter(f: { from?: string; to?: string; session?: string; url?: string; note?: string }) {
+      const r = within(row());
+      if (f.from) await userEvent.type(r.getByLabelText("Old shares"), f.from);
+      if (f.to) await userEvent.type(r.getByLabelText("New shares"), f.to);
+      if (f.session) await userEvent.type(r.getByLabelText("First session"), f.session);
+      if (f.url) await userEvent.type(r.getByLabelText("Cited document"), f.url);
+      if (f.note) await userEvent.type(r.getByLabelText("Note"), f.note);
+    }
+
+    it("is offered on every needs-review split and closed until asked: nothing is read or sent", () => {
+      serve({ needs_review: [MI, DISAGREE], announced: [], confirmed: [BTOC], set_aside: [LRHC_REJECTED], total: 4 });
+      render(<SplitList />);
+      const rows = screen.getAllByTestId("adm-split-review-row");
+      expect(rows).toHaveLength(2);
+      for (const r of rows) {
+        expect(within(r).getByRole("button", { name: OPEN })).toBeEnabled();
+        expect(within(r).queryByLabelText("Old shares")).toBeNull();
+        expect(within(r).getByTestId("adm-split-values-effect")).toHaveTextContent(
+          "Confirm with other values: you type the ratio and first session from a document you cite",
+        );
+      }
+      expect(screen.getAllByRole("button", { name: OPEN })).toHaveLength(2); // not on the confirmed or set-aside rows
+      expect(h.tapeCall).not.toHaveBeenCalled();
+      expect(fn(h.confirmValues)).not.toHaveBeenCalled();
+    });
+
+    it("posts the confirm-values body: ratio, first session, cited https URL, note, no override inside the tolerance", async () => {
+      tapeAnswers(POM_TAPE);
+      render(<SplitList />);
+      await openForm();
+      const r = within(row());
+      // the first session is what the tape is read at: nothing is read, and nothing shown, before it is entered
+      expect(h.tapeCall).toHaveBeenLastCalledWith(MI.version_id, null);
+      expect(r.queryByTestId("adm-split-tape-step")).toBeNull();
+      expect(r.getByRole("button", { name: SUBMIT })).toBeDisabled();
+
+      await enter({ from: "10", to: "3", session: "2026-09-24" });
+      expect(h.tapeCall).toHaveBeenLastCalledWith(MI.version_id, {
+        firstSession: "2026-09-24",
+        ratioFrom: "10",
+        ratioTo: "3",
+      });
+      const step = r.getByTestId("adm-split-tape-step");
+      expect(step).toHaveTextContent("The stored tape stepped x4.53 on 09-24: close 1.2 on 09-23 → 5.43, volume x0.22.");
+      expect(step).toHaveTextContent("Your values: every 10 shares became 3, a price factor of x3.33; the tape accepts x2.02 to x5.5.");
+      expect(step).toHaveTextContent("The tape supports your values.");
+      expect(r.queryByRole("checkbox")).toBeNull(); // inside the tolerance: no override to offer
+      expect(r.getByRole("button", { name: SUBMIT })).toBeDisabled(); // the cited document is still missing
+      expect(r.getByTestId("adm-split-values-hint")).toHaveTextContent("Cite the document");
+
+      await enter({ url: CITED, note: "6-K and Nasdaq alert: 10 ADSs for 3 shares" });
+      await userEvent.click(r.getByRole("button", { name: SUBMIT }));
+      expect(fn(h.confirmValues)).toHaveBeenCalledTimes(1);
+      expect(fn(h.confirmValues)).toHaveBeenCalledWith({
+        versionId: MI.version_id,
+        body: {
+          ratio_from: "10",
+          ratio_to: "3",
+          first_session: "2026-09-24",
+          cited_url: CITED,
+          note: "6-K and Nasdaq alert: 10 ADSs for 3 shares",
+          override_tape: false,
+        },
+      });
+      expect(fn(h.confirm)).not.toHaveBeenCalled();
+    });
+
+    it("leaves the note out of the body when none is typed", async () => {
+      tapeAnswers(POM_TAPE);
+      render(<SplitList />);
+      await openForm();
+      await enter({ from: "10", to: "3", session: "2026-09-24", url: CITED });
+      await userEvent.click(within(row()).getByRole("button", { name: SUBMIT }));
+      expect(fn(h.confirmValues)).toHaveBeenCalledWith({
+        versionId: MI.version_id,
+        body: { ratio_from: "10", ratio_to: "3", first_session: "2026-09-24", cited_url: CITED, override_tape: false },
+      });
+    });
+
+    it("reads the stored step as soon as a first session is entered, before any ratio, and gives no verdict", async () => {
+      tapeAnswers({
+        ...POM_TAPE,
+        price_factor: null,
+        step_low: null,
+        step_high: null,
+        within_tolerance: null,
+        reason: null,
+      });
+      render(<SplitList />);
+      await openForm();
+      await enter({ session: "2026-09-24" });
+      expect(h.tapeCall).toHaveBeenLastCalledWith(MI.version_id, { firstSession: "2026-09-24" });
+      const step = within(row()).getByTestId("adm-split-tape-step");
+      expect(step).toHaveTextContent("The stored tape stepped x4.53 on 09-24");
+      expect(step).not.toHaveTextContent("Your values");
+      expect(within(row()).queryByRole("checkbox")).toBeNull();
+    });
+
+    it("keeps Confirm off until the cited document is an https address", async () => {
+      tapeAnswers(POM_TAPE);
+      render(<SplitList />);
+      await openForm();
+      const r = within(row());
+      await enter({ from: "10", to: "3", session: "2026-09-24" });
+      const submit = r.getByRole("button", { name: SUBMIT });
+      expect(submit).toBeDisabled();
+      await enter({ url: "http://example.com/notice" });
+      expect(submit).toBeDisabled();
+      expect(r.getByTestId("adm-split-values-hint")).toHaveTextContent("https://");
+      await userEvent.clear(r.getByLabelText("Cited document"));
+      await enter({ url: "https://example.com/notice" });
+      expect(submit).toBeEnabled();
+      expect(r.queryByTestId("adm-split-values-hint")).toBeNull();
+    });
+
+    it("holds Confirm for a ratio that is not a split: a word, an equal pair, zero", async () => {
+      tapeAnswers(POM_TAPE);
+      render(<SplitList />);
+      await openForm();
+      const r = within(row());
+      await enter({ to: "3", session: "2026-09-24", url: CITED });
+      expect(r.getByRole("button", { name: SUBMIT })).toBeDisabled();
+      expect(r.getByTestId("adm-split-values-hint")).toHaveTextContent("old and the new share counts");
+      await enter({ from: "3" });
+      expect(r.getByRole("button", { name: SUBMIT })).toBeDisabled();
+      expect(r.getByTestId("adm-split-values-hint")).toHaveTextContent("not a split");
+      await userEvent.clear(r.getByLabelText("Old shares"));
+      await enter({ from: "0" });
+      expect(r.getByRole("button", { name: SUBMIT })).toBeDisabled();
+      await userEvent.clear(r.getByLabelText("Old shares"));
+      await enter({ from: "ten" });
+      expect(r.getByRole("button", { name: SUBMIT })).toBeDisabled();
+      await userEvent.clear(r.getByLabelText("Old shares"));
+      await enter({ from: "10" });
+      expect(r.getByRole("button", { name: SUBMIT })).toBeEnabled();
+    });
+
+    it("outside the tolerance: shows the stored step beside the factor and the override box, and Confirm waits for it", async () => {
+      tapeAnswers({
+        ...POM_TAPE,
+        price_factor: 80,
+        step_low: 48.52,
+        step_high: 131.9,
+        within_tolerance: false,
+        reason: "the tape steps x4.53 on 2026-09-24, not within x1.65 of the entered x80 (1-for-80 reverse split)",
+      });
+      render(<SplitList />);
+      await openForm();
+      const r = within(row());
+      await enter({ from: "80", to: "1", session: "2026-09-24", url: CITED });
+      const step = r.getByTestId("adm-split-tape-step");
+      expect(step).toHaveTextContent("The stored tape stepped x4.53 on 09-24");
+      expect(step).toHaveTextContent("a price factor of x80; the tape accepts x48.5 to x132.");
+      expect(step).toHaveTextContent("The tape does not support your values.");
+      const box = r.getByRole("checkbox", { name: /confirm anyway/i });
+      expect(box).not.toBeChecked();
+      expect(r.getByRole("button", { name: SUBMIT })).toBeDisabled();
+      expect(fn(h.confirmValues)).not.toHaveBeenCalled();
+
+      await userEvent.click(box);
+      await userEvent.click(r.getByRole("button", { name: SUBMIT }));
+      expect(fn(h.confirmValues)).toHaveBeenCalledWith({
+        versionId: MI.version_id,
+        body: { ratio_from: "80", ratio_to: "1", first_session: "2026-09-24", cited_url: CITED, override_tape: true },
+      });
+    });
+
+    it("offers the override when the tape has no bar to read, and drops it again when the values fit", async () => {
+      tapeAnswers({
+        first_session: "2026-09-24",
+        step: null,
+        price_factor: 3.3333,
+        step_low: 2.02,
+        step_high: 5.5,
+        tolerance: 0.5,
+        within_tolerance: false,
+        reason: "no stored bar on 2026-09-24 (with one in the 14 days before it) to read",
+      });
+      const { rerender } = render(<SplitList />);
+      await openForm();
+      await enter({ from: "10", to: "3", session: "2026-09-24", url: CITED });
+      const r = within(row());
+      expect(r.getByTestId("adm-split-tape-step")).toHaveTextContent("The stored tape has no bar to read on 2026-09-24");
+      expect(r.getByRole("checkbox", { name: /confirm anyway/i })).toBeInTheDocument();
+      await userEvent.click(r.getByRole("checkbox", { name: /confirm anyway/i }));
+
+      // the values are changed and now fit: the box leaves, and a ticked box is NOT sent as an override
+      tapeAnswers(POM_TAPE);
+      rerender(<SplitList />);
+      expect(within(row()).queryByRole("checkbox")).toBeNull();
+      await userEvent.click(within(row()).getByRole("button", { name: SUBMIT }));
+      expect(fn(h.confirmValues)).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.objectContaining({ override_tape: false }) }),
+      );
+    });
+
+    it("shows the server's sentence for a refused confirm (409) in the form, once", async () => {
+      const sentence =
+        "the tape steps x4.53 on 2026-09-24, not within x1.65 of the entered x80 (1-for-80 reverse split)";
+      h.confirmValues = {
+        ...m(),
+        isError: true,
+        error: { detail: sentence },
+        variables: { versionId: MI.version_id, body: {} },
+      };
+      render(<SplitList />);
+      expect(screen.queryByTestId("adm-split-values-error")).toBeNull(); // the form is closed
+      await openForm();
+      expect(within(row()).getByTestId("adm-split-values-error")).toHaveTextContent(sentence);
+      expect(screen.getAllByText(sentence)).toHaveLength(1); // not repeated at the foot of the panel
+    });
+
+    it("shows another split's refusal only in that split's form", async () => {
+      serve({ needs_review: [MI, DISAGREE], announced: [], confirmed: [], set_aside: [], total: 2 });
+      h.confirmValues = {
+        ...m(),
+        isError: true,
+        error: { detail: "this split changed since you looked — reload the panel" },
+        variables: { versionId: DISAGREE.version_id, body: {} },
+      };
+      render(<SplitList />);
+      const [first, second] = screen.getAllByTestId("adm-split-review-row");
+      await userEvent.click(within(first).getByRole("button", { name: OPEN }));
+      await userEvent.click(within(second).getByRole("button", { name: OPEN }));
+      expect(within(first).queryByTestId("adm-split-values-error")).toBeNull();
+      expect(within(second).getByTestId("adm-split-values-error")).toHaveTextContent("this split changed since you looked");
+    });
+
+    it("disables every decision while the values are being sent", async () => {
+      h.confirmValues = { ...m(), isPending: true };
+      render(<SplitList />);
+      await openForm();
+      const r = within(row());
+      expect(r.getByRole("button", { name: "Confirm" })).toBeDisabled();
+      expect(r.getByRole("button", { name: "Reject" })).toBeDisabled();
+      expect(r.getByRole("button", { name: SUBMIT })).toBeDisabled();
+    });
+
+    it("closes with Cancel, and opens again empty", async () => {
+      render(<SplitList />);
+      await openForm();
+      await enter({ from: "10" });
+      await userEvent.click(within(row()).getByRole("button", { name: "Cancel" }));
+      expect(within(row()).queryByLabelText("Old shares")).toBeNull();
+      await openForm();
+      expect(within(row()).getByLabelText("Old shares")).toHaveValue(""); // a fresh form, nothing carried over
+      expect(fn(h.confirmValues)).not.toHaveBeenCalled();
+    });
+
+    it("lists a steward's cited values with the document and says when the tape was overridden", () => {
+      const STEWARD = {
+        ...BTOC,
+        version_id: "0b6f0c55-0000-4000-8000-0000000000e1",
+        ticker: "POM",
+        label: "3-for-10 reverse split",
+        value_source: "steward",
+        confirmed_via: "operator",
+        decided_by: "you (cited values), 11-25",
+        note: "6-K and Nasdaq alert",
+        cited_url: "https://example.com/pom-notice",
+        tape_override: true,
+        sec: null,
+        polygon: null,
+      };
+      serve({ needs_review: [], announced: [], confirmed: [BTOC, STEWARD], set_aside: [], total: 2 });
+      render(<SplitList />);
+      const rows = screen.getAllByTestId("adm-split-confirmed-row");
+      expect(within(rows[0]).queryByRole("link", { name: /cited document/ })).toBeNull();
+      expect(within(rows[1]).getByRole("link", { name: /cited document/ })).toHaveAttribute(
+        "href",
+        "https://example.com/pom-notice",
+      );
+      expect(rows[1]).toHaveTextContent("you (cited values), 11-25");
+      expect(rows[1]).toHaveTextContent("confirmed past the tape");
+      expect(rows[0]).not.toHaveTextContent("past the tape");
+    });
+  });
+
+  // W2-8 — two hints from the API, said once per open split: a first session on or before the first stored bar adjusts
+  // nothing on the tape, and the share count a confirm rescales (and by how much) is named so its basis can be checked
+  it("says when a split adjusts no stored bar, and names the share count a confirm rescales", () => {
+    const LATER = { ...MI, first_bar: "2026-01-02", shares_rescaled: null }; // bars before it, no count to rescale
+    const AHEAD = {
+      ...BTOC,
+      version_id: "0b6f0c55-0000-4000-8000-0000000000f3",
+      ticker: "NVA",
+      status: "announced",
+      ratio_from: "1",
+      ratio_to: "2",
+      price_factor: "0.5",
+      label: "2-for-1 forward split",
+      effective_date: "2026-12-01",
+      first_bar: "2024-05-01",
+      shares_rescaled: { count: 1000000, date: "2026-09-30" },
+    };
+    serve({ needs_review: [TREO, LATER], announced: [AHEAD], confirmed: [BTOC], set_aside: [], total: 4 });
+    render(<SplitList />);
+    const [treo, mi] = screen.getAllByTestId("adm-split-review-row");
+    expect(within(treo).getByTestId("adm-split-hint")).toHaveTextContent(
+      "TREO's first session is its first bar: nothing on the tape to adjust; confirming divides 13,524,682 shares dated 2026-07-31 by 4 — check that count's basis.",
+    );
+    expect(within(mi).queryByTestId("adm-split-hint")).toBeNull();
+    expect(within(screen.getByTestId("adm-splits-announced")).getByTestId("adm-split-hint")).toHaveTextContent(
+      "Once in force it multiplies 1,000,000 shares dated 2026-09-30 by 2 — check that count's basis.",
+    );
+    expect(within(screen.getByTestId("adm-splits-confirmed")).queryByTestId("adm-split-hint")).toBeNull();
+    // display only: the decisions on the card are the same
+    expect(within(treo).getByRole("button", { name: "Confirm" })).toBeEnabled();
+    expect(fn(h.confirm)).not.toHaveBeenCalled();
+  });
+
   it("shows a failed jump check instead of hiding it", () => {
     serve({ needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0, unlisted_jumps_error: "OperationalError: x" });
     render(<SplitList />);
     expect(screen.getByTestId("adm-splits-jumps-error")).toHaveTextContent("The split-shaped jump check failed: OperationalError: x");
+  });
+
+  it("names Massive.com's own label beside its ratio when the row carries one (W6-1)", () => {
+    const labeled = { ...MI, polygon: { ...MI.polygon, adjustment_type: "stock_dividend" } };
+    serve({ needs_review: [labeled], announced: [], confirmed: [], set_aside: [], total: 1 });
+    render(<SplitList />);
+    const row = screen.getByTestId("adm-split-review-row");
+    expect(within(row).getByTestId("adm-split-polygon-says")).toHaveTextContent(
+      "Massive.com lists 1-for-80 reverse split, first trading 2026-05-18; it labels it a stock dividend.",
+    );
   });
 
   it("shows a failed read and a refused action", () => {

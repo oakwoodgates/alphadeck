@@ -15,12 +15,16 @@ from decimal import Decimal
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
+from domain.settings import get_settings
 from domain.splits import (
     STATUS_ANNOUNCED,
     STATUS_CONFIRMED,
     STATUS_NEEDS_REVIEW,
     STATUS_REJECTED,
     VIA_AUTO,
+    PolygonEvidence,
+    SecEvidence,
+    decide,
     is_applicable,
 )
 from ingest.edgar.client import EdgarClient
@@ -44,6 +48,8 @@ from tests.split_fixtures import (
     list_polygon_source,
     polygon_source,
     seed_union,
+    v1_row,
+    v1_source,
 )
 
 SINCE = date(2025, 8, 1)  # the fixture pages' own query
@@ -486,3 +492,375 @@ def test_an_apply_from_the_full_history_marks_the_members_it_covered(db, tmp_pat
     assert set(marks) == set(ids.values())
     assert {m.source for m in marks.values()} == {split_history_repo.SOURCE_CLI}
     assert all(m.complete for m in marks.values())
+
+
+# --- D2 (platform fixes W2-3): distributions set aside automatically -------------------------------------------
+
+
+def test_the_distribution_cap_is_read_from_the_settings(monkeypatch):
+    for var in (
+        "ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE",
+        "ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+    try:
+        assert bf.distribution_cap() == Decimal("1.5")
+        monkeypatch.setenv("ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR", "1.25")
+        get_settings.cache_clear()
+        assert bf.distribution_cap() == Decimal("1.25")
+        monkeypatch.setenv("ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE", "false")
+        get_settings.cache_clear()
+        assert bf.distribution_cap() is None  # off: every one waits for review, as before
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+
+
+_GPUS = PolygonEvidence("E-gpus", "GPUS", date(2026, 9, 15), Decimal(1), Decimal("1.04066734"))
+
+
+def _wide(
+    ratio: tuple[str, str] | None, eff: date | None, kind: str | None = "trading", **kw
+) -> SecEvidence:
+    return SecEvidence(
+        "0001214659-26-010549",
+        "10-Q",
+        date(2026, 11, 12),
+        "u",
+        Decimal(ratio[0]) if ratio else None,
+        Decimal(ratio[1]) if ratio else None,
+        effective_date=eff,
+        date_kind=kind if eff else None,
+        about_a_split=True,
+        **kw,
+    )
+
+
+def test_the_wide_forms_still_look_at_a_distribution_set_aside():
+    """The targeted wide-form reader is a confirmation search: a wide form that agrees exactly confirms a row D2
+    set aside; one that states its ratio (or an agreeing date) without agreeing sends it back to review; one about
+    a different split, or an abstain, leaves it set aside with the wide forms named on the note."""
+    aside = decide(_GPUS, [], asof=ASOF, distribution_max_factor=Decimal("1.5"))
+    assert aside.status == STATUS_REJECTED
+
+    def wide(s: SecEvidence):
+        return bf.with_wide(aside, _GPUS, [], 0, [s], 0, asof=ASOF)
+
+    agrees = wide(_wide(("1", "1.04066734"), date(2026, 9, 15)))
+    assert (agrees.status, agrees.confirmed_via) == (STATUS_CONFIRMED, VIA_AUTO)
+    states_it = wide(_wide(("1", "1.04066734"), date(2026, 10, 6), "legal"))
+    assert states_it.status == STATUS_NEEDS_REVIEW and states_it.note.startswith("Massive.com only")
+    assert "Wide forms read: 1, none agrees" in states_it.note
+    for other in (
+        _wide(
+            ("5", "1"), date(2026, 8, 25)
+        ),  # GPUS's real 10-Q: its 1-for-5 of 08-25, a different split
+        _wide(None, None, abstain_reason="more than one ratio stated: 25->1, 35->1"),
+    ):
+        kept = wide(other)
+        assert kept.status == STATUS_REJECTED and kept.note.startswith("Set aside automatically")
+        assert "Wide forms read: 1, none agrees" in kept.note
+
+
+def test_the_backfill_sets_a_distribution_aside_and_a_rerun_appends_nothing(db, tmp_path):
+    from tests.pipeline.test_detect_splits import SCCO_DAY, _backfill_scco
+
+    sid = seed_member(db, "SCCO", None, [])
+    first = _backfill_scco(db, tmp_path, asof=date(2026, 11, 5))
+    (p,) = first.planned
+    assert (p.decision.status, p.action, first.appended) == (STATUS_REJECTED, bf.APPEND, 1)
+    (v,) = split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID, security_ids=[sid])
+    assert (v.key_date, v.author, v.status) == (
+        SCCO_DAY,
+        split_repo.AUTHOR_BACKFILL,
+        STATUS_REJECTED,
+    )
+    assert split_repo.is_auto_set_aside(v)
+    out = io.StringIO()
+    bf.report(first, out=out)
+    assert (
+        "SCCO  1.0106-for-1 forward split  first session 2026-11-03  REJECTED  -> APPEND (new)"
+        in out.getvalue()
+    )
+    again = _backfill_scco(db, tmp_path, asof=date(2026, 11, 6))
+    assert (again.planned[0].action, again.appended) == (bf.UNCHANGED, 0)
+    assert split_repo.count_rows(db) == 1
+
+
+# --- W6-1: the reader on /stocks/v1/splits — Massive.com's label is evidence, never content ------------------------
+
+
+def _run_v1(db, tmp_path, *, apply: bool, asof: date = ASOF):
+    polygon, _ = v1_source(tmp_path, today=asof)
+    return bf.backfill_splits(
+        db,
+        polygon=polygon,
+        edgar=EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False),
+        since=SINCE,
+        asof=asof,
+        apply=apply,
+        allow_live=True,  # the fake Massive.com socket; the EDGAR client is cache-only
+    )
+
+
+def _planned_values(result) -> dict[tuple[str, date], tuple]:
+    """Each planned split's action and the values it would append, the label aside."""
+    out = {}
+    for p in result.planned:
+        vals = dict(p.values)
+        vals.pop("polygon_adjustment_type")
+        out[(p.member.ticker, p.decision.key_date)] = (p.action, vals)
+    return out
+
+
+def test_the_v1_reader_plans_what_the_v3_reader_planned_apart_from_the_label(
+    db, tmp_path, monkeypatch
+):
+    """The same union, a dry run each: on the v3 endpoint (the path setting's fallback, the real v3 pages) and on
+    the v1 endpoint (the real v1 rows): the same 7 splits, the same verdicts and values; only the label differs.
+    """
+    from domain.settings import get_settings
+
+    seed_union(db)
+    monkeypatch.setenv("ALPHADECK_POLYGON_SPLITS_PATH", "/v3/reference/splits")
+    get_settings.cache_clear()
+    try:
+        v3, calls = _run(db, tmp_path, apply=False)
+    finally:
+        monkeypatch.delenv("ALPHADECK_POLYGON_SPLITS_PATH")
+        get_settings.cache_clear()
+    assert "/v3/reference/splits?" in calls[0]
+    db.rollback()
+    v1 = _run_v1(db, tmp_path, apply=False)
+    db.rollback()
+    assert _planned_values(v1) == _planned_values(v3) and len(v1.planned) == 7
+    assert {p.decision.polygon.adjustment_type for p in v3.planned} == {None}
+    assert {p.decision.polygon.adjustment_type for p in v1.planned} == {"reverse_split"}
+
+
+def test_a_v1_rerun_over_a_list_the_v3_reader_filled_appends_nothing(db, tmp_path):
+    """The union listed by the v3 reader (no label on the 7 rows: 4 confirmed, 3 needs review), then the v1 reader:
+    the same 7 splits, each now labelled, plan UNCHANGED, because the label is not content (the backfill
+    re-versions any backfill-authored split whose content changed, confirmed ones included)."""
+    seed_union(db)
+    first, _ = _run(db, tmp_path, apply=True)
+    assert first.appended == 7
+    assert {
+        v.polygon_adjustment_type
+        for v in split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID)
+    } == {None}
+    again = _run_v1(db, tmp_path, apply=True)
+    assert again.appended == 0 and again.count(bf.UNCHANGED) == 7
+    assert split_repo.count_rows(db) == 7
+    assert {
+        v.polygon_adjustment_type
+        for v in split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID)
+    } == {None}
+
+
+def test_a_list_the_v1_reader_fills_carries_the_label(db, tmp_path):
+    seed_union(db)
+    first = _run_v1(db, tmp_path, apply=True)
+    assert first.appended == 7
+    stored = split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID)
+    assert {v.polygon_adjustment_type for v in stored} == {"reverse_split"}
+    # a v3 fallback night over it: the label is not content either way
+    again, _ = _run(db, tmp_path, apply=True)
+    assert again.appended == 0 and split_repo.count_rows(db) == 7
+
+
+# --- W6-2 (decision W6-a): Massive.com's stock-dividend label, through the backfill's plan ---------------------------
+#
+# GPUS 2024-12-13 as the v1 reader serves it (1 -> 1.139, labelled ``stock_dividend``) and the filing its stored note
+# names: an 8-K that mentions a split the extractor could not read. Prod lists it ``needs_review`` (the backfill's).
+
+_GPUS_8K = SecEvidence(
+    "0001214659-24-019590",
+    "8-K",
+    date(2024, 11, 26),
+    "u",
+    abstain_reason="a ratio is stated but not whether the split is reverse or forward",
+    about_a_split=True,
+)
+
+
+class _GpusReader:
+    """The S1 window holds GPUS's abstaining 8-K; the wide forms hold nothing. No I/O."""
+
+    def __init__(self, cik: str):
+        self.submissions = {cik: {"read": True}}
+
+    def index(self, m):
+        return None
+
+    def refs(self, conn, m, lo, hi):
+        return [_GPUS_8K.accession]
+
+    def wide_refs(self, m, lo, hi):
+        return []
+
+    def read(self, m, refs):
+        return ([_GPUS_8K] if refs else []), 0
+
+
+def _gpus_member(sid=None) -> bf.Member:
+    import uuid
+
+    return bf.Member(DEFAULT_TENANT_ID, sid or uuid.uuid4(), "GPUS", None, "0000000001")
+
+
+def test_the_label_override_is_read_from_the_settings(monkeypatch):
+    var = "ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN"
+    monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+    try:
+        assert bf.distribution_label_overrides_abstain() is True
+        monkeypatch.setenv(var, "false")
+        get_settings.cache_clear()
+        assert bf.distribution_label_overrides_abstain() is False
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+
+
+def test_the_plan_sets_gpus_aside_by_its_label_and_keeps_its_8k_as_the_evidence():
+    row = v1_row("GPUS", "2024-12-13")
+    m = _gpus_member()
+    for flag, status in ((True, STATUS_REJECTED), (False, STATUS_NEEDS_REVIEW)):
+        (p,) = bf.plan_members(
+            None,
+            _GpusReader(m.cik),
+            {m: [row]},
+            asof=ASOF,
+            distribution_max_factor=Decimal("1.5"),
+            label_overrides_abstain=flag,
+        )
+        assert (p.decision.status, p.decision.sec, p.filings_read) == (status, _GPUS_8K, 1), flag
+        assert p.decision.polygon.adjustment_type == "stock_dividend"
+    # D2 off: nothing is set aside, labelled or not
+    (p,) = bf.plan_members(
+        None,
+        _GpusReader(m.cik),
+        {m: [row]},
+        asof=ASOF,
+        distribution_max_factor=None,
+        label_overrides_abstain=True,
+    )
+    assert p.decision.status == STATUS_NEEDS_REVIEW
+
+
+def test_the_backfill_passes_the_label_setting_to_its_plan(db, tmp_path, monkeypatch):
+    from tests.pipeline.test_detect_splits import _backfill_scco
+
+    seen: list[bool] = []
+    plan = bf.plan_members
+
+    def spy(*a, **kw):
+        seen.append(kw["label_overrides_abstain"])
+        return plan(*a, **kw)
+
+    monkeypatch.setattr(bf, "plan_members", spy)
+    seed_member(db, "SCCO", None, [])
+    var = "ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN"
+    monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+    try:
+        _backfill_scco(db, tmp_path, asof=date(2026, 11, 5))
+        monkeypatch.setenv(var, "false")
+        get_settings.cache_clear()
+        _backfill_scco(db, tmp_path, asof=date(2026, 11, 6))
+    finally:
+        get_settings.cache_clear()
+    assert seen == [True, False]
+
+
+def test_a_backfill_rerun_sets_gpus_aside_once_and_never_touches_an_operator_rejection(db):
+    """The measured effect (plan §0.13, §3 W6-2): GPUS 2024-12-13, listed ``needs_review`` by the backfill, is
+    re-versioned once as a set-aside (its status and note change; its evidence stays); CYCU 2025-12-15, which the
+    steward rejected, is the steward's: ``OPERATOR_KEPT``, never re-decided."""
+    row = v1_row("GPUS", "2024-12-13")
+    cap = Decimal("1.5")
+    before = decide(row, [_GPUS_8K], asof=ASOF, distribution_max_factor=cap)  # W2-3's verdict
+    assert before.status == STATUS_NEEDS_REVIEW
+    gpus = seed_member(db, "GPUS", None, [])
+    stored = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=gpus,
+        key_date=row.execution_date,
+        values=split_repo.decision_values(before),
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+    after = decide(
+        row, [_GPUS_8K], asof=ASOF, distribution_max_factor=cap, label_overrides_abstain=True
+    )
+    p = bf.PlannedSplit(member=_gpus_member(gpus), decision=after, stored=None, action=bf.APPEND)
+    bf.plan_against_stored([p], {gpus: [stored]})
+    assert (p.action, p.stored.id, p.changed) == (bf.APPEND, stored.id, ("status", "note"))
+    # once: the set-aside version, stored, plans UNCHANGED on the next run
+    aside = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=gpus,
+        key_date=row.execution_date,
+        values=p.values,
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+    assert split_repo.is_auto_set_aside(aside) and aside.sec_accession == _GPUS_8K.accession
+    again = bf.PlannedSplit(
+        member=_gpus_member(gpus), decision=after, stored=None, action=bf.APPEND
+    )
+    bf.plan_against_stored([again], {gpus: [aside]})
+    assert again.action == bf.UNCHANGED
+    # CYCU: the steward's rejection stands, whatever the label rule now says
+    cycu_row = PolygonEvidence(
+        "E-CYCU-2025-12-15",
+        "CYCU",
+        date(2025, 12, 15),
+        Decimal(1),
+        Decimal("1.008"),
+        "stock_dividend",
+    )
+    cycu_8k = SecEvidence(
+        "0001493152-25-016033",
+        "8-K",
+        date(2025, 9, 29),
+        "u",
+        abstain_reason="only an authorized range of ratios (3:1) — no ratio set",
+        about_a_split=True,
+    )
+    cycu = seed_member(db, "CYCU", None, [])
+    listed = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=cycu,
+        key_date=cycu_row.execution_date,
+        values=split_repo.decision_values(
+            decide(cycu_row, [cycu_8k], asof=ASOF, distribution_max_factor=cap)
+        ),
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+    rejected = split_repo.reject(db, listed.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    tonight = decide(
+        cycu_row, [cycu_8k], asof=ASOF, distribution_max_factor=cap, label_overrides_abstain=True
+    )
+    assert (
+        tonight.status == STATUS_REJECTED
+    )  # the rule now agrees with the steward, and still writes nothing
+    kept = bf.PlannedSplit(
+        member=bf.Member(DEFAULT_TENANT_ID, cycu, "CYCU", None, "0000000002"),
+        decision=tonight,
+        stored=None,
+        action=bf.APPEND,
+    )
+    bf.plan_against_stored([kept], {cycu: [rejected]})
+    assert (kept.action, kept.stored.id) == (bf.OPERATOR_KEPT, rejected.id)
+    assert split_repo.count_rows(db) == 4

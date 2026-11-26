@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type {
   AdminCikChangeOut,
+  AdminDeregistrationOut,
   AdminFeedLimitationOut,
   AdminPriceRepairsOut,
   AdminPriceSymbolChangeOut,
@@ -22,8 +23,19 @@ import {
   useUndoLimitedHistory,
   useUndoPriceSymbolChange,
 } from "../api/hooks";
+import { ExternalLink } from "../components/ExternalLink";
 import { workbenchPath } from "../nav";
 import { errText } from "../workbench/format";
+import {
+  adoptable,
+  candidateFacts,
+  candidatesOf,
+  edgarClause,
+  eventTitles,
+  isCrossClass,
+  massiveClause,
+  vendorShort,
+} from "./priceFeedWords";
 
 /** The security ids this panel renders a row for — the freshness card leaves THESE out of its own stale
  *  and closed blocks, so a name is shown once (in the place it can be acted on) and never dropped: a row
@@ -38,13 +50,6 @@ export function repairHandledIds(r: AdminPriceRepairsOut | null | undefined): Se
     ...r.closed.map((x) => x.security_id),
   ]);
 }
-
-/** "Client error '404 Not Found' for url …" -> "404 Not Found"; anything else clipped. */
-const vendorShort = (err: string | null | undefined) => {
-  if (!err) return null;
-  const m = /'(\d{3} [^']+)'/.exec(err);
-  return m ? m[1] : err.length > 80 ? `${err.slice(0, 79)}…` : err;
-};
 
 const ratio = (c: AdminProbeCandidateOut) => (c.ratio == null ? "—" : `×${c.ratio.toFixed(3)}`);
 
@@ -106,6 +111,48 @@ function AppliedLine({
 
 const thesesText = (row: { theses?: { name: string }[] }) =>
   (row.theses ?? []).map((t) => t.name).join(", ");
+
+/** Marks the one action the server (or the evidence) recommends on a row. */
+function RecommendedMark() {
+  return (
+    <span className="adm-badge b-labeled" data-testid="adm-recommended">
+      recommended
+    </span>
+  );
+}
+
+/** A deregistered never-priced name's evidence (W4-2): the Form 15 and the 8-K events before it, each with SEC's own
+ *  item titles and a link to its filing. A fact for the steward's removal in the basket editor; nothing is decided here. */
+function DeregistrationEvidence({ d }: { d: AdminDeregistrationOut }) {
+  return (
+    <div className="adm-sub" data-testid="adm-deregistered">
+      <b>Deregistered</b> —{" "}
+      <ExternalLink className="adm-link" href={d.filing_url}>
+        {d.form}
+      </ExternalLink>{" "}
+      filed {d.filed}
+      {d.events.length > 0 && (
+        <ul className="adm-repairs">
+          {d.events.map((e) => (
+            <li key={e.accession} data-testid="adm-dereg-event">
+              <ExternalLink className="adm-link" href={e.filing_url}>
+                {e.form}
+              </ExternalLink>{" "}
+              filed {e.filed}
+              {eventTitles(e) ? ` — ${eventTitles(e)}` : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** W6-4 — what Massive.com says of the row's symbol, one quiet line (evidence; nothing is decided by it). */
+function MassiveLine({ m }: { m: AdminUnpriceableRowOut["massive_ref"] | undefined }) {
+  const words = massiveClause(m);
+  return words ? <div className="adm-sub" data-testid="adm-massive-ref">{words}</div> : null;
+}
 
 /** One known feed limitation (0056): what the operator marked and why, the vendor pull that evidenced it,
  *  and its inverse — Undo while it stands; an undone mark stays listed, grayed, with "Mark again" (WB#1/#2).
@@ -223,6 +270,8 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
   const undoLimited = useUndoLimitedHistory();
   const [symbols, setSymbols] = useState<Record<string, string>>({});
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  // "I checked the price basis", per never-priced candidate (security id : symbol): a cross-class Adopt waits on it
+  const [priceBasis, setPriceBasis] = useState<Record<string, boolean>>({});
 
   const { renamed, unpriceable, acknowledged, closed } = repairs;
   const successor = repairs.successor ?? [];
@@ -357,6 +406,7 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
                     {r.edgar_name && <> ({r.edgar_name}{former ? <>; formerly {former}</> : null})</>}
                     {filing && <> · 8-K item 5.03 filed {filing.filed}</>}
                   </div>
+                  <MassiveLine m={r.massive_ref} />
                   {r.change ? (
                     <AppliedLine
                       change={r.change}
@@ -402,72 +452,131 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
             nor renamed
           </div>
           <ul className="adm-repairs">
-            {unpriceable.map((u: AdminUnpriceableRowOut) => (
-              <li key={u.security_id} data-testid="adm-unpriceable-row">
-                <div>
-                  <b>{u.ticker ?? u.security_id}</b> — no stored bar ·{" "}
-                  {vendorShort(u.vendor_error) ? `vendor ${vendorShort(u.vendor_error)}` : "no vendor bars"}{" "}
-                  · EDGAR lists {u.edgar_tickers?.length ? u.edgar_tickers.join(", ") : "no symbol"} ·{" "}
-                  {thesesText(u)}
-                </div>
-                {u.change ? (
-                  <AppliedLine
-                    change={u.change}
-                    verb="set to"
-                    busy={busy}
-                    onUndo={() => undo.mutate({ changeId: u.change!.id })}
-                  />
-                ) : (
-                  <div className="adm-repair-act">
-                    <input
-                      className="adm-input adm-input-sm"
-                      type="text"
-                      aria-label={`vendor symbol for ${u.ticker ?? u.security_id}`}
-                      placeholder="vendor symbol (e.g. a TSX listing)"
-                      value={symbols[u.security_id] ?? ""}
-                      onChange={(e) => setSymbols({ ...symbols, [u.security_id]: e.target.value })}
-                      disabled={busy}
-                    />
-                    <button
-                      type="button"
-                      className="adm-minibtn"
-                      disabled={busy || !(symbols[u.security_id] ?? "").trim()}
-                      onClick={() =>
-                        setSym.mutate({
-                          securityId: u.security_id,
-                          symbol: (symbols[u.security_id] ?? "").trim(),
-                        })
-                      }
-                    >
-                      Set price symbol
-                    </button>
-                    <input
-                      className="adm-input adm-input-sm"
-                      type="text"
-                      aria-label={`reason to keep ${u.ticker ?? u.security_id} unpriced`}
-                      placeholder="why keep it unpriced (optional)"
-                      value={reasons[u.security_id] ?? ""}
-                      onChange={(e) => setReasons({ ...reasons, [u.security_id]: e.target.value })}
-                      disabled={busy}
-                    />
-                    <button
-                      type="button"
-                      className="adm-minibtn"
-                      disabled={busy}
-                      onClick={() =>
-                        ack.mutate({ securityId: u.security_id, reason: reasons[u.security_id] })
-                      }
-                    >
-                      Acknowledge — keep unpriced
-                    </button>
-                    <a className="adm-link" href={workbenchPath(null)}>
-                      Remove from basket →
-                    </a>
-                    <span className="adm-sub">(Workbench: open {thesesText(u)} → ✎ Edit the basket)</span>
+            {unpriceable.map((u: AdminUnpriceableRowOut) => {
+              const cands = candidatesOf(u);
+              const dereg = u.deregistered;
+              // a deregistered name's recommended action is its removal: that link leads the actions
+              const remove = (
+                <>
+                  <a className="adm-link" href={workbenchPath(null)}>
+                    Remove from basket →
+                  </a>
+                  {dereg && <RecommendedMark />}
+                  <span className="adm-sub">(Workbench: open {thesesText(u)} → ✎ Edit the basket)</span>
+                </>
+              );
+              return (
+                <li key={u.security_id} data-testid="adm-unpriceable-row">
+                  <div data-testid="adm-unpriceable-head">
+                    <b>{u.ticker ?? u.security_id}</b> —{" "}
+                    {[
+                      "no stored bar",
+                      vendorShort(u.vendor_error) ? `vendor ${vendorShort(u.vendor_error)}` : "no vendor bars",
+                      edgarClause(u),
+                      thesesText(u),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </div>
-                )}
-              </li>
-            ))}
+                  <MassiveLine m={u.massive_ref} />
+                  {u.change ? (
+                    <AppliedLine
+                      change={u.change}
+                      verb="set to"
+                      busy={busy}
+                      onUndo={() => undo.mutate({ changeId: u.change!.id })}
+                    />
+                  ) : (
+                    <>
+                      {dereg && <DeregistrationEvidence d={dereg} />}
+                      {cands.map((c) => {
+                        const cross = isCrossClass(c, u.member_class);
+                        const key = `${u.security_id}:${c.symbol}`;
+                        const recommended = u.recommended === c.symbol;
+                        return (
+                          <div key={c.symbol} className="adm-repair-act" data-testid="adm-unpriced-candidate">
+                            <span className={adoptable(c) ? undefined : "adm-sub"}>
+                              <b>{c.symbol}</b> · {candidateFacts(c, u.member_class)}
+                            </span>
+                            {recommended && <RecommendedMark />}
+                            {cross && (
+                              <label className="adm-sub">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(priceBasis[key])}
+                                  onChange={(e) => setPriceBasis({ ...priceBasis, [key]: e.target.checked })}
+                                  disabled={busy}
+                                />{" "}
+                                I checked the price basis
+                              </label>
+                            )}
+                            <button
+                              type="button"
+                              className={`adm-minibtn${recommended ? " primary" : ""}`}
+                              disabled={busy || !adoptable(c) || (cross && !priceBasis[key])}
+                              onClick={() =>
+                                adopt.mutate(
+                                  cross
+                                    ? { securityId: u.security_id, symbol: c.symbol, confirmClass: true }
+                                    : { securityId: u.security_id, symbol: c.symbol },
+                                )
+                              }
+                            >
+                              Adopt {c.symbol}
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <div className="adm-repair-act" data-testid="adm-unpriceable-actions">
+                        {dereg && remove}
+                        <input
+                          className="adm-input adm-input-sm"
+                          type="text"
+                          aria-label={`vendor symbol for ${u.ticker ?? u.security_id}`}
+                          placeholder="vendor symbol (e.g. a TSX listing)"
+                          value={symbols[u.security_id] ?? ""}
+                          onChange={(e) => setSymbols({ ...symbols, [u.security_id]: e.target.value })}
+                          disabled={busy}
+                        />
+                        <button
+                          type="button"
+                          className="adm-minibtn"
+                          disabled={busy || !(symbols[u.security_id] ?? "").trim()}
+                          onClick={() =>
+                            setSym.mutate({
+                              securityId: u.security_id,
+                              symbol: (symbols[u.security_id] ?? "").trim(),
+                            })
+                          }
+                        >
+                          Set price symbol
+                        </button>
+                        <input
+                          className="adm-input adm-input-sm"
+                          type="text"
+                          aria-label={`reason to keep ${u.ticker ?? u.security_id} unpriced`}
+                          placeholder="why keep it unpriced (optional)"
+                          value={reasons[u.security_id] ?? ""}
+                          onChange={(e) => setReasons({ ...reasons, [u.security_id]: e.target.value })}
+                          disabled={busy}
+                        />
+                        <button
+                          type="button"
+                          className="adm-minibtn"
+                          disabled={busy}
+                          onClick={() =>
+                            ack.mutate({ securityId: u.security_id, reason: reasons[u.security_id] })
+                          }
+                        >
+                          Acknowledge — keep unpriced
+                        </button>
+                        {!dereg && remove}
+                      </div>
+                    </>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           <div className="adm-sub">
             A set symbol is validated with one vendor fetch before it is written; an acknowledged name
