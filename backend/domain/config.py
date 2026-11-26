@@ -1078,6 +1078,16 @@ class ExtractorConfig(DomainModel):
     # A6: the aggregate working-capital line (``IncreaseDecreaseInOperatingCapital``) is routine working capital,
     # never a ``possible-one-time`` line (FEIM's). False: it can trip the flag (W1-4).
     operating_capital_routine: bool = True
+    # The cash-composition guards (2026-11-26: the fork audit of the 18 AUTO-applied cash values found CNP and LEXX
+    # wrong). Equity: an investment tag (``_STI`` / ``_LT_MARKETABLE``) whose value equals a same-dated
+    # equity-securities balance of the registrant is not counted, and the note names both (CNP's 425M of AT&T, Charter
+    # and WBD stock tagged ``MarketableSecuritiesCurrent``). False: counted as before.
+    investments_equity_guard: bool = True
+    # Statement: given the raw document, a counted investment tagged outside the statement tables (those holding the
+    # cash fact or a balance-sheet total on the cash date) and only in a deferred-tax table is not counted, flagged
+    # ``investments-unconfirmed`` when that lowers the figure (LEXX's 349,120). Narrowed from "anywhere outside the
+    # statements", which moved 18 of 100 replayed applied values, mostly note-only debt securities. False: as before.
+    investments_statement_guard: bool = True
 
     # --- annual-cover shares (the dark names, Retrieval Slice 1 — ingest/edgar/annual_shares.py) ---
     # The window AFTER the located cover instruction searched for the count. The instruction sentence
