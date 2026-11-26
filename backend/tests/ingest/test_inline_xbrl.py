@@ -238,3 +238,21 @@ def test_no_inline_xbrl_reads_nothing():
     text = "FORM 10-Q ... 12,345,678 shares of Class A common stock outstanding as of October 31, 2026."
     assert ix.read_cover(text) is None
     assert ix.eps_share_base(text, _Q3, 80, 371) is None
+
+
+def test_units_are_read_by_id_and_each_fact_carries_its_unit():
+    """The cash reader keeps USD facts only (W1-2): every fact carries its ``unitRef``, ``read_units`` its measure."""
+    raw = (_FX.parent / "inline_cash" / "CEG-10q.htm").read_text(encoding="utf-8")
+    units = ix.read_units(raw)
+    cash = [
+        f
+        for f in ix.read_facts(raw, frozenset({"CashAndCashEquivalentsAtCarryingValue"}))
+        if f.context.instant == _Q3 and not f.context.members
+    ]
+    assert {(f.value, units[f.unit]) for f in cash} == {(603_000_000, "iso4217:USD")}  # shown twice
+    divide = (
+        '<xbrli:unit id="usdPerShare"><xbrli:divide><xbrli:unitNumerator><xbrli:measure>iso4217:USD'
+        "</xbrli:measure></xbrli:unitNumerator><xbrli:unitDenominator><xbrli:measure>xbrli:shares"
+        "</xbrli:measure></xbrli:unitDenominator></xbrli:divide></xbrli:unit>"
+    )
+    assert ix.read_units(divide) == {"usdPerShare": "iso4217:USD/xbrli:shares"}

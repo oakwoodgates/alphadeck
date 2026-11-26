@@ -115,6 +115,8 @@ class ExtractedFact(DomainModel):
     #           | "burn-off-period" (the burn does not end on the cited filing's period of report)
     #           | "cash-after-period" (the cash is dated after the cited filing's period of report; an older
     #             cash date is "stale-cash")
+    #           | "companyfacts-behind" (companyfacts' newest cash or operating cash flow ends before the cited
+    #             period: the filing's own inline-XBRL rows at the period end are read beside it, CEG's Q3)
     #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant"  (missing-data: value None)
     # annual cash (``annual-statements``, always FLAG; PR 4 adds the last six):
     #           "annual-statements" | "unit-scale-unread" | "column-ambiguous" | "stale-runway"

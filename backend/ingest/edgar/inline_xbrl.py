@@ -5,9 +5,10 @@ months, while the cited 10-Q or 10-K document carries both. The extractor alread
 (``ingest.edgar.extract._read_document``: cache-first, no extra request); this module reads its raw text:
 
 - the ``xbrli:context`` elements: an instant or a start and end date, and the explicit members of each axis;
-- the ``ix:nonFraction`` facts of two concepts, ``scale`` and ``sign`` applied:
-  ``dei:EntityCommonStockSharesOutstanding`` (the cover, ``read_cover``) and
-  ``us-gaap:WeightedAverageNumberOfSharesOutstandingBasic`` (the EPS share base, ``eps_share_base``).
+- the ``xbrli:unit`` elements (``read_units``: ``iso4217:USD``, ``xbrli:shares``);
+- the ``ix:nonFraction`` facts, ``scale`` and ``sign`` applied: ``dei:EntityCommonStockSharesOutstanding`` (the cover,
+  ``read_cover``), ``us-gaap:WeightedAverageNumberOfSharesOutstandingBasic`` (the EPS share base, ``eps_share_base``)
+  and, through ``read_facts``, the cash reader's statement concepts (``ingest.edgar.extract._filing_cash``).
 
 An inline fact wraps the printed number, so the cover reading and the printed cover are one reading, not two; the
 independent check on a cover count is the same filing's EPS share base (``classes_outside_eps``). Pure and
@@ -39,6 +40,11 @@ _MEMBER_RE = re.compile(
     r"<(?:[\w-]+:)?explicitMember\b[^>]*?\bdimension\s*=\s*\"([^\"]+)\"[^>]*>\s*([^<\s]+)\s*<", re.I
 )
 _TYPED_RE = re.compile(r"<(?:[\w-]+:)?typedMember\b[^>]*?\bdimension\s*=\s*\"([^\"]+)\"", re.I)
+_UNIT_RE = re.compile(
+    r"<(?:[\w-]+:)?unit\b[^>]*?\bid\s*=\s*\"([^\"]+)\"[^>]*>(.*?)</(?:[\w-]+:)?unit\s*>",
+    re.S | re.I,
+)
+_MEASURE_RE = re.compile(r"<(?:[\w-]+:)?measure\s*>\s*([^<\s]+)\s*<", re.I)
 # An opening ``ix:nonFraction`` tag (a self-closing nil fact never matches) and the closing tag. Facts NEST: a
 # "basic and diluted" line wraps the basic fact inside the diluted one (SMR, NET, RBLX), so each opening tag reads its
 # printed text up to the FIRST closing tag after it, never a regex that consumes the inner fact.
@@ -81,13 +87,15 @@ class Context:
 @dataclass(frozen=True)
 class InlineFact:
     """One ``ix:nonFraction`` fact: ``value`` with scale and sign applied (None when the printed text is not a
-    number), the printed text as shown, its context and its offset in the raw document."""
+    number), the printed text as shown, its context, its offset in the raw document and its ``unitRef`` (``unit``,
+    an id: ``read_units`` gives its measure)."""
 
     concept: str
     value: float | None
     shown: str
     context: Context
     offset: int
+    unit: str = ""
 
 
 @dataclass(frozen=True)
@@ -201,6 +209,12 @@ def read_contexts(raw: str) -> dict[str, Context]:
     return out
 
 
+def read_units(raw: str) -> dict[str, str]:
+    """Every ``xbrli:unit`` of the document by id: its measure (``iso4217:USD``), or a divide's measures joined by
+    "/" (numerator first: ``iso4217:USD/xbrli:shares``)."""
+    return {uid: "/".join(_MEASURE_RE.findall(body)) for uid, body in _UNIT_RE.findall(raw)}
+
+
 def _number(shown: str, fmt: str) -> float | None:
     """The printed text as a number under its ``format``: a dash, "no" or "none" is zero (``ixt:fixed-zero``,
     ``ixt-sec:numwordsen``); comma-decimal formats swap the separators. None when it is not a number.
@@ -247,7 +261,7 @@ def read_facts(
                 value = None
         if value is not None and attrs.get("sign") == "-":
             value = -value
-        out.append(InlineFact(concept, value, shown, c, m.start()))
+        out.append(InlineFact(concept, value, shown, c, m.start(), attrs.get("unitRef", "")))
     return out
 
 
@@ -476,5 +490,6 @@ __all__ = [
     "read_contexts",
     "read_cover",
     "read_facts",
+    "read_units",
     "set_aside_reason",
 ]
