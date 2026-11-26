@@ -3313,3 +3313,111 @@ def test_main_PRINTS_the_crosscheck_lines_beside_the_missing_closes(monkeypatch,
         "SNDK: no close stored since 2026-11-19, but Massive.com shows it traded tonight (73.61) — a vendor "
         "gap, not a rename; the 8-for-1 forward split of 2026-11-20 is on the list"
     ) in out
+
+
+# --- W6-3b: the price gap fill rides the pass (built once before the loop, over the grouped day) -----------------
+
+
+def test_pass_BUILDS_the_gap_fill_ONCE_over_tonight_s_grouped_day_and_hands_it_to_the_loop(
+    monkeypatch,
+):
+    from ingest.prices import gap_fill as gf
+    from pipeline import tape_crosscheck as tc
+
+    _prime_pass(monkeypatch)
+    grouped = tc.GroupedFetch(session=_ASOF, status=tc.STATUS_ON, day=_grouped_fixture(_ASOF))
+    monkeypatch.setattr(daily, "fetch_grouped", lambda **kw: grouped)
+    built: list[dict] = []
+    gap = gf.GapSource(None, tonight=grouped.day)
+
+    def _build(**kw):
+        built.append(kw)
+        return gap
+
+    monkeypatch.setattr(daily, "default_gap_source", _build)
+    seen: dict = {}
+
+    def _run_daily(conn, **k):
+        seen.update(k)
+        return []
+
+    monkeypatch.setattr(daily, "run_daily", _run_daily)
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert built == [
+        {"tonight": grouped.day, "allow_live": True}
+    ]  # once, over the day already read
+    assert seen["gap_source"] is gap
+
+
+@pytest.mark.parametrize("fault", ["off", "settings"])
+def test_a_gap_fill_that_cannot_start_is_no_fill_never_a_failed_pass(monkeypatch, capsys, fault):
+    """Off (``price_gap_fill = "off"`` / no key: ``None``) passes no gap source; a settings fault (the daily tests
+    stub the settings partially) is printed and the pass goes on without one."""
+    _prime_pass(monkeypatch)
+    with monkeypatch.context() as m:
+        if fault == "off":
+            m.setattr("ingest.prices.gap_fill.default_bar_source", lambda: None)
+        else:
+            m.setattr(
+                "ingest.prices.gap_fill.get_settings", lambda: SimpleNamespace(cron_run_at="22:30")
+            )
+        assert daily.build_gap_source(None, allow_live=True) is None
+    out = capsys.readouterr().out
+    if fault == "settings":
+        assert "WARNING: price gap fill off for this pass: AttributeError" in out
+    else:
+        assert out == ""
+    seen: dict = {}
+
+    def _run_daily(conn, **k):
+        seen.update(k)
+        return []
+
+    monkeypatch.setattr(daily, "run_daily", _run_daily)
+    monkeypatch.setattr(daily, "build_gap_source", lambda grouped, **kw: None)
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert "gap_source" not in seen  # the loop is called exactly as before W6-3b
+
+
+def test_run_daily_hands_the_gap_source_to_every_thesis_s_ingest(db, monkeypatch):
+    from ingest.prices import gap_fill as gf
+
+    _thesis(db, "A")
+    _thesis(db, "B")
+    seen: list = []
+
+    def _ingest(conn, thesis_id, **k):
+        seen.append(k.get("gap_source"))
+        return []
+
+    _stub_ingest(monkeypatch, _ingest)
+    gap = gf.GapSource(None)
+    daily.run_daily(db, asof=_ASOF, allow_live=True, gap_source=gap)
+    assert seen == [gap, gap]
+    seen.clear()
+    daily.run_daily(
+        db, asof=_ASOF, allow_live=True
+    )  # none: the unit is called exactly as before W6-3b
+    assert seen == [None, None]
+
+
+def test_main_PRINTS_one_fill_line_deduped_across_theses(monkeypatch, capsys):
+    sndk, scni = uuid.uuid4(), uuid.uuid4()
+    nov = [date(2026, 11, d) for d in (20, 23, 24, 25)]
+    split = "8-for-1 forward split of 2026-11-20"
+    rows = [
+        NameResult("SNDK", sndk, 0, 4, price_bars_filled=tuple(nov), price_fill_split=split),
+        NameResult("SNDK", sndk, 0, 0, price_bars_filled=tuple(nov), price_fill_split=split),
+        NameResult("SCNI", scni, 0, 0, price_fill_deferred=True),
+        NameResult("PARA", uuid.uuid4(), 0, 0, price_fill_error="MassiveBarsError: HTTP 500"),
+    ]
+    outcome = _outcome_with([_res(recorded=True, ingested=rows)])
+    monkeypatch.setattr(daily, "run_daily_pass", lambda **kw: outcome)
+    _tonight(monkeypatch, _ASOF)
+    daily.main(["--asof", _ASOF.isoformat()])
+    out = capsys.readouterr().out.splitlines()
+    assert (
+        "Massive.com filled 4 close(s) the vendor lacked: SNDK 11-20..11-25 (8-for-1 forward split of "
+        "2026-11-20); 1 deferred (past the night's range-read cap; filled on a later night)"
+    ) in out
+    assert "PARA: Massive.com fill not read — MassiveBarsError: HTTP 500" in out

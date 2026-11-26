@@ -583,6 +583,19 @@ class Settings(BaseSettings):
     # defaults (pinned by test).
     tape_crosscheck: bool = True
     tape_crosscheck_tolerance: float = 0.02
+    # W6-3b — THE PRICE GAP FILL (``ingest/prices/gap_fill.py``, decision W6-b): a session the price vendor served NO
+    # close for is filled from Massive.com's raw bar (only where it traded; never over a vendor or a stored bar;
+    # never before the newest split in force's first session or on/after a pending split's). ``price_gap_fill``:
+    # ``"split"`` (default) = within ``price_gap_fill_split_sessions`` sessions of a split in force's first session,
+    # or any session while the vendor has served nothing since it (SNDK, SCNI); ``"all"`` = every traded gap (the
+    # OTC late closes too); ``"off"``. The nightly looks back the same number of sessions; tonight's session reads
+    # the grouped day (no request), an older one one range read per name, at most ``price_gap_fill_max_names`` a
+    # night (past it: deferred, counted). No MASSIVE_API_KEY = off. ALPHADECK_PRICE_GAP_FILL /
+    # ALPHADECK_PRICE_GAP_FILL_SPLIT_SESSIONS / ALPHADECK_PRICE_GAP_FILL_MAX_NAMES, injected into the backend AND
+    # the cron by docker-compose at these defaults (pinned by test).
+    price_gap_fill: Literal["off", "split", "all"] = "split"
+    price_gap_fill_split_sessions: int = 20
+    price_gap_fill_max_names: int = 10
     openfigi_url: str = "https://api.openfigi.com/v3/mapping"  # the fixed POST endpoint
     usaspending_api_base: str = "https://api.usaspending.gov/api/v2"
     usaspending_award_url_base: str = (
