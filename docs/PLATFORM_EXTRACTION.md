@@ -159,6 +159,15 @@ company gets its values from the next onboarding run or the nightly.
 - **`--no-live`** is cache only: the client never reaches SEC and serves stale copies. A company whose documents are
   not all cached gets an `error` attempt, `not cached`, and stays due until `retry_max` such attempts. This is how a
   fork, which holds prod's EDGAR cache but no SEC User-Agent, rehearses.
+- **The rescan** (`--rescan awaiting`) walks `extraction.rescan_list` instead: every company whose newest candidate
+  of either value is an undecided flag the steward's queue lists (`state.awaiting`: awaiting, or pending beside a
+  value), whatever `due` says. It leaves out, and counts, ETFs, companies on no live card, and a company whose other
+  value's newest candidate a standing steward decision closes (approve, correct or dismiss), since a changed
+  candidate would re-queue over it; the dry run names those for Extract now. The machine writer keeps every other
+  decision standing: an identical candidate writes nothing, a steward's value of the same filing is
+  `already_on_file`, and a pinned company gets a `pinned` candidate. Attempts carry run kind `backfill`. A
+  re-extracted company still waits, so a rescan resumes with `--since`, which skips a company with a `done` attempt
+  since that instant; a stopped or bounded rescan prints the instant.
 
 | Exit | Meaning |
 |---|---|
