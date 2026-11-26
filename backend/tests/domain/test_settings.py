@@ -725,6 +725,53 @@ def test_compose_injects_the_extraction_dials_into_BOTH_services_at_the_settings
         assert all(float(v) == getattr(s, field) for v in found), f"{var}: {found}"
 
 
+# D2 (platform fixes W2-3) — the split list's distribution dials
+_SPLIT_DISTRIBUTION_DIALS = {
+    "ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE": "split_distribution_auto_set_aside",
+    "ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR": "split_distribution_max_factor",
+}
+
+
+def test_the_split_distribution_dials_have_the_decided_defaults(monkeypatch):
+    for var in _SPLIT_DISTRIBUTION_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert s.split_distribution_auto_set_aside is True
+    assert s.split_distribution_max_factor == 1.5 and isinstance(
+        s.split_distribution_max_factor, float
+    )
+    monkeypatch.setenv("ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE", "false")  # the off switch
+    monkeypatch.setenv("ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR", "1.25")
+    s = Settings()
+    assert (s.split_distribution_auto_set_aside, s.split_distribution_max_factor) == (False, 1.25)
+
+
+def test_compose_injects_the_split_distribution_dials_into_BOTH_services_at_the_settings_defaults(
+    monkeypatch,
+):
+    """Compose lists the environment explicitly (no ``env_file``): the off switch
+    ``ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE=false`` reaches the nightly detector (cron) and the onboarding split
+    history (backend) only if each dial is listed for both, with a fallback equal to the Settings default.
+    """
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for var in _SPLIT_DISTRIBUTION_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    for var, field in _SPLIT_DISTRIBUTION_DIALS.items():
+        found = re.findall(rf"{var}: \$\{{{var}:-([a-z0-9.]+)\}}", compose)
+        assert len(found) == 2, f"{var} must be injected into backend AND cron, found {len(found)}"
+        default = getattr(s, field)
+        want = str(default).lower() if isinstance(default, bool) else default
+        assert all(
+            (v if isinstance(default, bool) else float(v)) == want for v in found
+        ), f"{var}: {found}"
+
+
 _CROSS_CLASS_ENV = "ALPHADECK_PRICE_FEED_CROSS_CLASS_ADOPT"
 
 

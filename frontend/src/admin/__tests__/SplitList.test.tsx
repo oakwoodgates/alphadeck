@@ -146,6 +146,34 @@ const LRHC_REJECTED = {
   restore_to: "needs_review",
 };
 
+// D2 — SCCO's stock dividend as the nightly sets it aside (backend/tests/app/test_admin_split_list_api.py)
+const SCCO_AUTO = {
+  ...LRHC_REJECTED,
+  version_id: "5cc0a51d-0000-4000-8000-00000000d200",
+  security_id: "5cc0a51d-0000-4000-8000-00000000d201",
+  ticker: "SCCO",
+  key_date: "2026-11-03",
+  effective_date: "2026-11-03",
+  ratio_from: "1",
+  ratio_to: "1.0106",
+  price_factor: "0.989511",
+  direction: "forward",
+  label: "1.0106-for-1 forward split",
+  author: "system:detect_splits",
+  action: "detect",
+  decided_by: "set aside automatically: a distribution",
+  valid_from: "2026-11-03",
+  note: "Set aside automatically: a 1.0106-for-1 forward 'split' listed by Massive.com only, under x1.5 — a stock dividend or distribution, not a split (the 2026-10-23/24 rule). Restore returns it to review. Massive.com only — no SEC filing read in the window states this split (0 filing(s) read).",
+  polygon: {
+    id: "E-scco-2026-11-03",
+    ticker: "SCCO",
+    execution_date: "2026-11-03",
+    split_from: "1",
+    split_to: "1.0106",
+    ratio_label: "1.0106-for-1 forward split",
+  },
+};
+
 const DISAGREE = {
   ...MI,
   version_id: "0b6f0c55-0000-4000-8000-0000000000d1",
@@ -353,6 +381,20 @@ describe("SplitList", () => {
     expect(restore).toHaveAttribute("title", "back to needs review");
     await userEvent.click(restore);
     expect(fn(h.restore)).toHaveBeenCalledWith({ versionId: LRHC_REJECTED.version_id });
+  });
+
+  it("names a distribution the system set aside as such, with Restore back to review", async () => {
+    serve({ needs_review: [], announced: [], confirmed: [], set_aside: [SCCO_AUTO, LRHC_REJECTED], total: 2 });
+    render(<SplitList />);
+    const [auto, mine] = screen.getAllByTestId("adm-split-set-aside-row");
+    expect(auto).toHaveTextContent("SCCO");
+    expect(auto).toHaveTextContent("set aside automatically: a distribution");
+    expect(auto).not.toHaveTextContent("rejected ·");
+    expect(mine).toHaveTextContent("rejected · rejected by you, 10-20");
+    const restore = within(auto).getByRole("button", { name: "Restore" });
+    expect(restore).toHaveAttribute("title", "back to needs review");
+    await userEvent.click(restore);
+    expect(fn(h.restore)).toHaveBeenCalledWith({ versionId: SCCO_AUTO.version_id });
   });
 
   it("asks 'is this real?' about a released split-shaped jump no source listed — loud, one Dismiss", async () => {

@@ -226,6 +226,9 @@ the located passage verbatim.
   company's periodic reports, ADR registrations, prospectuses and information statements around its first
   session (`WIDE_FORMS`; a periodic report from its primary document only). It is a confirmation search, never
   run nightly for every company.
+- **Distributions.** A forward split under x1.5 that only Massive.com lists, with no filing in its window
+  stating it or mentioning a split, is set aside as a distribution (`distribution_reason`; settings
+  `split_distribution_auto_set_aside`, `split_distribution_max_factor`). A wide form can still confirm it.
 - **Who runs it.** `pipeline/detect_splits.py` checks each company nightly inside its ingest, before its price
   leg; the stored price tape can confirm a split one documentary source states, never alone.
   `pipeline/split_history.py` gives a company that joins a basket its history from the onboarding job.

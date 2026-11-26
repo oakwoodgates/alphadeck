@@ -665,6 +665,18 @@ class Settings(BaseSettings):
     # ALPHADECK_PLATFORM_EXTRACTION_RETRY_MAX.
     platform_extraction_retry_max: int = 3
 
+    # --- D2 (platform fixes W2-3, operator decision 2026-11-25): DISTRIBUTIONS on the split list ---
+    # A forward "split" of new / old under ``split_distribution_max_factor`` that Massive.com alone lists, with no SEC
+    # filing in its window stating it or mentioning a split, is set aside automatically (``rejected``, restorable to
+    # review) instead of waiting in the steward's queue (``domain.splits.distribution_reason``; the backfill and the
+    # nightly detector pass these, the pure rule reads none). MEASURED on prod's list 2026-11-25: every one of the 25
+    # such rows the steward reviewed (17 open, 8 rejected 10-23/24) was a stock dividend or another distribution, at
+    # x1.0062 .. x1.358; the forward splits that waited were x3 .. x5. False = off (every one waits for review, as
+    # before). ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE / ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR, injected into
+    # the backend AND the cron by docker-compose at these defaults (pinned by test).
+    split_distribution_auto_set_aside: bool = True
+    split_distribution_max_factor: float = 1.5
+
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These two are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL; an LLM
     # test delenv's ANTHROPIC_API_KEY), so their RUNTIME read stays a fresh,

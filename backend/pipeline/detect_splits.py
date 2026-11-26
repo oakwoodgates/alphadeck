@@ -37,11 +37,13 @@ dropped silently (#9).
 
 THE PLAN against the stored list (``plan_against``): a split is found by S1's ``match_stored``. A new one is
 appended. A stored one is appended to ONLY when the system wrote its newest version, it is still OPEN
-(``needs_review`` / ``announced``), tonight's evidence covers every source it already carries (a source missing
-tonight — Massive.com off, a filing unread — never downgrades it), and the content changed: a second source arrived,
-the tape confirmed it, or an announced split's first session came (announced -> confirmed). A confirmed,
-rejected or revoked split, and anything the operator decided, is never touched; when tonight's evidence
-differs from such a split it is listed on the artifact (``kept``), not written.
+(``needs_review`` / ``announced``, or set aside by the system as a distribution — D2, ``split_repo.
+is_auto_set_aside``: a confirming filing that arrives later still confirms it, and one that mentions a split sends it
+back to review), tonight's evidence covers every source it already carries (a source missing tonight — Massive.com
+off, a filing unread — never downgrades it), and the content changed: a second source arrived, the tape confirmed
+it, an announced split's first session came (announced -> confirmed), or D2 set it aside. A confirmed split, one
+the operator rejected or revoked, and anything the operator decided (a restore included), is never touched; when
+tonight's evidence differs from such a split it is listed on the artifact (``kept``), not written.
 
 WHERE IT RUNS (``pipeline/ingest_thesis._ingest_one``): per company, right after its 8-K and 13D legs and
 BEFORE its price leg — so a split filed today, with a second source, is on the list before that company's
@@ -64,6 +66,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -77,6 +80,7 @@ from domain.splits import (
     PAST_RATIO_ONLY,
     STATUS_ANNOUNCED,
     STATUS_NEEDS_REVIEW,
+    STATUS_REJECTED,
     PolygonEvidence,
     SecEvidence,
     SplitDecision,
@@ -98,6 +102,7 @@ from pipeline.backfill_splits import (
     _conflicting,
     _group,
     decide_polygon_group,
+    distribution_cap,
     match_polygon,
     match_stored,
     union_members,
@@ -292,12 +297,16 @@ def detect_security(
     *,
     asof: date,
     sec_since: date,
+    distribution_max_factor: Decimal | None,
 ) -> SecurityDetection:
-    """Every split tonight's evidence states for ONE company (the module docstring). Reads only."""
+    """Every split tonight's evidence states for ONE company (the module docstring). Reads only.
+    ``distribution_max_factor``: D2's bound (``backfill_splits.distribution_cap``)."""
     out = SecurityDetection(member=m)
     absorbed: set[str] = set()
     for group in _group(list(polygon_rows)):
-        g = decide_polygon_group(conn, reader, m, group, asof=asof)
+        g = decide_polygon_group(
+            conn, reader, m, group, asof=asof, distribution_max_factor=distribution_max_factor
+        )
         d = g.decision
         absorbed.update(s.accession for s in g.read if related(s, group[0]))
         # the tape settles a Massive.com-only row only when nothing else could disagree: no conflicting Massive.com
@@ -440,13 +449,18 @@ def _same_values(d: SplitDecision, v: SplitVersion) -> bool:
 
 
 def plan_against(
-    detection: SecurityDetection, stored: Iterable[SplitVersion], *, asof: date
+    detection: SecurityDetection,
+    stored: Iterable[SplitVersion],
+    *,
+    asof: date,
+    distribution_max_factor: Decimal | None,
 ) -> list[Planned]:
     """Each decision against the stored list (the module docstring's rule). Pure: no I/O.
 
     One refinement of the rule: a filing that arrives AFTER its split's Massive.com row left tonight's pull (a late
     8-K, filed weeks after the split — FDCT's came 47 days later, outside S1's window) is decided against the
-    Massive.com row the stored split already carries, by S1's own ``decide`` — so the two sources still meet.
+    Massive.com row the stored split already carries, by S1's own ``decide`` (with D2's ``distribution_max_factor``)
+    — so the two sources still meet.
     """
     vs = list(stored)
     claimed: set[date] = set()
@@ -462,7 +476,9 @@ def plan_against(
         if d.polygon is None and d.sec is not None and d.sec.has_ratio:
             poly = _stored_polygon(v)
             if poly is not None:
-                d = decide(poly, [d.sec], asof=asof)
+                d = decide(
+                    poly, [d.sec], asof=asof, distribution_max_factor=distribution_max_factor
+                )
         d = replace(d, key_date=v.key_date)
         if v.key_date in claimed:
             out.append(Planned(detection.member, d, v, KEPT, "already planned tonight"))
@@ -472,9 +488,15 @@ def plan_against(
             out.append(Planned(detection.member, d, v, UNCHANGED))
             continue
         why = None
+        # open: waiting for review or its first session — or set aside by the system (D2), which a later filing
+        # can still confirm or send back to review
+        still_open = v.status in (
+            STATUS_NEEDS_REVIEW,
+            STATUS_ANNOUNCED,
+        ) or split_repo.is_auto_set_aside(v)
         if v.author == AUTHOR_OPERATOR:
             why = "the operator's decision stands"
-        elif v.status not in (STATUS_NEEDS_REVIEW, STATUS_ANNOUNCED):
+        elif not still_open:
             why = f"{v.status}: settled, the operator's to change"
         elif (v.polygon_id and d.polygon is None) or (v.sec_accession and d.sec is None):
             why = "a source the listed split carries is missing tonight"
@@ -543,7 +565,10 @@ class Detected:
     @property
     def line(self) -> str:
         who = self.ticker or str(self.security_id)
-        what = "needs review" if self.status == STATUS_NEEDS_REVIEW else self.status
+        what = {
+            STATUS_NEEDS_REVIEW: "needs review",
+            STATUS_REJECTED: "set aside as a distribution",  # D2: the only status a system writes as rejected
+        }.get(self.status, self.status)
         again = "; updated" if self.verb == "updated" else ""
         return f"{who} {self.label} {what} ({self.sources}{again})"
 
@@ -646,6 +671,8 @@ class SplitDetector:
         self._evidence: dict[str, SecEvidence | None] = {}
         # every security's former tickers, read ONCE a pass on the first check (``former_tickers``)
         self._former: dict[UUID, tuple[str, ...]] | None = None
+        # D2's bound, read once a pass (``None`` = the auto set-aside is off)
+        self.distribution_max_factor = distribution_cap()
         self.planned: list[Planned] = []
         self.detections: list[SecurityDetection] = []
 
@@ -716,7 +743,13 @@ class SplitDetector:
         reader.evidence = self._evidence  # each filing read once a pass, whichever company reads it
         try:
             det = detect_security(
-                conn, reader, m, self._rows_for(m), asof=self.asof, sec_since=self.sec_since
+                conn,
+                reader,
+                m,
+                self._rows_for(m),
+                asof=self.asof,
+                sec_since=self.sec_since,
+                distribution_max_factor=self.distribution_max_factor,
             )
             self.detections.append(det)
             self.result.checked += 1
@@ -724,7 +757,9 @@ class SplitDetector:
             self.result.filings_unread += det.filings_unread
             self.result.unplaced.extend(det.unplaced)
             stored = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[sec.id])
-            plan = plan_against(det, stored, asof=self.asof)
+            plan = plan_against(
+                det, stored, asof=self.asof, distribution_max_factor=self.distribution_max_factor
+            )
             self.planned.extend(plan)
             for p in plan:
                 if p.action == KEPT and p.reason != "already planned tonight":

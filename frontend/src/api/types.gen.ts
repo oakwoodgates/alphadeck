@@ -2505,8 +2505,8 @@ export interface paths {
         /**
          * Restore Split
          * @description RESTORE a rejected or revoked split to exactly the state before (a rejected split back to review, a
-         *     revoked one back to confirmed). **404** unknown version, **409** not the newest version / not set
-         *     aside.
+         *     revoked one back to confirmed; one the system set aside as a distribution back to review). **404** unknown
+         *     version, **409** not the newest version / not set aside.
          */
         post: operations["restore_split_admin_splits__version_id__restore_post"];
         delete?: never;

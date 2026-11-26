@@ -14,11 +14,13 @@ from domain.splits import (
     STATUS_ANNOUNCED,
     STATUS_CONFIRMED,
     STATUS_NEEDS_REVIEW,
+    STATUS_REJECTED,
     VIA_AUTO,
     PolygonEvidence,
     SecEvidence,
     date_agreement,
     decide,
+    distribution_reason,
     price_factor,
     ratio_label,
     session_distance,
@@ -252,3 +254,285 @@ def test_sessions_and_factors():
     assert ratio_label(Decimal(16), Decimal(1)) == "1-for-16 reverse split"
     assert ratio_label(Decimal(1), Decimal(2)) == "2-for-1 forward split"
     assert ratio_label(Decimal("6.25"), Decimal(1)) == "1-for-6.25 reverse split"
+
+
+# --- D2 (platform fixes W2-3, 2026-11-25): a forward 'split' under x1.5 that only Massive.com lists, with no SEC
+# filing in its window stating or mentioning a split, is set aside automatically as a distribution -------------
+#
+# The 25 MEASURED rows (prod, read-only, 2026-11-25): the 17 needs-review rows the steward review found were not
+# splits (SCCO 9, GREH 3, PHG 2, GPUS 2, ENVX 1) and the 8 the steward rejected on 10-23/24 (MOVE, DVLT, IQST, CYCU,
+# OPEN, HON, ENVX, METC) — each Massive.com row as listed, and the SEC side its stored note records: the filings read
+# that state nothing about a split, and the "nearest split filing" a note names (a different split). 23 sit in
+# ``decide``'s Massive.com-only branch and are set aside; GPUS 2024-12-13 and CYCU 2025-12-15 sit in the abstained
+# branch (an SEC filing in the window mentions a split) and stay for review.
+
+CAP = Decimal("1.5")  # ``split_distribution_max_factor``'s default
+
+
+def _quiet(n: int, ticker: str) -> list[SecEvidence]:
+    """``n`` filings read in the window that state nothing about a split (a note's "N filing(s) read")."""
+    return [SecEvidence(f"{ticker}-quiet-{i}", "8-K", date(2025, 1, 2), "u") for i in range(n)]
+
+
+def _other(
+    acc: str, form: str, filed: str, k: int, eff: str | None, kind: str | None
+) -> SecEvidence:
+    """A filing a note names as the "nearest split filing": a 1-for-``k`` reverse split, a different split."""
+    return SecEvidence(
+        acc,
+        form,
+        date.fromisoformat(filed),
+        "u",
+        Decimal(k),
+        Decimal(1),
+        effective_date=date.fromisoformat(eff) if eff else None,
+        date_kind=kind,
+        about_a_split=True,
+    )
+
+
+def _abstained(acc: str, filed: str, why: str) -> SecEvidence:
+    return SecEvidence(
+        acc, "8-K", date.fromisoformat(filed), "u", abstain_reason=why, about_a_split=True
+    )
+
+
+def _row(ticker: str, day: str, old: str, new: str) -> PolygonEvidence:
+    return PolygonEvidence(
+        f"E-{ticker}-{day}", ticker, date.fromisoformat(day), Decimal(old), Decimal(new)
+    )
+
+
+MEASURED_DISTRIBUTIONS = [
+    # the 16 needs-review non-splits in the Massive.com-only branch
+    (_row("SCCO", "2026-11-03", "1", "1.0106"), []),
+    (_row("SCCO", "2026-08-11", "1", "1.012"), []),
+    (_row("SCCO", "2026-05-13", "1", "1.01"), []),
+    (_row("SCCO", "2026-02-10", "1", "1.0085"), []),
+    (_row("SCCO", "2025-11-12", "1", "1.0085"), []),
+    (_row("SCCO", "2025-08-15", "1", "1.0101"), []),
+    (_row("SCCO", "2025-05-02", "1", "1.0099"), []),
+    (_row("SCCO", "2025-02-11", "1", "1.0073"), []),
+    (_row("SCCO", "2024-11-06", "1", "1.0062"), []),
+    (_row("PHG", "2026-05-13", "1", "1.037127656"), _quiet(7, "PHG")),
+    (_row("PHG", "2025-05-13", "1", "1.0423095962"), _quiet(8, "PHG")),
+    (
+        _row("GREH", "2026-09-14", "1", "1.1"),
+        [
+            *_quiet(1, "GREH"),
+            _other("0001683168-26-005632", "1-A POS", "2026-07-20", 500, None, None),
+        ],
+    ),
+    (
+        _row("GREH", "2026-07-15", "1", "1.1"),
+        [
+            *_quiet(1, "GREH"),
+            _other("0001683168-26-005503", "1-A POS", "2026-07-14", 500, None, None),
+        ],
+    ),
+    (
+        _row("GREH", "2025-11-14", "1", "1.01"),
+        [
+            *_quiet(12, "GREH"),
+            _other("0001683168-25-007448", "1-A POS", "2025-10-08", 500, None, None),
+        ],
+    ),
+    (
+        _row("GPUS", "2026-09-15", "1", "1.04066734"),
+        [
+            *_quiet(13, "GPUS"),
+            _other("0001214659-26-010099", "8-K", "2026-08-13", 5, "2026-08-25", "trading"),
+        ],
+    ),
+    (_row("ENVX", "2026-11-13", "4", "5"), []),
+    # the 7 of the steward's 10-23/24 rejections in the Massive.com-only branch
+    (
+        # MOVE's stored note is cut at "effective 2025-10-1": any day of October 2025 is months from the row
+        _row("MOVE", "2026-04-07", "1", "1.358"),
+        [
+            *_quiet(2, "MOVE"),
+            _other("0001213900-25-124005", "8-K", "2025-12-22", 10, "2025-10-10", "legal"),
+        ],
+    ),
+    (_row("DVLT", "2026-01-07", "60", "61"), _quiet(2, "DVLT")),
+    (_row("IQST", "2025-12-15", "1", "1.01646"), _quiet(2, "IQST")),
+    (_row("OPEN", "2025-11-18", "30", "31"), []),
+    (_row("HON", "2025-10-30", "1000", "1061"), _quiet(1, "HON")),
+    (_row("ENVX", "2025-07-17", "7", "8"), _quiet(6, "ENVX")),
+    (_row("METC", "2025-05-30", "1", "1.009228"), _quiet(7, "METC")),
+]
+
+# the 2 measured rows an SEC filing in the window mentions a split for (the extractor abstained): kept for review
+MEASURED_ABSTAINED = [
+    (
+        _row("GPUS", "2024-12-13", "1", "1.139"),
+        [
+            _abstained(
+                "0001214659-24-019590",
+                "2024-11-26",
+                "a ratio is stated but not whether the split is reverse or forward",
+            )
+        ],
+    ),
+    (
+        _row("CYCU", "2025-12-15", "1", "1.008"),
+        [
+            _abstained(
+                "0001493152-25-016033",
+                "2025-09-29",
+                "only an authorized range of ratios (3:1) — no ratio set",
+            )
+        ],
+    ),
+]
+
+
+def _why(p: PolygonEvidence, cap: str = "1.5") -> str:
+    ratio = ratio_label(p.split_from, p.split_to).split(" ")[0]  # "1.0106-for-1"
+    return (
+        f"Set aside automatically: a {ratio} forward 'split' listed by Massive.com only, under x{cap} — a stock "
+        "dividend or distribution, not a split (the 2026-10-23/24 rule). Restore returns it to review."
+    )
+
+
+def test_d2_the_25_measured_rows_are_counted_as_the_plan_measured_them():
+    assert len(MEASURED_DISTRIBUTIONS) + len(MEASURED_ABSTAINED) == 25
+    assert {p.ticker for p, _ in MEASURED_DISTRIBUTIONS + MEASURED_ABSTAINED} == {
+        "SCCO",
+        "PHG",
+        "GREH",
+        "GPUS",
+        "ENVX",
+        "MOVE",
+        "DVLT",
+        "IQST",
+        "CYCU",
+        "OPEN",
+        "HON",
+        "METC",
+    }
+
+
+def test_d2_the_measured_distributions_are_set_aside_with_massive_coms_values():
+    for p, filings in MEASURED_DISTRIBUTIONS:
+        d = decide(p, filings, asof=ASOF, distribution_max_factor=CAP)
+        assert (d.status, d.confirmed_via, d.value_source, d.sec) == (
+            STATUS_REJECTED,
+            None,
+            "polygon",
+            None,
+        ), (p.ticker, p.execution_date, d.note)
+        assert (d.key_date, d.effective_date, d.ratio_from, d.ratio_to) == (
+            p.execution_date,
+            p.execution_date,
+            p.split_from,
+            p.split_to,
+        )
+        assert d.valid_from == p.execution_date and d.polygon == p
+        # the reason first, then the evidence the review card carried
+        assert d.note.startswith(
+            _why(p) + " Massive.com only — no SEC filing read in the window states this split"
+        )
+        assert f"({len(filings)} filing(s) read)" in d.note
+        assert distribution_reason(p, filings, max_factor=CAP) == _why(p)
+    scco = decide(*MEASURED_DISTRIBUTIONS[0], asof=ASOF, distribution_max_factor=CAP)
+    assert scco.note.startswith(
+        "Set aside automatically: a 1.0106-for-1 forward 'split' listed by Massive.com only, under x1.5 — a stock "
+        "dividend or distribution, not a split (the 2026-10-23/24 rule). Restore returns it to review."
+    )
+    gpus = decide(*MEASURED_DISTRIBUTIONS[14], asof=ASOF, distribution_max_factor=CAP)
+    assert (
+        "Nearest split filing: SEC 8-K 0001214659-26-010099" in gpus.note
+    )  # a different split, named only
+
+
+def test_d2_with_the_setting_off_every_measured_row_waits_for_review_as_today():
+    for p, filings in MEASURED_DISTRIBUTIONS:
+        for d in (
+            decide(p, filings, asof=ASOF),
+            decide(p, filings, asof=ASOF, distribution_max_factor=None),
+        ):
+            assert (d.status, d.value_source) == (STATUS_NEEDS_REVIEW, "polygon"), p.ticker
+            assert d.note.startswith(
+                "Massive.com only — no SEC filing read in the window states this split"
+            )
+
+
+def test_d2_an_sec_filing_that_mentions_a_split_keeps_it_for_review():
+    """GPUS 2024-12-13 (its EX-99.1 restates the 1-for-35) and CYCU 2025-12-15 (a proxy's authorized range):
+    the extractor abstained, so a filing mentions a split — the steward decides, never the rule."""
+    for p, filings in MEASURED_ABSTAINED:
+        d = decide(p, filings, asof=ASOF, distribution_max_factor=CAP)
+        assert (d.status, d.sec.accession) == (STATUS_NEEDS_REVIEW, filings[0].accession), p.ticker
+        assert d.note.startswith("Massive.com only to confirm:")
+        assert distribution_reason(p, filings, max_factor=CAP) is None
+
+
+def test_d2_three_for_two_two_for_one_and_reverse_splits_are_never_distributions():
+    for p in (
+        _row("T32", "2026-06-01", "2", "3"),  # x1.5 exactly: not under the bound
+        _row("T21", "2026-06-01", "1", "2"),
+        _row("QGEN", "2025-01-29", "36", "35"),  # a reverse 35-for-36 (QGEN's synthetic buyback)
+        _row("T56", "2026-06-01", "6", "5"),
+    ):
+        d = decide(p, [], asof=ASOF, distribution_max_factor=CAP)
+        assert d.status == STATUS_NEEDS_REVIEW and d.note.startswith("Massive.com only"), p.ticker
+        assert distribution_reason(p, [], max_factor=CAP) is None
+
+
+def test_d2_the_bound_is_strict_and_is_the_settings():
+    just_under = _row("T", "2026-06-01", "10000", "14999")
+    assert decide(just_under, [], asof=ASOF, distribution_max_factor=CAP).status == STATUS_REJECTED
+    envx = _row("ENVX", "2026-11-13", "4", "5")  # x1.25
+    assert (
+        decide(envx, [], asof=ASOF, distribution_max_factor=Decimal("1.25")).status
+        == STATUS_NEEDS_REVIEW
+    )
+    lower = decide(envx, [], asof=ASOF, distribution_max_factor=Decimal("1.3"))
+    assert lower.status == STATUS_REJECTED and lower.note.startswith(_why(envx, "1.3"))
+
+
+def _stock_split(eff: date, kind: str = "trading") -> SecEvidence:
+    """An 8-K stating a 6-for-5 stock split paid as a stock distribution (direct input)."""
+    return SecEvidence(
+        "0000000000-26-000065",
+        "8-K",
+        date(2026, 5, 20),
+        "u",
+        Decimal(5),
+        Decimal(6),
+        effective_date=eff,
+        date_kind=kind,
+        about_a_split=True,
+    )
+
+
+def test_d2_an_agreeing_sec_filing_confirms_a_small_forward_split_as_today():
+    p = _row("T", "2026-06-01", "5", "6")
+    d = decide(p, [_stock_split(date(2026, 6, 1))], asof=ASOF, distribution_max_factor=CAP)
+    assert (d.status, d.confirmed_via, d.value_source) == (STATUS_CONFIRMED, VIA_AUTO, "both")
+    assert d == decide(
+        p, [_stock_split(date(2026, 6, 1))], asof=ASOF
+    )  # the setting changes nothing here
+
+
+def test_d2_a_disagreeing_sec_filing_keeps_it_for_review():
+    """The same 6-for-5 stated for a first session three sessions off: the sources disagree — the steward's."""
+    p = _row("T", "2026-06-01", "5", "6")
+    filings = [_stock_split(date(2026, 6, 4))]
+    d = decide(p, filings, asof=ASOF, distribution_max_factor=CAP)
+    assert d.status == STATUS_NEEDS_REVIEW and d.sec is not None
+    assert distribution_reason(p, filings, max_factor=CAP) is None
+
+
+def test_d2_a_past_splits_restatement_is_not_a_mention_and_unread_filings_stay_on_the_note():
+    """A filing whose every ratio is a PAST split's is never this split's evidence (``PAST_RATIO_ONLY``), so it
+    does not keep a distribution for review; filings that could not be read are named on the note, and the next
+    night re-decides the row (a system set-aside is re-decided like an open one)."""
+    p = _row("SCCO", "2026-11-03", "1", "1.0106")
+    past = SecEvidence(
+        "a", "6-K", date(2026, 10, 1), "u", abstain_reason=PAST_RATIO_ONLY, about_a_split=True
+    )
+    d = decide(p, [past], asof=ASOF, unread=2, distribution_max_factor=CAP)
+    assert d.status == STATUS_REJECTED
+    assert d.note.endswith("2 SEC filing(s) in the window could not be read.")

@@ -11,14 +11,20 @@ from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.settings import get_settings
 from domain.splits import (
     STATUS_ANNOUNCED,
     STATUS_CONFIRMED,
     STATUS_NEEDS_REVIEW,
+    STATUS_REJECTED,
     VIA_AUTO,
     VIA_SEC_TAPE,
+    PolygonEvidence,
+    decide,
 )
 from ingest.edgar.client import EdgarClient
 from ingest.polygon_splits import PolygonSplitSource
@@ -403,6 +409,144 @@ def test_a_catch_all_8k_restating_a_past_split_is_never_listed(db, tmp_path, mon
         "1-for-25 reverse split stated, but only a past date stated (2025-12-31), more than 90 days before "
         "the filing"
     )
+
+
+# --- D2 (platform fixes W2-3): a distribution is set aside automatically; the steward's restore is final ------
+#
+# SCCO's 2026-11-03 row as Massive.com lists it (a 0.0106-share stock dividend: 1 -> 1.0106), on a name with no CIK
+# (no SEC side). Every write is counted on the TABLE.
+
+SCCO_DAY = date(2026, 11, 3)
+SCCO_ROW = {
+    "execution_date": SCCO_DAY.isoformat(),
+    "id": "E-scco-2026-11-03",
+    "split_from": 1,
+    "split_to": 1.0106,
+    "ticker": "SCCO",
+}
+
+
+def _scco_source(tmp_path, *, today: date) -> PolygonSplitSource:
+    body = json.dumps({"results": [SCCO_ROW], "status": "OK"})
+    return PolygonSplitSource(
+        api_key="test-key-not-real",
+        cache_dir=tmp_path / f"polygon_scco_{today.isoformat()}",
+        fetch=lambda url: body,
+        today=lambda: today,
+    )
+
+
+def _detect_scco(db, tmp_path, *, asof: date) -> ds.SplitDetector:
+    det = ds.SplitDetector.start(
+        asof=asof, allow_live=True, source=_scco_source(tmp_path, today=asof)
+    )
+    ds.run_over_union(db, det, EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False))
+    return det
+
+
+def _backfill_scco(db, tmp_path, *, asof: date) -> bf.BackfillResult:
+    return bf.backfill_splits(
+        db,
+        polygon=_scco_source(tmp_path, today=asof),
+        edgar=EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False),
+        since=date(2026, 10, 1),
+        asof=asof,
+        apply=True,
+    )
+
+
+def test_an_open_system_row_is_set_aside_once_and_a_restored_one_is_never_touched_again(
+    db, tmp_path
+):
+    sid = seed_member(db, "SCCO", None, [])
+    # the version the nightly wrote before D2: Massive.com only, waiting for review
+    poly = PolygonEvidence(SCCO_ROW["id"], "SCCO", SCCO_DAY, Decimal(1), Decimal("1.0106"))
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=SCCO_DAY,
+        values=split_repo.decision_values(decide(poly, [], asof=SCCO_DAY)),
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    det = _detect_scco(db, tmp_path, asof=date(2026, 11, 5))
+    assert [a.line for a in det.result.appended] == [
+        "SCCO 1.0106-for-1 forward split set aside as a distribution (Massive.com; updated)"
+    ]
+    (v,) = _latest(db, sid)
+    assert (v.status, v.author, v.value_source, v.confirmed_via) == (
+        STATUS_REJECTED,
+        split_repo.AUTHOR_DETECT,
+        "polygon",
+        None,
+    )
+    assert v.note.startswith(
+        "Set aside automatically: a 1.0106-for-1 forward 'split' listed by Massive.com only"
+    )
+    assert split_repo.count_rows(db) == 2
+    # re-decided ONCE: the next night appends nothing
+    again = _detect_scco(db, tmp_path, asof=date(2026, 11, 6))
+    assert again.result.appended == [] and split_repo.count_rows(db) == 2
+    # the steward restores it: back to review, under the steward's name
+    back = split_repo.restore(db, v.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert (back.status, back.author, back.action) == (STATUS_NEEDS_REVIEW, "operator", "restore")
+    assert split_repo.count_rows(db) == 3
+    # ... and neither writer ever touches it again: the nightly, twice, and the backfill
+    for night in (date(2026, 11, 6), date(2026, 11, 9)):
+        later = _detect_scco(db, tmp_path, asof=night)
+        assert later.result.appended == [] and later.result.kept == []
+        assert later.planned[0].action == ds.UNCHANGED  # the same values: nothing to tell
+    result = _backfill_scco(db, tmp_path, asof=date(2026, 11, 9))
+    (p,) = result.planned
+    assert (p.decision.status, p.action, result.appended) == (STATUS_REJECTED, bf.OPERATOR_KEPT, 0)
+    assert split_repo.count_rows(db) == 3
+    (now,) = _latest(db, sid)
+    assert (now.id, now.status) == (back.id, STATUS_NEEDS_REVIEW)
+
+
+def test_a_distribution_born_set_aside_restores_to_review_and_stays_there(db, tmp_path):
+    sid = seed_member(db, "SCCO", None, [])
+    det = _detect_scco(db, tmp_path, asof=date(2026, 11, 5))
+    assert [a.line for a in det.result.appended] == [
+        "SCCO 1.0106-for-1 forward split set aside as a distribution (Massive.com)"
+    ]
+    (v,) = _latest(db, sid)
+    assert split_repo.history(
+        db, tenant_id=DEFAULT_TENANT_ID, security_id=sid, key_date=SCCO_DAY
+    ) == [v]
+    assert split_repo.is_auto_set_aside(v) and split_repo.prior_status(db, v) == STATUS_NEEDS_REVIEW
+    back = split_repo.restore(db, v.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert back.status == STATUS_NEEDS_REVIEW and split_repo.allowed_actions(back) == [
+        "confirm:polygon",
+        "reject",
+    ]
+    assert _detect_scco(db, tmp_path, asof=date(2026, 11, 6)).result.appended == []
+    assert _backfill_scco(db, tmp_path, asof=date(2026, 11, 6)).appended == 0
+    assert split_repo.count_rows(db) == 2 and _latest(db, sid)[0].id == back.id
+
+
+@pytest.fixture
+def d2_off(monkeypatch):
+    """The off switch, as an operator sets it (the env the Settings read), the cache cleared both ways."""
+    monkeypatch.setenv("ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE", "false")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_with_the_setting_off_a_distribution_waits_for_review_as_before(db, tmp_path, d2_off):
+    sid = seed_member(db, "SCCO", None, [])
+    det = _detect_scco(db, tmp_path, asof=date(2026, 11, 5))
+    assert det.distribution_max_factor is None
+    assert [a.line for a in det.result.appended] == [
+        "SCCO 1.0106-for-1 forward split needs review (Massive.com)"
+    ]
+    (v,) = _latest(db, sid)
+    assert v.status == STATUS_NEEDS_REVIEW and v.note.startswith("Massive.com only")
 
 
 # --- W6-3b: a Massive.com fill is never split evidence (decision W6-c) -------------------------------------------
