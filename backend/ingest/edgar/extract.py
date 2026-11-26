@@ -19,8 +19,9 @@ Given a company's SEC ``companyfacts`` + its latest 10-Q/10-K text, produce cand
   restricted-cash total says so in the note) and every component named in the note; a clean ~quarter of
   operating cash flow (read under its most current label, plain or continuing operations) ending on the cited
   filing's period, with cash of that date -> ``AUTO``; a burn spanning more or less than about a quarter, a burn
-  or cash dated off the cited period, an underivable year-to-date column, a large one-time reconciliation line,
-  or a composition that cannot be established (cash tags that disagree, a combined line that does not
+  or cash dated off the cited period, an underivable year-to-date column (or one derived across filings whose
+  fiscal-year starts differ by days), a large one-time reconciliation line (named, with its printed line), or a
+  composition that cannot be established (cash tags that disagree, a combined line that does not
   reconcile, investments only on a later balance sheet) -> ``FLAG`` (raw + locate). Given the values filing's RAW
   document, a companyfacts whose newest cash or operating cash flow ends before the cited period is read beside the
   document's own inline XBRL at the period end (FLAG-only, ``companyfacts-behind``), and a FLAG's note names what the
@@ -717,13 +718,23 @@ def _is_one_time_candidate(concept: str) -> bool:
     return concept.startswith("IncreaseDecreaseIn") and not _is_routine_wc(concept)
 
 
+# A QUARTER DERIVED ACROSS FILINGS (W1-4, 2026-11-26; docs/EXTRACTOR.md "The burn"). Two filings can date one fiscal
+# year's start days apart (a 52/53-week year: FUBO's 10-K from 2025-09-28, its 10-Qs from 2025-10-01), so no earlier
+# year to date has the same start. One of the same tag starting at most this many days away is subtracted and the
+# quarter offered flagged, never AUTO (operator decision A5, 2026-11-26). A module constant, not an ``ExtractorConfig``
+# dial: it shapes a FLAG's offer and never a tier, and ``domain/config.py`` is an editions engine source.
+YTD_DERIVED_ACROSS_FILINGS = "ytd-derived-across-filings"
+_YTD_START_SLACK_DAYS = 7
+
+
 @dataclass(frozen=True)
 class _Quarter:
     """The latest ~quarter of operating cash flow, with what it covers and where it came from.
 
     ``start`` is the native column's start, or the subtracted prior year to date's END for a derived quarter (what
     the note prints, ``burn over start → end``); ``days`` is the span between the two, the figure the
-    ``quarterly_span_*_days`` window judges (a calendar quarter reads 90 native, 91 or 92 derived).
+    ``quarterly_span_*_days`` window judges (a calendar quarter reads 90 native, 91 or 92 derived). Derived across
+    filings only: ``ytd_start`` is the year to date's own start, ``prior_start`` and ``prior_accn`` the subtracted one's.
     """
 
     value: float
@@ -731,6 +742,9 @@ class _Quarter:
     end: str
     basis: str
     concept: str
+    ytd_start: str = ""
+    prior_start: str = ""
+    prior_accn: str = ""
 
     @property
     def days(self) -> int:
@@ -746,6 +760,8 @@ def _quarter(facts: dict, cfg: ExtractorConfig) -> _Quarter | None:
 
     - ``"quarter"`` — a native quarterly column (span <= quarterly_span_max_days).
     - ``"derived"`` — the quarter computed as YTD − the prior same-start YTD.
+    - ``"ytd-derived-across-filings"`` — no same-start prior, but an earlier YTD of the same tag starting within
+      ``_YTD_START_SLACK_DAYS`` (``_near_start_prior``): YTD − that one, always flagged.
     - ``"ytd-raw"`` — a long-span column with NO prior to subtract: the value IS the raw YTD, not a quarter.
 
     The derivation subtracts within ONE tag: a total minus a continuing-operations part is not a quarter of
@@ -772,9 +788,55 @@ def _quarter(facts: dict, cfg: ExtractorConfig) -> _Quarter | None:
         default=None,
     )
     if prior is None:
+        near = _near_start_prior(durations, row)
+        if near is not None:
+            return _Quarter(
+                float(row["val"]) - float(near["val"]),
+                near["end"],
+                row["end"],
+                YTD_DERIVED_ACROSS_FILINGS,
+                concept,
+                ytd_start=row["start"],
+                prior_start=near["start"],
+                prior_accn=near.get("accn") or "",
+            )
         return _Quarter(float(row["val"]), row["start"], row["end"], "ytd-raw", concept)
     return _Quarter(
         float(row["val"]) - float(prior["val"]), prior["end"], row["end"], "derived", concept
+    )
+
+
+def _start_gap(a: str, b: str) -> int:
+    return abs((date.fromisoformat(a) - date.fromisoformat(b)).days)
+
+
+def _near_start_prior(durations: list[dict], row: dict) -> dict | None:
+    """The latest-ending earlier year to date of ``row``'s tag whose start lies 1 to ``_YTD_START_SLACK_DAYS`` days
+    from ``row``'s (on a tie: the nearest start, then the earliest filed), or None. Never a start further off: AMSC's
+    six months tagged from January 1, 90 days before its fiscal year's April start, cannot be told from a real one.
+    """
+    near = [
+        r
+        for r in durations
+        if row["start"] < r["end"] < row["end"]
+        and 0 < _start_gap(r["start"], row["start"]) <= _YTD_START_SLACK_DAYS
+    ]
+    if not near:
+        return None
+    end = max(r["end"] for r in near)
+    return min(
+        (r for r in near if r["end"] == end),
+        key=lambda r: (_start_gap(r["start"], row["start"]), r.get("filed", ""), r["start"]),
+    )
+
+
+def _across_sentence(q: _Quarter) -> str:
+    """The note's sentence for a quarter derived across filings."""
+    accn = f" ({q.prior_accn})" if q.prior_accn else ""
+    return (
+        f"no earlier year to date starts on {q.ytd_start}: the quarter is this year to date {q.ytd_start} → {q.end} "
+        f"minus the previous filing's{accn} {q.prior_start} → {q.start} (same tag), starts "
+        f"{_start_gap(q.ytd_start, q.prior_start)} days apart, so it is off by those days' cash flow"
     )
 
 
@@ -807,41 +869,195 @@ def _ytd_pace(facts: dict, q: _Quarter, cfg: ExtractorConfig) -> YtdPace | None:
     return YtdPace(burn_usd=-float(first["val"]), start=first["start"], end=first["end"])
 
 
+# NAMING WHAT TRIPPED IT (W1-4, 2026-11-26): the flag used to locate the first place a bare figure appeared and name
+# no line, and the steward review misread two of them (FEIM's working-capital aggregate as a financing item, COHR's
+# accrued compensation as an inventory build). Lines named at most (the note counts the rest); how far back a printed
+# line's words are read; the scale word a sentence prints after its figure.
+_ONE_TIME_NAMED = 3
+_LINE_SPAN = 120
+_LINE_WORDS_RE = re.compile(r"[A-Za-z][^\d]*$")  # the words after the last figure before this one
+_SCALE_WORD_RE = re.compile(r"\s*(million|billion|thousand)\b", re.IGNORECASE)
+# zero-width characters some filers print between cells; how far back a parenthetical's opening is looked for
+_INVISIBLE_RE = re.compile("[\u200b-\u200d\u2060\ufeff]")
+_PAREN_SPAN = 400
+
+
+@dataclass(frozen=True)
+class _OneTime:
+    """What tripped ``possible-one-time``: a passage on each named line as printed, and the note's sentence."""
+
+    passages: list[LocatedPassage]
+    stated: str
+
+
 def _detect_one_time(
-    facts: dict, text: str, ref: str, start: str, end: str, op_cash_use: float, cfg: ExtractorConfig
-) -> LocatedPassage | None:
+    facts: dict,
+    text: str,
+    ref: str,
+    start: str,
+    end: str,
+    op_cash_use: float,
+    cfg: ExtractorConfig,
+    raw: str | None = None,
+) -> _OneTime | None:
     """A NON-ROUTINE operating line whose magnitude is a large fraction of |op-cash-use| is anomalous ->
-    flag. Generic (never names a specific item); the filing text supplies the located passage — the flagged
+    flag. Generic (never branches on a specific item); the filing text supplies the located passage — the flagged
     AMOUNT in the cash-flow statement (or a one-time keyword). The operator decides whether to back it out.
+
+    It names what tripped it (W1-4): every such line, largest first, by tag and figure in the note, and a passage on
+    each as printed, anchored by its words and figure ("Net changes in operating assets and liabilities (4,102)").
+    Given the ``raw`` document, the passage sits on the tagged figure itself; else on its first whole-number print.
     """
     threshold = cfg.one_time_line_fraction * abs(op_cash_use)
-    flagged: float | None = None
+    lines: list[tuple[str, float]] = []
     for concept in facts.get("us-gaap", {}):
         if not _is_one_time_candidate(concept):
             continue
         v = _value_for_period(facts, concept, start, end)
         if v is not None and abs(v) >= threshold:
-            flagged = v
-            break
-    if flagged is None:
+            lines.append((concept, v))
+    if not lines:
         return None
-    n = abs(int(flagged))
-    amounts = [
-        f"{n:,}",
-        f"{n // 1000:,}",
-        f"{n / 1e6:.1f}",
-    ]  # the line, as full $, thousands, or $M
-    return (
-        _locate(text, ref, "cash-flow", amounts)
-        or _locate(text, ref, "cash-flow", list(cfg.one_time_keywords))
-        or LocatedPassage(
-            kind="cash-flow",
-            source_ref=ref,
-            anchor="operating cash flow",
-            excerpt="… a single non-routine operating line dominates operating cash use — review the "
-            "cash-flow statement for a one-time item …",
+    lines.sort(key=lambda cv: (-abs(cv[1]), cv[0]))
+    named = lines[:_ONE_TIME_NAMED]
+    contexts = inline_xbrl.read_contexts(raw) if raw else None
+    passages: list[LocatedPassage] = []
+    for concept, v in named:
+        hit = (
+            _tagged_figure(raw, contexts, text, concept, v, start, end)
+            if raw and contexts
+            else None
+        ) or _printed_figure(text, v)
+        if hit is not None and all(p.offset != hit[0] for p in passages):
+            passages.append(_line_passage(text, ref, *hit))
+    if not passages:
+        passages.append(
+            _locate(text, ref, "cash-flow", list(cfg.one_time_keywords))
+            or LocatedPassage(
+                kind="cash-flow",
+                source_ref=ref,
+                anchor="operating cash flow",
+                excerpt="… a single non-routine operating line dominates operating cash use — review the "
+                "cash-flow statement for a one-time item …",
+            )
         )
+    more = len(lines) - len(named)
+    listed = ", ".join(f"{c} {_m(abs(v))}" for c, v in named) + (
+        f" and {more} more" if more else ""
     )
+    each = "each " if len(lines) > 1 else ""
+    return _OneTime(
+        passages,
+        f"possible-one-time: {listed}, {each}at least {cfg.one_time_line_fraction:g} of the operating cash flow's "
+        f"{_m(abs(op_cash_use))}",
+    )
+
+
+def _tagged_figure(
+    raw: str,
+    contexts: dict[str, inline_xbrl.Context],
+    text: str,
+    concept: str,
+    v: float,
+    start: str,
+    end: str,
+) -> tuple[int, str] | None:
+    """Where the filing prints the line's own tagged fact (undimensioned, of the burn's period, the same value) in the
+    cleaned text ``clean_filing_text(raw)``, and its printed figure; None when it is not found there.
+    """
+    s, e = date.fromisoformat(start), date.fromisoformat(end)
+    for f in inline_xbrl.read_facts(raw, frozenset({concept}), contexts):
+        if not (_own(f) and f.context.start == s and f.context.end == e and f.value is not None):
+            continue
+        if abs(abs(f.value) - abs(v)) >= 0.5:
+            continue
+        at = len(clean_filing_text(raw[: f.offset]))
+        m = _shown_re(f.shown).search(text, max(0, at - 2))
+        if m and m.start() <= at + 2:
+            return m.start(), f.shown
+    return None
+
+
+def _printed_figure(text: str, v: float) -> tuple[int, str] | None:
+    """The line's figure as first printed whole in the text: full dollars, thousands, or millions to one decimal
+    (with or without a thousands comma; never inside a longer number: "4,102" is not the end of "14,102").
+    """
+    n = abs(int(v))
+    printed = (f"{n:,}", f"{n // 1000:,}", f"{n / 1e6:.1f}", f"{n / 1e6:,.1f}")
+    for shown in dict.fromkeys(printed):
+        if shown in ("0", "0.0"):
+            continue
+        m = _shown_re(shown).search(text)
+        if m:
+            return m.start(), shown
+    return None
+
+
+def _line_passage(text: str, ref: str, at: int, shown: str) -> LocatedPassage:
+    excerpt = re.sub(r"\s+", " ", text[max(0, at - 110) : at + 110]).strip()
+    return LocatedPassage(
+        kind="cash-flow",
+        source_ref=ref,
+        anchor=_printed_line(text, at, shown),
+        excerpt=f"… {excerpt} …",
+        offset=at,
+    )
+
+
+def _printed_line(text: str, at: int, shown: str) -> str:
+    """The figure printed at ``at`` with its line's words (those since the previous figure) and its parentheses,
+    "$" and scale word as printed: "Net changes in operating assets and liabilities (4,102)", "we recognized $4.0
+    million". Words ending a parenthetical that prints figures of its own are replaced by the words before it
+    (SMCI: "Accrued liabilities (including changes in related party balances of $(65) and $554 ..., respectively)
+    445,557" reads "Accrued liabilities (…) 445,557"). The figure alone when no words precede it."""
+    lo = max(0, at - _LINE_SPAN)
+    m = _LINE_WORDS_RE.search(text, lo, at)
+    start = at if m is None else m.start()
+    if m is not None and start == lo and lo > 0:
+        start = text.find(" ", start, at) + 1 or at  # the window cut a word in two: drop it
+    words = text[start:at]
+    close = _unbalanced_close(words)
+    opened = None if close is None else _opening_paren(text, start + close)
+    if close is not None and opened is not None:
+        before = _LINE_WORDS_RE.search(text, max(0, opened - _LINE_SPAN), opened)
+        if before is not None:
+            words = text[before.start() : opened].rstrip() + " (…)" + words[close + 1 :]
+    words = re.sub(r"\s+", " ", _INVISIBLE_RE.sub("", words))
+    lead = re.search(r"[\s$(]*$", words).group(0)  # type: ignore[union-attr]
+    label = words[: len(words) - len(lead)].strip()
+    after = text[at + len(shown) : at + len(shown) + 20]
+    figure = f"({shown})" if "(" in lead and after.lstrip().startswith(")") else shown
+    figure = ("$" if "$" in lead else "") + figure
+    scale = _SCALE_WORD_RE.match(after)
+    if scale:
+        figure += f" {scale.group(1)}"
+    return f"{label} {figure}".strip()
+
+
+def _unbalanced_close(words: str) -> int | None:
+    """The index of the first ")" in ``words`` with no "(" before it in ``words``, or None."""
+    depth = 0
+    for i, ch in enumerate(words):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                return i
+            depth -= 1
+    return None
+
+
+def _opening_paren(text: str, close: int) -> int | None:
+    """The "(" that the ")" at ``close`` closes, at most ``_PAREN_SPAN`` characters back, or None."""
+    depth = 0
+    for i in range(close - 1, max(-1, close - _PAREN_SPAN), -1):
+        if text[i] == ")":
+            depth += 1
+        elif text[i] == "(":
+            if depth == 0:
+                return i
+            depth -= 1
+    return None
 
 
 def _at(facts: dict, concept: str, end: str) -> float | None:
@@ -1109,6 +1325,7 @@ def _cash_burn(
     source: str = "10-q",
     *,
     behind: str | None = None,
+    raw: str | None = None,
 ) -> ExtractedFact:
     """Cash + quarterly burn. A FLAG marks an EXCEPTION needing judgment (the re-tier — honest loudness:
     ``ytd-derived`` fired on ~3 of 4 filings [GAAP 10-Q cash-flow statements are YTD] and
@@ -1138,6 +1355,7 @@ def _cash_burn(
 
     ``behind`` (``_cash_candidate``, W1-2): ``facts`` carries the cited filing's own rows beside a lagging
     companyfacts, and this sentence says so; it flags ``companyfacts-behind`` (never AUTO) and rides the note.
+    ``raw`` (W1-4): the values filing's raw document, where a one-time line's passage is found by its tagged fact.
     """
     cash_pick = _pick_instant(facts, _CASH)
     cash_at = None if cash_pick is None else (cash_pick[0], cash_pick[1])
@@ -1227,6 +1445,13 @@ def _cash_burn(
             # arithmetic, not a judgment fork — stated, never alarmed. As a FLAG it fired on ~3 of 4
             # filings (GAAP 10-Qs report cash flow YTD), marking the RULE instead of the exception.
             basis_suffix = ", derived (YTD − prior YTD)"
+        elif basis == YTD_DERIVED_ACROSS_FILINGS:
+            # FLAG-only (W1-4): the quarter subtracts a year to date read from a start days apart; offered, flagged
+            flags.append(YTD_DERIVED_ACROSS_FILINGS)
+            basis_suffix = (
+                ", derived across filings (YTD − the previous filing's YTD, see the flag)"
+            )
+            checks.append(_across_sentence(q))
         elif basis == "ytd-raw":
             flags.append("ytd-raw")
             basis_suffix = " — the RAW year-to-date, NOT a quarter (see the flag)"
@@ -1259,10 +1484,11 @@ def _cash_burn(
             checks.append(
                 f"the burn ends {end}, not on the cited filing's period of report {period_end.isoformat()}"
             )
-        ot = _detect_one_time(facts, tenq_text, ref, start, end, qval, cfg)
+        ot = _detect_one_time(facts, tenq_text, ref, start, end, qval, cfg, raw)
         if ot:
             flags.append("possible-one-time")
-            passages.append(ot)
+            passages.extend(ot.passages)
+            checks.append(ot.stated)
         # THE PACE CHECK (V2 extractor correctness PR 3, operator decision D3): the year-to-date quarterly pace
         # rides the fact and the note, and a quarter far off it carries a CAVEAT. Never a flag, never the tier.
         ytd = _ytd_pace(facts, q, cfg)
@@ -1309,7 +1535,8 @@ def _cash_burn(
         (
             "cash-flow",
             ["operating activities", "cash flows"],
-            {"burn-span", "burn-off-period", COMPANYFACTS_BEHIND} & set(flags),
+            {"burn-span", "burn-off-period", COMPANYFACTS_BEHIND, YTD_DERIVED_ACROSS_FILINGS}
+            & set(flags),
         ),
         (
             "balance-sheet",
@@ -1591,6 +1818,7 @@ def _cash_candidate(
         cfg,
         source,
         behind=None if filing is None else filing.stated,
+        raw=raw,
     )
     if fact.tier is not Tier.FLAG:
         return fact
@@ -1969,6 +2197,7 @@ __all__ = [
     "COMPANYFACTS_BEHIND",
     "COVER_AFTER_FILING",
     "RefusedCover",
+    "YTD_DERIVED_ACROSS_FILINGS",
     "cover_after_filing",
     "extract_facts",
     "extract_for_security",

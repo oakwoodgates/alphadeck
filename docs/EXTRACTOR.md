@@ -140,8 +140,9 @@ tag lists are constants in `ingest/edgar/extract.py`, pinned by
 - **Operating cash flow** is read under its most current label (`_OCF` or `_OCF_CONTINUING`; on a tie the plain
   total). A derivation subtracts within one tag only.
 - **One quarter of the cited filing.** A year-to-date column minus the same-start prior is a derived quarter: AUTO,
-  stated in the note. With no prior, the raw year to date goes out flagged `ytd-raw`, never as a quarter (it would
-  read a runway several times too short). The span must lie within `quarterly_span_min_days` to
+  stated in the note. Without one, a prior of the same tag starting at most `_YTD_START_SLACK_DAYS` (7) days away (a
+  52/53-week year) is subtracted, flagged `ytd-derived-across-filings`; else the raw year to date is flagged
+  `ytd-raw`, never offered as a quarter. The span must lie within `quarterly_span_min_days` to
   `quarterly_span_max_days` (`burn-span`) and end on the cited period (`burn-off-period`); the cash must be of that
   date (`stale-cash` older, `cash-after-period` newer). Each failure offers the value as found; nothing turns a flag
   into AUTO.
@@ -151,9 +152,9 @@ tag lists are constants in `ingest/edgar/extract.py`, pinned by
   `burn-span`); flag `companyfacts-behind`. A FLAG's note names uncounted debt-security tags (NVDA) and a quoted total
   equal to the cash-equivalents fair value (AMGN).
 - **`possible-one-time`**: a non-routine reconciliation line of at least `one_time_line_fraction` of the operating
-  cash use. Routine working-capital lines (`_ROUTINE_WC`) never trip it however large: category, not size. It never
-  branches on a named item; backing it out is a person's call ([WORKBENCH_SCORING](WORKBENCH_SCORING.md) "The
-  recurring-vs-one-time burn pattern").
+  cash use; the note names each such line's tag and figure, and a passage each printed line. Routine working-capital
+  lines (`_ROUTINE_WC`) never trip it: category, not size. Backing it out is a person's call
+  ([WORKBENCH_SCORING](WORKBENCH_SCORING.md) "The recurring-vs-one-time burn pattern").
 - **Missing inputs** carry no value: `no-companyfacts`, `no-cashflow-column`, `no-cash-instant`. Screens show them as
   data gaps, not warnings (`MISSING_FLAGS` in `frontend/src/components/LocatedPassages.tsx`).
 - `source` names the cited form (`10-q` or `10-k`); the note dates every input; `statement_currency` is `USD`.

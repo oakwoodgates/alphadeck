@@ -117,6 +117,8 @@ class ExtractedFact(DomainModel):
     #             cash date is "stale-cash")
     #           | "companyfacts-behind" (companyfacts' newest cash or operating cash flow ends before the cited
     #             period: the filing's own inline-XBRL rows at the period end are read beside it, CEG's Q3)
+    #           | "ytd-derived-across-filings" (no earlier year to date of the same start: one of the same tag
+    #             starting a few days off is subtracted and the quarter offered, FUBO's 52/53-week 10-K)
     #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant"  (missing-data: value None)
     # annual cash (``annual-statements``, always FLAG; PR 4 adds the last six):
     #           "annual-statements" | "unit-scale-unread" | "column-ambiguous" | "stale-runway"
