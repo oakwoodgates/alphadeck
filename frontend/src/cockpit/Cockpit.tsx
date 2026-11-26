@@ -1,7 +1,7 @@
-import { Fragment, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 
-import type { DisplaySignal, MemberDataFlagsOut } from "../api/hooks";
+import type { DisplaySignal, MemberDataFlagsOut, ThesisSummary, TriggerRefOut } from "../api/hooks";
 import {
   useCall,
   useDisplaySignals,
@@ -16,6 +16,7 @@ import { DataFlagMark, FlagWrap } from "./DataFlagMark";
 import { cellFlag, derivedCellFlag, factorWords, flagsBySid, stoppedFeedReason } from "./dataFlags";
 import {
   AdvCell,
+  fmtLastPrice,
   GroupMovingLine,
   InsiderCell,
   LastCell,
@@ -33,6 +34,15 @@ import { CatalystCountingRow } from "./CatalystCounting";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
+  countFilterCandidates,
+  DEFAULT_BASKET_FILTER,
+  isActionableBucket,
+  isFilterActive,
+  rowMatchesFilter,
+  SORT_COL_LABEL,
+  type BasketFilterState,
+} from "./basketFilter";
+import {
   ENTRY_WINDOW_BUCKETS,
   dedupeBySecurityId,
   groupBasket,
@@ -43,7 +53,8 @@ import {
   type BucketDef,
   type BucketRow,
 } from "./buckets";
-import { nextSort, sortRenderRows, type SortColId, type SortState } from "./sortBasket";
+import { metricValue, nextSort, sortRenderRows, type SortColId, type SortState } from "./sortBasket";
+import { ThesisSwitcher } from "./ThesisSwitcher";
 import { CompanyDrawer } from "../dashboards/CompanyDrawer";
 import { FundLaunchesLine } from "./FundLaunchesLine";
 import { RotationStrip } from "./RotationStrip";
@@ -65,7 +76,16 @@ import { SILENT_DESCRIPTORS, isSilentLink } from "../workbench/useChainDraft";
 import { useCoveredRail } from "./useCoveredRail";
 
 interface Props {
+  /** Optional shared AppHeader slot (used by /thesis/:thesisId so the Cockpit carries the full app nav). */
+  header?: ReactNode;
+  /** True when rendered under AppHeader (inside DashboardShell at /dashboards/cockpit or /thesis/:id):
+   *  omits the duplicate brand + as-of dial from .cp-top and fills the shell cleanly. */
+  embedded?: boolean;
   thesisId: string;
+  /** Optional workspace thesis list for the top thesis-switcher dropdown and prev/next steppers. */
+  theses?: readonly ThesisSummary[];
+  /** Called when the operator switches to another thesis via the top dropdown or [ / ] shortcuts. */
+  onSwitchThesis?: (thesisId: string) => void;
   asof: string;
   onAsofChange: (asof: string) => void;
   onBack?: () => void;
@@ -164,7 +184,11 @@ function SortableTh({
 }
 
 export function Cockpit({
+  header,
+  embedded = false,
   thesisId,
+  theses,
+  onSwitchThesis,
   asof,
   onAsofChange,
   onBack,
@@ -415,6 +439,99 @@ export function Cockpit({
   // header keeps its count while closed, so nothing reads as dropped). Local view state only,
   // keyed per lens (a fold in one lens doesn't leak into the other).
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
+  // Reversible view-only basket filters (WB#1, WB#2, WB#3): off by default, cleared on thesis switch.
+  const [filter, setFilter] = useState<BasketFilterState>(DEFAULT_BASKET_FILTER);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setFilter(DEFAULT_BASKET_FILTER);
+    setClosedGroups(new Set());
+  }, [thesisId]);
+
+  const filterActive = isFilterActive(filter);
+  const allRenderedRows = renderGroups.flatMap((g) => g.rows);
+  const filterCounts = countFilterCandidates(allRenderedRows, signalsFor);
+  const visibleGroups = filterActive
+    ? sortedGroups
+        .map((g) => ({
+          ...g,
+          rows: g.rows.filter(({ row, def }) => rowMatchesFilter(row, def, signalsFor(row), filter)),
+        }))
+        .filter((g) => g.rows.length > 0)
+    : sortedGroups;
+  const shownCount = visibleGroups.reduce((n, g) => n + g.rows.length, 0);
+  const allClosed =
+    visibleGroups.length > 0 && visibleGroups.every((g) => closedGroups.has(g.key));
+
+  const toggleAllGroups = () => {
+    if (allClosed) {
+      setClosedGroups(new Set());
+    } else {
+      setClosedGroups(new Set(visibleGroups.map((g) => g.key)));
+    }
+  };
+
+  // Active risk signals per ticker (display-only join matching CompanyDrawer): surfaces a quiet amber
+  // marker right on the basket row ONLY when that ticker carries an active risk signal (WB#3).
+  const risksByTicker = useMemo(() => {
+    const map = new Map<string, TriggerRefOut[]>();
+    for (const r of card?.risk_signals ?? []) {
+      if (!r.ticker) continue;
+      const list = map.get(r.ticker);
+      if (list) list.push(r);
+      else map.set(r.ticker, [r]);
+    }
+    return map;
+  }, [card?.risk_signals]);
+
+  // Resolved basket members forwarded to DecisionActions so logging an early override on a
+  // Warming/Incubating card still allows attributing the fill to a specific basket ticker.
+  const resolvedBasketMembers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { security_id: string; ticker: string }[] = [];
+    for (const m of basket) {
+      if (!m.security_id || seen.has(m.security_id)) continue;
+      seen.add(m.security_id);
+      out.push({ security_id: m.security_id, ticker: m.ticker });
+    }
+    return out;
+  }, [basket]);
+
+  // Keyboard shortcuts for fast Cockpit review — never fires while typing in a form field or with modifiers.
+  useEffect(() => {
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const el = e.target as HTMLElement | null;
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable)
+      ) {
+        return;
+      }
+      if ((e.key === "[" || e.key === "]") && theses && theses.length > 1 && onSwitchThesis) {
+        e.preventDefault();
+        const idx = theses.findIndex((t) => t.id === thesisId);
+        const nextIdx =
+          e.key === "["
+            ? (idx <= 0 ? theses.length : idx) - 1
+            : (idx + 1) % theses.length;
+        const target = theses[nextIdx];
+        if (target && target.id !== thesisId) onSwitchThesis(target.id);
+      } else if (e.key === "/" && filterInputRef.current) {
+        e.preventDefault();
+        filterInputRef.current.focus();
+      } else if (e.key === "r" && !e.shiftKey) {
+        e.preventDefault();
+        onRailChange(!railOpen);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [theses, thesisId, onSwitchThesis, onRailChange, railOpen]);
+
   const toggleGroup = (key: string) => {
     const apply = () =>
       setClosedGroups((s) => {
@@ -437,7 +554,7 @@ export function Cockpit({
   // without the mouse. The panel only follows onto the row its key RESOLVES to: a name shown under several
   // value-chain links resolves to its first row (the click rule), so a later link-row takes focus and leaves
   // the panel where it is rather than jumping the highlight to a row far above.
-  const navRows = sortedGroups
+  const navRows = visibleGroups
     .filter((g) => !closedGroups.has(g.key))
     .flatMap((g) => g.rows.map(({ row }) => row));
   const stepRow = (e: KeyboardEvent<HTMLTableRowElement>, from: BucketRow, dir: 1 | -1) => {
@@ -460,23 +577,122 @@ export function Cockpit({
   const catalysts = thesis?.catalysts ?? [];
   const killCriteria = thesis?.kill_criteria ?? [];
 
+  // Open position summary (shown only when a position is open on this card — WB#3).
+  const openPosition = thesis?.position ?? null;
+  const heldRow = openPosition?.security_id
+    ? dedupedGroups.flatMap((g) => g.rows).find((r) => r.member.security_id === openPosition.security_id) ??
+      null
+    : null;
+  const heldClose =
+    openPosition?.current_price ??
+    (openPosition?.security_id
+      ? metricValue(smaBySid.get(openPosition.security_id) ?? null, "close")
+      : null);
+  const heldPnlPct =
+    openPosition?.entry_price != null &&
+    openPosition.entry_price > 0 &&
+    heldClose != null
+      ? ((heldClose - openPosition.entry_price) / openPosition.entry_price) * 100
+      : null;
+  const holdExitDate = heldRow?.call?.exit_by ?? card?.exit_by ?? null;
+  const holdExitDays = daysFrom(countdownFrom, holdExitDate);
+
+  // Compact Thesis Pulse items (at-a-glance situational context, zero extra API calls).
+  const activeBuckets = dedupedGroups.filter((g) => isActionableBucket(g.def.key));
+  const nextCatalyst = useMemo(() => {
+    const sorted = [...catalysts].sort(byWhenDateAsc);
+    for (const c of sorted) {
+      const d = daysFrom(countdownFrom, c.when_date);
+      if (d !== null && d >= 0) return { catalyst: c, days: d };
+    }
+    return null;
+  }, [catalysts, countdownFrom]);
+  const riskCount = card?.risk_signals?.length ?? 0;
+  const riskTickerCount = risksByTicker.size;
+  const hasPulse =
+    activeBuckets.length > 0 || nextCatalyst !== null || riskCount > 0 || killCriteria.length > 0;
+
+  const jumpToBucket = (key: string) => {
+    if (lensMode !== "state") setGroupMode("state");
+    setClosedGroups((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+    shellRef.current?.querySelector(`tr.grp[data-bucket="${key}"]`)?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
+  const jumpToSection = (id: string) => {
+    shellRef.current?.querySelector(`#${id}`)?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
+  const showFilterSearch = filterCounts.total > 5 || filter.query !== "";
+  const showActionableChip =
+    filter.actionableOnly ||
+    (filterCounts.actionable > 0 && filterCounts.actionable < filterCounts.total);
+  const showInsiderChip =
+    filter.insiderBuysOnly ||
+    (filterCounts.insiderBuys > 0 && filterCounts.insiderBuys < filterCounts.total);
+  const showRvolChip =
+    filter.hotRvolOnly ||
+    (filterCounts.hotRvol > 0 && filterCounts.hotRvol < filterCounts.total);
+  const showSilentChip =
+    filter.hideSilent || (filterCounts.silent > 0 && filterCounts.silent < filterCounts.total);
+  const showCollapseAll = visibleGroups.length >= 2;
+  const showToolbar =
+    showFilterSearch ||
+    showActionableChip ||
+    showInsiderChip ||
+    showRvolChip ||
+    showSilentChip ||
+    showCollapseAll ||
+    sort !== null;
+
+  const currentSummary = theses?.find((t) => t.id === thesisId);
+  const showSwitcher = Boolean(theses && theses.length > 0 && onSwitchThesis);
+
   return (
-    <div ref={shellRef} className="cp-shell">
-      <header className="cp-top">
+    <div ref={shellRef} className={`cp-shell${embedded ? " embedded" : ""}`}>
+      {header}
+      <header className={`cp-top${embedded ? " embedded" : ""}`}>
         {onBack && (
           <button type="button" className="back" onClick={onBack}>
             ← Back
           </button>
         )}
-        <div className="brand">
-          <span className="dot" />
-          ALPHA&nbsp;DECK <small>// research cockpit</small>
-        </div>
+        {!embedded && (
+          <div className="brand">
+            <span className="dot" />
+            ALPHA&nbsp;DECK <small>// research cockpit</small>
+          </div>
+        )}
         <div className="cp-title">
-          <span className="tk" style={{ color: `var(${accentVar(sc)})` }}>
-            {tickerLabel(thesis?.ticker, basket.length)}
-          </span>
-          <h1>{thesis?.name ?? "…"}</h1>
+          {showSwitcher && theses && onSwitchThesis ? (
+            <ThesisSwitcher
+              thesisId={thesisId}
+              currentName={thesis?.name ?? currentSummary?.name ?? "…"}
+              currentTicker={thesis?.ticker ?? currentSummary?.ticker}
+              currentBasketSize={thesis ? basket.length : currentSummary?.basket_size}
+              stateClass={sc}
+              asof={asof}
+              theses={theses}
+              onSwitch={onSwitchThesis}
+            />
+          ) : (
+            <>
+              <span className="tk" style={{ color: `var(${accentVar(sc)})` }}>
+                {tickerLabel(thesis?.ticker, basket.length)}
+              </span>
+              <h1>{thesis?.name ?? "…"}</h1>
+            </>
+          )}
           {/* quiet, lowercase, only when on: a meta index card's names never count toward the call */}
           {thesis?.meta_index && (
             <span className="meta-tag" title="Meta index: its names never count toward the call">
@@ -497,10 +713,12 @@ export function Cockpit({
           )}
         </div>
         <div className="spacer" />
-        <label className="asof">
-          as-of
-          <input type="date" value={asof} onChange={(e) => onAsofChange(e.target.value)} />
-        </label>
+        {!embedded && (
+          <label className="asof">
+            as-of
+            <input type="date" value={asof} onChange={(e) => onAsofChange(e.target.value)} />
+          </label>
+        )}
         {/* Collapse the call rail to hand its fixed 380px back to the basket table — a third of a
             laptop viewport, and the table's 17 columns want all of it (MEASURED at 1091px: 610px
             of horizontal scroll -> 230px). A view dial, not a navigation: it rides ?rail=0,
@@ -513,8 +731,8 @@ export function Cockpit({
           aria-controls="cp-rail"
           title={
             railOpen
-              ? "Collapse the call rail — gives its width back to the basket table"
-              : "Show the call rail"
+              ? "Collapse the call rail — gives its width back to the basket table (r)"
+              : "Show the call rail (r)"
           }
           onClick={() => onRailChange(!railOpen)}
         >
@@ -534,6 +752,52 @@ export function Cockpit({
 
           {thesis && (
             <>
+              {/* Open position summary: visible only when the operator has a live position logged on this card (WB#3). */}
+              {openPosition && (
+                <section className="cp-pos-bar" aria-label="Open position">
+                  <span className="cp-pos-tag">Position open</span>
+                  {heldRow ? (
+                    <button
+                      type="button"
+                      className="cp-pos-tk"
+                      title={`Inspect ${heldRow.member.ticker}`}
+                      onClick={() => onSelectName(nameKeyFor(heldRow, basket))}
+                    >
+                      {heldRow.member.ticker}
+                    </button>
+                  ) : null}
+                  <span className="cp-pos-meta">
+                    entered {fmtDate(openPosition.opened_on)}
+                    {openPosition.entry_price != null && ` @ ${fmtLastPrice(openPosition.entry_price)}`}
+                  </span>
+                  {heldClose != null && (
+                    <span className="cp-pos-meta" title="Latest end-of-day close (not a live quote)">
+                      EOD {fmtLastPrice(heldClose)}
+                    </span>
+                  )}
+                  {heldPnlPct != null && (
+                    <span
+                      className={`cp-pos-pnl ${heldPnlPct > 0 ? "pos" : heldPnlPct < 0 ? "neg" : ""}`}
+                      title="Unrealized EOD move vs logged entry price"
+                    >
+                      {heldPnlPct > 0 ? "+" : ""}
+                      {heldPnlPct.toFixed(1)}%
+                    </span>
+                  )}
+                  {holdExitDate && (
+                    <span
+                      className={`cp-pos-clock${heldRow?.call?.lapsing ? " lapse" : ""}`}
+                      title="Signal-validity horizon (exit-by) — not a sell date"
+                    >
+                      exit-by {fmtDate(holdExitDate)}
+                      {holdExitDays !== null &&
+                        (holdExitDays < 0 ? " · lapsed" : ` · ${dayCount(holdExitDays)}`)}
+                      {heldRow?.call?.lapsing && " · hold clock closing"}
+                    </span>
+                  )}
+                </section>
+              )}
+
               <section className="sect">
                 <div className="sect-h">Narrative &amp; conviction</div>
                 <div className="narrative">
@@ -541,6 +805,68 @@ export function Cockpit({
                   <span className="by">— your notes, preserved</span>
                 </div>
               </section>
+
+              {/* Compact Thesis Pulse: at-a-glance situational summary over already-loaded data (zero extra API calls). */}
+              {hasPulse && (
+                <div className="cp-pulse" aria-label="Thesis pulse">
+                  {activeBuckets.map((g) => (
+                    <button
+                      key={g.def.key}
+                      type="button"
+                      className={`cp-pulse-item ${g.def.cls}`}
+                      title={`Jump to ${g.def.label} (${g.def.hint})`}
+                      onClick={() => jumpToBucket(g.def.key)}
+                    >
+                      <span className="rowdot" aria-hidden="true" />
+                      <b>{g.rows.length}</b> {g.def.label.toLowerCase()}
+                    </button>
+                  ))}
+                  {nextCatalyst && (
+                    <button
+                      type="button"
+                      className={`cp-pulse-item cp-pulse-cat${nextCatalyst.days <= 14 ? " soon" : ""}`}
+                      title={`Next catalyst: ${nextCatalyst.catalyst.label}`}
+                      onClick={() => jumpToSection("cp-catalysts")}
+                    >
+                      <span className="cp-pulse-k">Next catalyst</span>
+                      <b>
+                        {fmtDate(nextCatalyst.catalyst.when_date)} · {dayCount(nextCatalyst.days)}
+                      </b>
+                      <span className="cp-pulse-lbl">{nextCatalyst.catalyst.label}</span>
+                    </button>
+                  )}
+                  {riskCount > 0 && (
+                    <button
+                      type="button"
+                      className="cp-pulse-item cp-pulse-risk"
+                      title="Open the call rail to inspect active risk signals"
+                      onClick={() => {
+                        if (!railOpen) onRailChange(true);
+                        shellRef.current?.querySelector("#cp-rail")?.scrollIntoView?.({
+                          behavior: "smooth",
+                          block: "nearest",
+                        });
+                      }}
+                    >
+                      ▲ <b>{riskCount}</b> {riskCount === 1 ? "risk signal" : "risk signals"}
+                      {riskTickerCount > 0
+                        ? ` · ${riskTickerCount} ${riskTickerCount === 1 ? "name" : "names"}`
+                        : ""}
+                    </button>
+                  )}
+                  {killCriteria.length > 0 && (
+                    <button
+                      type="button"
+                      className="cp-pulse-item cp-pulse-kill"
+                      title="Review kill criteria before acting"
+                      onClick={() => jumpToSection("cp-kills")}
+                    >
+                      <b>{killCriteria.length}</b>{" "}
+                      {killCriteria.length === 1 ? "kill criterion" : "kill criteria"}
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* the THESIS-LEVEL rotation strip — theme-breadth thrust + sector-RS leadership off the
                   SAME display-signals query the basket cells read (its TOP-LEVEL `breadth` / `sector_rs`
@@ -619,6 +945,103 @@ export function Cockpit({
                     )}
                   </span>
                 </div>
+                {/* Reversible view-filter & group-control toolbar: renders only controls that discriminate (WB#3). */}
+                {showToolbar && (
+                  <div className="cp-bkt-tools" role="region" aria-label="Basket view controls">
+                    {showFilterSearch && (
+                      <input
+                        ref={filterInputRef}
+                        type="search"
+                        className="cp-bkt-search"
+                        aria-label="Filter basket"
+                        placeholder="Filter ticker, name, or type… (/)"
+                        value={filter.query}
+                        onChange={(e) => setFilter((f) => ({ ...f, query: e.target.value }))}
+                      />
+                    )}
+                    {showActionableChip && (
+                      <button
+                        type="button"
+                        className={`wb-mini ghost${filter.actionableOnly ? " on" : ""}`}
+                        aria-pressed={filter.actionableOnly}
+                        title="Show only names with an active call, trigger, or watch signal"
+                        onClick={() =>
+                          setFilter((f) => ({ ...f, actionableOnly: !f.actionableOnly }))
+                        }
+                      >
+                        Active signals ({filterCounts.actionable})
+                      </button>
+                    )}
+                    {showInsiderChip && (
+                      <button
+                        type="button"
+                        className={`wb-mini ghost${filter.insiderBuysOnly ? " on" : ""}`}
+                        aria-pressed={filter.insiderBuysOnly}
+                        title="Show only names with open-market insider buys in the last 90 days"
+                        onClick={() =>
+                          setFilter((f) => ({ ...f, insiderBuysOnly: !f.insiderBuysOnly }))
+                        }
+                      >
+                        Insider buys ({filterCounts.insiderBuys})
+                      </button>
+                    )}
+                    {showRvolChip && (
+                      <button
+                        type="button"
+                        className={`wb-mini ghost${filter.hotRvolOnly ? " on" : ""}`}
+                        aria-pressed={filter.hotRvolOnly}
+                        title="Show only names with volume-backed moves (RVOL at or above threshold)"
+                        onClick={() => setFilter((f) => ({ ...f, hotRvolOnly: !f.hotRvolOnly }))}
+                      >
+                        High RVOL ({filterCounts.hotRvol})
+                      </button>
+                    )}
+                    {showSilentChip && (
+                      <button
+                        type="button"
+                        className={`wb-mini ghost${filter.hideSilent ? " on" : ""}`}
+                        aria-pressed={filter.hideSilent}
+                        title="Temporarily hide Context, ETFs, and Bench links"
+                        onClick={() => setFilter((f) => ({ ...f, hideSilent: !f.hideSilent }))}
+                      >
+                        Hide silent ({filterCounts.silent})
+                      </button>
+                    )}
+                    {filterActive && (
+                      <>
+                        <span className="cp-bkt-shown">
+                          showing {shownCount} of {filterCounts.total}
+                        </span>
+                        <button
+                          type="button"
+                          className="wb-mini ghost"
+                          onClick={() => setFilter(DEFAULT_BASKET_FILTER)}
+                        >
+                          Clear filters
+                        </button>
+                      </>
+                    )}
+                    {sort && (
+                      <button
+                        type="button"
+                        className="wb-mini ghost on"
+                        title="Return to default call-rank order"
+                        onClick={() => setSort(null)}
+                      >
+                        Sorted: {SORT_COL_LABEL[sort.col]} {sort.dir === "asc" ? "▲" : "▼"} ×
+                      </button>
+                    )}
+                    {showCollapseAll && (
+                      <button
+                        type="button"
+                        className="wb-mini ghost cp-bkt-fold-all"
+                        onClick={toggleAllGroups}
+                      >
+                        {allClosed ? "Expand all" : "Collapse all"}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {/* Grouped by each member's own call-state bucket (strongest → weakest, the Board's
                     column idiom in-table). The dead Role/Detail columns are gone from the table —
                     the authored text survives on the per-name panel, not as an all-"—" column.
@@ -704,9 +1127,23 @@ export function Cockpit({
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedGroups.map((g) => (
+                      {visibleGroups.length === 0 && filterActive && (
+                        <tr>
+                          <td colSpan={22} className="cp-bkt-empty">
+                            No names match the active filters.{" "}
+                            <button
+                              type="button"
+                              className="wb-mini ghost"
+                              onClick={() => setFilter(DEFAULT_BASKET_FILTER)}
+                            >
+                              Clear filters
+                            </button>
+                          </td>
+                        </tr>
+                      )}
+                      {visibleGroups.map((g) => (
                         <Fragment key={g.key}>
-                          <tr className={`grp ${g.cls}`}>
+                          <tr className={`grp ${g.cls}`} data-bucket={g.key}>
                             <td colSpan={22}>
                               {/* the To Review heading idiom (chev · label · hint · count · moving
                                   line · hairline), bucket-colored; click-to-collapse, open by default
@@ -805,6 +1242,20 @@ export function Cockpit({
                                 {/* S3 — the data-flag mark: only when a flag reaches a cell on this row
                                     (WB#3); the hover names each flag and the cells it touches */}
                                 <DataFlagMark member={flagsFor(r.member.security_id)} />
+                                {/* Active risk-signal mark: quiet amber triangle ONLY on rows whose ticker
+                                    carries an active risk signal on the live call (WB#3). */}
+                                {(() => {
+                                  const rowRisks = risksByTicker.get(r.member.ticker);
+                                  if (!rowRisks || rowRisks.length === 0) return null;
+                                  return (
+                                    <span
+                                      className="risk-mark"
+                                      title={`Active risk ${rowRisks.length === 1 ? "signal" : "signals"}: ${rowRisks.map((x) => x.label).join("; ")}`}
+                                    >
+                                      ▲{rowRisks.length > 1 ? rowRisks.length : ""}
+                                    </span>
+                                  );
+                                })()}
                               </td>
                               <td className="co">
                                 {/* the hungriest column in the table — the longest company name in a
@@ -1075,7 +1526,7 @@ export function Cockpit({
                   entry point (the sections used to vanish when empty, which made "no way to add
                   one" invisible). The editors write through the sole-writer endpoints; a promote
                   can never wipe the lists (the structural guard, server-side). */}
-              <section className="sect vt-cats">
+              <section id="cp-catalysts" className="sect vt-cats">
                 <div className="sect-h">Catalyst calendar</div>
                 {/* a calendar reads in date order: soonest first, a fuzzy "~Q3" last — a DISPLAY sort of a
                     copy; the editor below still gets the authoring order, which is what a save stores. A
@@ -1110,7 +1561,7 @@ export function Cockpit({
                 <CatalystEditor thesisId={thesisId} catalysts={catalysts} />
               </section>
 
-              <section className="sect vt-kills">
+              <section id="cp-kills" className="sect vt-kills">
                 <div className="sect-h">Kill criteria</div>
                 {killCriteria.map((k) => (
                   <div className="kill" key={k.id}>
@@ -1140,8 +1591,25 @@ export function Cockpit({
           )}
           {callQ.isLoading && <p className="muted">Computing the call…</p>}
           {callQ.error && <p style={{ color: "var(--neg)" }}>Failed to compute the call.</p>}
-          {card && <CallCard card={card} thesisId={thesisId} foreignFiler={foreignFiler} />}
-          {card && <MemberMenu card={card} />}
+          {card && (
+            <CallCard
+              key={thesisId}
+              card={card}
+              thesisId={thesisId}
+              foreignFiler={foreignFiler}
+              basketMembers={resolvedBasketMembers}
+              onSelectTicker={(tk) => {
+                if (resolveNameKey(groups, tk)) onSelectName(tk);
+              }}
+            />
+          )}
+          {card && (
+            <MemberMenu
+              card={card}
+              selectedKey={selectedName}
+              onSelectMember={(key) => onSelectName(key)}
+            />
+          )}
         </aside>
       </div>
 

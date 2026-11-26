@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<g fill="#101318" stroke="#1e232c">
+<rect x="12" y="12" width="296" height="24" rx="5"/>
+<rect x="12" y="42" width="194" height="146" rx="6"/>
+<rect x="218" y="160" width="84" height="22" rx="4"/>
+</g>
+<rect x="212" y="42" width="96" height="146" rx="6" fill="#0c0e12" stroke="#1e232c"/>
+<g fill="#141821" stroke="#2a313c">
+<rect x="18" y="17" width="84" height="14" rx="4"/>
+<rect x="266" y="17" width="34" height="14" rx="4"/>
+<rect x="218" y="48" width="84" height="106" rx="5"/>
+</g>
+<rect x="108" y="18" width="32" height="12" rx="4" fill="#ff5733" fill-opacity=".18" stroke="#ff5733" stroke-opacity=".6"/>
+<rect x="225" y="78" width="32" height="22" rx="3" fill="#101318" stroke="#34c2a0" stroke-opacity=".5"/>
+<rect x="263" y="78" width="32" height="22" rx="3" fill="#101318" stroke="#e0a23c" stroke-opacity=".5"/>
+<rect x="225" y="108" width="70" height="4" rx="2" fill="#1e232c"/>
+<rect x="225" y="108" width="46" height="4" rx="2" fill="#ff5733"/>
+<rect x="225" y="138" width="70" height="11" rx="3" fill="#ff5733" fill-opacity=".22" stroke="#ff5733"/>
+<g fill="#ff5733"><circle cx="24" cy="84" r="3"/><circle cx="24" cy="100" r="3"/></g>
+<g fill="#e0a23c"><circle cx="24" cy="132" r="3"/><circle cx="269" cy="85" r="2.2"/></g>
+<circle cx="231" cy="85" r="2.2" fill="#34c2a0"/>
+<g fill="#586374"><circle cx="24" cy="164" r="3"/><circle cx="24" cy="178" r="3"/></g>
+<path fill="none" stroke="#1e232c" d="M18 60h182"/>
+<g fill="none" stroke-linecap="round">
+<path stroke="#e7eaef" stroke-width="2.5" d="M25 24h46M33 84h24M33 100h20M242 143.5h36"/>
+<path stroke="#ff5733" stroke-width="2.5" d="M114 24h20M22 70h26M168 84h26M226 60h42"/>
+<path stroke="#e0a23c" stroke-width="2.5" d="M22 118h30"/>
+<path stroke="#586374" stroke-width="2.5" d="M22 150h22"/>
+<path stroke="#9aa3b0" stroke-width="2" d="M90 22.5l3 3 3-3M33 132h22M168 100h22M236 85h16M229 93h22M274 85h16M267 93h22M225 168h26M225 175h48"/>
+<path stroke="#5a6470" stroke-width="2" d="M22 52h40M84 52h24M122 52h20M156 52h36M68 84h42M68 100h36M33 164h18M33 178h24M226 69h64M226 122h56M226 130h44"/>
+<path stroke="#3c4450" stroke-width="2" d="M68 132h44M68 164h40M68 178h34"/>
+<path stroke="#9aa3b0" stroke-width="1.4" stroke-linejoin="round" d="M124 88l7-4 6 2 8-7 7 1 6-5M124 103l8-2 7-5 6 3 7-4 6-2"/>
+<path stroke="#5a6470" stroke-width="1.4" stroke-linejoin="round" d="M124 134l8-3 8 2 7-2 11-2"/>
+</g>
+</svg>

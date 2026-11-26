@@ -23,9 +23,13 @@ import { LIMITS } from "../api/limits";
 export function DecisionActions({
   thesisId,
   card,
+  basketMembers,
 }: {
   thesisId: string;
   card: CallCardResponse;
+  /** Optional resolved basket members so an operator logging an early override on a Warming/Incubating
+   *  card (where armed/watch lists are empty) can still attribute the fill to a specific ticker. */
+  basketMembers?: readonly { security_id: string; ticker: string }[];
 }) {
   const decisions = useDecisions(thesisId);
   const post = usePostDecision(thesisId);
@@ -41,12 +45,13 @@ export function DecisionActions({
   const [price, setPrice] = useState("");
   const [reason, setReason] = useState("");
   // the name being taken — defaults to the platform's headline (the armed pick); the operator can
-  // pick any member the card knows, or log at thesis level (the empty option). Deduped by
-  // security_id (armed first, then watch): the armed headline can ALSO appear in watch_members, and
-  // a flat concat would render — and key — that name twice (one option per distinct security).
-  const members = [...(card.armed_members ?? []), ...(card.watch_members ?? [])].filter(
-    (m, i, all) => all.findIndex((x) => x.security_id === m.security_id) === i,
-  );
+  // pick any armed/watch member or any other resolved basket member, or log at thesis level (the empty
+  // option). Deduped by security_id (armed first, then watch, then remaining basket).
+  const members: { security_id: string; ticker: string | null }[] = [
+    ...(card.armed_members ?? []).map((m) => ({ security_id: m.security_id, ticker: m.ticker ?? null })),
+    ...(card.watch_members ?? []).map((m) => ({ security_id: m.security_id, ticker: m.ticker ?? null })),
+    ...(basketMembers ?? []).map((m) => ({ security_id: m.security_id, ticker: m.ticker })),
+  ].filter((m, i, all) => all.findIndex((x) => x.security_id === m.security_id) === i);
   const [secId, setSecId] = useState(card.armed_security_id ?? "");
 
   const armed = card.state === "armed";

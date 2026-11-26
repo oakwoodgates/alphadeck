@@ -80,6 +80,7 @@ vi.mock("../dashboards/registry", () => ({
 // The real registry, for its Board entry and its home slug (vi.importActual skips the mock above).
 const REAL = await vi.importActual<typeof import("../dashboards/registry")>("../dashboards/registry");
 const BOARD = REAL.DASHBOARDS.find((d) => d.slug === "board") as DashboardEntry;
+const COCKPIT_DASH = REAL.DASHBOARDS.find((d) => d.slug === "cockpit") as DashboardEntry;
 
 // A fake dashboard body: its props as text and an onSelectThesis button — the shell + route wiring is what's
 // under test, not any real dashboard.
@@ -178,12 +179,14 @@ vi.mock("../cockpit/Cockpit", () => ({
       <span data-testid="cp-asof">{p.asof}</span>
       <span data-testid="cp-name">{p.selectedName ?? ""}</span>
       <span data-testid="cp-rail">{String(p.railOpen)}</span>
-      <button onClick={() => p.onBack()}>cp-back</button>
+      <span data-testid="cp-embedded">{String(Boolean(p.embedded))}</span>
+      <button onClick={() => p.onBack?.()}>cp-back</button>
       <button onClick={() => p.onAsofChange("2026-06-01")}>cp-scrub</button>
       <button onClick={() => p.onSelectName("XE")}>cp-pick-xe</button>
       <button onClick={() => p.onSelectName(null)}>cp-clear-name</button>
       <button onClick={() => p.onRailChange(false)}>cp-rail-close</button>
       <button onClick={() => p.onRailChange(true)}>cp-rail-open</button>
+      <button onClick={() => p.onSwitchThesis?.("t-2")}>cp-switch-t2</button>
     </div>
   ),
 }));
@@ -765,5 +768,54 @@ describe("App routes — /settings/:tab", () => {
     await user.click(screen.getByText("Settings"));
     expect(where()).toBe("/settings/profile?asof=2026-06-01");
     expect(screen.getByText("SETTINGS")).toBeInTheDocument();
+  });
+});
+
+describe("App routes — the Cockpit as a core dashboard", () => {
+  it("registers cockpit as a core fill-layout as-of-aware dashboard right after Board", () => {
+    expect(COCKPIT_DASH).toMatchObject({
+      slug: "cockpit",
+      order: 5,
+      label: "Cockpit",
+      group: "daily",
+      status: "core",
+      asofAware: true,
+      layout: "fill",
+      openCompanyInCockpit: true,
+    });
+  });
+
+  it("/dashboards/cockpit renders the first active thesis by default and switches via ?thesis= (keeping ?asof= and ?rail=0)", async () => {
+    const user = userEvent.setup();
+    h.theses = {
+      isLoading: false,
+      error: null,
+      data: [
+        { id: "t-1", name: "Thesis One" },
+        { id: "t-2", name: "Thesis Two" },
+      ],
+    };
+    h.dashboards.push(COCKPIT_DASH);
+    renderAt("/dashboards/cockpit?asof=2026-06-01&name=HIMS&rail=0");
+    expect(await screen.findByText("COCKPIT")).toBeInTheDocument();
+    expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-1");
+    expect(screen.getByTestId("cp-asof")).toHaveTextContent("2026-06-01");
+    expect(screen.getByTestId("cp-name")).toHaveTextContent("HIMS");
+    expect(screen.getByTestId("cp-rail")).toHaveTextContent("false");
+    expect(screen.getByTestId("cp-embedded")).toHaveTextContent("true");
+
+    await user.click(screen.getByText("cp-switch-t2"));
+    expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-2");
+    expect(screen.getByTestId("cp-name").textContent).toBe("");
+    expect(where()).toBe("/dashboards/cockpit?asof=2026-06-01&rail=0&thesis=t-2");
+  });
+
+  it("/thesis/:thesisId switches thesis cleanly in place while preserving ?asof= and ?rail=0", async () => {
+    const user = userEvent.setup();
+    renderAt("/thesis/t-1?asof=2026-06-01&name=HIMS&rail=0");
+    await user.click(screen.getByText("cp-switch-t2"));
+    expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-2");
+    expect(screen.getByTestId("cp-name").textContent).toBe("");
+    expect(where()).toBe("/thesis/t-2?asof=2026-06-01&rail=0");
   });
 });

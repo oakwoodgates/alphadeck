@@ -59,10 +59,16 @@ export function CallCard({
   card,
   thesisId,
   foreignFiler,
+  onSelectTicker,
+  basketMembers,
 }: {
   card: CallCardResponse;
   thesisId?: string;
   foreignFiler?: { form: string } | null;
+  /** Optional click handler on trigger/risk ticker pills to open that company's drawer in the Cockpit. */
+  onSelectTicker?: (ticker: string) => void;
+  /** Optional resolved basket members passed to DecisionActions for early-override name attribution. */
+  basketMembers?: readonly { security_id: string; ticker: string }[];
 }) {
   const sc = STATE_CLASS[card.state] ?? "incub";
   const accent = accentVar(sc);
@@ -148,7 +154,7 @@ export function CallCard({
         {triggers.length > 0 && (
           <RailPanel label="Triggers fired" count={triggers.length}>
             {triggers.map((t, i) => (
-              <TriggerRow key={i} item={t} icon="◉" variant="hit" showGrade />
+              <TriggerRow key={i} item={t} icon="◉" variant="hit" showGrade onSelectTicker={onSelectTicker} />
             ))}
           </RailPanel>
         )}
@@ -182,7 +188,14 @@ export function CallCard({
         {risks.length > 0 && (
           <RailPanel label="Risk signals" count={risks.length}>
             {risks.map((r, i) => (
-              <TriggerRow key={i} item={r} icon="▲" variant="warn" showGrade={false} />
+              <TriggerRow
+                key={i}
+                item={r}
+                icon="▲"
+                variant="warn"
+                showGrade={false}
+                onSelectTicker={onSelectTicker}
+              />
             ))}
           </RailPanel>
         )}
@@ -253,7 +266,7 @@ export function CallCard({
         {/* the rail is state-appropriate (inverse loudness): only Armed shows the loud primary act;
             a not-yet card shows the gate. The row is WIRED — every act / pass / override / exit is
             an append to the operator-decisions log (decision capture), never a dead button. */}
-        {thesisId && <DecisionActions thesisId={thesisId} card={card} />}
+        {thesisId && <DecisionActions thesisId={thesisId} card={card} basketMembers={basketMembers} />}
         <div className="advisory">
           Advisory only — order routing never; every act, pass, and override above is a logged
           decision (the Scoreboard's operator record).
@@ -301,11 +314,13 @@ export function TriggerRow({
   icon,
   variant,
   showGrade,
+  onSelectTicker,
 }: {
   item: TriggerLike;
   icon: string;
   variant: "hit" | "warn";
   showGrade: boolean;
+  onSelectTicker?: (ticker: string) => void;
 }) {
   // the other origin's live catalyst, shown but not counted (V2 W6d); never the link row's own "source"
   const alsoLive = (item.sources ?? []).filter((s) => s.detail?.also_live === true);
@@ -316,7 +331,19 @@ export function TriggerRow({
       <div className="trg-body">
         {/* dot · ticker · grade tag · text · source — the tag LEADS the text (a trailing tag
             wrapped onto its own line under a long label), same order on the rail and the panel */}
-        {item.ticker && <span className="trg-tk">{item.ticker}</span>}
+        {item.ticker &&
+          (onSelectTicker ? (
+            <button
+              type="button"
+              className="trg-tk trg-tk-btn"
+              title={`Inspect ${item.ticker}`}
+              onClick={() => onSelectTicker(item.ticker!)}
+            >
+              {item.ticker}
+            </button>
+          ) : (
+            <span className="trg-tk">{item.ticker}</span>
+          ))}
         {showGrade && item.grade && (
           <span className={`grade ${gradeClass(item.grade)}`}>{item.grade.toUpperCase()}</span>
         )}
