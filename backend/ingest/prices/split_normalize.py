@@ -34,7 +34,12 @@ only when it is PROVEN:
    a raw store the vendor re-based (the store steps at the edge: the re-base lands), a later UNLISTED split of
    the same ratio (the read does not change at the listed split, so there is no local edge), and the double
    adjustment (the store is flat where the vendor steps — PBM's vendor step sits nine sessions early, 01-20,
-   which the edge reads where it is);
+   which the edge reads where it is). A "lacking" run with no run after it, on the first night of every split
+   it names (the store holds no bar on or after the first session and ``boundary`` reads it CONTINUOUS), is
+   also read against the vendor's post-split tail — the evidence ``boundary`` already uses — local by
+   ``EDGE_MAX_GAP`` (W0-1, MEASURED on GNS 2026-11-23: the vendor re-based a session early, then served the
+   history raw again the night the late first post-split bars arrived; with no stored edge the raw bars reached
+   T5 and the next night's revert took the split off the tape);
 2. for a "twice" read, the store reads ``STORE_CONTINUOUS`` at every split the read names (``boundary``), never
    ``STORE_RAW`` or ``STORE_UNREADABLE``; for a "lacking" read, never ``STORE_RAW`` there;
 3. at least 90% of the run's bars equal the stored bar within ``VENDOR_NOISE`` once scaled (the B2 fix: a bar
@@ -348,10 +353,12 @@ def normalize(
     tail = [b for b in fresh if b["d"] > last_stored]
     fresh_dates = {b["d"] for b in fresh}
     state: dict[int, str] = {}
+    # the store holds no bar on or after the split's first session yet (``boundary``'s first night)
+    first_of: dict[int, bool] = {}
     apply_first: set[int] = set()
     for j, s in enumerate(splits):
         st, first = boundary(stored, tail, s)
-        state[j] = st
+        state[j], first_of[j] = st, first
         if not (
             first and st == STORE_RAW and abs(_log(factors[j])) >= _log(FIRST_NIGHT_MIN_FACTOR)
         ):
@@ -419,6 +426,35 @@ def normalize(
         ca = [s_close[d] for d in s_dates[bisect_left(s_dates, y) :][:BOUNDARY_BARS]]
         return _EDGE_FLAT if cb and ca and _flat(cb, ca, lk) else _EDGE_STEP
 
+    def tail_edge(r: _Run) -> str | None:
+        """The edge of a "lacking" run with NO run after it against the vendor's post-split tail, or None
+        when there is none to read: the run names every split after its last bar, and for each the store
+        holds no bar on or after its first session and ``boundary`` read it CONTINUOUS against that tail (the
+        first night's evidence). The stored closes up to the run's last bar against the fresh tail bars on or
+        after the newest first session (on the new scale by definition), local by ``EDGE_MAX_GAP``.
+        """
+        x = r.dates[-1]
+        if r.sign >= 0 or r.js != tuple(ahead(x)):
+            return None
+        if not all(first_of[j] and state[j] == STORE_CONTINUOUS for j in r.js):
+            return None
+        s_new = max(splits[j].effective_date for j in r.js)
+        after = [
+            (b["d"], c)
+            for b in sorted(tail, key=lambda b: b["d"])
+            if b["d"] >= s_new and (c := _num(b.get("close")))
+        ][:BOUNDARY_BARS]
+        if not after:
+            return None
+        lk = _log(1.0 / r.ratio)  # the read changes from the run's to the same scale
+        if abs(lk) < _log(BOUNDARY_MIN_FACTOR):
+            return _EDGE_UNREAD
+        if bisect_left(series, after[0][0]) - bisect_right(series, x) > EDGE_MAX_GAP:
+            return _EDGE_UNREAD
+        cb = [s_close[d] for d in s_dates[: bisect_right(s_dates, x)][-BOUNDARY_BARS:]]
+        ca = [c for _, c in after]
+        return _EDGE_FLAT if cb and _flat(cb, ca, lk) else _EDGE_STEP
+
     proven: dict[date, tuple[float, str]] = {}
     spans: list[tuple[date, date, float, str]] = (
         []
@@ -433,6 +469,9 @@ def normalize(
         edges = ([edge(runs[i - 1], r)] if i else []) + (
             [edge(r, runs[i + 1])] if i + 1 < len(runs) else []
         )
+        if i + 1 == len(runs) and (t_edge := tail_edge(r)) is not None:
+            # a first night: the vendor's post-split tail is the run's next neighbour
+            edges.append(t_edge)
         if _EDGE_FLAT not in edges or _EDGE_STEP in edges:
             continue
         c = 1.0 / r.ratio
