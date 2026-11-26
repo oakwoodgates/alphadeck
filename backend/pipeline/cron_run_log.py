@@ -61,6 +61,7 @@ from pipeline.name_errors import NameIngestError, name_errors_of
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan, defect_keys_of
 from pipeline.successor_cik import SuccessorScan
+from pipeline.tape_crosscheck import TapeCrossCheck
 
 if TYPE_CHECKING:  # avoid importing the pipeline module at import time (keeps the layering one-way)
     from pipeline.daily import ThesisRunResult
@@ -304,6 +305,14 @@ def _split_reads(results) -> dict[str, dict]:
     return split_reads_of(x for r in results for x in getattr(r, "ingested", None) or ())
 
 
+def _price_fills(results) -> dict[str, dict]:
+    """W6-3b — the pass's fills per name (``ingest_thesis.fills_of``, deduped across theses; imported lazily for
+    the same reason as ``_split_reads``)."""
+    from pipeline.ingest_thesis import fills_of
+
+    return fills_of(x for r in results for x in getattr(r, "ingested", None) or ())
+
+
 def previous_split_reads(*, base_dir: Path | None = None) -> dict[str, dict[str, int]] | None:
     """``{security_id: {reason: n}}`` — the split list's per-name reads on the most recent LIVE, FINISHED pass
     that recorded them (``split_reads``): the baseline the pass summary compares against, so a divide-back
@@ -366,6 +375,7 @@ def build_run_payload(
     edgar_coverage: EdgarCoverage | None = None,
     split_detect: Any = None,
     missing_closes: MissingCloses | None = None,
+    tape_crosscheck: TapeCrossCheck | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -467,10 +477,15 @@ def build_run_payload(
     duration_s, rows: [{security_id, ticker, edge, edgar_tickers, recommended, candidates: [{symbol,
     verified, overlap, ratio, bars, last_bar, error}], edgar_name, former_names, name_change_filings}]}` —
     a pending recommendation the Admin panel offers for the operator's Adopt. Each `tape_stale` row also
-    carries `unpriceable` (Q8: no stored bar ever, neither closed nor renamed) and `acknowledged` (the
-    operator's "keep it, unpriced" — quiet, never paged); each thesis carries `expected_price_misses`
-    (`[{security_id, ticker, reason, error}]` — the vendor 404s T3 excused as expected, `reason` `closed` or
-    `acknowledged`). An artifact written before these keys reads them absent / false / empty (`.get`).
+    carries `unpriceable` (Q8: no stored bar ever, neither closed nor renamed), `acknowledged` (the
+    operator's "keep it, unpriced" — quiet, never paged) and `deregistered` (W4-2: on a never-priced row
+    EDGAR lists no symbol for, the Form 15 and the 8-K events before it — `{form, filed, accession,
+    primary_doc, cik, events: [{form, filed, accession, items}]}`; else null) and `massive_ref` (W6-4: on an
+    open price row, Massive.com's `{symbol, read_on, listed, active, type, delisted_utc, traded_on}`; else
+    null); each thesis carries
+    `expected_price_misses` (`[{security_id, ticker, reason, error}]` — the vendor 404s T3 excused as
+    expected, `reason` `closed` or `acknowledged`). An artifact written before these keys reads them absent
+    / false / empty (`.get`).
 
     T7 — THE SUCCESSOR-CIK DETECTOR. `successor_cik` (`pipeline/successor_cik.SuccessorScan.payload`) —
     `{evaluated, error, judged, no_ticker, fetches, duration_s, rows: [{security_id, ticker, stored_cik,
@@ -559,6 +574,10 @@ def build_run_payload(
         # baseline the next pass reads (``previous_split_reads``) so a standing divide-back is not re-announced
         # nightly (the re-review's N2). Readers use `.get` (an older artifact lacks it).
         "split_reads": _split_reads(results),
+        # W6-3b — the sessions the vendor served no close for that Massive.com's raw bar FILLED this pass, per name
+        # (``ingest_thesis.fills_of``: ``{security_id: {ticker, dates, split, deferred, error}}``; a name whose range
+        # read was deferred past the night's cap or failed is listed too). `{}` on a normal night; readers use `.get`.
+        "price_fills": _price_fills(results),
         # T2 — the rename probe: splice-verified successor recommendations (pending; never applied)
         **(rename_probe or RenameProbe()).payload(),
         # T7 — the successor-CIK detector: members now filing under another CIK (pending; never applied)
@@ -578,6 +597,12 @@ def build_run_payload(
         # row), ``arrived`` (late closes now stored, each with ``lag_h``), ``resolved`` (handed to the stale flag
         # / left the basket), ``usual_late_window``, ``duration_s``. ``None`` writes the not-evaluated block.
         **(missing_closes or MissingCloses()).payload(),
+        # W6-3a — THE TAPE CROSS-CHECK (``pipeline/tape_crosscheck.TapeCrossCheck.payload``) — one block:
+        # ``evaluated``, ``status`` / ``note`` (the Massive.com grouped read: on / off / not_served / uncached /
+        # failed / not_run), ``error``, ``session``, ``massive_status``, ``judged``, ``compared``, the
+        # ``disagree`` / ``vendor_gap`` / ``no_trade`` / ``unmapped`` rows and ``stale_traded`` (open stale rows
+        # Massive.com shows traded tonight). ``None`` writes the not-run block.
+        **(tape_crosscheck or TapeCrossCheck()).payload(),
         # EDGAR network pulls this run ATTEMPTED (a pull that then failed counts too) — "times we reached out".
         "edgar_fetches": edgar_fetches,
         # O5 — THE FREEZE DETECTOR: the attempts that COMPLETED (a 2xx body arrived). A frozen index and a
@@ -737,6 +762,17 @@ def build_run_payload(
                         # acknowledged it ("keep it, unpriced" — a quiet row that never pages)
                         "unpriceable": s.unpriceable,
                         "acknowledged": s.acknowledged,
+                        # W4-2 — a never-priced row EDGAR lists no symbol for: the company's Form 15 and
+                        # the 8-K events before it (item CODES; the titles are derived on read), else null
+                        "deregistered": (
+                            s.deregistered.to_json() if s.deregistered is not None else None
+                        ),
+                        # W6-4 — an open price row's Massive.com reference evidence (listed, active, type,
+                        # delisted date, tonight's trade, the market day read), else null; the next pass carries
+                        # a read from here instead of reading it again (`pipeline/massive_evidence.py`)
+                        "massive_ref": (
+                            s.massive_ref.to_json() if s.massive_ref is not None else None
+                        ),
                     }
                     for s in r.tape_stale
                 ],
@@ -864,6 +900,7 @@ def write_cron_run_log(
     edgar_coverage: EdgarCoverage | None = None,
     split_detect: Any = None,
     missing_closes: MissingCloses | None = None,
+    tape_crosscheck: TapeCrossCheck | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -905,6 +942,7 @@ def write_cron_run_log(
             edgar_coverage=edgar_coverage,
             split_detect=split_detect,
             missing_closes=missing_closes,
+            tape_crosscheck=tape_crosscheck,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)

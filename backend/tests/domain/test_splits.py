@@ -4,6 +4,7 @@ decision 2026-10-20). Each verdict below pairs a REAL Massive.com row with what 
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from fractions import Fraction
@@ -26,7 +27,7 @@ from domain.splits import (
     session_distance,
 )
 from ingest.edgar.split_filing import extract_split, extract_split_screened
-from tests.split_fixtures import documents, polygon_row
+from tests.split_fixtures import documents, polygon_row, v1_row
 
 ASOF = date(2026, 10, 20)
 
@@ -536,3 +537,201 @@ def test_d2_a_past_splits_restatement_is_not_a_mention_and_unread_filings_stay_o
     d = decide(p, [past], asof=ASOF, unread=2, distribution_max_factor=CAP)
     assert d.status == STATUS_REJECTED
     assert d.note.endswith("2 SEC filing(s) in the window could not be read.")
+
+
+# --- W6-2 (decision W6-a, 2026-11-25): Massive.com's ``stock_dividend`` label in D2's rule ------------------------
+#
+# GPUS 2024-12-13 (1 -> 1.139) sits in ``decide``'s ABSTAINED branch: its 8-K mentions a split the extractor could not
+# read, so W2-3 keeps it for review. The v1 reader's row carries Massive.com's label ``stock_dividend``
+# (``tests/fixtures/splits/polygon/v1_2026-11-25.json``). With ``label_overrides_abstain`` (the setting
+# ``split_distribution_label_overrides_abstain``, default on) that label stands in for the reading the extractor could
+# not make: the row is set aside, the abstaining filing kept as its SEC evidence. A filing that STATES this split (its
+# ratio, or a date that agrees) still keeps it for review; the label never narrows W2-3's rule (a ``forward_split``
+# label or none at all, the v3 reader's and every row stored before W6-1, decides exactly as W2-3 does).
+
+_GPUS_FILINGS = MEASURED_ABSTAINED[0][1]  # its 8-K of 2024-11-26: a ratio stated, the direction not
+_LABELS = (None, "forward_split", "reverse_split", "stock_dividend")
+
+
+def _why_label(p: PolygonEvidence, cap: str = "1.5") -> str:
+    ratio = ratio_label(p.split_from, p.split_to).split(" ")[0]
+    return (
+        f"Set aside automatically: a {ratio} forward 'split' listed by Massive.com only, under x{cap}, that "
+        "Massive.com labels a stock dividend (an SEC filing in its window mentions a split but states no ratio) "
+        "— a stock dividend or distribution, not a split (the 2026-10-23/24 rule). Restore returns it to review."
+    )
+
+
+def test_w6_2_the_real_gpus_row_is_the_measured_one_labelled_a_stock_dividend():
+    real = v1_row("GPUS", "2024-12-13")
+    measured, _ = MEASURED_ABSTAINED[0]
+    assert real.adjustment_type == "stock_dividend"
+    assert (real.execution_date, real.split_from, real.split_to) == (
+        measured.execution_date,
+        measured.split_from,
+        measured.split_to,
+    )
+
+
+def test_w6_2_the_stock_dividend_label_sets_gpus_aside_and_keeps_its_abstaining_filing():
+    real = v1_row("GPUS", "2024-12-13")
+    d = decide(
+        real, _GPUS_FILINGS, asof=ASOF, distribution_max_factor=CAP, label_overrides_abstain=True
+    )
+    assert (d.status, d.confirmed_via, d.value_source) == (STATUS_REJECTED, None, "polygon")
+    assert d.sec == _GPUS_FILINGS[0]  # the steward still sees the filing that mentions a split
+    assert (d.key_date, d.effective_date, d.ratio_from, d.ratio_to, d.valid_from) == (
+        real.execution_date,
+        real.execution_date,
+        real.split_from,
+        real.split_to,
+        real.execution_date,
+    )
+    why = distribution_reason(real, _GPUS_FILINGS, max_factor=CAP, label_overrides_abstain=True)
+    assert why == _why_label(real)
+    # the reason first, then the evidence the review card carried (W2-3's abstained note, unchanged)
+    assert d.note == (
+        f"{why} Massive.com only to confirm: SEC 8-K 0001214659-24-019590 (filed 2024-11-26) mentions a split but "
+        "the extractor abstained — a ratio is stated but not whether the split is reverse or forward."
+    )
+
+
+def test_w6_2_without_the_stock_dividend_label_gpus_waits_for_review_as_w2_3_decides():
+    """A ``forward_split`` label, or none (the v3 reader, a row stored before W6-1): W2-3's rule exactly."""
+    measured, _ = MEASURED_ABSTAINED[0]
+    w2_3 = decide(measured, _GPUS_FILINGS, asof=ASOF, distribution_max_factor=CAP)
+    for label in (None, "forward_split", "reverse_split"):
+        p = replace(measured, adjustment_type=label)
+        d = decide(
+            p, _GPUS_FILINGS, asof=ASOF, distribution_max_factor=CAP, label_overrides_abstain=True
+        )
+        assert (d.status, d.sec) == (STATUS_NEEDS_REVIEW, _GPUS_FILINGS[0]), label
+        assert d.note == w2_3.note and d.note.startswith("Massive.com only to confirm:")
+        assert d == replace(w2_3, polygon=p)
+        assert (
+            distribution_reason(p, _GPUS_FILINGS, max_factor=CAP, label_overrides_abstain=True)
+            is None
+        )
+
+
+def test_w6_2_the_label_needs_the_setting_and_d2_on():
+    real = v1_row("GPUS", "2024-12-13")
+    for d in (
+        decide(
+            real, _GPUS_FILINGS, asof=ASOF, distribution_max_factor=CAP
+        ),  # the rule's default: off
+        decide(
+            real,
+            _GPUS_FILINGS,
+            asof=ASOF,
+            distribution_max_factor=CAP,
+            label_overrides_abstain=False,
+        ),
+        decide(
+            real,
+            _GPUS_FILINGS,
+            asof=ASOF,
+            distribution_max_factor=None,  # D2 off: nothing is set aside, labelled or not
+            label_overrides_abstain=True,
+        ),
+    ):
+        assert d.status == STATUS_NEEDS_REVIEW and d.note.startswith("Massive.com only to confirm:")
+    assert distribution_reason(real, _GPUS_FILINGS, max_factor=CAP) is None
+
+
+def test_w6_2_a_stock_dividend_at_or_over_the_cap_is_never_set_aside():
+    """MTH 2025-01-03: Massive.com labels its 1 -> 2 a stock dividend; at x2 it is over the bound, so it waits for
+    review whatever a filing says (the label is not a factor band)."""
+    mth = v1_row("MTH", "2025-01-03")
+    assert (mth.adjustment_type, mth.split_from, mth.split_to) == (
+        "stock_dividend",
+        Decimal(1),
+        Decimal(2),
+    )
+    for filings in ([], _GPUS_FILINGS):
+        d = decide(
+            mth, filings, asof=ASOF, distribution_max_factor=CAP, label_overrides_abstain=True
+        )
+        assert d.status == STATUS_NEEDS_REVIEW, filings
+        assert (
+            distribution_reason(mth, filings, max_factor=CAP, label_overrides_abstain=True) is None
+        )
+    t32 = _row(
+        "T32", "2026-06-01", "2", "3"
+    )  # x1.5 exactly, labelled a stock dividend: not under the bound
+    t32 = replace(t32, adjustment_type="stock_dividend")
+    d = decide(
+        t32, _GPUS_FILINGS, asof=ASOF, distribution_max_factor=CAP, label_overrides_abstain=True
+    )
+    assert d.status == STATUS_NEEDS_REVIEW
+
+
+def test_w6_2_a_stock_dividend_reverse_row_is_never_set_aside():
+    p = replace(_row("QGEN", "2025-01-29", "36", "35"), adjustment_type="stock_dividend")
+    d = decide(
+        p, _GPUS_FILINGS, asof=ASOF, distribution_max_factor=CAP, label_overrides_abstain=True
+    )
+    assert d.status == STATUS_NEEDS_REVIEW
+
+
+def test_w6_2_a_stock_dividend_an_sec_filing_states_is_decided_as_today():
+    """The label never overrides a filing that STATES the split: one that agrees confirms it, one that states its
+    ratio on another date (or another ratio on an agreeing date) keeps it for review — an abstaining filing beside
+    them changes nothing."""
+    p = replace(_row("T", "2026-06-01", "5", "6"), adjustment_type="stock_dividend")
+    other_ratio_same_day = SecEvidence(
+        "0000000000-26-000066",
+        "8-K",
+        date(2026, 5, 20),
+        "u",
+        Decimal(1),
+        Decimal(2),
+        effective_date=date(2026, 6, 1),
+        date_kind="trading",
+        about_a_split=True,
+    )
+    for filings, status in (
+        ([_stock_split(date(2026, 6, 1))], STATUS_CONFIRMED),
+        ([_stock_split(date(2026, 6, 1)), *_GPUS_FILINGS], STATUS_CONFIRMED),
+        ([_stock_split(date(2026, 6, 4)), *_GPUS_FILINGS], STATUS_NEEDS_REVIEW),
+        ([other_ratio_same_day, *_GPUS_FILINGS], STATUS_NEEDS_REVIEW),
+    ):
+        d = decide(p, filings, asof=ASOF, distribution_max_factor=CAP, label_overrides_abstain=True)
+        assert d.status == status, [s.accession for s in filings]
+        assert d == decide(p, filings, asof=ASOF, distribution_max_factor=CAP)  # as W2-3 decides
+        assert distribution_reason(p, filings, max_factor=CAP, label_overrides_abstain=True) is None
+
+
+def test_w6_2_the_label_never_narrows_the_massive_com_only_rule():
+    """Every measured distribution under every label, the override on: W2-3's verdict and note exactly (HON's
+    ``forward_split`` 1000 -> 1061 stays set aside by its factor); the label is named only where it decided.
+    """
+    for p0, filings in MEASURED_DISTRIBUTIONS:
+        w2_3 = decide(p0, filings, asof=ASOF, distribution_max_factor=CAP)
+        for label in _LABELS:
+            p = replace(p0, adjustment_type=label)
+            d = decide(
+                p, filings, asof=ASOF, distribution_max_factor=CAP, label_overrides_abstain=True
+            )
+            assert d == replace(w2_3, polygon=p), (p.ticker, p.execution_date, label)
+            assert d.status == STATUS_REJECTED and "labels" not in d.note
+    hon = replace(MEASURED_DISTRIBUTIONS[20][0], adjustment_type="forward_split")
+    assert hon.ticker == "HON"
+    assert (
+        decide(hon, [], asof=ASOF, distribution_max_factor=CAP, label_overrides_abstain=True).status
+        == STATUS_REJECTED
+    )
+
+
+def test_w6_2_a_past_splits_restatement_and_a_split_the_filing_states_elsewhere_still_do_not_count():
+    """Beside the abstaining filing: a filing restating a PAST split is no mention (as W2-3), and one stating a
+    DIFFERENT split (GPUS's own 1-for-35, first session 2024-11-25) is not about this one: set aside.
+    """
+    real = v1_row("GPUS", "2024-12-13")
+    past = SecEvidence(
+        "a", "6-K", date(2024, 12, 1), "u", abstain_reason=PAST_RATIO_ONLY, about_a_split=True
+    )
+    one_for_35 = _other("b", "8-K", "2024-11-20", 35, "2024-11-25", "trading")
+    filings = [*_GPUS_FILINGS, past, one_for_35]
+    d = decide(real, filings, asof=ASOF, distribution_max_factor=CAP, label_overrides_abstain=True)
+    assert d.status == STATUS_REJECTED and d.sec == _GPUS_FILINGS[0]

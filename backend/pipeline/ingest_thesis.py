@@ -65,9 +65,11 @@ from ingest.edgar.form8k import ingest_form8k
 from ingest.edgar.schedule13 import ingest_schedule13
 from ingest.edgar.submissions import (
     DelistingFiling,
+    Deregistration,
     FormerName,
     NameChangeFiling,
     delisting_filings,
+    deregistration,
     edgar_tickers,
     entity_name,
     fetch_submissions,
@@ -86,6 +88,7 @@ from ingest.funds.ingest_security import (
 )
 from ingest.funds.source import FundSharesSource
 from ingest.prices.eod_loader import latest_bar_date
+from ingest.prices.gap_fill import GapSource
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.source import PriceSource, YahooPriceSource
 from ingest.prices.split_normalize import DIVIDE_BACK_REASONS, REASON_HOLE_AS_SERVED
@@ -153,6 +156,14 @@ class NameResult:
     # pass-summary line (`print_split_lines`) + the run artifact's per-thesis `price_bars_split_normalized`.
     price_bars_split_normalized: dict[str, int] = field(default_factory=dict)
     price_split_first_night: tuple[str, ...] = ()
+    # W6-3b — sessions the vendor served no close for, FILLED from Massive.com's raw bar this pass
+    # (``BarsResult.filled_dates``; part of ``price_bars_appended`` / ``price_bars_reversioned``), the newest split in
+    # force they follow, a range read deferred past the night's cap, and a failed Massive.com read. One quiet
+    # pass line (``print_fill_line``) + the run artifact's per-thesis ``price_bars_filled``.
+    price_bars_filled: tuple[date, ...] = ()
+    price_fill_split: str | None = None
+    price_fill_deferred: bool = False
+    price_fill_error: str | None = None
     # the fund-shares leg (ETF net flow, F2): a non-ETF member always contributes 0; a restated
     # same-day count is a new VERSION (reversioned) — loud only when nonzero
     fund_shares_appended: int = 0
@@ -231,6 +242,11 @@ class NameResult:
     edgar_name: str | None = None
     former_names: tuple[FormerName, ...] = ()
     name_change_filings: tuple[NameChangeFiling, ...] = ()
+    # W4-2 — the DEREGISTRATION EVIDENCE, off the same cached submissions (zero extra fetches): the newest
+    # Form 15 and the 8-K events filed in the 45 days up to it, with their item codes
+    # (``submissions.deregistration``). A fact, never a judgment: the tape monitor puts it on a never-priced
+    # row EDGAR lists no symbol for (``pipeline/tape_health.py``); None = no Form 15, or not read.
+    deregistration: Deregistration | None = None
     # Q18 — every FILING a leg skipped this pass (``ingest.skips``): a Form 4 it could not fetch or parse,
     # a 13D-family filing that is the owner's own outbound stake, a 13D/G whose filer identity did not
     # resolve. The counts above are unchanged; this names the filings so the cron can count the ones that
@@ -565,6 +581,7 @@ def ingest_thesis(
     lock_wait_s: float | None = None,
     onboarding: Mapping[UUID, OnboardingWindow] | None = None,
     split_detector: SplitDetector | None = None,
+    gap_source: GapSource | None = None,
 ) -> list[NameResult]:
     """Ingest insider + price facts — and, for an ETF sleeve, a fund shares-outstanding sample — for
     each RESOLVED basket member of ``thesis_id``.
@@ -618,6 +635,9 @@ def ingest_thesis(
     ``onboarding``. A member whose window says ``defer`` (past the pass's onboarding cap) is not walked at all —
     no lock, no fetch, no write — and comes back as a listed ``onboarding_deferred`` result. ``None`` / an absent
     member = the full walk, byte-identical to before X1.
+
+    ``gap_source`` (W6-3b, only the daily cron passes it) lets the price leg fill a session the vendor served no
+    close for from Massive.com's raw bar (``ingest.prices.gap_fill``); ``None`` = no fill, as before.
     """
     thesis = thesis_repo.get(conn, thesis_id, workspace=WORKSPACE_ANY)
     if thesis is None:
@@ -666,6 +686,7 @@ def ingest_thesis(
             known_skips=known_skips,
             filed_since=window.filed_since if window else None,
             split_detector=split_detector,
+            gap_source=gap_source,
         )
         r.edgar_completed = thread_completed(client) - before
         if handoff is not None:
@@ -830,6 +851,7 @@ def _held_result(
         edgar_name=stop.current_name,
         former_names=stop.formers,
         name_change_filings=stop.renames,
+        deregistration=stop.deregistration,
         lock_waited_s=round(busy.waited_s, 1),
         lock_busy=note,
     )
@@ -845,6 +867,7 @@ class _StopFacts:
     formers: tuple[FormerName, ...] = ()
     renames: tuple[NameChangeFiling, ...] = ()
     mapped: tuple[str, ...] | None = None
+    deregistration: Deregistration | None = None
 
 
 def _tape_edge(conn: psycopg.Connection, sec: Security, *, tenant_id: UUID) -> date | None:
@@ -873,7 +896,8 @@ def _stop_facts(client: EdgarClient, sec: Security) -> _StopFacts:
     tape from these. T2 — the RENAME EVIDENCE rides the same read (the company's current name, its former
     names, and its item-5.03 8-Ks): three more walks of the cached doc, display evidence only. The CIK's
     tickers in SEC's CACHED ticker map ride along (``mapped`` — the rename guard's second source; a disk read
-    memoized per file version, never a fetch; its own try, so a damaged map costs only that input).
+    memoized per file version, never a fetch; its own try, so a damaged map costs only that input). W4-2 — the
+    DEREGISTRATION evidence (the newest Form 15 and the 8-K events before it) is one more walk of the same doc.
     """
     if not sec.cik:
         return _StopFacts()
@@ -890,6 +914,7 @@ def _stop_facts(client: EdgarClient, sec: Security) -> _StopFacts:
             formers=former_names(subs),
             renames=name_change_filings(subs),
             mapped=mapped,
+            deregistration=deregistration(subs),
         )
     except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
         print(f"  warn: {sec.ticker or sec.id} delisting read failed: {e}")
@@ -928,6 +953,7 @@ def _ingest_one(
     known_skips: Collection[str] | None,
     filed_since: date | None = None,
     split_detector: SplitDetector | None = None,
+    gap_source: GapSource | None = None,
 ) -> NameResult:
     """ONE member's legs — run by ``ingest_thesis`` while it holds the company's write lock (W1). Resolves the
     id to the master row, then the Form 4, 8-K, 13D/G, price and fund-shares legs, EACH in its own try,
@@ -1018,6 +1044,10 @@ def _ingest_one(
     px_closed_day = 0
     px_split: dict[str, int] = {}
     px_first_night: tuple[str, ...] = ()
+    px_filled: tuple[date, ...] = ()
+    px_fill_split: str | None = None
+    px_fill_deferred = False
+    px_fill_error: str | None = None
     px_not_found = False
     try:
         bars = timed("price")(ingest_bars_for_security)(  # X5 — the price leg's wall time
@@ -1028,6 +1058,7 @@ def _ingest_one(
             force_refresh=force_refresh,
             source=source,
             now=now,
+            gap_source=gap_source,
         )
         px_appended, px_reversioned, px_withheld, px_held = (
             bars.appended,
@@ -1037,6 +1068,8 @@ def _ingest_one(
         )
         px_closed_day = bars.closed_day
         px_split, px_first_night = dict(bars.split_normalized), bars.split_first_night
+        px_filled, px_fill_split = bars.filled_dates, bars.fill_split
+        px_fill_deferred, px_fill_error = bars.fill_deferred, bars.fill_error
         conn.commit()
     except Exception as e:  # noqa: BLE001
         conn.rollback()
@@ -1086,6 +1119,10 @@ def _ingest_one(
         price_bars_held=px_held,
         price_bars_split_normalized=px_split,
         price_split_first_night=px_first_night,
+        price_bars_filled=px_filled,
+        price_fill_split=px_fill_split,
+        price_fill_deferred=px_fill_deferred,
+        price_fill_error=px_fill_error,
         fund_shares_appended=fs_appended,
         fund_shares_reversioned=fs_reversioned,
         form8k_appended=f8k_appended,
@@ -1106,6 +1143,7 @@ def _ingest_one(
         edgar_name=stop.current_name,
         former_names=stop.formers,
         name_change_filings=stop.renames,
+        deregistration=stop.deregistration,
         ingest_skips=tuple(skips),
         # the EDGAR legs above ran against this CIK (each is gated on it) — the freeze floor's denominator
         edgar_cik=sec.cik or None,
@@ -1217,6 +1255,7 @@ def _report(results: list[NameResult]) -> int:
     print_closed_day_line(results)
     print_held_lines(results)
     print_split_lines(results)
+    print_fill_line(results)
     # the exit signal: an errored name, or one this run could not ingest because another writer held it
     return len(errored) + len(busy)
 
@@ -1286,6 +1325,88 @@ def print_held_lines(results: Iterable[NameResult]) -> None:
             f"{label}: {n} older price bar(s) held — the vendor reverted them to values it served before; "
             "stored once a pull on a later night agrees"
         )
+
+
+def _session_runs(days: Iterable[date]) -> str:
+    """``11-20..11-25`` for consecutive sessions (a weekend or a market holiday between two does not break a
+    run), ``11-16`` for a single one, runs joined by a bare comma (``11-23,11-25``)."""
+    from domain.trading_days import next_scheduled_day
+
+    out: list[str] = []
+    ds = sorted(set(days))
+    i = 0
+    while i < len(ds):
+        j = i
+        while j + 1 < len(ds) and ds[j + 1] == next_scheduled_day(ds[j]):
+            j += 1
+        a, b = ds[i], ds[j]
+        out.append(f"{a:%m-%d}" if a == b else f"{a:%m-%d}..{b:%m-%d}")
+        i = j + 1
+    return ",".join(out)
+
+
+def fills_of(results: Iterable[NameResult]) -> dict[str, dict]:
+    """W6-3b — this pass's fills per name, deduped by security across theses (two theses holding a name: one
+    pull, one fill): ``{security_id (str): {"ticker", "dates": [iso], "split"}}``; plus the names whose range read
+    was deferred or failed (``"deferred"`` / ``"error"``). Names with none of the three are absent.
+    """
+    out: dict[str, dict] = {}
+    for r in results:
+        filled = tuple(getattr(r, "price_bars_filled", ()) or ())
+        deferred = bool(getattr(r, "price_fill_deferred", False))
+        error = getattr(r, "price_fill_error", None)
+        if not (filled or deferred or error):
+            continue
+        key = str(r.security_id)
+        cur = out.setdefault(
+            key,
+            {
+                "ticker": r.ticker or key,
+                "dates": [],
+                "split": None,
+                "deferred": False,
+                "error": None,
+            },
+        )
+        cur["dates"] = sorted(set(cur["dates"]) | {d.isoformat() for d in filled})
+        cur["split"] = cur["split"] or getattr(r, "price_fill_split", None)
+        cur["deferred"] = cur["deferred"] or deferred
+        cur["error"] = cur["error"] or error
+    return out
+
+
+def fill_lines(results: Iterable[NameResult]) -> list[str]:
+    """W6-3b — ONE quiet line naming every session filled from Massive.com this pass ("Massive.com filled 4
+    close(s) the vendor lacked: SNDK 11-20..11-25 (8-for-1 forward split of 2026-11-20); 0 deferred"), and one per
+    name whose Massive.com read failed; nothing on a night with neither. Lowercase-quiet, never a page (#7): the
+    bars are stored, the tape is whole."""
+    fills = fills_of(results)
+    if not fills:
+        return []
+    lines: list[str] = []
+    named = [v for v in fills.values() if v["dates"]]
+    deferred = sum(1 for v in fills.values() if v["deferred"])
+    if named or deferred:
+        parts = []
+        for v in sorted(named, key=lambda v: v["ticker"]):
+            days = _session_runs(date.fromisoformat(d) for d in v["dates"])
+            parts.append(f"{v['ticker']} {days}" + (f" ({v['split']})" if v["split"] else ""))
+        n = sum(len(v["dates"]) for v in named)
+        lines.append(
+            f"Massive.com filled {n} close(s) the vendor lacked"
+            + (f": {', '.join(parts)}" if parts else "")
+            + f"; {deferred} deferred"
+            + (" (past the night's range-read cap; filled on a later night)" if deferred else "")
+        )
+    for v in sorted(fills.values(), key=lambda v: v["ticker"]):
+        if v["error"]:
+            lines.append(f"{v['ticker']}: Massive.com fill not read — {v['error']}")
+    return lines
+
+
+def print_fill_line(results: Iterable[NameResult]) -> None:
+    for line in fill_lines(results):
+        print(line)
 
 
 def split_reads_of(results: Iterable[NameResult]) -> dict[str, dict]:

@@ -78,6 +78,17 @@ def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characte
     assert [r["ticker"] for r in differ["needs_review"]] == ["TK01"]
     assert differ["needs_review"][0]["review_reason"] == "sources_differ"
     assert one["found"] == 2 and one["entries"][0]["sec"]["passage_chars"] > 300
+    # section=one carries the stored closes around the open entry's first session; nothing else reads the tape
+    assert one["entries"][0]["tape"]["bars"] and "tape" not in one["entries"][1]
+    tk01 = one["entries"][0]["version_id"]
+    assert [p for _, p, _ in api.requests if p.startswith("/admin")] == [
+        "/admin/splits",
+        "/admin/splits",
+        "/admin/splits",
+        "/admin/splits",
+        f"/admin/splits/{tk01}/tape",
+        "/admin/splits",
+    ]
     assert abstained["needs_review"][0]["sec"]["abstain_reason"] == "two ratios in the passage"
     assert abstained["needs_review"][0]["review_reason"] == "extractor_abstained"
     assert [j["ticker"] for j in jumps["unlisted"]] == ["TK08"]

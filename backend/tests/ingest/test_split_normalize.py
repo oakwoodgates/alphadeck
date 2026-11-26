@@ -527,3 +527,123 @@ def test_a_postponed_announced_split_is_never_applied(first_night):
     assert norm.total == 0 and norm.first_night == []
     plan = plan_overlap(norm.bars, stored, last=max(stored))
     assert (plan.recent, plan.old) == ([], [])
+
+
+# --- W0-1: a first night proven against the vendor's post-split tail (GNS, 2026-11-23) -------------------------
+
+# GNS's measured tail over its stored gap bar: 11-20 0.499 and 11-23 0.45 against 11-19's 1.014 (the cron's cached
+# Yahoo pull and the stored tape; platform-fixes plan 2026-11-25 section 1)
+GNS_TAIL_STEPS = (0.499 / 1.014, 0.45 / 1.014)
+
+
+def _vendor_bar(b: sr.Bar, c: float) -> dict:
+    """A repaired bar as a vendor bar, prices x ``c`` and volume / ``c``."""
+    return {
+        "d": b.d,
+        **{
+            f: None if getattr(b, f) is None else getattr(b, f) * c
+            for f in ("open", "high", "low", "close")
+        },
+        "volume": None if b.volume is None else b.volume / c,
+    }
+
+
+def _first_night(*, store_k: float, vendor_k: float, tail="real", gap: int = 1):
+    """CONTRACT — GNS's 2026-11-23 night on VRME's REAL repaired tape and its real 1-for-10 (first session
+    2026-09-29), with stated edits: the store holds only the bars before the first session, x ``store_k``
+    (1 = the new scale, what the vendor's early re-base left GNS; 0.1 = raw); the vendor serves the same dates
+    x ``vendor_k`` except the store's newest ``gap`` bar(s), which it serves null (GNS's 11-19, dropped at
+    parse); its tail is the real first two post-split bars (``"real"``), or those bars set to GNS's measured
+    steps over the gap bar (``"gns"``) or to one stated step (a float). Returns ``(stored, fresh, split)``.
+    """
+    s = _split("VRME", date(2026, 9, 29))
+    rep = _repaired("VRME")
+    pre = [b for b in rep if b.d < s.effective_date]
+    post = [b for b in rep if b.d >= s.effective_date][:2]
+    stored = {b.d: {"close": b.close * store_k, "volume": b.volume / store_k} for b in pre}
+    fresh = [_vendor_bar(b, vendor_k) for b in pre[:-gap]]
+    steps = GNS_TAIL_STEPS if tail == "gns" else (None, None) if tail == "real" else (tail, tail)
+    for b, step in zip(post, steps):
+        c = 1.0 if step is None else step * pre[-1].close / b.close
+        fresh.append({**_vendor_bar(b, c), "volume": b.volume})  # the close edited, the volume real
+    return stored, fresh, s
+
+
+@pytest.mark.parametrize("tail,gap", [("real", 1), ("gns", 1), ("real", 2)])
+def test_a_first_night_flip_back_is_proven_against_the_vendors_post_split_tail(tail, gap):
+    """GNS (W0-1). The vendor re-based the history a session early, so the store is on the new scale before the
+    first session and holds nothing on or after it; on the night the late first post-split bars arrive the
+    vendor serves the history raw again. Every pre-split bar reads "lacking 1/10" in ONE run whose only same-scale
+    neighbour is the vendor's post-split tail, which the store never held: no edge in the store, so the run was
+    never proven and the raw bars reached T5 (a 496-bar hold, applied the next night). The tail is the evidence
+    ``boundary`` already reads on a first night: the store continuous against it proves the run (two bars the
+    vendor serves null between them are still local, ``EDGE_MAX_GAP``)."""
+    stored, fresh, s = _first_night(store_k=1.0, vendor_k=0.1, tail=tail, gap=gap)
+    tail_bars = [b for b in fresh if b["d"] >= s.effective_date]
+    assert boundary(stored, tail_bars, s) == (STORE_CONTINUOUS, True)
+    n = sum(1 for b in fresh if b["d"] < s.effective_date)
+    norm = normalize(fresh, stored, applicable(fx.splits("VRME"), on=T))
+    assert norm.scaled == {REASON_VENDOR_RAW: n}
+    assert (norm.first_night, norm.as_served) == ([], 0)
+    for b in norm.bars:
+        if b["d"] < s.effective_date:
+            assert b["close"] == pytest.approx(stored[b["d"]]["close"], rel=1e-9)
+            assert b["volume"] == pytest.approx(stored[b["d"]]["volume"], rel=1e-9)
+    assert [b for b in norm.bars if b["d"] >= s.effective_date] == tail_bars  # as served
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    assert (plan.holes, plan.recent, plan.old) == ([], [], [])
+
+
+def _pre(fresh: list[dict], s: ListedSplit) -> list[date]:
+    return [b["d"] for b in fresh if b["d"] < s.effective_date]
+
+
+def _moved(norm, stored) -> dict[date, float]:
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    return {r["d"]: r["close"] / stored[r["d"]]["close"] for r in plan.old + plan.recent}
+
+
+def test_a_first_night_on_a_raw_store_with_the_vendor_raw_still_takes_the_first_night_rule():
+    """Unchanged by W0-1 (the same shape, the store RAW): the store reads RAW against the tail, so the first-night
+    rule puts the vendor's raw history on the new scale, exactly as before."""
+    stored, fresh, s = _first_night(store_k=0.1, vendor_k=0.1)
+    norm = normalize(fresh, stored, applicable(fx.splits("VRME"), on=T))
+    assert norm.scaled == {REASON_FIRST_NIGHT: len(_pre(fresh, s))}
+    assert norm.first_night == ["1-for-10 reverse split 2026-09-29"]
+    moved = _moved(norm, stored)
+    assert sorted(moved) == _pre(fresh, s)
+    assert all(m == pytest.approx(10.0, rel=1e-9) for m in moved.values())
+
+
+def test_a_first_night_vendor_re_base_of_a_raw_store_still_lands():
+    """Unchanged by W0-1 (B1): a RAW store, the vendor re-based ("carries the split twice" by the read). Nothing
+    is divided back; every pre-split bar re-versions by the factor."""
+    stored, fresh, s = _first_night(store_k=0.1, vendor_k=1.0)
+    norm = normalize(fresh, stored, applicable(fx.splits("VRME"), on=T))
+    assert norm.scaled == {}
+    moved = _moved(norm, stored)
+    assert sorted(moved) == _pre(fresh, s)
+    assert all(m == pytest.approx(10.0, rel=1e-9) for m in moved.values())
+
+
+@pytest.mark.parametrize("tail", ["real", "gns"])
+def test_a_first_night_on_the_same_scale_changes_nothing(tail):
+    """Unchanged by W0-1: the store on the new scale and the vendor too: nothing read, nothing written."""
+    stored, fresh, _ = _first_night(store_k=1.0, vendor_k=1.0, tail=tail)
+    norm = normalize(fresh, stored, applicable(fx.splits("VRME"), on=T))
+    assert norm.total == 0 and norm.first_night == []
+    assert _moved(norm, stored) == {}
+
+
+@pytest.mark.parametrize("tail,gap", [(0.25, 1), (0.1, 1), ("real", 3)])
+def test_a_first_night_tail_that_steps_or_sits_too_far_proves_nothing(tail, gap):
+    """Unchanged by W0-1: the GNS shape, but the vendor's tail steps more than half the factor from the store
+    (x0.25; x0.1 = the tail continues the raw scale, a split the vendor never applied), or sits more than
+    ``EDGE_MAX_GAP`` sessions from the run (three stored bars served null). Nothing is proven: the raw bars reach
+    the restatement compare as today (T5 holds the revert)."""
+    stored, fresh, s = _first_night(store_k=1.0, vendor_k=0.1, tail=tail, gap=gap)
+    norm = normalize(fresh, stored, applicable(fx.splits("VRME"), on=T))
+    assert norm.total == 0
+    moved = _moved(norm, stored)
+    assert sorted(moved) == _pre(fresh, s)
+    assert all(m == pytest.approx(0.1, rel=1e-9) for m in moved.values())

@@ -66,6 +66,7 @@ SCOPE_OF: dict[str, Scope] = {
     "price_symbol_change": Scope.DATA,
     "price_feed_ack": Scope.DATA,
     "price_restatement_hold": Scope.DATA,
+    "price_bar_fill": Scope.DATA,
     "insider_amendment": Scope.DATA,
     "insider_amendment_link": Scope.DATA,
     "insider_amendment_decision": Scope.DATA,

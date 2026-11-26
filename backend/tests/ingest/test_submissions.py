@@ -5,9 +5,15 @@ from datetime import date
 from pathlib import Path
 
 from ingest.edgar.submissions import (
+    DEREGISTRATION_EVENT_DAYS,
+    DEREGISTRATION_EVENT_ITEMS,
+    DEREGISTRATION_FORMS,
     DelistingFiling,
+    Deregistration,
+    DeregistrationEvent,
     acceptance_times,
     delisting_filings,
+    deregistration,
     edgar_tickers,
     filings_of,
     form4_doc_url,
@@ -490,3 +496,207 @@ def test_edgar_tickers_reads_the_CURRENT_list_in_EDGARs_order():
     assert edgar_tickers({"tickers": ["KYOCF", " kyoay ", ""]}) == ("KYOCF", "KYOAY")
     assert edgar_tickers({"tickers": []}) == ()
     assert edgar_tickers({}) == ()
+
+
+# --- deregistration: a Form 15 and the 8-K events before it (W4-2) ---------------------------------------
+#
+# Two shapes, read from real EDGAR records of two never-priced basket members and put under neutral labels
+# and accessions (the fixture convention): a reorganization in bankruptcy (the equity cancelled; the
+# successor's 8-K15D5 and the Form 15 on one day) and an acquisition (an 8-K with items 2.01 / 3.03 / 5.01 six
+# days before the Form 15). Their item lists are the real ones; the words are SEC's item titles.
+
+
+def _dereg_doc(tickers: list[str], rows: list[tuple[str, str, str, str]]) -> dict:
+    """A submissions JSON in EDGAR's shape: ``tickers``, ``cik`` and the parallel, reverse-chrono
+    ``filings.recent`` arrays, one row per (form, filingDate, accession, items)."""
+    rows = sorted(rows, key=lambda r: r[1], reverse=True)
+    return {
+        "cik": "0009999801",
+        "tickers": tickers,
+        "filings": {
+            "recent": {
+                "form": [r[0] for r in rows],
+                "filingDate": [r[1] for r in rows],
+                "accessionNumber": [r[2] for r in rows],
+                "items": [r[3] for r in rows],
+                "primaryDocument": [f"{r[2]}.htm" for r in rows],
+            }
+        },
+    }
+
+
+# the bankruptcy shape: the plan's 8-K (1.03) 13 days before, an older 8-K (1.03) 56 days before (outside
+# the window), the exchange's 25-NSE (not an event) and the successor's 8-K15D5 beside the 15-12G
+TKBK = _dereg_doc(
+    [],
+    [
+        ("15-12G", "2026-05-20", "0009999801-26-000009", ""),
+        (
+            "8-K15D5",
+            "2026-05-20",
+            "0009999801-26-000008",
+            "1.01,1.02,1.03,2.03,3.02,3.03,4.01,5.01,5.02,5.03,7.01,8.01,9.01",
+        ),
+        ("8-K", "2026-05-07", "0009999801-26-000007", "1.03,7.01,9.01"),
+        ("25-NSE", "2026-05-01", "0009999801-26-000006", ""),
+        ("8-K", "2026-03-25", "0009999801-26-000005", "1.01,1.03,2.04,7.01,8.01,9.01"),
+    ],
+)
+# the acquisition shape: the closing 8-K six days before the 15-12G, a vote 8-K (5.07) and an 8.01 before it
+TKAQ = _dereg_doc(
+    [],
+    [
+        ("15-12G", "2026-06-10", "0009999802-26-000004", ""),
+        ("8-K", "2026-06-04", "0009999802-26-000003", "1.02,2.01,3.03,5.01,5.02,5.03,8.01,9.01"),
+        ("8-K", "2026-05-18", "0009999802-26-000002", "5.07"),
+        ("8-K", "2026-05-07", "0009999802-26-000001", "8.01"),
+    ],
+)
+
+
+def test_the_item_words_are_SECs_own_item_titles():
+    """The evidence words are the Form 8-K item titles, pinned verbatim: nothing is read from a document."""
+    assert DEREGISTRATION_EVENT_ITEMS == {
+        "1.03": "Bankruptcy or Receivership",
+        "2.01": "Completion of Acquisition or Disposition of Assets",
+        "3.03": "Material Modification to Rights of Security Holders",
+        "5.01": "Changes in Control of Registrant",
+    }
+    assert DEREGISTRATION_FORMS == frozenset(
+        {"15-12B", "15-12G", "15-15D", "15F-12B", "15F-12G", "15F-15D"}
+    )
+    assert DEREGISTRATION_EVENT_DAYS == 45
+
+
+def test_a_BANKRUPTCY_shape_carries_the_form_15_the_8_K15D5_and_the_bankruptcy_title():
+    """15-12G and the successor's 8-K15D5 on one day, the 1.03 8-K 13 days before: both events, newest
+    first, each with only its evidence items and SEC's titles for them. The 56-day-old 8-K is outside the
+    window and the 25-NSE is no event."""
+    d = deregistration(TKBK)
+    assert d == Deregistration(
+        form="15-12G",
+        filed=date(2026, 5, 20),
+        accession="0009999801-26-000009",
+        primary_doc="0009999801-26-000009.htm",
+        cik="0009999801",
+        events=(
+            DeregistrationEvent(
+                form="8-K15D5",
+                filed=date(2026, 5, 20),
+                accession="0009999801-26-000008",
+                items=("1.03", "3.03", "5.01"),
+            ),
+            DeregistrationEvent(
+                form="8-K",
+                filed=date(2026, 5, 7),
+                accession="0009999801-26-000007",
+                items=("1.03",),
+            ),
+        ),
+    )
+    assert d.events[0].item_titles == (
+        "Bankruptcy or Receivership",
+        "Material Modification to Rights of Security Holders",
+        "Changes in Control of Registrant",
+    )
+    assert "Bankruptcy or Receivership" in d.describe()
+    assert d.describe().startswith("15-12G filed 2026-05-20")
+
+
+def test_an_ACQUISITION_shape_carries_the_closing_8_K_and_no_bankruptcy_word():
+    """15-12G with the closing 8-K six days before (items 2.01 / 3.03 / 5.01 among others): one event, the
+    acquisition titles, never "Bankruptcy". The 5.07 and 8.01 8-Ks carry no evidence item."""
+    d = deregistration(TKAQ)
+    assert (d.form, d.filed, d.accession) == ("15-12G", date(2026, 6, 10), "0009999802-26-000004")
+    (e,) = d.events
+    assert (e.form, e.filed, e.items) == ("8-K", date(2026, 6, 4), ("2.01", "3.03", "5.01"))
+    assert e.item_titles == (
+        "Completion of Acquisition or Disposition of Assets",
+        "Material Modification to Rights of Security Holders",
+        "Changes in Control of Registrant",
+    )
+    assert "Bankruptcy" not in d.describe()
+    assert "Completion of Acquisition or Disposition of Assets" in d.describe()
+
+
+def test_NO_form_15_is_None():
+    """A 25-NSE and 8-Ks without a Form 15: no deregistration. A sparse doc: None, never a raise."""
+    doc = _dereg_doc(
+        [],
+        [
+            ("25-NSE", "2026-05-01", "0009999803-26-000002", ""),
+            ("8-K", "2026-04-28", "0009999803-26-000001", "1.03"),
+        ],
+    )
+    assert deregistration(doc) is None
+    assert deregistration({}) is None
+    assert (
+        deregistration({"filings": {"recent": {"form": ["15-12G"]}}}) is None
+    )  # no date: not evidence
+
+
+def test_a_form_15_beside_CURRENT_tickers_is_still_read_as_a_fact():
+    """The reader judges nothing: a company that deregistered one class and still lists symbols (a
+    redomicile: 15-12G + 8-K12B on one day) is read. Whether a ROW carries it is the tape monitor's call
+    (only a never-priced row whose EDGAR list is empty — ``tests/pipeline/test_tape_health.py``)."""
+    doc = _dereg_doc(
+        ["TKRD", "TKRD-WT"],
+        [
+            ("15-12G", "2026-06-16", "0009999804-26-000002", ""),
+            ("8-K12B", "2026-06-16", "0009999804-26-000001", "1.01,3.01,3.02,3.03,5.01,5.02,5.03"),
+        ],
+    )
+    d = deregistration(doc)
+    assert d is not None and d.form == "15-12G"
+    assert [(e.form, e.items) for e in d.events] == [("8-K12B", ("3.03", "5.01"))]
+
+
+def test_every_deregistration_form_counts_and_the_NEWEST_wins():
+    for form in sorted(DEREGISTRATION_FORMS):
+        d = deregistration(_dereg_doc([], [(form, "2026-07-01", "0009999805-26-000001", "")]))
+        assert d is not None and (d.form, d.filed) == (form, date(2026, 7, 1)), form
+    doc = _dereg_doc(
+        [],
+        [
+            ("15-15D", "2026-08-01", "0009999806-26-000002", ""),
+            ("15-12B", "2026-07-01", "0009999806-26-000001", ""),
+            ("25", "2026-06-20", "0009999806-26-000000", ""),
+        ],
+    )
+    assert deregistration(doc).form == "15-15D"
+
+
+def test_the_event_window_is_45_days_up_to_the_form_15_inclusive():
+    """An 8-K filed on the Form 15's day and one 45 days before count; 46 days before and the day after do
+    not. An 8-K15D5 counts by its form even with no evidence item; a malformed date is skipped."""
+    doc = _dereg_doc(
+        [],
+        [
+            ("8-K", "2026-07-02", "0009999807-26-000006", "1.03"),  # the day after
+            ("15-12G", "2026-07-01", "0009999807-26-000005", ""),
+            ("8-K", "2026-07-01", "0009999807-26-000004", "5.01"),
+            ("8-K15D5", "2026-06-20", "0009999807-26-000003", "8.01"),
+            ("8-K", "2026-05-17", "0009999807-26-000002", "2.01"),  # 45 days before
+            ("8-K", "2026-05-16", "0009999807-26-000001", "3.03"),  # 46 days before
+            ("8-K", "not-a-date", "0009999807-26-000000", "1.03"),
+        ],
+    )
+    d = deregistration(doc)
+    assert [(e.form, e.filed.isoformat(), e.items) for e in d.events] == [
+        ("8-K", "2026-07-01", ("5.01",)),
+        ("8-K15D5", "2026-06-20", ()),
+        ("8-K", "2026-05-17", ("2.01",)),
+    ]
+
+
+def test_the_deregistration_round_trips_through_its_json():
+    d = deregistration(TKBK)
+    assert Deregistration.from_json(d.to_json()) == d
+    assert d.to_json()["events"][1] == {
+        "form": "8-K",
+        "filed": "2026-05-07",
+        "accession": "0009999801-26-000007",
+        "items": ["1.03"],
+    }
+    assert Deregistration.from_json(None) is None
+    assert Deregistration.from_json({"form": "15-12G"}) is None  # no date: not evidence

@@ -62,6 +62,7 @@ from pipeline.backfill_splits import (
     SecReader,
     append_planned,
     distribution_cap,
+    distribution_label_overrides_abstain,
     match_polygon,
     member_of,
     plan_against_stored,
@@ -288,6 +289,7 @@ def _fill_one(
         {m: rows} if rows else {},
         asof=asof,
         distribution_max_factor=distribution_cap(),  # D2, as the backfill and the nightly decide
+        label_overrides_abstain=distribution_label_overrides_abstain(),  # W6-2, beside it
     )
     conn.rollback()
     c.polygon_splits = len(planned)

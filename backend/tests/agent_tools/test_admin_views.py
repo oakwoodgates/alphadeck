@@ -21,6 +21,7 @@ from agent_tools.principal import CURRENT_PRINCIPAL, Principal  # noqa: E402
 from agent_tools.views.admin import shared_facts as shared_facts_view  # noqa: E402
 from tests.agent_tools import admin_fixtures as afx  # noqa: E402
 from tests.agent_tools.fake_api import FakeApi  # noqa: E402
+from tests.agent_tools.fixtures import uid  # noqa: E402
 
 STEWARD = Principal(frozenset({"read", "steward"}), "s", "pat")
 BUDGET = 8_000
@@ -178,6 +179,29 @@ def test_a_split_confirmed_with_cited_values_carries_its_citation_and_the_tape_o
     assert "cited_url" not in rows[1] and "tape_override" not in rows[1]
 
 
+def test_an_open_row_carries_the_first_bar_and_the_share_count_a_confirm_rescales():
+    """W2-8: a needs-review or announced row carries the API's ``first_bar`` (the first stored bar: a split on or
+    before it adjusts no tape) and ``shares_rescaled`` (the count a confirm puts on the new scale), copied, never
+    derived; a row without them (a settled split, a company with no bars or no count) carries neither key.
+    """
+    body = afx.splits()
+    body["needs_review"][1].update(first_bar=None, shares_rescaled=None)
+    api = FakeApi(splits=body)
+    first, second, _ = ok(api, "get_splits")["needs_review"]
+    assert first["first_bar"] == "2025-03-14"
+    assert first["shares_rescaled"] == {"count": 13_524_682.0, "date": "2026-07-31"}
+    assert "first_bar" not in second and "shares_rescaled" not in second
+    (announced,) = ok(api, "get_splits", section="announced")["announced"]
+    assert (
+        announced["first_bar"] == "2025-03-14"
+        and announced["shares_rescaled"]["date"] == "2026-07-31"
+    )
+    confirmed = ok(api, "get_splits", section="confirmed")["confirmed"]
+    assert all("first_bar" not in r and "shares_rescaled" not in r for r in confirmed)
+    entry = ok(api, "get_splits", section="one", t="TK01")["entries"][0]
+    assert entry["first_bar"] == "2025-03-14" and entry["shares_rescaled"]["count"] == 13_524_682.0
+
+
 def test_a_bucket_section_continues_at_its_cursor():
     reply = ok(FakeApi(), "get_splits", section="confirmed", cursor=1)
     assert [r["ticker"] for r in reply["confirmed"]] == ["TK01", "TK06"]
@@ -210,6 +234,26 @@ def test_one_reads_every_entry_and_jump_of_a_ticker_in_full_across_buckets():
     assert len(jumped["jumps"][0]["after"]) == 3 and "prior_volume" in jumped["jumps"][0]
 
 
+def test_the_brief_polygon_block_carries_massives_label_only_when_stated():
+    """W6-1: the API's ``polygon.adjustment_type`` (Massive.com's own label) rides the brief block when stated; a row
+    with none (stored before the label, or from the v3 endpoint) keeps the two keys it always had.
+    """
+    body = afx.splits()
+    body["needs_review"][0]["polygon"]["adjustment_type"] = "stock_dividend"
+    reply = ok(FakeApi(splits=body), "get_splits")
+    assert reply["needs_review"][0]["polygon"] == {
+        "execution_date": "2026-11-02",
+        "ratio_label": "1-for-10",
+        "adjustment_type": "stock_dividend",
+    }
+    assert reply["needs_review"][1]["polygon"] == {
+        "execution_date": "2026-11-02",
+        "ratio_label": "1-for-10",
+    }
+    one = ok(FakeApi(splits=body), "get_splits", section="one", t="TK01")
+    assert one["entries"][0]["polygon"]["adjustment_type"] == "stock_dividend"
+
+
 def test_one_for_an_unlisted_ticker_is_an_empty_page_not_an_error():
     reply = ok(FakeApi(), "get_splits", section="one", t="TK99")
     assert reply["found"] == 0 and reply["entries"] == [] and reply["jumps"] == []
@@ -229,6 +273,82 @@ def test_the_full_entry_cuts_a_passage_over_1500_characters_and_says_so():
     reply = ok(FakeApi(splits=body), "get_splits", section="one", t="TK01")
     sec = reply["entries"][0]["sec"]
     assert len(sec["passage"]) == 1_500 and sec["passage_chars"] == 2_000
+
+
+def test_one_reads_the_tape_around_each_open_entry_and_no_other_reply_reads_it():
+    """W5-1: section=one attaches each needs-review or announced entry's stored tape window (the API's ``GET
+    .../tape``, copied whole: each bar as first served beside its newest close); a confirmed entry carries none. The
+    default reply and a bucket section ask the API for the list only.
+    """
+    api = FakeApi()
+    listed = afx.splits()
+    open_entry, confirmed = ok(api, "get_splits", section="one", t="TK01")["entries"]
+    tape = open_entry["tape"]
+    assert tape == afx.split_tape(open_entry["version_id"], open_entry["key_date"])
+    assert tape["around"] == open_entry["key_date"] and len(tape["bars"]) == 10
+    restated = tape["bars"][0]
+    assert (
+        restated["restated"] is True
+        and restated["close"] == 19.5
+        and restated["newest_close"] == 1.95
+    )
+    assert "tape" not in confirmed and "tape_error" not in open_entry
+    announced = ok(api, "get_splits", section="one", t="TK04")["entries"][0]
+    assert (
+        announced["status"] == "announced" and announced["tape"]["around"] == announced["key_date"]
+    )
+    ok(api, "get_splits")
+    ok(api, "get_splits", section="needs_review")
+    ok(api, "get_splits", section="one", t="TK05")  # confirmed only: no tape read
+    v1, v4 = listed["needs_review"][0]["version_id"], listed["announced"][0]["version_id"]
+    assert [p for _, p, _ in api.requests] == [
+        "/admin/splits",
+        f"/admin/splits/{v1}/tape",
+        "/admin/splits",
+        f"/admin/splits/{v4}/tape",
+        "/admin/splits",
+        "/admin/splits",
+        "/admin/splits",
+    ]
+
+
+def test_a_failed_tape_read_is_named_on_its_entry_and_the_entry_still_reads():
+    reply = ok(FakeApi(tape_status=500), "get_splits", section="one", t="TK01")
+    entry = reply["entries"][0]
+    assert "tape" not in entry and entry["tape_error"] == "The API answered HTTP 500."
+    assert entry["version_id"] and reply["found"] == 2
+
+
+def test_one_with_many_open_entries_reads_at_most_three_tapes_a_call_and_pages_within_the_budget():
+    """Four open TK01 entries, each with a passage over the full cut: every page fits the budget, each call reads
+    at most three tapes (from its cursor on), and every open entry carries its tape on the page that shows it.
+    """
+    body = afx.splits()
+    for k in range(3):
+        row = afx.needs_review_row(
+            1, version_id=uid("split-version", 1, "more", k), key_date=f"2026-0{k + 6}-01"
+        )
+        body["needs_review"].append(row)
+    for row in body["needs_review"]:
+        row["sec"] = row["sec"] and {**row["sec"], "passage": "x" * 2_000}
+    api = FakeApi(splits=body)
+    shown: list[dict] = []
+    cursor, calls = 0, 0
+    while True:
+        before = len(api.requests)
+        reply = ok(api, "get_splits", section="one", t="TK01", cursor=cursor)
+        tapes = [p for _, p, _ in api.requests[before:] if p.endswith("/tape")]
+        assert len(tapes) <= 3
+        shown += reply["entries"]
+        calls += 1
+        if reply["next_cursor"] is None:
+            break
+        assert reply["next_cursor"] > cursor and calls < 10
+        cursor = reply["next_cursor"]
+    assert calls > 1  # it paged
+    open_rows = [e for e in shown if e["status"] == "needs_review"]
+    assert len(open_rows) == 4 and all(e["tape"]["bars"] for e in open_rows)
+    assert all("tape" not in e for e in shown if e["status"] == "confirmed")
 
 
 @pytest.mark.parametrize(
@@ -295,6 +415,7 @@ def test_the_default_status_reply_is_the_verdict_and_the_counts():
         "successor": 0,
         "limitations": 1,
         "closed": 0,
+        "deregistered": 0,  # W4-2: the unpriceable rows carrying a Form 15
     }
     assert set(reply["lines"]) == {
         "editions_nightly",
@@ -348,6 +469,39 @@ def test_the_price_repairs_section_names_each_row_by_its_list():
     assert reply["limitations"][0]["reason"] == "synthetic limitation"
 
 
+def test_the_tape_and_price_repairs_sections_carry_each_rows_massive_reference():
+    """W6-4: a stale row's Massive.com reference evidence (the market day read, active, type, delisted date,
+    tonight's trade) rides both sections that page the rows, cut to what Massive.com stated (a null field, a null
+    block and a symbol that is the row's own ticker are dropped: the reply budget)."""
+    body = afx.status()
+    ref = {
+        "symbol": "TK01",
+        "read_on": "2026-11-05",
+        "listed": True,
+        "active": True,
+        "type": "WARRANT",
+        "delisted_utc": None,
+        "traded_on": None,
+    }
+    body["tape"]["stale"][0]["massive_ref"] = ref
+    body["tape"]["stale"][1]["massive_ref"] = None
+    # the steward pointed this name's vendor symbol elsewhere: the symbol read is named
+    body["price_repairs"]["renamed"][0]["massive_ref"] = {**ref, "symbol": "TK03N", "type": "CS"}
+    api = FakeApi(status=body)
+    tape = ok(api, "get_admin_status", section="tape")
+    assert tape["stale"][0]["massive_ref"] == {
+        "read_on": "2026-11-05",
+        "listed": True,
+        "active": True,
+        "type": "WARRANT",
+    }
+    assert "massive_ref" not in tape["stale"][1]
+    assert tape["stale"][0]["ticker"] == "TK01"  # the rest of the row whole
+    repairs = ok(api, "get_admin_status", section="price_repairs")
+    assert repairs["renamed"][0]["massive_ref"]["type"] == "CS"
+    assert repairs["renamed"][0]["massive_ref"]["symbol"] == "TK03N"
+
+
 def test_the_split_defects_missing_closes_and_record_sections_read_their_panel():
     api = FakeApi()
     defects = ok(api, "get_admin_status", section="split_defects")
@@ -358,6 +512,75 @@ def test_the_split_defects_missing_closes_and_record_sections_read_their_panel()
     record = ok(api, "get_admin_status", section="record")
     assert record["partial_nights"][0]["expected"] == 6
     assert record["daytime_only_asofs"] == ["2026-10-15"] and record["edge"] == "2026-11-06"
+
+
+def _with_crosscheck() -> dict:
+    """The status body with W6-3a's fields: the missing-close panel's Massive.com cross-check (one vendor gap, one
+    stale line) and a stale tape row Massive.com shows traded (synthetic tickers, real shapes)."""
+    body = afx.status()
+    body["tape"]["stale"][0].update(massive_traded="2026-11-06", massive_close=73.61)
+    body["missing_closes"]["crosscheck"] = {
+        "session": "2026-11-06",
+        "status": "on",
+        "note": None,
+        "error": None,
+        "massive_status": "DELAYED",
+        "tolerance": 0.02,
+        "judged": 300,
+        "compared": 298,
+        "disagree": 0,
+        "vendor_gap": 1,
+        "no_trade": 1,
+        "unmapped": 0,
+        "line": "Massive.com cross-check · Nov 6: 298 compared, 0 disagree; Massive.com traded 1 we have no "
+        "close for: TK09 0.0002; 1 with no Massive.com trade",
+        "disagree_line": None,
+        "stale_lines": [
+            "TK01: no close stored since 2026-10-30, but Massive.com shows it traded tonight (73.61) — a "
+            "vendor gap, not a rename"
+        ],
+        "rows": [
+            {
+                "security_id": uid("cc", 1),
+                "ticker": "TK09",
+                "kind": "vendor_gap",
+                "massive": 0.0002,
+            },
+            {"security_id": uid("cc", 2), "ticker": "TK10", "kind": "no_trade", "ours": 0.101},
+        ],
+    }
+    return body
+
+
+def test_the_crosscheck_rides_the_default_lines_and_the_tape_counts_the_rows_that_traded():
+    reply = ok(FakeApi(status=_with_crosscheck()), "get_admin_status")
+    cc = reply["lines"]["tape_crosscheck"]
+    assert cc["line"].startswith("Massive.com cross-check · Nov 6: 298 compared")
+    assert cc["disagree_line"] is None and cc["stale_lines_total"] == 1
+    assert cc["stale_lines"][0].startswith("TK01: no close stored since 2026-10-30")
+    assert reply["tape"]["massive_traded"] == 1 and reply["tape"]["stale"] == 2
+    assert size(reply) <= BUDGET
+
+
+def test_the_missing_closes_section_carries_the_crosscheck_and_pages_its_rows():
+    api = FakeApi(status=_with_crosscheck())
+    closes = ok(api, "get_admin_status", section="missing_closes")
+    cc = closes["crosscheck"]
+    assert (cc["status"], cc["compared"], cc["vendor_gap"], cc["no_trade"]) == ("on", 298, 1, 1)
+    assert "rows" not in cc  # the rows page as their own list
+    assert [(r["ticker"], r["kind"]) for r in closes["crosscheck_rows"]] == [
+        ("TK09", "vendor_gap"),
+        ("TK10", "no_trade"),
+    ]
+    assert closes["totals"]["crosscheck_rows"] == 2
+    tape = ok(api, "get_admin_status", section="tape")
+    assert (tape["stale"][0]["massive_traded"], tape["stale"][0]["massive_close"]) == (
+        "2026-11-06",
+        73.61,
+    )
+    # a panel without the block reads null
+    plain = ok(FakeApi(), "get_admin_status", section="missing_closes")
+    assert plain["crosscheck"] is None and plain["crosscheck_rows"] == []
 
 
 def test_the_run_section_reads_the_last_run_whole():
@@ -725,6 +948,14 @@ def test_the_default_holds_reply_is_counts_words_and_the_owed_rows_in_the_apis_o
         "https://www.sec.gov/"
     )
     assert len(row["owed_why"]) == 200 and row["owed_why_total_chars"] > 200
+    # W3-1: where the filing writes the suggestion, its words (cut, the length beside), the filing's window, copies
+    assert (row["suggestion_basis"], row["window_from"], row["window_to"], row["copies"]) == (
+        "period_of_report",
+        "2026-10-31",
+        "2026-11-02",
+        [],
+    )
+    assert len(row["suggestion_words"]) == 200 and row["suggestion_words_total_chars"] > 200
     assert {"decision", "why", "filing_night", "history"}.isdisjoint(row)
     assert reply["sections"] == dict([(b, None) for b in afx.HOLD_BUCKETS] + [("one", "t")])
     assert [p for _, p, _ in api.requests] == ["/admin/insider-holds"]
@@ -765,6 +996,8 @@ def test_one_reads_a_tickers_rows_in_full_with_their_history_and_pages_them():
     assert first["found"] == 18 and first["t"] == "tk01" and first["next_cursor_for"] == "holds"
     full = first["holds"][0]
     assert {"security_id", "accepted", "bucket", "reason", "history", "history_total"} <= set(full)
+    assert len(full["suggestion_words"]) == 600 and full["suggestion_words_total_chars"] > 600
+    assert full["copies"] == [] and full["suggestion_basis"] == "period_of_report"
     walked = _walk(api, "get_insider_holds", "holds", section="one", t="TK01")
     assert len(walked) == 18 and len({h["hold_id"] for h in walked}) == 18
     decided = [h for h in walked if h["bucket"] == "decided"]
@@ -831,6 +1064,23 @@ def test_the_pending_section_walks_116_names_to_the_end_in_the_apis_order():
     assert [n["status"] for n in names[:4]] == ["failed", "failed", "failed", "in_progress"]
     recent = ok(api, "get_admin_onboarding", section="recent_done")
     assert recent["recent_done_total"] == 20 and len(recent["recent_done"]) == 20
+
+
+def test_a_parked_admin_onboarding_name_says_parked_in_the_brief_and_the_full_row():
+    payload = afx.admin_onboarding(pending=6, failed=1)
+    ame = payload["pending"][1]  # the in-progress name: loading, then its card was removed
+    assert ame["status"] == "in_progress"
+    ame.update(in_live_basket=False, parked=True)
+    payload["counts"]["parked"] = 1
+    api = FakeApi(admin_onboarding=payload)
+
+    brief = {n["ticker"]: n for n in ok(api, "get_admin_onboarding")["pending"]}
+    assert brief[ame["ticker"]]["parked"] is True
+    assert [t for t, n in brief.items() if n["parked"]] == [ame["ticker"]]
+
+    full = {n["ticker"]: n for n in ok(api, "get_admin_onboarding", section="pending")["pending"]}
+    assert full[ame["ticker"]]["parked"] is True
+    assert [t for t, n in full.items() if n["parked"]] == [ame["ticker"]]
 
 
 def test_an_admin_onboarding_queue_that_is_empty_reads_as_zero_counts():

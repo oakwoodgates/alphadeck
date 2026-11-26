@@ -16,7 +16,12 @@ from pathlib import Path
 from domain.settings import Settings
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form25 import delisted_class_is_other
-from ingest.edgar.submissions import DelistingFiling, delisting_filings, edgar_tickers
+from ingest.edgar.submissions import (
+    DelistingFiling,
+    delisting_filings,
+    deregistration,
+    edgar_tickers,
+)
 from pipeline.ingest_thesis import NameResult
 from pipeline.tape_health import (
     DEFAULT_CLOSED_AFTER_DAYS,
@@ -851,3 +856,166 @@ def test_Q6_an_UNKNOWN_class_still_COUNTS_and_is_logged(capsys, tmp_path):
     blind = partial(delisted_class_is_other, EdgarClient(cache_dir=tmp_path, allow_live=False))
     assert _q6("ACHR", hook=blind).closed_at == date(2026, 9, 16)
     assert "counted as a delisting of this security (fail-safe)" in capsys.readouterr().out
+
+
+# --- W4-2: a never-priced name EDGAR shows deregistered carries the Form 15 as evidence --------------------
+#
+# The deregistration is a FIELD on the row, never a class: the row stays unpriceable and loud (W4-b: remove is
+# the recommended action, the steward's), and closed / quiet / renamed read exactly as without it. The
+# submissions docs go through the REAL readers (`deregistration`, `edgar_tickers`, `delisting_filings`).
+
+
+def _dereg_subs(tickers: list[str]) -> dict:
+    """A bankruptcy-shaped record under neutral labels: 15-12G and the successor's 8-K15D5 on one day."""
+    return {
+        "cik": "0009999811",
+        "tickers": tickers,
+        "filings": {
+            "recent": {
+                "form": ["15-12G", "8-K15D5", "8-K", "25-NSE"],
+                "filingDate": ["2026-05-20", "2026-05-20", "2026-05-07", "2026-05-01"],
+                "accessionNumber": [
+                    "0009999811-26-000004",
+                    "0009999811-26-000003",
+                    "0009999811-26-000002",
+                    "0009999811-26-000001",
+                ],
+                "items": ["", "1.03,3.03,5.01,9.01", "1.03,7.01", ""],
+                "primaryDocument": ["f15.htm", "f8k15d5.htm", "f8k.htm", "primary_doc.xml"],
+            }
+        },
+    }
+
+
+def _dereg_member(subs: dict, *, ticker: str = "TKBK", edge: date | None = None, **kw):
+    return _name(
+        ticker=ticker,
+        tape_edge=edge,
+        delisting_filings=delisting_filings(subs),
+        edgar_tickers=edgar_tickers(subs),
+        deregistration=deregistration(subs),
+        **kw,
+    )
+
+
+def test_a_NEVER_PRICED_row_EDGAR_lists_nothing_for_carries_its_deregistration_and_stays_loud():
+    subs = _dereg_subs([])
+    (row,) = stale_tapes([_dereg_member(subs)], asof=_TONIGHT, stale_days=5)
+    assert row.deregistered == deregistration(subs)
+    assert row.deregistered.form == "15-12G" and row.deregistered.events[0].form == "8-K15D5"
+    # a field, never a class: the row is the same loud unpriceable row it was without the evidence
+    assert (row.unpriceable, row.closed, row.renamed, row.quiet) == (True, False, False, False)
+    assert row.edgar_tickers == ()
+
+
+def test_a_form_15_with_CURRENT_tickers_puts_no_field_on_the_row():
+    """EDGAR still lists our symbol (a class deregistered while the company trades on): the row is the plain
+    never-priced row, with no deregistration on it."""
+    (row,) = stale_tapes([_dereg_member(_dereg_subs(["TKBK"]))], asof=_TONIGHT, stale_days=5)
+    assert row.unpriceable is True and row.deregistered is None
+
+
+def test_the_field_rides_ONLY_a_never_priced_row_with_an_empty_EDGAR_list():
+    """A stopped tape with bars (closed by the 15-12G's proximity, or a plain gap), a renamed never-priced
+    name, and a name whose EDGAR list was never read (None) carry no deregistration; each row's class is the
+    one it has without the field."""
+    subs = _dereg_subs([])
+    closed = _dereg_member(subs, ticker="TKCL", edge=date(2026, 5, 15))
+    gap = _dereg_member(subs, ticker="TKGP", edge=date(2025, 1, 2))
+    renamed = _dereg_member(_dereg_subs(["TKNEW"]), ticker="TKRN")
+    unread = _name(ticker="TKUR", tape_edge=None, deregistration=deregistration(subs))
+    rows = {
+        s.ticker: s
+        for s in stale_tapes([closed, gap, renamed, unread], asof=_TONIGHT, stale_days=5)
+    }
+    assert all(s.deregistered is None for s in rows.values())
+    assert rows["TKCL"].closed is True and rows["TKCL"].closed_at == date(2026, 5, 20)
+    assert rows["TKGP"].closed is False and rows["TKGP"].unpriceable is False
+    assert rows["TKRN"].renamed is True
+    assert rows["TKUR"].unpriceable is True and rows["TKUR"].edgar_tickers is None
+
+
+def test_the_deregistration_does_not_move_any_class_and_survives_the_acknowledgment():
+    """Same name with and without the evidence: every field but ``deregistered`` is equal. An operator's
+    acknowledgment ("keep it, unpriced") still applies and keeps the evidence."""
+    from dataclasses import replace
+
+    from pipeline.price_feed import mark_acknowledged
+
+    sid = uuid.uuid4()
+    subs = _dereg_subs([])
+    (with_it,) = stale_tapes([_dereg_member(subs, security_id=sid)], asof=_TONIGHT, stale_days=5)
+    without = _name(
+        ticker="TKBK",
+        security_id=sid,
+        tape_edge=None,
+        delisting_filings=delisting_filings(subs),
+        edgar_tickers=edgar_tickers(subs),
+    )
+    (plain,) = stale_tapes([without], asof=_TONIGHT, stale_days=5)
+    assert replace(with_it, deregistered=None) == plain
+    (acked,) = mark_acknowledged((with_it,), {sid})
+    assert acked.acknowledged is True and acked.quiet is True
+    assert acked.deregistered == with_it.deregistered
+
+
+# --- W6-4: Massive.com's reference evidence rides an open stale price row -----------------------------------
+#
+# A FIELD, never a class (the `deregistered` discipline): the row's closed / renamed / unpriceable / quiet read
+# exactly as without it, and only an open (not closed) PRICE row can carry it. The values are the measured ones
+# (ACLEW: an OTC WARRANT, active; INDV: inactive, delisted 2026-11-03; TMRC: 404).
+
+
+def _ref(symbol: str, **kw):
+    from ingest.massive_reference import MassiveRef
+
+    return MassiveRef(symbol, **{"read_on": date(2026, 11, 25), "listed": True, **kw})
+
+
+def test_W6_4_the_evidence_is_a_field_that_moves_no_class():
+    from dataclasses import replace
+
+    from pipeline.tape_health import mark_massive
+
+    plain = StaleTape("ACLEW", uuid.uuid4(), date(2025, 10, 15))
+    renamed = StaleTape(
+        "INDV", uuid.uuid4(), date(2026, 11, 2), renamed=True, edgar_tickers=("SUPN",)
+    )
+    never = StaleTape("TMRC", uuid.uuid4(), None, edgar_tickers=())
+    for row, ref in (
+        (plain, _ref("ACLEW", active=True, type="WARRANT")),
+        (renamed, _ref("INDV", active=False, type="CS", delisted_utc=date(2026, 11, 3))),
+        (never, _ref("TMRC", listed=False)),
+    ):
+        marked = mark_massive(row, ref)
+        assert marked.massive_ref == ref
+        assert replace(marked, massive_ref=None) == row  # every other field as it was
+        assert (marked.closed, marked.renamed, marked.unpriceable, marked.quiet) == (
+            row.closed,
+            row.renamed,
+            row.unpriceable,
+            row.quiet,
+        )
+    assert mark_massive(plain, None) is plain
+
+
+def test_W6_4_a_closed_row_and_a_fund_shares_row_never_carry_it():
+    from pipeline.tape_health import mark_massive
+
+    ref = _ref("ACA", active=False, type="CS", delisted_utc=date(2026, 10, 26))
+    closed = StaleTape("ACA", uuid.uuid4(), date(2026, 10, 22), closed_at=date(2026, 10, 23))
+    fund = StaleTape("ETF1", uuid.uuid4(), date(2026, 6, 2), kind="fund_shares")
+    assert mark_massive(closed, ref) is closed and closed.massive_ref is None
+    assert mark_massive(fund, ref) is fund and fund.massive_ref is None
+    assert StaleTape("AAA", uuid.uuid4(), None).massive_ref is None  # the default: no evidence
+
+
+def test_W6_4_the_evidence_survives_the_acknowledgment():
+    from pipeline.price_feed import mark_acknowledged
+    from pipeline.tape_health import mark_massive
+
+    sid = uuid.uuid4()
+    ref = _ref("TMRC", listed=False)
+    row = mark_massive(StaleTape("TMRC", sid, None, edgar_tickers=()), ref)
+    (acked,) = mark_acknowledged((row,), {sid})
+    assert acked.quiet is True and acked.massive_ref == ref

@@ -1789,6 +1789,8 @@ export type AdminUnpriceableRowOut = components["schemas"]["AdminUnpriceableRowO
 export type AdminPriceSymbolChangeOut = components["schemas"]["AdminPriceSymbolChangeOut"];
 export type AdminPriceFeedAckOut = components["schemas"]["AdminPriceFeedAckOut"];
 export type AdminProbeCandidateOut = components["schemas"]["AdminProbeCandidateOut"];
+export type AdminDeregistrationOut = components["schemas"]["AdminDeregistrationOut"];
+export type AdminDeregistrationEventOut = components["schemas"]["AdminDeregistrationEventOut"];
 
 function useAdminRepair<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
   const qc = useQueryClient();
@@ -1803,12 +1805,15 @@ function useAdminRepair<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
   });
 }
 
-// ADOPT a renamed name's probed successor (sets price_symbol, basis operator:adopt; Undo restores it).
+// ADOPT a renamed name's probed successor, or a never-priced name's probed candidate (sets price_symbol, basis
+// operator:adopt; Undo restores it). `confirmClass` (W4-3) = the steward checked the price basis of a candidate whose
+// class mark differs from the member's: sent as `confirm_class: true`, and only then, so every other Adopt keeps the
+// body it always sent.
 export function useAdoptPriceSymbol() {
-  return useAdminRepair(async (vars: { securityId: string; symbol: string }) => {
+  return useAdminRepair(async (vars: { securityId: string; symbol: string; confirmClass?: boolean }) => {
     const { data, error } = await api.POST("/admin/price-feed/{security_id}/adopt", {
       params: { path: { security_id: vars.securityId } },
-      body: { symbol: vars.symbol },
+      body: vars.confirmClass ? { symbol: vars.symbol, confirm_class: true } : { symbol: vars.symbol },
     });
     if (error) throw error;
     return data;

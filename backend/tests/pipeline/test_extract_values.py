@@ -17,13 +17,18 @@ What is pinned:
 - ``--no-live`` end to end: a company laid out as a cache extracts and its values land in the data tenant; a
   company whose documents are missing gets an ``error`` attempt (``not cached``) and no fact;
 - the run artifact (``data/extraction_runs/``, redirected to tmp) carries ``admin_line``; the summary and the B4
-  line are printed.
+  line are printed;
+- ``--rescan awaiting`` (W1-R) takes exactly the queue's companies (never an ETF, one on no live card, or one a
+  standing steward decision touches), re-extracts them whatever ``due`` says, writes nothing for an identical
+  candidate, leaves a steward's value of the same filing, a pin and a dismissal standing, refuses like the
+  backfill, makes no request in its dry run and resumes with ``--since``.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -36,6 +41,7 @@ from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from domain.market_time import market_now, market_today
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
+from ingest.shares import ingest_shares_outstanding
 from pipeline import extract_values as xv
 from pipeline.run_lock import (
     LOCK_ID_EXTRACTION,
@@ -44,6 +50,9 @@ from pipeline.run_lock import (
     acquire_pass_lock,
 )
 from platform_values import extraction as ex
+from platform_values import state
+from repositories import platform_extraction_repo as xrepo
+from repositories import platform_value_repo as vrepo
 from tests.workspaces import new_workspace
 
 _FX = Path(__file__).resolve().parent.parent / "fixtures" / "sec_extractor"
@@ -804,3 +813,431 @@ def test_nothing_here_feeds_the_call():
     for pkg in ("calls", "signals", "editions", "backtest", "replay"):
         for p in (root / pkg).rglob("*.py"):
             assert "extract_values" not in p.read_text(encoding="utf-8"), p
+
+
+# --- THE RESCAN (W1-R): ``--rescan awaiting`` -------------------------------------------------------------------
+#
+# Every company whose newest candidate of either value is an undecided flag the steward's queue lists (awaiting, or
+# pending beside a value), re-extracted whatever ``due`` says. Never an ETF, a company on no live card, or one whose
+# other value's newest candidate a standing steward decision closes (approved, corrected or dismissed: a changed
+# candidate would re-queue over it). Everything else is the backfill's: lock 7, the refusals, the bounds, the run
+# file, run kind ``backfill``; ``--since`` makes it resumable.
+
+STEWARD = "steward@example.test"
+
+
+def _ref(cik: int | str, acc: str) -> str:
+    return f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc}/d.htm"
+
+
+def _periods() -> tuple[date, date]:
+    """Two period ends before today, the older ``p1`` and the newer ``p2`` (read inside a test)."""
+    today = market_today()
+    return today - timedelta(days=160), today - timedelta(days=70)
+
+
+def _flag(
+    db,
+    sid: UUID,
+    fact_type: str = "shares_outstanding",
+    *,
+    ref: str,
+    d: date,
+    value: float = 30_000_000.0,
+    flags: tuple[str, ...] = ("dual-class",),
+) -> UUID:
+    """A flagged candidate (undecided until a decision names it)."""
+    cols: dict[str, Any] = {"flags": list(flags), "source_ref": ref, "event_date": d}
+    if fact_type == "shares_outstanding":
+        cols.update(source="10-q-cover", shares=value)
+    else:
+        cols.update(source="10-q", cash_usd=value, quarterly_burn_usd=value / 10)
+    return vrepo.append_candidate(db, security_id=sid, fact_type=fact_type, outcome="flag", **cols)
+
+
+def _value(db, sid: UUID, *, ref: str, d: date, by: str, shares: float = 10_000_000.0) -> UUID:
+    """A shown share count: the machine's (``auto``) or a steward's (an email)."""
+    return ingest_shares_outstanding(
+        db,
+        sid,
+        shares=shares,
+        source="10-q-cover",
+        source_ref=ref,
+        event_date=d,
+        ratified_by=by,
+        tenant_id=DATA_TENANT_ID,
+    )
+
+
+def _decide(
+    db,
+    sid: UUID,
+    cid: UUID,
+    action: str,
+    *,
+    fact_id: UUID | None = None,
+    fact_type: str = "shares_outstanding",
+) -> UUID:
+    return vrepo.append_decision(
+        db,
+        security_id=sid,
+        fact_type=fact_type,
+        action=action,
+        candidate_id=cid,
+        fact_id=fact_id,
+        decided_by=STEWARD,
+        reason="read the filing",
+    )
+
+
+def _pin(db, sid: UUID) -> None:
+    vrepo.append_pin(
+        db, security_id=sid, fact_type="shares_outstanding", action="pin", decided_by=STEWARD
+    )
+
+
+def _queue_world(db) -> dict[str, UUID]:
+    """The steward's queue in miniature, one company per case. On live cards: AWAIT (3 cards), PEND (2), the rest
+    1; FUND is an ETF; NOCARD is on no live card."""
+    p1, p2 = _periods()
+    ids = _world(
+        db,
+        [
+            ("AWAIT", "401"),
+            ("PEND", "402"),
+            ("MIXED", "403"),
+            ("DISM", "404"),
+            ("DECIDED", "405"),
+            ("OLDFLAG", "406"),
+            ("CLEAN", "407"),
+            ("PIN", "408"),
+        ],
+    )
+    ids["FUND"] = _company(db, "FUND", "409", kind="etf")
+    _card(db, new_workspace(db, "W4"), [ids["FUND"]])
+    ids["NOCARD"] = _company(db, "NOCARD", "410")
+    new = {t: f"https://www.sec.gov/Archives/edgar/data/4/{t.lower()}-q2.htm" for t in ids}
+    old = {t: f"https://www.sec.gov/Archives/edgar/data/4/{t.lower()}-q1.htm" for t in ids}
+    # AWAIT: a flag and no value (awaiting_steward)
+    _flag(db, ids["AWAIT"], ref=new["AWAIT"], d=p2)
+    # PEND: a newer flag beside the machine's older count (pending); a cash flag and no cash value (awaiting)
+    _value(db, ids["PEND"], ref=old["PEND"], d=p1, by="auto")
+    _flag(db, ids["PEND"], ref=new["PEND"], d=p2)
+    _flag(db, ids["PEND"], "cash_burn", ref=new["PEND"], d=p2)
+    # MIXED: its count waits, but the steward DISMISSED its cash flag
+    _flag(db, ids["MIXED"], ref=new["MIXED"], d=p2)
+    cash = _flag(db, ids["MIXED"], "cash_burn", ref=new["MIXED"], d=p2)
+    _decide(db, ids["MIXED"], cash, "dismiss", fact_type="cash_burn")
+    # DISM: its only flag dismissed
+    _decide(db, ids["DISM"], _flag(db, ids["DISM"], ref=new["DISM"], d=p2), "dismiss")
+    # DECIDED: its flag approved (the steward's value of that filing is shown)
+    cid = _flag(db, ids["DECIDED"], ref=new["DECIDED"], d=p2)
+    fid = _value(db, ids["DECIDED"], ref=new["DECIDED"], d=p2, by=STEWARD, shares=30_000_000.0)
+    _decide(db, ids["DECIDED"], cid, "approve", fact_id=fid)
+    # OLDFLAG: an undecided flag dated BEFORE the value shown (the queue does not list it)
+    _value(db, ids["OLDFLAG"], ref=new["OLDFLAG"], d=p2, by="auto")
+    _flag(db, ids["OLDFLAG"], ref=old["OLDFLAG"], d=p1)
+    # PIN: pinned, a flag waiting
+    _pin(db, ids["PIN"])
+    _flag(db, ids["PIN"], ref=new["PIN"], d=p2)
+    # FUND (an ETF) and NOCARD (on no live card): a flag waiting each
+    _flag(db, ids["FUND"], ref=new["FUND"], d=p2)
+    _flag(db, ids["NOCARD"], ref=new["NOCARD"], d=p2)
+    db.commit()
+    return ids
+
+
+def test_the_RESCAN_takes_the_queues_companies_less_etfs_off_card_and_decided_ones(db):
+    _queue_world(db)
+    queue = state.awaiting_companies(db)  # the steward's queue, its own count
+    rl = ex.rescan_list(db)
+    db.rollback()
+    assert {c.ticker for c in queue} == {"AWAIT", "PEND", "MIXED", "PIN", "FUND", "NOCARD"}
+    assert rl.waiting == len(queue) == 6
+    # never a dismissed or decided company, nor one with nothing waiting; most cards first, then the ticker
+    assert [(i.ticker, i.reason, i.cards) for i in rl.items] == [
+        ("AWAIT", "rescan", 3),
+        ("PEND", "rescan", 2),
+        ("PIN", "rescan", 1),
+    ]
+    notes = {i.ticker: i.note for i in rl.items}
+    assert notes == {
+        "AWAIT": "shares awaiting",
+        "PEND": "shares pending, cash awaiting",
+        "PIN": "shares awaiting",
+    }
+    assert (rl.decided, rl.etf, rl.off_card, rl.done_since) == (("MIXED",), 1, 1, 0)
+
+
+def _fact(
+    ref: str,
+    d: date,
+    *,
+    tier: Tier = Tier.AUTO,
+    value: float = 30_000_000.0,
+    flags: tuple[str, ...] = (),
+) -> ExtractedFact:
+    return ExtractedFact(
+        fact_type="shares_outstanding",
+        tier=tier,
+        source="10-q-cover",
+        source_ref=ref,
+        event_date=d,
+        value=value,
+        flags=list(flags),
+        note="Cover-page shares outstanding.",
+    )
+
+
+def _rescan_world(db, tmp_path, monkeypatch) -> tuple[dict[str, UUID], FakeClient, FakeExtractor]:
+    """Four companies, every one UP TO DATE (a done nightly attempt on its current filing), none due:
+    AWAIT (3 cards): a flag waiting and a cash 'nothing'; the extractor returns exactly them again.
+    STEW (2 cards): a steward's count of the filing beside a newer flag of it; the extractor returns that filing.
+    PIN (1 card): pinned, a flag waiting; the extractor returns a clean count.
+    DISM (1 card): its flag dismissed; the extractor would return a changed one."""
+    p1, p2 = _periods()
+    ids = _world(db, [("AWAIT", "501"), ("STEW", "502"), ("PIN", "503"), ("DISM", "504")])
+    subs: dict[int, dict] = {}
+    refs: dict[str, str] = {}
+    for t, cik in (("AWAIT", 501), ("STEW", 502), ("PIN", 503), ("DISM", 504)):
+        acc = f"000{cik}-26-000001"
+        _filing(db, ids[t], acc, _old())
+        subs[cik] = _subs([("10-Q", acc, "d.htm", _old(), 1)])
+        refs[t] = _ref(cik, acc)
+        key = ex.inputs_key(str(cik), [ex.PeriodicFiling("10-Q", acc, _old().date(), _old())])
+        xrepo.append_attempt(
+            db, security_id=ids[t], run_kind="nightly", inputs_key=key, status="done"
+        )
+    _flag(db, ids["AWAIT"], ref=refs["AWAIT"], d=p2)
+    vrepo.append_candidate(
+        db,
+        security_id=ids["AWAIT"],
+        fact_type="cash_burn",
+        outcome="nothing",
+        reason="no-candidate",
+    )
+    _value(db, ids["STEW"], ref=refs["STEW"], d=p1, by=STEWARD)
+    _flag(db, ids["STEW"], ref=refs["STEW"], d=p2)
+    _pin(db, ids["PIN"])
+    _flag(db, ids["PIN"], ref=refs["PIN"], d=p2)
+    _decide(db, ids["DISM"], _flag(db, ids["DISM"], ref=refs["DISM"], d=p2), "dismiss")
+    db.commit()
+    fake = FakeExtractor(
+        {
+            501: ExtractionResult(
+                facts=[_fact(refs["AWAIT"], p2, tier=Tier.FLAG, flags=("dual-class",))]
+            ),
+            502: ExtractionResult(facts=[_fact(refs["STEW"], p2)]),
+            503: ExtractionResult(facts=[_fact(refs["PIN"], p2, value=31_000_000.0)]),
+            504: ExtractionResult(
+                facts=[_fact(refs["DISM"], p2, tier=Tier.FLAG, value=99.0, flags=("dual-class",))]
+            ),
+        }
+    )
+    monkeypatch.setattr(ex, "extract_with_annual_fallback", fake)
+    return ids, FakeClient(tmp_path / "no-cache", subs), fake
+
+
+def _rows_of(db, sid: UUID) -> dict[str, int]:
+    db.rollback()
+    out = {}
+    with db.cursor() as cur:
+        for t in ("fact_shares_outstanding", "fact_cash_burn", "extraction_candidate"):
+            cur.execute(
+                f"SELECT count(*) AS n FROM {t} WHERE security_id = %s", (sid,)  # noqa: S608
+            )
+            out[t] = cur.fetchone()["n"]
+    db.rollback()
+    return out
+
+
+def test_the_RESCAN_re_extracts_up_to_date_companies_and_leaves_decisions_pins_and_dismissals_standing(
+    db, tmp_path, monkeypatch, capsys
+):
+    ids, client, fake = _rescan_world(db, tmp_path, monkeypatch)
+    # every one is up to date: the backfill has nothing to do
+    assert ex.work_list(db, include_never=True).items == []
+    db.rollback()
+    assert _apply(tmp_path, client) == 0 and fake.calls == []
+    assert "nothing due" in capsys.readouterr().out
+    before = {t: _rows_of(db, sid) for t, sid in ids.items()}
+
+    assert _apply(tmp_path, client, rescan="awaiting") == 0
+    out = capsys.readouterr().out
+    assert fake.calls == [
+        501,
+        502,
+        503,
+    ]  # the queue's companies, most cards first; DISM is never read
+    assert [
+        (a["ticker"], a["status"], a["shares_reason"])
+        for a in _attempts(db)
+        if a["run_kind"] == "backfill"
+    ] == [
+        ("AWAIT", "done", "flagged"),
+        ("STEW", "done", "already_on_file"),
+        ("PIN", "done", "pinned"),
+    ]
+    after = {t: _rows_of(db, sid) for t, sid in ids.items()}
+    # an identical candidate writes nothing
+    assert after["AWAIT"] == before["AWAIT"]
+    # a steward's value of the same filing is already on file: it stays the value shown
+    assert after["STEW"]["fact_shares_outstanding"] == before["STEW"]["fact_shares_outstanding"]
+    st = state.read_state(db, ids["STEW"], "shares_outstanding")
+    db.rollback()
+    assert (st.ratifier, st.value["ratified_by"]) == ("steward", STEWARD)
+    # a pinned company gets a 'pinned' candidate, never a fact
+    newest = vrepo.latest_candidate(db, ids["PIN"], "shares_outstanding")
+    db.rollback()
+    assert (newest["flags"], float(newest["shares"])) == (["pinned"], 31_000_000.0)
+    assert after["PIN"]["fact_shares_outstanding"] == 0
+    # a dismissal stands: DISM was never read and nothing of it changed
+    assert after["DISM"] == before["DISM"]
+    (doc,) = _artifacts(tmp_path)  # the plain run before it wrote none (nothing due)
+    assert (doc["run_kind"], doc["due_by_reason"], doc["rescan"]["mode"]) == (
+        "backfill",
+        {"rescan": 3},
+        "awaiting",
+    )
+    assert "RESCAN awaiting" in out and "attempted 3 of 3 to rescan" in out
+
+
+def test_the_RESCAN_is_bounded_and_resumable_with_since(db, tmp_path, monkeypatch, capsys):
+    ids, client, fake = _rescan_world(db, tmp_path, monkeypatch)
+    assert _apply(tmp_path, client, rescan="awaiting", max_names=1) == 0
+    out = capsys.readouterr().out
+    assert fake.calls == [501]
+    m = re.search(r"--since (\S+)", out)
+    assert m is not None, out
+    since = datetime.fromisoformat(m.group(1))
+    # AWAIT's flag still waits, so the same command would take it again; --since takes only what is left
+    rl = ex.rescan_list(db, since=since)
+    db.rollback()
+    assert [i.ticker for i in rl.items] == ["STEW", "PIN"] and rl.done_since == 1
+    assert _apply(tmp_path, client, rescan="awaiting", since=since) == 0
+    assert fake.calls == [501, 502, 503]
+    capsys.readouterr()
+    done = _counts(db)
+    assert (
+        _apply(tmp_path, client, rescan="awaiting", since=since) == 0
+    )  # all done: nothing written
+    assert _counts(db) == done and fake.calls == [501, 502, 503]
+    assert "nothing to rescan" in capsys.readouterr().out
+    assert ids
+
+
+def test_the_RESCAN_stops_between_companies_when_a_pass_starts_and_says_how_to_resume(
+    db, tmp_path, monkeypatch, capsys
+):
+    ids, client, fake = _rescan_world(db, tmp_path, monkeypatch)
+    started: list = []
+
+    def a_pass_starts() -> None:
+        if not started:
+            started.append(acquire_pass_lock(holder="cron"))
+
+    fake.on_call = a_pass_starts
+    try:
+        assert _apply(tmp_path, client, rescan="awaiting") == 75
+    finally:
+        for lk in started:
+            lk.release()
+    out = capsys.readouterr().out
+    assert fake.calls == [501]
+    (doc,) = _artifacts(tmp_path)
+    assert (doc["stopped_by"], doc["deferred"]) == ("stop", 2)
+    m = re.search(
+        r"STOPPED: .* the 2 left still wait \(re-run with --since (\S+) to resume; exit 75\)", out
+    )
+    assert m is not None, out
+    assert m.group(1) == doc["rescan"]["resume_since"]
+    assert (
+        _apply(tmp_path, client, rescan="awaiting", since=datetime.fromisoformat(m.group(1))) == 0
+    )
+    assert fake.calls == [501, 502, 503]
+    assert ids
+
+
+def test_the_RESCAN_dry_run_prints_the_plan_and_makes_no_request(db, tmp_path, monkeypatch, capsys):
+    _queue_world(db)
+    runs = tmp_path / "runs"
+    before = _all_tables(db)
+
+    def no_client(*_: Any, **__: Any):
+        raise AssertionError("the dry run built an EDGAR client")
+
+    monkeypatch.setattr(xv, "EdgarClient", no_client)
+    fake = Exploding()
+    rc = xv.run(
+        apply=False, rescan="awaiting", cache_dir=tmp_path / "c", runs_dir=runs, client=fake
+    )
+    out = capsys.readouterr().out
+    assert rc == 0 and fake.calls == []
+    assert _all_tables(db) == before and not runs.exists()
+    assert "DRY RUN · RESCAN awaiting" in out
+    for line in ("AWAIT (rescan, 3 cards)", "PEND (rescan, 2 cards)", "PIN (rescan, 1 card)"):
+        assert line in out
+    # no index cached: one known request each (the real plan's counting)
+    assert "3 companies (3 index not cached) · 3 SEC requests known" in out
+    assert re.search(r"\bMIXED\b", out)  # named: a steward decision stands on its other value
+    assert not re.search(r"\b(DISM|DECIDED|OLDFLAG|CLEAN|FUND|NOCARD)\b", out)
+    assert "no SEC request, nothing written" in out
+
+
+def test_the_RESCAN_refuses_like_the_backfill(db, tmp_path, monkeypatch, capsys):
+    ids, client, fake = _rescan_world(db, tmp_path, monkeypatch)
+    before = _counts(db)
+    held = acquire_job_lock(lock_id=LOCK_ID_EXTRACTION, holder="other", what="x")
+    try:
+        assert _apply(tmp_path, client, rescan="awaiting") == 75
+    finally:
+        held.release()
+    assert "already running" in capsys.readouterr().out
+    lock = acquire_pass_lock(holder="cron")
+    try:
+        assert _apply(tmp_path, client, rescan="awaiting") == 75
+    finally:
+        lock.release()
+    assert "yields to it" in capsys.readouterr().out
+    monkeypatch.setenv("ALPHADECK_ONBOARD_WINDOW_BEFORE_MIN", "60")
+    monkeypatch.setenv("ALPHADECK_ONBOARD_WINDOW_AFTER_MIN", "60")
+    get_settings.cache_clear()
+    try:
+        late = datetime(2026, 10, 23, 2, 15, tzinfo=timezone.utc)  # 22:15 ET
+        assert _apply(tmp_path, client, rescan="awaiting", now=lambda: late) == 75
+        assert "inside the nightly window" in capsys.readouterr().out
+    finally:
+        get_settings.cache_clear()
+    assert fake.calls == [] and client.reads == []
+    assert _counts(db) == before and not _artifacts(tmp_path)
+    assert ids
+
+
+def test_the_RESCAN_ticker_scope(db, tmp_path, monkeypatch, capsys):
+    ids, client, fake = _rescan_world(db, tmp_path, monkeypatch)
+    assert _apply(tmp_path, client, rescan="awaiting", tickers=["NOPE"]) == 2
+    assert "unknown ticker(s) NOPE" in capsys.readouterr().out
+    assert _apply(tmp_path, client, rescan="awaiting", tickers=["dism", "pin"]) == 0
+    assert "DISM is not rescanned" in capsys.readouterr().out
+    assert fake.calls == [503]
+    assert ids
+
+
+def test_rescan_arguments_reach_the_run_and_bad_ones_are_refused_before_anything_runs(monkeypatch):
+    seen: list[dict] = []
+    monkeypatch.setattr(xv, "run", lambda **kw: seen.append(kw) or 0)
+    assert xv.main(["--rescan", "awaiting", "--since", "2026-11-27T05:00:00+00:00"]) == 0
+    assert xv.main(["--apply"]) == 0
+    assert [(kw["rescan"], kw["since"]) for kw in seen] == [
+        ("awaiting", datetime(2026, 11, 27, 5, 0, tzinfo=timezone.utc)),
+        (None, None),
+    ]
+    for argv in (
+        ["--since", "2026-11-27T00:00:00+00:00"],  # --since belongs to the rescan
+        ["--rescan", "everything"],
+        ["--rescan", "awaiting", "--since", "2026-11-27T00:00:00"],  # no UTC offset
+        ["--rescan", "awaiting", "--since", "yesterday"],
+    ):
+        with pytest.raises(SystemExit) as e:
+            xv.main(argv)
+        assert e.value.code == 2, argv

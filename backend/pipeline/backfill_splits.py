@@ -29,7 +29,9 @@ every non-archived thesis):
    restatement screen; one that agrees exactly confirms it by the same rule, otherwise the note names them.
    A forward split under x1.5 that Massive.com alone lists, with no SEC filing in its window stating it or
    mentioning a split, is SET ASIDE as a distribution (D2, ``distribution_cap``: the settings
-   ``split_distribution_*``) — after the wide forms had their look, which can still confirm it.
+   ``split_distribution_*``) — after the wide forms had their look, which can still confirm it. So is one
+   Massive.com labels a stock dividend whose filing mentions a split without a ratio (W6-2,
+   ``distribution_label_overrides_abstain``).
 4. **Plan** against the stored list: a split not on it yet is APPENDED; one whose newest version the
    backfill wrote and whose content is unchanged is left alone (``unchanged``); one whose evidence changed
    gets a new backfill version; one whose newest version the OPERATOR wrote is never touched
@@ -184,6 +186,13 @@ def distribution_cap() -> Decimal | None:
     )
 
 
+def distribution_label_overrides_abstain() -> bool:
+    """W6-2 (decision W6-a): whether Massive.com's ``stock_dividend`` label settles a distribution whose filing
+    mentions a split but states no ratio (the setting ``split_distribution_label_overrides_abstain``). Read beside
+    ``distribution_cap`` by the same three edges and passed down with it."""
+    return get_settings().split_distribution_label_overrides_abstain
+
+
 # How each filing is read (``screen_of``): the catch-all 8-K screen (8.01 / 7.01 only, 2026-10-23), the
 # RESTATEMENT screen (6-Ks, charter 8-Ks, an 8-K whose items are not resolved, every wide form — 2026-10-24), or
 # no screen (Reg A).
@@ -313,6 +322,9 @@ class BackfillResult:
     polygon_rows: int = 0
     polygon_pages: int = 0
     polygon_skipped: int = 0
+    polygon_unlabeled: int = (
+        0  # W6-1: rows with no known Massive.com label (kept; 0 on the v3 fallback)
+    )
     polygon_matched: int = 0
     planned: list[PlannedSplit] = field(default_factory=list)
     stored_not_seen: int = 0
@@ -846,20 +858,26 @@ def decide_polygon_group(
     *,
     asof: date,
     distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
     confirmed: tuple[ConfirmedSplit, ...] = (),
 ) -> GroupDecision:
     """S1's verdict for one member's Massive.com rows on one date: every SEC filing in the row's window read
-    (knowing the member's ``confirmed`` splits: ``known_for``),
-    ``domain.splits.decide`` (with D2's ``distribution_max_factor``, ``distribution_cap``), and the notes for a
-    missing index / CIK and for Massive.com listing different ratios on the date. When the window holds no agreeing
-    filing, the TARGETED WIDE-FORM READER looks once more (``WIDE_FORMS`` filed in ``wide_window``): a wide form
-    that agrees exactly settles it by the same rule; otherwise the decision stands and its note names what the
-    wide forms said (``with_wide``)."""
+    (knowing the member's ``confirmed`` splits: ``known_for``), ``domain.splits.decide`` (with D2's
+    ``distribution_max_factor``, ``distribution_cap``, and W6-2's ``label_overrides_abstain``), and the notes for
+    a missing index / CIK and for Massive.com listing different ratios on the date. When the window holds no
+    agreeing filing, the TARGETED WIDE-FORM READER looks once more (``WIDE_FORMS`` filed in ``wide_window``): a
+    wide form that agrees exactly settles it by the same rule; otherwise the decision stands and its note names
+    what the wide forms said (``with_wide``)."""
     poly = group[0]
     lo, hi = _window(poly.execution_date)
     read, unread = reader.read(m, reader.refs(conn, m, lo, hi), confirmed=confirmed)
     d = decide(
-        poly, read, asof=asof, unread=unread, distribution_max_factor=distribution_max_factor
+        poly,
+        read,
+        asof=asof,
+        unread=unread,
+        distribution_max_factor=distribution_max_factor,
+        label_overrides_abstain=label_overrides_abstain,
     )
     wide_read: list[SecEvidence] = []
     wide_unread = 0
@@ -944,6 +962,7 @@ def plan_members(
     *,
     asof: date,
     distribution_max_factor: Decimal | None,
+    label_overrides_abstain: bool,
 ) -> list[PlannedSplit]:
     """S1's decision for every Massive.com date of every member in ``matched`` (``decide_polygon_group``, each
     member's filings read knowing its splits confirmed on the list: ``confirmed_splits``), each a ``PlannedSplit``
@@ -962,6 +981,7 @@ def plan_members(
                 group,
                 asof=asof,
                 distribution_max_factor=distribution_max_factor,
+                label_overrides_abstain=label_overrides_abstain,
                 confirmed=confirmed,
             )
             planned.append(
@@ -1069,13 +1089,19 @@ def backfill_splits(
         pull.pages,
         pull.skipped,
     )
+    result.polygon_unlabeled = pull.unlabeled
     matched = match_polygon(pull.rows, members)
     result.polygon_matched = sum(len(v) for v in matched.values())
 
     fetches_before = edgar.live_fetches
     reader = SecReader(edgar)
     planned = plan_members(
-        conn, reader, matched, asof=asof, distribution_max_factor=distribution_cap()
+        conn,
+        reader,
+        matched,
+        asof=asof,
+        distribution_max_factor=distribution_cap(),
+        label_overrides_abstain=distribution_label_overrides_abstain(),
     )
     result.submissions_failed = dict(reader.submissions_failed)
     result.sec_live_fetches = edgar.live_fetches - fetches_before
@@ -1162,9 +1188,10 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
             f"session {d.effective_date.isoformat()}  {d.status.upper()}{via}  -> {verb}\n"
         )
         poly = d.polygon
+        label = f" ({poly.adjustment_type})" if poly.adjustment_type else ""
         w(
             f"      Massive.com {poly.ticker} {poly.id[:14]}…: {poly.split_from} -> {poly.split_to} on "
-            f"{poly.execution_date.isoformat()}\n"
+            f"{poly.execution_date.isoformat()}{label}\n"
         )
         s = d.sec
         if s is not None:
@@ -1190,7 +1217,9 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
     st = result.by_status()
     w(
         f"MASSIVE.COM: {result.polygon_rows} rows in {result.polygon_pages} page(s) since "
-        f"{result.since.isoformat()} ({result.polygon_skipped} unreadable) · {result.polygon_matched} on the "
+        f"{result.since.isoformat()} ({result.polygon_skipped} unreadable"
+        + (f", {result.polygon_unlabeled} unlabeled" if result.polygon_unlabeled else "")
+        + f") · {result.polygon_matched} on the "
         f"{result.members} union member(s) -> {len(result.planned)} split(s)\n"
     )
     w(

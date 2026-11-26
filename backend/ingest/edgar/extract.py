@@ -10,7 +10,10 @@ Given a company's SEC ``companyfacts`` + its latest 10-Q/10-K text, produce cand
   ``stale-cover`` (a single count older than the period — offered, dated by its own as-of date), or
   ``no-companyfacts`` (nothing observed — located-only). One condition, one label; never a catch-all.
   A cover row dated after its own filing is refused first (``cover_after_filing``) and named by the
-  ``cover-after-filing`` flag + the note.
+  ``cover-after-filing`` flag + the note. Given the values filing's RAW document, a FLAG count is then re-read from
+  its own inline XBRL (``ingest.edgar.inline_xbrl``; FLAG-only, the tier never changes): a multi-class cover offers
+  the per-class sum dated by the cover's own as-of instant, flagged ``class-outside-eps`` when the filing's EPS share
+  base leaves a class out; a single count newer than companyfacts' is offered flagged ``companyfacts-behind``.
 - **cash_burn** (runway): cash = cash+equiv + the same-dated short-term investments + long-term MARKETABLE
   securities (never the generic long-term investments line), the cash read under its most current label (the
   restricted-cash total says so in the note) and every component named in the note; a clean ~quarter of
@@ -40,6 +43,7 @@ from domain.burn_pace import YtdPace, pace_caveat, pace_segment
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 from domain.settings import get_settings
+from ingest.edgar import inline_xbrl
 from ingest.edgar.acceptance import (
     filing_date_bound,
     parse_filing_date,
@@ -277,14 +281,27 @@ def refused_cover_note(refused: list[RefusedCover]) -> str:
     )
 
 
-def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> ExtractedFact:
+def _shares(
+    facts: dict,
+    tenq_text: str,
+    ref: str,
+    period_end: date,
+    *,
+    raw: str | None = None,
+    filed: date | None = None,
+    cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+) -> ExtractedFact:
     """The shares candidate over the cover rows ``screen_cover_rows`` keeps; a refused row rides the candidate as
     the ``cover-after-filing`` flag and a sentence in its note (visible on the Workbench card, and stored with the
-    fact when it is applied or ratified)."""
+    fact when it is applied or ratified). With the filing's ``raw`` document a FLAG candidate is re-read from its
+    inline XBRL (``_inline_shares``); without it (or on AUTO) the candidate is exactly the companyfacts one.
+    """
     rows, refused = screen_cover_rows(
         _rows(facts, "dei", "EntityCommonStockSharesOutstanding", "shares")
     )
     fact = _shares_candidate(rows, tenq_text, ref, period_end)
+    if raw is not None and fact.tier is Tier.FLAG:
+        fact = _inline_shares(fact, rows, raw, tenq_text, ref, period_end, filed, cfg)
     if not refused:
         return fact
     note = fact.note
@@ -295,10 +312,14 @@ def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> Extracte
         )
     return fact.model_copy(
         update={
-            "flags": [*fact.flags, COVER_AFTER_FILING],
+            "flags": _with(fact.flags, COVER_AFTER_FILING),
             "note": f"{note} {refused_cover_note(refused)}",
         }
     )
+
+
+def _with(flags: list[str], flag: str) -> list[str]:
+    return flags if flag in flags else [*flags, flag]
 
 
 def _shares_candidate(
@@ -377,6 +398,186 @@ def _shares_candidate(
         note="companyfacts has no cover-shares concept and the cover yielded no per-class counts — "
         "author the count from the located cover.",
     )
+
+
+# THE FILING'S OWN COVER (W1-1, 2026-11-26; docs/EXTRACTOR.md "Shares on the periodic path"). companyfacts drops
+# the class dimension (every per-class cover count) and misses combined multi-registrant filings for months (CEG's
+# Q3 10-Q: its Q2 count under the Q3 link), while the cited document tags the cover itself. The two flags the inline
+# re-read adds: the EPS share base leaves a cover class out (the sum is still offered); the filing's single count is
+# newer than companyfacts' newest cover row.
+CLASS_OUTSIDE_EPS = "class-outside-eps"
+COMPANYFACTS_BEHIND = "companyfacts-behind"
+# The cleaned-text span the cover's counts may occupy for one located passage: a retrieval window, not a cutoff (a
+# cover too wide to locate keeps the old passage).
+_COVER_SPAN = 1500
+
+
+def _inline_shares(
+    fact: ExtractedFact,
+    rows: list[dict],
+    raw: str,
+    text: str,
+    ref: str,
+    period_end: date,
+    filed: date | None,
+    cfg: ExtractorConfig,
+) -> ExtractedFact:
+    """FLAG-only: a FLAG share-count candidate re-read from the filing's inline XBRL. Never changes the tier, and
+    returns ``fact`` unchanged when the document tags no usable cover, or tags one count no newer than companyfacts'.
+
+    - **multi-class** (two or more classes of common stock on the cover): the per-class sum (or the total the filing
+      tags beside its parts), dated by the cover's own as-of instant, flag ``dual-class``; plus
+      ``class-outside-eps`` when the EPS share base of the cited period leaves a class out
+      (``inline_xbrl.classes_outside_eps``). The sum is still offered and the note carries both figures.
+    - **one count** newer than companyfacts' newest cover row (or with no row): that count, dated by its instant,
+      flag ``companyfacts-behind`` (it replaces ``stale-cover`` / ``no-companyfacts``: the offer is no longer the
+      stale or missing one).
+
+    Never a ``dei:LegalEntityAxis`` member (another registrant of a combined filing: EXC's parent count only), an ADR
+    line, a preferred class or warrants (``inline_xbrl.read_cover``). An inline instant after the filing date is
+    refused like a companyfacts row (``cover_after_filing``): the candidate is kept, flagged and named in the note.
+    """
+    contexts = inline_xbrl.read_contexts(raw)
+    cover = inline_xbrl.read_cover(raw, contexts)
+    if cover is None:
+        return fact
+    if filed is not None and cover_after_filing(cover.asof, filed):
+        return fact.model_copy(
+            update={
+                "flags": _with(fact.flags, COVER_AFTER_FILING),
+                "note": f"{fact.note} Refused the filing's inline cover count {cover.figure:,.0f} as of "
+                f"{cover.asof.isoformat()}, dated after its filing date {filed.isoformat()} — a cover count is never "
+                "dated after its filing.",
+            }
+        )
+    latest_end = max((r["end"] for r in rows), default=None)
+    behind = latest_end is None or date.fromisoformat(latest_end) < cover.asof
+    if not cover.multi_class and not behind:
+        return fact
+    eps = inline_xbrl.eps_share_base(
+        raw, period_end, cfg.quarterly_span_min_days, cfg.pace_ytd_max_days, contexts
+    )
+    passage = _inline_cover_passage(text, ref, cover)
+    cf_vals = sorted({float(r["val"]) for r in rows if r["end"] == latest_end})
+    cf_row = (
+        f"companyfacts' newest cover row: {', '.join(f'{v:,.0f}' for v in cf_vals)} as of {latest_end}"
+        if latest_end
+        else "companyfacts has no cover-shares row"
+    )
+    if cover.multi_class:
+        outside = inline_xbrl.classes_outside_eps(cover, eps)
+        flags = ["dual-class", CLASS_OUTSIDE_EPS] if outside else ["dual-class"]
+        parts = " + ".join(f"{c.label} {c.value:,.0f}" for c in cover.counted)
+        total = (
+            f" ({cover.total.label} {cover.total.value:,.0f} is their total, not added again)"
+            if cover.total
+            else ""
+        )
+        note = (
+            f"Multiple share classes on the cover's inline XBRL as of {cover.asof.isoformat()}: {parts} = "
+            f"{cover.figure:,.0f}{total}. Total economic = the sum of all classes; confirm against the cover (the "
+            f"A/B split is usually voting).{_set_aside_note(cover)} {_eps_note(eps)}"
+            f"{_outside_note(outside, eps, cover)} {cf_row} (not used)."
+        )
+    else:
+        flags = [COMPANYFACTS_BEHIND]
+        note = (
+            f"The filing's own cover count (inline XBRL): {cover.figure:,.0f} as of {cover.asof.isoformat()}; "
+            f"companyfacts is behind the filing ({cf_row}).{_set_aside_note(cover)} {_eps_note(eps)} Confirm "
+            "against the located cover."
+        )
+    return fact.model_copy(
+        update={
+            "value": cover.figure,
+            "event_date": cover.asof,
+            "flags": flags,
+            "located_passages": [passage] if passage else fact.located_passages,
+            "note": note,
+        }
+    )
+
+
+def _set_aside_note(cover: inline_xbrl.CoverReading) -> str:
+    """One sentence per reason a cover count was not counted, plus the ADS caution when an ADR line is set aside."""
+    if not cover.set_aside:
+        return ""
+    by_why: dict[str, list[str]] = {}
+    for c, why in cover.set_aside:
+        by_why.setdefault(why, []).append(f"{c.label} {c.value:,.0f}")
+    out = "".join(f" Not counted, {why}: {', '.join(items)}." for why, items in by_why.items())
+    if any("ADR" in why for why in by_why):
+        out += " The count is of ordinary shares: check the ADS ratio before approving (the price may be per ADS)."
+    return out
+
+
+def _eps_note(eps: inline_xbrl.EpsBase | None) -> str:
+    if eps is None or eps.figure is None:
+        return "No EPS share base for the period is tagged in the document."
+    per_class = (
+        f" (per class: {', '.join(f'{inline_xbrl.member_label(m)} {v:,.0f}' for m, v in eps.by_class)})"
+        if eps.by_class
+        else ""
+    )
+    return (
+        f"EPS share base (basic weighted average, {eps.start.isoformat()} to {eps.end.isoformat()}): "
+        f"{eps.figure:,.0f}{per_class}."
+    )
+
+
+def _outside_note(
+    outside: inline_xbrl.OutsideEps | None,
+    eps: inline_xbrl.EpsBase | None,
+    cover: inline_xbrl.CoverReading,
+) -> str:
+    if outside is None or eps is None or eps.figure is None:
+        return ""
+    if outside.how == "per-class":
+        names = " and ".join(f"{c.label} ({c.value:,.0f})" for c in outside.outside)
+        verb = "is" if len(outside.outside) == 1 else "are"
+        found = (
+            f" {names} {verb} outside the EPS share base: its per-class facts name no such class (the other "
+            f"classes sum to {outside.inside_sum:,.0f})."
+        )
+    else:
+        inside = " + ".join(f"{c.label} {c.value:,.0f}" for c in outside.inside)
+        found = (
+            f" The EPS share base {eps.figure:,.0f} is nearer part of the cover ({inside}) than its sum "
+            f"{cover.figure:,.0f}: a class may be outside earnings."
+        )
+    return f"{found} The sum is offered; confirm which classes carry economics before approving."
+
+
+def _shown_re(shown: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![\d.,]){re.escape(shown)}(?![\d]|[.,]\d)")
+
+
+def _inline_cover_passage(
+    text: str, ref: str, cover: inline_xbrl.CoverReading
+) -> LocatedPassage | None:
+    """The cover passage: the first place in the cleaned text where the cover's counts, as printed, appear in
+    document order within ``_COVER_SPAN`` (``_locate``'s first anchor hit was not the cover in 7 of 8 checked
+    filings: a convertible-notes or SAFE note). None when they are not found together."""
+    counts = sorted(
+        [*cover.counted, *([cover.total] if cover.total else [])], key=lambda c: c.offset
+    )
+    first, rest = counts[0].shown, [c.shown for c in counts[1:]]
+    for m in _shown_re(first).finditer(text):
+        last = m.end()
+        for shown in rest:
+            hit = _shown_re(shown).search(text, m.start(), m.start() + _COVER_SPAN)
+            if hit is None:
+                break
+            last = max(last, hit.end())
+        else:
+            excerpt = re.sub(r"\s+", " ", text[max(0, m.start() - 110) : last + 110]).strip()
+            return LocatedPassage(
+                kind="cover",
+                source_ref=ref,
+                anchor=first,
+                excerpt=f"… {excerpt} …",
+                offset=m.start(),
+            )
+    return None
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1275,18 +1476,24 @@ def extract_facts(
     tenk_date: date,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
     values_form: str = "10-Q",
+    tenq_raw: str | None = None,
+    tenq_filed: date | None = None,
 ) -> list[ExtractedFact]:
     """Pure, deterministic: (companyfacts + the two filing texts) -> the three candidate facts. Testable
     offline against cached fixtures (the form4-parser precedent — the caller owns fetching).
 
     ``values_form`` is the form of the VALUES filing (the ``tenq_*`` arguments, which since B1 can be a 10-K):
     the cash candidate's stored provenance kind names it (``10-k`` for a 10-K; it said ``10-q`` for every
-    value, the 18 audited 10-K citations included)."""
+    value, the 18 audited 10-K citations included).
+
+    ``tenq_raw`` is the values filing's RAW document (the one ``tenq_text`` was cleaned from) and ``tenq_filed`` its
+    filing date: a FLAG share count is re-read from its inline XBRL (``_inline_shares``). None (a text-only caller):
+    the candidates are exactly the companyfacts-and-text ones."""
     facts = companyfacts["facts"]
     cash_source = "10-k" if values_form == "10-K" else "10-q"
     return [
         _purity(facts, tenk_text, tenk_ref, tenk_date),
-        _shares(facts, tenq_text, tenq_ref, tenq_date),
+        _shares(facts, tenq_text, tenq_ref, tenq_date, raw=tenq_raw, filed=tenq_filed, cfg=cfg),
         _cash_burn(facts, tenq_text, tenq_ref, tenq_date, cfg, source=cash_source),
     ]
 
@@ -1301,19 +1508,42 @@ def companyfacts_url(cik: str | int) -> str:
     return f"{get_settings().sec_data_base}/api/xbrl/companyfacts/CIK{int(cik):010d}.json"
 
 
-def _read_filing(client: EdgarClient, cik: int, f: dict[str, str]) -> tuple[str, str, date]:
-    """One submissions row (``filings_of``'s shape) -> (document URL, cleaned text, period of report). The ONE
-    document request of a filing (cache-first, ``forms/`` = cached forever)."""
+@dataclass(frozen=True)
+class _Document:
+    """One read filing: its URL, the raw document (its inline XBRL), the cleaned text, the period of report and the
+    filing date (None when the submissions row has none readable)."""
+
+    url: str
+    raw: str
+    text: str
+    period_end: date
+    filed: date | None
+
+
+def _read_document(client: EdgarClient, cik: int, f: dict[str, str]) -> _Document:
+    """One submissions row (``filings_of``'s shape) -> the read document. The ONE document request of a filing
+    (cache-first, ``forms/`` = cached forever); the raw text is kept for the share count's inline-XBRL read.
+    """
     url = _doc_url(cik, f["accession"], f["primary_doc"])
-    text = clean_filing_text(
-        client.get_text(url, f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}")
-    )
+    raw = client.get_text(url, f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}")
     # The date threaded to the extractors is the PERIOD OF REPORT (quarter/year end), NOT the filing
     # date — their staleness gates and event_date stamps are period semantics. Threading the filing
     # date here made the shares AUTO gate unreachable live (a cover's "as of" date is always BEFORE
     # the filing date), mis-flagging every single-class name "dual-class". Falls back to the filing
     # date only when a submissions row carries no reportDate.
-    return url, text, date.fromisoformat(f.get("report_date") or f["filed"])
+    return _Document(
+        url,
+        raw,
+        clean_filing_text(raw),
+        date.fromisoformat(f.get("report_date") or f["filed"]),
+        parse_filing_date(f.get("filed")),
+    )
+
+
+def _read_filing(client: EdgarClient, cik: int, f: dict[str, str]) -> tuple[str, str, date]:
+    """``_read_document`` as (document URL, cleaned text, period of report)."""
+    d = _read_document(client, cik, f)
+    return d.url, d.text, d.period_end
 
 
 def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, date] | None:
@@ -1418,22 +1648,24 @@ def extract_for_security(
     purity_row = tenk or tenq  # purity / segment source (prefer the 10-K; fall back to the 10-Q)
     if values_only:
         purity_row = values_row
-    v = _read_filing(client, cik, values_row)
+    v = _read_document(client, cik, values_row)
     p = (
-        v
+        (v.url, v.text, v.period_end)
         if purity_row["accession"] == values_row["accession"]
         else _read_filing(client, cik, purity_row)
     )
     return extract_facts(
         cf,
-        v[1],
+        v.text,
         p[1],
-        tenq_ref=v[0],
+        tenq_ref=v.url,
         tenk_ref=p[0],
-        tenq_date=v[2],
+        tenq_date=v.period_end,
         tenk_date=p[2],
         cfg=cfg,
         values_form="10-K" if values_row is tenk else "10-Q",
+        tenq_raw=v.raw,
+        tenq_filed=v.filed,
     )
 
 
@@ -1497,6 +1729,8 @@ def extract_purity_for_security(client: EdgarClient, cik: str | int) -> Extracti
 
 
 __all__ = [
+    "CLASS_OUTSIDE_EPS",
+    "COMPANYFACTS_BEHIND",
     "COVER_AFTER_FILING",
     "RefusedCover",
     "cover_after_filing",

@@ -2,9 +2,10 @@
 
 The default reply is the verdict and the counts: the cron verdict and its alarms, the record's edge, the newest
 finished pass and any unfinished one, the newest backup, the identity pair, the one-line jobs and the panel counts. A
-section pages one panel's rows whole, in the API's order. Every value is copied from the API's JSON; a thesis outside
-the caller's workspace already arrives as ``workspace <8 hex> . thesis <8 hex>`` and is never resolved here. A health
-readout: it never feeds a call.
+section pages one panel's rows whole, in the API's order (a never-priced row's Form 15 evidence without its EDGAR
+links, which the Admin panel carries). Every value is copied from the API's JSON; a thesis outside the caller's
+workspace already arrives as ``workspace <8 hex> . thesis <8 hex>`` and is never resolved here. A health readout: it
+never feeds a call. A stale row's Massive.com evidence (``massive_ref``, W6-4) keeps only its stated fields.
 """
 
 from __future__ import annotations
@@ -67,6 +68,25 @@ PRICE_REPAIR_LISTS = (
 MISSED_SHOWN = 10
 NEWLY_STALE_SHOWN = 10
 PROBLEMS_SHOWN = 3
+STALE_LINES_SHOWN = 5
+# W6-3a — the Massive.com tape cross-check's scalars (``missing_closes.crosscheck``); its rows page as a list
+CROSSCHECK_KEYS = (
+    "session",
+    "status",
+    "note",
+    "error",
+    "massive_status",
+    "tolerance",
+    "judged",
+    "compared",
+    "disagree",
+    "vendor_gap",
+    "no_trade",
+    "unmapped",
+    "line",
+    "disagree_line",
+    "stale_lines",
+)
 
 
 def _pick(row: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
@@ -118,6 +138,10 @@ def _default(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
     else:
         out = _pick(tape, ("asof", "ran_at", "stale_days", "fund_shares_stale_days"))
         out["stale"] = len(tape.get("stale") or [])
+        # W6-3a — the stale price rows Massive.com shows traded that session (a vendor gap, not a rename)
+        out["massive_traded"] = sum(
+            1 for s in tape.get("stale") or [] if isinstance(s, dict) and s.get("massive_traded")
+        )
         head(out, "newly_stale", tape.get("newly_stale"), NEWLY_STALE_SHOWN)
         reply["tape"] = out
     defects = payload.get("split_defects")
@@ -137,12 +161,23 @@ def _default(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
         out = {"asof": repairs.get("asof")}
         for key in ("renamed", "unpriceable", "successor", "limitations", "closed"):
             out[key] = len(repairs.get(key) or [])
+        # W4-2 — the never-priced names whose company filed a Form 15 (their rows carry the evidence)
+        out["deregistered"] = sum(
+            1
+            for u in repairs.get("unpriceable") or []
+            if isinstance(u, dict) and u.get("deregistered")
+        )
         reply["price_repairs"] = out
     lines: dict[str, Any] = {}
     for name, keys in LINES.items():
         line = payload.get(name)
         if line is not None:
             lines[name] = _pick(line, keys)
+    cc = _crosscheck(payload.get("missing_closes"))
+    if cc is not None:
+        out = _pick(cc, ("line", "disagree_line"))
+        head(out, "stale_lines", cc.get("stale_lines"), STALE_LINES_SHOWN)
+        lines["tape_crosscheck"] = out
     reply["lines"] = lines
     for key in SCALARS:
         reply[key] = payload.get(key)
@@ -150,8 +185,46 @@ def _default(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
     return fit(reply, BUDGET, [])
 
 
+def _deregistered(row: Any) -> Any:
+    """W4-2 — an unpriceable row with its ``deregistered`` block cut to what the steward quotes: the Form 15's
+    form, date and accession, and each 8-K event's form, date, accession and SEC item titles. The EDGAR links
+    and the item codes stay on the Admin panel (the reply budget). Any other row is copied whole."""
+    d = row.get("deregistered") if isinstance(row, dict) else None
+    if not isinstance(d, dict):
+        return row
+    events = [
+        {k: e.get(k) for k in ("form", "filed", "accession", "item_titles")}
+        for e in d.get("events") or []
+        if isinstance(e, dict)
+    ]
+    return {**row, "deregistered": {**_pick(d, ("form", "filed", "accession")), "events": events}}
+
+
+def _massive(row: Any) -> Any:
+    """W6-4 — a stale row with its ``massive_ref`` cut to what Massive.com stated (the reply budget): a null field
+    and a null block are dropped, and so is ``symbol`` when it is the row's own ticker. Any other row is copied
+    whole."""
+    if not isinstance(row, dict) or "massive_ref" not in row:
+        return row
+    ref = row["massive_ref"]
+    out = {k: v for k, v in row.items() if k != "massive_ref"}
+    if isinstance(ref, dict):
+        out["massive_ref"] = {
+            k: v
+            for k, v in ref.items()
+            if v is not None and not (k == "symbol" and v == row.get("ticker"))
+        }
+    return out
+
+
 def _scalars(panel: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
     return _pick(panel, keys)
+
+
+def _crosscheck(panel: Any) -> dict[str, Any] | None:
+    """W6-3a — the missing-close panel's Massive.com cross-check block, or ``None`` (absent / not produced)."""
+    cc = panel.get("crosscheck") if isinstance(panel, dict) else None
+    return cc if isinstance(cc, dict) else None
 
 
 def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
@@ -187,7 +260,7 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
                 panel, ("asof", "ran_at", "stale_days", "fund_shares_stale_days", "newly_stale")
             )
         )
-        lists = [("stale", panel.get("stale") or [])]
+        lists = [("stale", [_massive(r) for r in panel.get("stale") or []])]
     elif section == "price_repairs":
         reply.update(
             _scalars(
@@ -205,6 +278,7 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
             )
         )
         lists = [(k, panel.get(k) or []) for k in PRICE_REPAIR_LISTS]
+        lists = [(k, [_massive(_deregistered(r)) for r in rows]) for k, rows in lists]
     elif section == "split_defects":
         reply.update(_scalars(panel, ("asof", "ran_at", "window_days", "newly_flagged", "error")))
         lists = [("defects", panel.get("defects") or []), ("settled", panel.get("settled") or [])]
@@ -224,9 +298,13 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
                 ),
             )
         )
+        cc = _crosscheck(panel)
+        reply["crosscheck"] = _pick(cc, CROSSCHECK_KEYS) if cc is not None else None
         lists = [
             ("missing", panel.get("missing") or []),
             ("still_missing", panel.get("still_missing") or []),
             ("arrived", panel.get("arrived") or []),
+            # W6-3a — every company the cross-check names, each with its ``kind``
+            ("crosscheck_rows", (cc or {}).get("rows") or []),
         ]
     return paged(reply, lists, req.cursor, section)

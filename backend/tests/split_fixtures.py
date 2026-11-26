@@ -6,6 +6,8 @@
 - ``edgar_cache`` — a tmp EDGAR cache dir holding the real filings + submissions indexes under the keys the
   EDGAR client reads (``forms/<acc>/<acc>.txt``, ``submissions/CIK<10>.json``).
 - ``polygon_source`` — a ``PolygonSplitSource`` whose socket is a fake serving the real pages (no network).
+- ``V1_PAGE`` / ``v1_source`` — the real ``/stocks/v1/splits`` page (W6-1: each row with Massive.com's label) and a
+  source serving it behind a fake socket.
 - ``seed_union`` — the basket the pipeline/API tests run on: real tickers / CIKs, and the 8-K item rows the
   nightly would have stored for them (each filing's REAL items and filed date, from its SGML header).
 """
@@ -84,6 +86,38 @@ def polygon_source(
         today=lambda: today,
     )
     return src, calls
+
+
+# W6-1: the 2026-11-25 ``/stocks/v1/splits`` pull from 2024-10-01 (3,521 rows, one page), trimmed to the 32 rows of
+# the three v3 pages above (the same Massive.com ids), GAME and NXL (S4), and the label cases (README)
+V1_PAGE = FX / "polygon" / "v1_2026-11-25.json"
+
+
+def v1_source(
+    tmp_path: Path, *, today: date = date(2026, 10, 20)
+) -> tuple[PolygonSplitSource, list]:
+    """``(source, requested_urls)`` — the fake socket serves the v1 page for any request (no network)."""
+    body = V1_PAGE.read_text(encoding="utf-8")
+    calls: list[str] = []
+
+    def fetch(url: str) -> str:
+        calls.append(url)
+        return body
+
+    src = PolygonSplitSource(
+        api_key="test-key-not-real",
+        cache_dir=tmp_path / f"polygon_v1_{today.isoformat()}",
+        fetch=fetch,
+        today=lambda: today,
+    )
+    return src, calls
+
+
+def v1_row(ticker: str, execution_date: str) -> PolygonEvidence:
+    """One real row of the v1 page (Massive.com's label on it)."""
+    rows, _, _ = parse_splits_page(V1_PAGE.read_text(encoding="utf-8"))
+    d = date.fromisoformat(execution_date)
+    return next(r for r in rows if r.ticker == ticker and r.execution_date == d)
 
 
 # --- the EDGAR cache --------------------------------------------------------------------------------------------
