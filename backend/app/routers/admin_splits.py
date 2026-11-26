@@ -344,13 +344,15 @@ class AdminSplitTapeBarOut(BaseModel):
     """One stored session in a split's tape window. ``close`` / ``volume`` = the bar as the vendor FIRST served it
     (the version ``tape_at`` reads: the as-traded print); ``newest_close`` = its newest stored version (the store's
     scale today); ``restated`` = the two closes differ (re-based later: by the vendor, or by the split list's own
-    rescale of the stored tape)."""
+    rescale of the stored tape); ``filled`` = the vendor never served this session: the bar is Massive.com's raw bar
+    the price leg filled in (W6-3b), never read as split evidence."""
 
     d: date
     close: float | None = None
     volume: float | None = None
     newest_close: float | None = None
     restated: bool = False
+    filled: bool = False
 
 
 class AdminSplitTapeOut(BaseModel):
@@ -830,6 +832,7 @@ def split_tape_window(
                 volume=b.volume,
                 newest_close=b.newest_close,
                 restated=b.restated,
+                filled=b.filled,
             )
             for b in bars
         ],

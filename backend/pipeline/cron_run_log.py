@@ -305,6 +305,14 @@ def _split_reads(results) -> dict[str, dict]:
     return split_reads_of(x for r in results for x in getattr(r, "ingested", None) or ())
 
 
+def _price_fills(results) -> dict[str, dict]:
+    """W6-3b — the pass's fills per name (``ingest_thesis.fills_of``, deduped across theses; imported lazily for
+    the same reason as ``_split_reads``)."""
+    from pipeline.ingest_thesis import fills_of
+
+    return fills_of(x for r in results for x in getattr(r, "ingested", None) or ())
+
+
 def previous_split_reads(*, base_dir: Path | None = None) -> dict[str, dict[str, int]] | None:
     """``{security_id: {reason: n}}`` — the split list's per-name reads on the most recent LIVE, FINISHED pass
     that recorded them (``split_reads``): the baseline the pass summary compares against, so a divide-back
@@ -564,6 +572,10 @@ def build_run_payload(
         # baseline the next pass reads (``previous_split_reads``) so a standing divide-back is not re-announced
         # nightly (the re-review's N2). Readers use `.get` (an older artifact lacks it).
         "split_reads": _split_reads(results),
+        # W6-3b — the sessions the vendor served no close for that Massive.com's raw bar FILLED this pass, per name
+        # (``ingest_thesis.fills_of``: ``{security_id: {ticker, dates, split, deferred, error}}``; a name whose range
+        # read was deferred past the night's cap or failed is listed too). `{}` on a normal night; readers use `.get`.
+        "price_fills": _price_fills(results),
         # T2 — the rename probe: splice-verified successor recommendations (pending; never applied)
         **(rename_probe or RenameProbe()).payload(),
         # T7 — the successor-CIK detector: members now filing under another CIK (pending; never applied)

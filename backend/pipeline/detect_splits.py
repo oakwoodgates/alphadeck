@@ -147,13 +147,17 @@ def tape_at(
 ) -> TapeEvidence | None:
     """The stored tape at ``session``: that bar and the stored bar before it (within ``TAPE_PRIOR_MAX_DAYS``),
     each its FIRST-SERVED version (the earliest recorded — the vendor's as-traded print, before any later
-    re-basing). ``None`` when either bar is missing or carries no positive close. A READ, never a write.
+    re-basing). A version Massive.com FILLED (``price_bar_fill``, W6-3b) is never the vendor's print and never
+    split evidence (decision W6-c): it is skipped, so a date only a fill holds reads as no bar. ``None`` when
+    either bar is missing or carries no positive close. A READ, never a write.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT ON (d) d, close, volume, recorded_at FROM fact_price_eod "
-            "WHERE tenant_id = %s AND security_id = %s AND d BETWEEN %s AND %s "
-            "ORDER BY d, recorded_at, id",
+            "SELECT DISTINCT ON (p.d) p.d, p.close, p.volume, p.recorded_at FROM fact_price_eod p "
+            "WHERE p.tenant_id = %s AND p.security_id = %s AND p.d BETWEEN %s AND %s "
+            "AND NOT EXISTS (SELECT 1 FROM price_bar_fill f WHERE f.tenant_id = p.tenant_id "
+            "AND f.security_id = p.security_id AND f.d = p.d AND f.bar_recorded_at = p.recorded_at) "
+            "ORDER BY p.d, p.recorded_at, p.id",
             (tenant_id, security_id, session - timedelta(days=TAPE_PRIOR_MAX_DAYS), session),
         )
         rows = {r["d"]: r for r in cur.fetchall()}
@@ -183,12 +187,15 @@ def tape_at(
 class TapeBar:
     """One stored session of a tape window: the bar as the vendor FIRST served it (``close`` / ``volume``: the
     version ``tape_at`` reads, the as-traded print) and its NEWEST stored close (the store's scale today).
+    ``filled`` (W6-3b): the vendor never served this session — the bar shown is Massive.com's fill
+    (``price_bar_fill``), which ``tape_at`` never reads as evidence.
     """
 
     d: date
     close: float | None
     volume: float | None
     newest_close: float | None
+    filled: bool = False
 
     @property
     def restated(self) -> bool:
@@ -202,7 +209,8 @@ def tape_window(
 ) -> list[TapeBar]:
     """The stored tape around ``around`` (platform fixes W5-1): up to ``sessions`` stored dates before it and up to
     ``sessions`` from it on (``around`` itself first, when stored), oldest first — fewer where the tape ends. Each
-    date's FIRST-SERVED version (the ``tape_at`` pick) beside its newest. A READ, never a write.
+    date's FIRST-SERVED version (the ``tape_at`` pick: a Massive.com fill skipped) beside its newest; a date only
+    a fill holds shows the fill, marked ``filled``. A READ, never a write.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -211,12 +219,15 @@ def tape_window(
             "AND d < %(a)s ORDER BY d DESC LIMIT %(n)s) UNION ALL "
             "(SELECT DISTINCT d FROM fact_price_eod WHERE tenant_id = %(t)s AND security_id = %(s)s "
             "AND d >= %(a)s ORDER BY d LIMIT %(n)s)), "
-            "versions AS (SELECT p.d, p.close, p.volume, "
-            "row_number() OVER (PARTITION BY p.d ORDER BY p.recorded_at, p.id) AS first_rank, "
+            "versions AS (SELECT p.d, p.close, p.volume, (b.id IS NOT NULL) AS filled, "
+            "row_number() OVER (PARTITION BY p.d ORDER BY (b.id IS NOT NULL), p.recorded_at, p.id) "
+            "AS first_rank, "
             "row_number() OVER (PARTITION BY p.d ORDER BY p.recorded_at DESC, p.id DESC) AS newest_rank "
             "FROM fact_price_eod p JOIN days ON days.d = p.d "
+            "LEFT JOIN price_bar_fill b ON b.tenant_id = p.tenant_id AND b.security_id = p.security_id "
+            "AND b.d = p.d AND b.bar_recorded_at = p.recorded_at "
             "WHERE p.tenant_id = %(t)s AND p.security_id = %(s)s) "
-            "SELECT f.d, f.close, f.volume, n.close AS newest_close FROM versions f "
+            "SELECT f.d, f.close, f.volume, f.filled, n.close AS newest_close FROM versions f "
             "JOIN versions n ON n.d = f.d AND n.newest_rank = 1 WHERE f.first_rank = 1 ORDER BY f.d",
             {"t": tenant_id, "s": security_id, "a": around, "n": sessions},
         )
@@ -231,6 +242,7 @@ def tape_window(
             close=_f(r["close"]),
             volume=_f(r["volume"]),
             newest_close=_f(r["newest_close"]),
+            filled=bool(r["filled"]),
         )
         for r in rows
     ]

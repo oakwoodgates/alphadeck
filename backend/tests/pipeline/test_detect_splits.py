@@ -549,6 +549,129 @@ def test_with_the_setting_off_a_distribution_waits_for_review_as_before(db, tmp_
     assert v.status == STATUS_NEEDS_REVIEW and v.note.startswith("Massive.com only")
 
 
+# --- W6-3b: a Massive.com fill is never split evidence (decision W6-c) -------------------------------------------
+
+
+def _fill(d: date, close: str, volume: str):
+    """One Massive.com fill (``gap_fill.FillBar``); the test stores it as the price leg does: the bar, then its
+    ``price_bar_fill`` row (``record_fills``), in one transaction."""
+    from fractions import Fraction
+
+    from ingest.prices.gap_fill import REASON_SPLIT_WINDOW, FillBar
+
+    return FillBar(
+        d=d,
+        open=None,
+        high=None,
+        low=None,
+        close=Decimal(close),
+        volume=Decimal(volume),
+        raw_close=Decimal(close),
+        raw_volume=Decimal(volume),
+        vendor_symbol="SNDK",
+        factor=Fraction(1),
+        reason=REASON_SPLIT_WINDOW,
+    )
+
+
+def test_tape_at_skips_a_massive_fill_and_reads_the_vendor_s_later_print(db):
+    """SNDK's real closes (the store's 11-19 = 94.395, Massive.com's raw 11-20 = 79.24 on 127,860,864.911014): with only
+    the fill holding 11-20 the tape reads NO bar there (never evidence); once the vendor serves 11-20 (STATED: the
+    same close, the volume as Yahoo rounds it) its print is the first-served one. The window marks the fill.
+    """
+    from ingest.prices.eod_loader import ingest_prices
+    from ingest.prices.ingest_security import record_fills
+
+    nov18, nov19, nov20 = date(2026, 11, 18), date(2026, 11, 19), date(2026, 11, 20)
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "SNDK", "2025-01-01"),
+        )
+    bar = {"open": None, "high": None, "low": None}
+    ingest_prices(
+        db,
+        sid,
+        [
+            {**bar, "d": nov18, "close": Decimal("97.0275"), "volume": Decimal(103506816)},
+            {**bar, "d": nov19, "close": Decimal("94.395"), "volume": Decimal(119852712)},
+        ],
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    db.commit()
+    fill = _fill(nov20, "79.24", "127860864.911014")
+    ingest_prices(db, sid, [fill.bar()], tenant_id=DEFAULT_TENANT_ID)
+    record_fills(db, sid, [fill], tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+
+    assert ds.tape_at(db, tenant_id=DEFAULT_TENANT_ID, security_id=sid, session=nov20) is None
+    win = ds.tape_window(db, tenant_id=DEFAULT_TENANT_ID, security_id=sid, around=nov20, sessions=3)
+    assert [(b.d, b.close, b.filled) for b in win] == [
+        (nov18, 97.0275, False),
+        (nov19, 94.395, False),
+        (nov20, 79.24, True),
+    ]
+
+    ingest_prices(
+        db,
+        sid,
+        [{**bar, "d": nov20, "close": Decimal("79.24"), "volume": Decimal(127860900)}],
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    db.commit()
+    tape = ds.tape_at(db, tenant_id=DEFAULT_TENANT_ID, security_id=sid, session=nov20)
+    assert tape is not None
+    assert (tape.prior, tape.prior_close, tape.close, tape.volume) == (
+        nov19,
+        94.395,
+        79.24,
+        127860900.0,  # the vendor's print, never the fill's 127,860,864.911014
+    )
+    win = ds.tape_window(db, tenant_id=DEFAULT_TENANT_ID, security_id=sid, around=nov20, sessions=3)
+    assert [(b.d, b.volume, b.filled, b.restated) for b in win][-1] == (
+        nov20,
+        127860900.0,
+        False,
+        False,
+    )
+
+
+def test_tape_at_reads_past_a_fill_on_the_prior_session(db):
+    """A fill on the session BEFORE: the prior bar is the vendor's older one (within the 14-day reach)."""
+    from ingest.prices.eod_loader import ingest_prices
+    from ingest.prices.ingest_security import record_fills
+
+    nov19, nov20, nov23 = date(2026, 11, 19), date(2026, 11, 20), date(2026, 11, 23)
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "SNDK", "2025-01-01"),
+        )
+    bar = {"open": None, "high": None, "low": None}
+    ingest_prices(
+        db,
+        sid,
+        [{**bar, "d": nov19, "close": Decimal("94.395"), "volume": Decimal(119852712)}],
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    db.commit()
+    fill = _fill(nov20, "79.24", "127860864.911014")
+    ingest_prices(db, sid, [fill.bar()], tenant_id=DEFAULT_TENANT_ID)
+    record_fills(db, sid, [fill], tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    ingest_prices(
+        db,
+        sid,
+        [{**bar, "d": nov23, "close": Decimal("87.71"), "volume": Decimal(114032600)}],
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    db.commit()
+    tape = ds.tape_at(db, tenant_id=DEFAULT_TENANT_ID, security_id=sid, session=nov23)
+    assert tape is not None and (tape.prior, tape.prior_close) == (nov19, 94.395)
+
+
 # --- W6-1: Massive.com's label is evidence on the list, never a reason to append ---------------------------------
 
 
