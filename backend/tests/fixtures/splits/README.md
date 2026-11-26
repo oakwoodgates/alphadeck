@@ -132,3 +132,22 @@ screen, the restatement screen; `wide=True` for a primary document) AND the 2026
 - `polygon/rows_list_2026-10-24.json` — the Massive.com rows prod's split list CARRIES for LGHL 2025-03-26, MEDS,
   DFNS, ZNB, OFAL and SDCO (its 1-for-500 of 2025-04-24, listed under its FORMER ticker HLLK) (its stored `polygon_*` columns: Massive.com's own id, ticker, execution date and ratio, as the
   backfill stored them from the 2026-10-20/22 pulls), copied — not typed — into Massive.com's page shape.
+
+The date-sentence fixes (2026-11-25, W2-5) added nine full submissions, fetched from EDGAR
+(`https://www.sec.gov/Archives/edgar/data/<cik>/<acc-no-dashes>/<acc>.txt`) through the steward review's paced,
+cached reader and trimmed to the SGML header plus the documents the extractor reads, each kept WHOLE and
+byte-exact (nothing inside a kept document is dropped, so every reading of the trimmed file is the full
+submission's). On the pre-change extractor each reproduced the reading prod's split list stored
+(`docs/temp/platform-fixes-w0-w2-plan-2026-11-25.md` §2):
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001493152-25-028222 | COPR | 8-K (8.01, 9.01) | 1-for-20 "effective on the OTC Markets at the open of business on December 15, 2025"; the release's dateline 12-16 |
+| 0001493152-25-018165 | NVA | 6-K | an ADS ratio change (4 additional ADSs for each ADS); "The first day of trading under the new ratio is expected to be October 29, 2025" |
+| 0001015820-25-000012 | QGEN | 6-K | a 36 -> 35 consolidation; "the last trading day of the prior ISIN" 01-28, trading from 2025-01-29 |
+| 0001178913-26-004186 | IMCC | 6-K | 30 -> 1, post-consolidation trading 2026-08-27; the risk factors' "year ended December 31, 2025" |
+| 0001213900-26-113338 | SCAG | 6-K | an ADS ratio change to 1:15, effective 2026-10-27; the dateline 10-22 in a headline naming the "Effective Date" |
+| 0001213900-26-122017 | PBM | 6-K | interim results restating its 6.25:1 of 2026-02-02; "not yet effective for the period ended September 30, 2026" |
+| 0001493152-26-022840 | EZRA | 8-K (5.03, 7.01, 9.01) | 1-for-40, split-adjusted trading 2026-05-18; "the June 10, 2026 compliance deadline" |
+| 0001213900-26-093996 | VEEA | 8-K (1.01, 2.03, 3.03, 5.03, 7.01, 9.01) | 1-for-20, effective 4:30 p.m. 08-28, trading 2026-08-31 (written "August 31 , 2026") |
+| 0001493152-26-049433 | ALPS | 6-K | 5 -> 1; "The Authorized Share Capital Changes will be effective at market open on November 9, 2026" (tied to the split only by a defined term: still no date) |
