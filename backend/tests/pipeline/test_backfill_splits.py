@@ -28,7 +28,9 @@ from domain.splits import (
     is_applicable,
 )
 from ingest.edgar.client import EdgarClient
+from ingest.edgar.split_filing import KnownSplit
 from ingest.edgar.submissions import parse_item_codes
+from ingest.polygon_splits import PolygonSplitSource
 from pipeline import backfill_splits as bf
 from repositories import split_history_repo, split_repo
 from tests.split_801_fixtures import (
@@ -588,6 +590,134 @@ def test_the_backfill_sets_a_distribution_aside_and_a_rerun_appends_nothing(db, 
     assert split_repo.count_rows(db) == 1
 
 
+# --- W2-7 (2026-11-25): every filing is read knowing the splits CONFIRMED on the list ------------------------------
+
+_CONFIRMED_GPUS = (
+    bf.ConfirmedSplit(Decimal(35), Decimal(1), date(2024, 11, 25), "0001214659-24-018757"),
+    bf.ConfirmedSplit(Decimal(5), Decimal(1), date(2026, 8, 25), "0001214659-26-010099"),
+)
+
+
+def test_a_filing_is_read_knowing_the_confirmed_splits_in_effect_by_its_date():
+    """GPUS's two splits confirmed on prod's list (each with the 8-K that confirmed it): its 8-K of 2024-11-26 is read
+    knowing the 1-for-35 (first session the day before), never the 1-for-5 of 2026; the 8-K a split rests on is
+    never read as restating it; a split counts from its first session's day."""
+    k35 = KnownSplit(Decimal(35), Decimal(1), date(2024, 11, 25))
+    ref = bf.FilingRef("0001214659-24-019590", "8-K", date(2024, 11, 26), ("7.01", "9.01"))
+    assert bf.known_for(ref, _CONFIRMED_GPUS) == (k35,)
+    own = bf.FilingRef("0001214659-24-018757", "8-K", date(2024, 11, 26), ("8.01",))
+    assert bf.known_for(own, _CONFIRMED_GPUS) == ()
+    on_the_day = bf.FilingRef("a", "6-K", date(2024, 11, 25), None)
+    assert bf.known_for(on_the_day, _CONFIRMED_GPUS) == (k35,)
+    assert bf.known_for(bf.FilingRef("b", "6-K", date(2024, 11, 24), None), _CONFIRMED_GPUS) == ()
+    later = bf.FilingRef("c", "10-Q", date(2026, 11, 12), None)
+    assert [k.ratio_from for k in bf.known_for(later, _CONFIRMED_GPUS)] == [Decimal(35), Decimal(5)]
+    # the reader's key and the memo's: unchanged with none, apart for each set
+    assert bf._known_tag(()) == ""
+    assert bf._known_tag((k35,)).startswith(".known-")
+    assert bf._known_tag((k35,)) != bf._known_tag(bf.known_for(later, _CONFIRMED_GPUS))
+
+
+GPUS_CIK = "0000896493"
+GPUS_8K = ("0001214659-24-019590", "8-K", date(2024, 11, 26), ["7.01", "9.01"])
+# the Massive.com row prod's split list carries for GPUS on 2024-12-13 (its stored polygon_* columns, as the steward
+# review read them on 2026-11-25): a 1.139-for-1 "split" — the record date of a special dividend of preferred stock
+GPUS_ROW = {
+    "execution_date": "2024-12-13",
+    "id": "E7ddab3bcad6fba17213ca85804fa7dae06d13c39b288f766cd3ecd88318c08ac",
+    "split_from": 1,
+    "split_to": 1.139,
+    "ticker": "GPUS",
+}
+
+
+def _gpus_backfill(db, tmp_path, *, asof: date) -> bf.BackfillResult:
+    body = json.dumps({"results": [GPUS_ROW], "status": "OK"})
+    source = PolygonSplitSource(
+        api_key="test-key-not-real",
+        cache_dir=tmp_path / f"polygon_gpus_{asof.isoformat()}",
+        fetch=lambda url: body,
+        today=lambda: asof,
+    )
+    return bf.backfill_splits(
+        db,
+        polygon=source,
+        edgar=EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False),
+        since=bf.DEFAULT_SINCE,
+        asof=asof,
+        apply=False,
+        allow_live=True,  # the fake Massive.com socket; the EDGAR client is cache-only
+        tickers=["GPUS"],
+    )
+
+
+def _gpus_1_for_35_confirmed(db, sid) -> None:
+    """GPUS's 1-for-35 of 2024-11-25 as prod's list holds it: confirmed by its 8-K of 2024-11-12 and Massive.com."""
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=date(2024, 11, 25),
+        values={
+            "effective_date": date(2024, 11, 25),
+            "ratio_from": Decimal(35),
+            "ratio_to": Decimal(1),
+            "status": STATUS_CONFIRMED,
+            "confirmed_via": VIA_AUTO,
+            "value_source": "both",
+            "sec_accession": "0001214659-24-018757",
+            "sec_form": "8-K",
+            "sec_filed": date(2024, 11, 12),
+            "sec_url": "https://www.sec.gov/Archives/edgar/data/896493/000121465924018757/"
+            "0001214659-24-018757-index.htm",
+            "sec_effective_date": date(2024, 11, 25),
+            "sec_date_kind": "trading",
+            "sec_ratio_from": Decimal(35),
+            "sec_ratio_to": Decimal(1),
+            "polygon_id": "P5f3ae5139b41e11bf6ae70ea59dea64f66cd2b68c782af8210ed291b62f9f5fd",
+            "polygon_ticker": "GPUS",
+            "polygon_execution_date": date(2024, 11, 25),
+            "polygon_split_from": Decimal(35),
+            "polygon_split_to": Decimal(1),
+            "note": "SEC 8-K 0001214659-24-018757 (filed 2024-11-12): 1-for-35 reverse split, first session "
+            "2024-11-25 and Massive.com agree. 2 SEC filings state it; the earliest is kept.",
+            "valid_from": date(2024, 11, 12),
+        },
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+
+
+def test_gpus_a_split_on_the_list_restated_no_longer_keeps_a_distribution_in_review(db, tmp_path):
+    """GPUS 2024-12-13 (plan §2): its window holds the 8-K of 2024-11-26, which restates \"the one-for-thirty-five
+    reserve stock split that was effectuated on November 25, 2024\" — with no direction word, an abstain, so D2's
+    \"no SEC filing mentions a split\" never held and the distribution waited for review. Read knowing the 1-for-35
+    the list holds confirmed, the 8-K restates a past split (no news): the row is set aside."""
+    sid = seed_member(db, "GPUS", GPUS_CIK, [GPUS_8K])
+    asof = date(2026, 11, 25)
+    (before,) = _gpus_backfill(db, tmp_path, asof=asof).planned
+    assert before.decision.status == STATUS_NEEDS_REVIEW
+    assert before.decision.note.startswith(
+        "Massive.com only to confirm: SEC 8-K 0001214659-24-019590 (filed 2024-11-26) mentions a split but the "
+        "extractor abstained — a ratio is stated but not whether the split is reverse or forward."
+    )
+    _gpus_1_for_35_confirmed(db, sid)
+    (after,) = _gpus_backfill(db, tmp_path, asof=asof).planned
+    d = after.decision
+    assert (d.key_date, d.status, d.sec, d.value_source) == (
+        date(2024, 12, 13),
+        STATUS_REJECTED,
+        None,
+        "polygon",
+    )
+    assert d.note.startswith(
+        "Set aside automatically: a 1.139-for-1 forward 'split' listed by Massive.com only"
+    )
+    assert (after.action, after.filings_read, after.filings_unread) == (bf.APPEND, 1, 0)
+    assert split_repo.count_rows(db) == 1  # a dry run: only the confirmed 1-for-35 is stored
+
+
 # --- W6-1: the reader on /stocks/v1/splits — Massive.com's label is evidence, never content ------------------------
 
 
@@ -700,7 +830,7 @@ class _GpusReader:
     def wide_refs(self, m, lo, hi):
         return []
 
-    def read(self, m, refs):
+    def read(self, m, refs, *, confirmed=()):
         return ([_GPUS_8K] if refs else []), 0
 
 
@@ -724,7 +854,9 @@ def test_the_label_override_is_read_from_the_settings(monkeypatch):
         get_settings.cache_clear()
 
 
-def test_the_plan_sets_gpus_aside_by_its_label_and_keeps_its_8k_as_the_evidence():
+def test_the_plan_sets_gpus_aside_by_its_label_and_keeps_its_8k_as_the_evidence(monkeypatch):
+    # no DB here: the list holds no confirmed split for GPUS (W2-7's read of it, stubbed)
+    monkeypatch.setattr(bf, "confirmed_splits", lambda conn, m: ())
     row = v1_row("GPUS", "2024-12-13")
     m = _gpus_member()
     for flag, status in ((True, STATUS_REJECTED), (False, STATUS_NEEDS_REVIEW)):
