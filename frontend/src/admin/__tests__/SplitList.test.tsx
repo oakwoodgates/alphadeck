@@ -767,6 +767,16 @@ describe("SplitList", () => {
     expect(screen.getByTestId("adm-splits-jumps-error")).toHaveTextContent("The split-shaped jump check failed: OperationalError: x");
   });
 
+  it("names Massive.com's own label beside its ratio when the row carries one (W6-1)", () => {
+    const labeled = { ...MI, polygon: { ...MI.polygon, adjustment_type: "stock_dividend" } };
+    serve({ needs_review: [labeled], announced: [], confirmed: [], set_aside: [], total: 1 });
+    render(<SplitList />);
+    const row = screen.getByTestId("adm-split-review-row");
+    expect(within(row).getByTestId("adm-split-polygon-says")).toHaveTextContent(
+      "Massive.com lists 1-for-80 reverse split, first trading 2026-05-18; it labels it a stock dividend.",
+    );
+  });
+
   it("shows a failed read and a refused action", () => {
     h.q = { data: undefined, isError: true, error: { detail: "boom" } };
     const { unmount } = render(<SplitList />);

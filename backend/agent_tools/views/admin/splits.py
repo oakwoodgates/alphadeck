@@ -13,6 +13,7 @@ confirmed). ``name`` is the shared master's company name, which the Admin panel 
 with cited values (``value_source`` ``steward``) carries the API's ``cited_url`` and ``tape_override`` in every reply.
 An open entry (needs review, announced) carries the API's ``first_bar`` (the first stored bar: a split on or before it
 adjusts no tape) and ``shares_rescaled`` (the share count a confirm puts on the new scale) in every reply, when stated.
+The brief ``polygon`` block carries Massive.com's ``adjustment_type`` label when the API states one (W6-1).
 """
 
 from __future__ import annotations
@@ -97,7 +98,12 @@ def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
     out["polygon"] = (
         None
         if poly is None
-        else {"execution_date": poly.get("execution_date"), "ratio_label": poly.get("ratio_label")}
+        else {
+            "execution_date": poly.get("execution_date"),
+            "ratio_label": poly.get("ratio_label"),
+            # W6-1: Massive.com's own label, copied when stated
+            **({"adjustment_type": poly["adjustment_type"]} if poly.get("adjustment_type") else {}),
+        }
     )
     out["confirm_options"] = [o.get("label") for o in e.get("confirm_options") or []]
     out["actions"] = e.get("actions") or []

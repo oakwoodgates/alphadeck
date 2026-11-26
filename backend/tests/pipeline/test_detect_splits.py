@@ -39,7 +39,7 @@ from tests.split_801_fixtures import (
     seed_member,
 )
 from tests.split_801_fixtures import SINCE as SINCE_8_01
-from tests.split_fixtures import edgar_cache
+from tests.split_fixtures import edgar_cache, v1_source
 from tests.split_s4_fixtures import CIKS, FILINGS, ROWS, tape_rows
 
 
@@ -112,6 +112,14 @@ def _run(db, tmp_path, *, asof: date, polygon: bool = True, tickers=None) -> ds.
         det.result.polygon = "off (no MASSIVE_API_KEY)"
     edgar = EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False)
     ds.run_over_union(db, det, edgar, tickers=tickers)
+    return det
+
+
+def _run_v1(db, tmp_path, *, asof: date) -> ds.SplitDetector:
+    """A night on the v1 reader (W6-1): the real ``/stocks/v1/splits`` rows, each with Massive.com's label."""
+    src, _ = v1_source(tmp_path, today=asof)
+    det = ds.SplitDetector.start(asof=asof, allow_live=True, source=src)
+    ds.run_over_union(db, det, EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False))
     return det
 
 
@@ -395,3 +403,40 @@ def test_a_catch_all_8k_restating_a_past_split_is_never_listed(db, tmp_path, mon
         "1-for-25 reverse split stated, but only a past date stated (2025-12-31), more than 90 days before "
         "the filing"
     )
+
+
+# --- W6-1: Massive.com's label is evidence on the list, never a reason to append ---------------------------------
+
+
+def test_a_listed_split_without_a_label_meets_tonights_labelled_row_and_nothing_is_appended(
+    db, tmp_path
+):
+    """GAME listed (confirmed) by the v3 reader, so its label is NULL; tonight the v1 reader serves the same row
+    labelled ``reverse_split``: the plan is UNCHANGED and the TABLE does not grow — the stored row keeps NULL.
+    """
+    ids = _seed(db, ["GAME"])
+    _run(db, tmp_path, asof=date(2026, 9, 1))
+    (v,) = _latest(db, ids["GAME"])
+    assert (v.status, v.polygon_adjustment_type) == (STATUS_CONFIRMED, None)
+    det = _run_v1(db, tmp_path, asof=date(2026, 9, 1))
+    assert split_repo.count_rows(db) == 1 and det.result.appended == []
+    (p,) = det.planned
+    assert p.action == ds.UNCHANGED and p.decision.polygon.adjustment_type == "reverse_split"
+    (v,) = _latest(db, ids["GAME"])
+    assert v.polygon_adjustment_type is None
+
+
+def test_an_open_split_re_versioned_for_another_reason_takes_the_label(db, tmp_path):
+    """GAME announced by the v3 reader (no label); the same night on the v1 reader: the label alone appends nothing.
+    On its first session the status moves (announced -> confirmed): that new version carries the label.
+    """
+    ids = _seed(db, ["GAME"])
+    _run(db, tmp_path, asof=date(2026, 8, 20))
+    det = _run_v1(db, tmp_path, asof=date(2026, 8, 20))
+    assert split_repo.count_rows(db) == 1 and det.result.appended == []
+    (v,) = _latest(db, ids["GAME"])
+    assert (v.status, v.polygon_adjustment_type) == (STATUS_ANNOUNCED, None)
+    det = _run_v1(db, tmp_path, asof=date(2026, 8, 24))
+    assert split_repo.count_rows(db) == 2 and det.result.appended[0].verb == "updated"
+    (v,) = _latest(db, ids["GAME"])
+    assert (v.status, v.polygon_adjustment_type) == (STATUS_CONFIRMED, "reverse_split")
