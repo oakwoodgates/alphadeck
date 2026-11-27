@@ -333,20 +333,20 @@ const ADD_EFFECT =
   "announced while its first session is ahead): prices before that session are put on the new scale and the " +
   "split-night hold on this company's price triggers lifts. Revoke undoes it (Reject, while it is announced).";
 
-/** The form's lead from a filing: what is filled in from it (the ratio it states, its address as the cited document),
- *  what is left, and what an add does. A filing that states no ratio and carries no address fills in nothing. */
-export function addFilingIntro(u: Pick<Unplaced, "ratio_from" | "ratio_to" | "url">): string {
+/** The form's lead from a filing: the ratio it states is filled in (nothing is cited for the steward), what is left, and
+ *  what an add does. A filing that states no ratio fills in nothing. */
+export function addFilingIntro(u: Pick<Unplaced, "ratio_from" | "ratio_to">): string {
   const ratio = u.ratio_from != null && u.ratio_to != null;
-  const filled = [ratio ? "the ratio it states" : null, u.url ? "its address as the cited document" : null]
-    .filter(Boolean)
-    .join(" and ");
-  const lead = filled
-    ? `Filled in from the filing: ${filled}. ` +
-      (ratio
-        ? "Check what is filled in against the document you cite, and enter the first session."
-        : "Enter the ratio and the first session the document you cite states.")
-    : "The filing states no single ratio and has no address to cite: enter the values the document you cite states.";
+  const lead = ratio
+    ? "The ratio it states is filled in from the filing: check it against the document you cite, and enter the first session."
+    : "The filing states no single ratio: enter the values the document you cite states.";
   return `No source lists this split. ${lead} ${ADD_EFFECT}`;
+}
+
+/** The filing an add starts from, as the form names it beside the cited-document box (a reference, never the citation):
+ *  "6-K filed 2026-11-17". */
+export function sourceFilingLabel(u: Pick<Unplaced, "form" | "filed">): string {
+  return `${u.form || "filing"} filed ${u.filed}`;
 }
 
 /** The form's lead from a jump: its date is the first session, no ratio is guessed, and what an add does. */

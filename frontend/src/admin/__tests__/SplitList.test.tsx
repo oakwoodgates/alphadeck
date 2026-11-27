@@ -1364,16 +1364,22 @@ describe("SplitList: Add this split... (F2-2)", () => {
     expect(fn(h.addSplit)).not.toHaveBeenCalled();
   });
 
-  it("opens on a filing with its ratio and its address filled in, and says what is left to enter", async () => {
+  it("opens on a filing with its ratio filled in, the cited document empty, and the source filing linked as a reference", async () => {
     render(<SplitList />);
     const row = filingRow("PBK");
     await openIn(row);
     const f = form(row);
     expect(f.getByLabelText("Old shares")).toHaveValue("20");
     expect(f.getByLabelText("New shares")).toHaveValue("1");
-    expect(f.getByLabelText("Cited document")).toHaveValue(PBK_UNPLACED.url);
+    // the cited document must state the values: the filing's address is NOT put in the box (it is usually unplaced
+    // because it does not state the date)
+    expect(f.getByLabelText("Cited document")).toHaveValue("");
     expect(f.getByLabelText("First session")).toHaveValue(""); // no date is known: the steward reads it off the document
     expect(f.getByLabelText("Note")).toHaveValue("");
+    // the filing is shown beside the form as a reference, once, as a link
+    const source = f.getByTestId("adm-split-add-source");
+    expect(source).toHaveTextContent("Source filing: 6-K filed 2026-11-17");
+    expect(within(source).getByRole("link", { name: "6-K filed 2026-11-17" })).toHaveAttribute("href", PBK_UNPLACED.url);
     // the tape is asked for the security (no version exists yet) and not before a first session is entered
     expect(h.tapeCall).toHaveBeenLastCalledWith({ securityId: PBK_UNPLACED.security_id }, null);
     expect(f.queryByTestId("adm-split-tape-step")).toBeNull();
@@ -1388,14 +1394,15 @@ describe("SplitList: Add this split... (F2-2)", () => {
     await openIn(row);
     const intro = within(row).getByTestId("adm-split-add-intro");
     expect(intro).toHaveTextContent("No source lists this split");
-    expect(intro).toHaveTextContent("Filled in from the filing: the ratio it states and its address as the cited document");
+    expect(intro).toHaveTextContent("The ratio it states is filled in from the filing");
+    expect(intro).not.toHaveTextContent("address"); // nothing is cited for the steward
     expect(intro).toHaveTextContent("stored tape is checked against the values you enter first");
     expect(intro).toHaveTextContent("prices before that session are put on the new scale");
     expect(intro).toHaveTextContent("Revoke undoes it");
     expect(screen.getAllByText(/stored tape is checked against the values you enter first/)).toHaveLength(1);
   });
 
-  it("opens on a filing that states no ratio and has no address with nothing filled in, and says so", async () => {
+  it("opens on a filing that states no ratio with nothing filled in, says so, and shows its source as plain text when it has no link", async () => {
     render(<SplitList />);
     const row = filingRow("WLDS");
     await openIn(row);
@@ -1404,7 +1411,16 @@ describe("SplitList: Add this split... (F2-2)", () => {
       expect(f.getByLabelText(label)).toHaveValue("");
     }
     expect(within(row).getByTestId("adm-split-add-intro")).toHaveTextContent("states no single ratio");
+    const source = f.getByTestId("adm-split-add-source");
+    expect(source).toHaveTextContent("Source filing: 8-K filed 2026-11-21");
+    expect(within(source).queryByRole("link")).toBeNull();
     expect(f.getByRole("button", { name: SUBMIT })).toBeDisabled();
+  });
+
+  it("shows no source filing on a jump: it has none to name", async () => {
+    render(<SplitList />);
+    await openIn(jumpRow());
+    expect(within(jumpRow()).queryByTestId("adm-split-add-source")).toBeNull();
   });
 
   it("opens on a jump with its step date filled in and no ratio: the nearest whole ratio is named, never entered", async () => {
@@ -1456,7 +1472,11 @@ describe("SplitList: Add this split... (F2-2)", () => {
     expect(step).toHaveTextContent("Your values: every 20 shares became 1, a price factor of x20; the tape accepts x12.1 to x33.");
     expect(step).toHaveTextContent("The tape supports your values.");
     expect(form(row).queryByRole("checkbox")).toBeNull(); // inside the tolerance: no override to offer
-    expect(form(row).getByRole("button", { name: SUBMIT })).toBeEnabled(); // the filing's own address is the cited document
+    // nothing is cited for the steward: Add waits for the document the steward cites
+    expect(form(row).getByRole("button", { name: SUBMIT })).toBeDisabled();
+    expect(form(row).getByTestId("adm-split-add-hint")).toHaveTextContent("Cite the document");
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
+    expect(form(row).getByRole("button", { name: SUBMIT })).toBeEnabled();
     expect(form(row).queryByTestId("adm-split-add-hint")).toBeNull();
   });
 
@@ -1465,6 +1485,7 @@ describe("SplitList: Add this split... (F2-2)", () => {
     render(<SplitList />);
     const row = filingRow("PBK");
     await openIn(row);
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED); // so only the reading holds Add
     await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
     expect(form(row).getByTestId("adm-split-tape-step")).toHaveTextContent("Reading the stored tape…");
     expect(form(row).getByRole("button", { name: SUBMIT })).toBeDisabled();
@@ -1486,6 +1507,8 @@ describe("SplitList: Add this split... (F2-2)", () => {
     const row = filingRow("PBK");
     await openIn(row);
     await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    // the cited document is the steward's to enter: the filing's address is not in the box
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
     await userEvent.click(form(row).getByRole("button", { name: SUBMIT }));
     expect(fn(h.addSplit)).toHaveBeenCalledTimes(1);
     expect(fn(h.addSplit)).toHaveBeenCalledWith({
@@ -1493,16 +1516,17 @@ describe("SplitList: Add this split... (F2-2)", () => {
       ratio_from: "20",
       ratio_to: "1",
       first_session: "2026-11-30",
-      cited_url: PBK_UNPLACED.url,
+      cited_url: CITED,
       from_accession: PBK_UNPLACED.accession,
     });
     // toHaveBeenCalledWith ignores keys holding undefined: the keys themselves are pinned too
     expect(keys(0)).toEqual(["cited_url", "first_session", "from_accession", "ratio_from", "ratio_to", "security_id"]);
+    expect(fn(h.addSplit).mock.calls[0][0].cited_url).not.toBe(PBK_UNPLACED.url);
     expect(fn(h.dismissUnplaced)).not.toHaveBeenCalled();
     expect(fn(h.confirmValues)).not.toHaveBeenCalled();
   });
 
-  it("sends what was changed: the steward's ratio, document and trimmed note replace the filled-in ones", async () => {
+  it("sends what was changed: the steward's ratio, document and trimmed note replace the filled-in ratio", async () => {
     tapeAnswers({ ...PBK_TAPE, price_factor: 10, step_low: 6.07, step_high: 16.49, step: 9.9 });
     render(<SplitList />);
     const row = filingRow("PBK");
@@ -1510,7 +1534,6 @@ describe("SplitList: Add this split... (F2-2)", () => {
     const f = form(row);
     await userEvent.clear(f.getByLabelText("Old shares"));
     await userEvent.type(f.getByLabelText("Old shares"), " 10 ");
-    await userEvent.clear(f.getByLabelText("Cited document"));
     await userEvent.type(f.getByLabelText("Cited document"), ` ${CITED} `);
     await userEvent.type(f.getByLabelText("First session"), "2026-11-30");
     await userEvent.type(f.getByLabelText("Note"), "  corrected from the exchange notice ");
@@ -1621,6 +1644,7 @@ describe("SplitList: Add this split... (F2-2)", () => {
     tapeAnswers(PBK_TAPE);
     rerender(<SplitList />);
     expect(form(filingRow("PBK")).queryByRole("checkbox")).toBeNull();
+    await userEvent.type(form(filingRow("PBK")).getByLabelText("Cited document"), CITED);
     await userEvent.click(form(filingRow("PBK")).getByRole("button", { name: SUBMIT }));
     expect(keys(0)).not.toContain("override_tape");
   });
@@ -1663,9 +1687,14 @@ describe("SplitList: Add this split... (F2-2)", () => {
 
   it("disables every decision while the split is being sent, and Cancel stays", async () => {
     h.addSplit = { ...m(), isPending: true };
+    tapeAnswers(PBK_TAPE);
     render(<SplitList />);
     const row = filingRow("PBK");
     await openIn(row);
+    // everything the form needs is entered: only the write in flight holds Add
+    await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
+    expect(form(row).queryByTestId("adm-split-add-hint")).toBeNull();
     expect(form(row).getByRole("button", { name: SUBMIT })).toBeDisabled();
     expect(within(row).getByRole("button", { name: "Dismiss" })).toBeDisabled();
     expect(form(row).getByRole("button", { name: "Cancel" })).toBeEnabled();
@@ -1678,6 +1707,8 @@ describe("SplitList: Add this split... (F2-2)", () => {
     const row = filingRow("PBK");
     await openIn(row);
     await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
+    expect(form(row).queryByTestId("adm-split-add-hint")).toBeNull();
     expect(form(row).getByRole("button", { name: SUBMIT })).toBeDisabled();
   });
 
@@ -1686,12 +1717,14 @@ describe("SplitList: Add this split... (F2-2)", () => {
     const row = filingRow("PBK");
     await openIn(row);
     await userEvent.type(form(row).getByLabelText("Note"), "typed");
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
     await userEvent.clear(form(row).getByLabelText("Old shares"));
     await userEvent.click(form(row).getByRole("button", { name: "Cancel" }));
     expect(within(row).queryByTestId("adm-split-add-form")).toBeNull();
     await openIn(row);
     expect(form(row).getByLabelText("Old shares")).toHaveValue("20");
     expect(form(row).getByLabelText("Note")).toHaveValue("");
+    expect(form(row).getByLabelText("Cited document")).toHaveValue("");
     expect(fn(h.addSplit)).not.toHaveBeenCalled();
   });
 

@@ -46,6 +46,7 @@ import {
   secSays,
   setAsideLine,
   splitSentence,
+  sourceFilingLabel,
   tapeFactorSentence,
   tapeStepSentence,
   unplacedCovered,
@@ -357,6 +358,7 @@ function SplitValuesForm({
   tapeTarget,
   initial,
   intro,
+  source,
   scale,
   submitLabel,
   busy,
@@ -366,8 +368,11 @@ function SplitValuesForm({
 }: {
   act: FormAct;
   tapeTarget: SplitTapeTarget;
-  initial?: Partial<Pick<FormValues, "ratioFrom" | "ratioTo" | "firstSession" | "citedUrl">>;
+  /** what the form opens with; the cited document is never in it (the steward cites the document that states the values) */
+  initial?: Partial<Pick<FormValues, "ratioFrom" | "ratioTo" | "firstSession">>;
   intro: string;
+  /** the filing an add started from, named beside the cited-document box as a reference */
+  source?: ReactNode;
   /** a jump's nearest whole ratio, said while no ratio is typed */
   scale?: string | null;
   submitLabel: string;
@@ -379,7 +384,7 @@ function SplitValuesForm({
   const [ratioFrom, setRatioFrom] = useState(initial?.ratioFrom ?? "");
   const [ratioTo, setRatioTo] = useState(initial?.ratioTo ?? "");
   const [firstSession, setFirstSession] = useState(initial?.firstSession ?? "");
-  const [citedUrl, setCitedUrl] = useState(initial?.citedUrl ?? "");
+  const [citedUrl, setCitedUrl] = useState("");
   const [note, setNote] = useState("");
   const [override, setOverride] = useState(false);
   const rf = ratioFrom.trim();
@@ -449,6 +454,11 @@ function SplitValuesForm({
           aria-label="Cited document"
         />
       </label>
+      {source ? (
+        <div className="adm-sub adm-hold-full" data-testid="adm-split-add-source">
+          {source}
+        </div>
+      ) : null}
       <label className="adm-hold-why adm-hold-full">
         Note (optional){" "}
         <input
@@ -571,19 +581,21 @@ function sentBy(v: AdminSplitAddIn | undefined, o: AddOrigin): boolean {
     : v.security_id === o.j.security_id && v.from_jump === o.j.step_date;
 }
 
-/** What the form opens filled in with: a filing's ratio (when it states one) and its address as the cited document, no
- *  date (none is known); a jump's step date, and no ratio (none is guessed) and no document. */
-function addInitial(o: AddOrigin): { ratioFrom?: string; ratioTo?: string; firstSession?: string; citedUrl?: string } {
+/** What the form opens filled in with: a filing's ratio (when it states one) and no date (none is known); a jump's step
+ *  date, and no ratio (none is guessed). Never a cited document: that must state the values, and a filing is usually
+ *  unplaced because it does not state the date. */
+function addInitial(o: AddOrigin): { ratioFrom?: string; ratioTo?: string; firstSession?: string } {
   if (o.kind === "jump") return { firstSession: o.j.step_date };
-  const { ratio_from: from, ratio_to: to, url } = o.u;
-  return { ...(from != null && to != null ? { ratioFrom: from, ratioTo: to } : {}), ...(url ? { citedUrl: url } : {}) };
+  const { ratio_from: from, ratio_to: to } = o.u;
+  return from != null && to != null ? { ratioFrom: from, ratioTo: to } : {};
 }
 
 /** F2-2 — "Add this split...": the steward lists a split no source lists, from a split filing not placed or a
- *  split-shaped jump. The values and the cited https document are theirs (a filing's ratio and address come filled in,
- *  to check); the stored tape's step at that session, read for the security, sits beside the entered factor, and the
- *  override box appears only outside the tolerance. The server checks the same again and answers 409 with its own
- *  sentence (a duplicate, a tape that does not fit), shown here; Revoke undoes the add. */
+ *  split-shaped jump. The values and the cited https document are theirs (a filing's ratio comes filled in, to check;
+ *  the filing itself is linked beside the box as a reference, never put in it); the stored tape's step at that session,
+ *  read for the security, sits beside the entered factor, and the override box appears only outside the tolerance. The
+ *  server checks the same again and answers 409 with its own sentence (a duplicate, a tape that does not fit), shown
+ *  here; Revoke undoes the add. */
 function AddForm({
   origin,
   busy,
@@ -605,6 +617,16 @@ function AddForm({
       tapeTarget={{ securityId }}
       initial={addInitial(origin)}
       intro={filing ? addFilingIntro(origin.u) : addJumpIntro()}
+      source={
+        filing ? (
+          <>
+            Source filing:{" "}
+            <ExternalLink className="adm-link" href={origin.u.url} title={origin.u.accession}>
+              {sourceFilingLabel(origin.u)}
+            </ExternalLink>
+          </>
+        ) : null
+      }
       scale={filing ? null : jumpScaleLine(origin.j.step)}
       submitLabel="Add these values"
       busy={busy}
