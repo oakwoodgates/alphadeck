@@ -179,4 +179,18 @@ the fourth.
 |---|---|---|---|
 | 0001493152-26-048139 | GCTK | 8-K (1.01, 2.03, 3.02, 7.01, 9.01) | a 1-for-2, trading 2026-10-26, beside "On August 28, 2026, the Company implemented a 1-for-15 reverse stock split" — the listed 1-for-15 of 2026-08-31 (read: two ratios, abstain) |
 | 0001214659-24-019590 | GPUS | 8-K (7.01, 9.01) | a special dividend of preferred stock (record date 2024-12-13); "… the one-for-thirty-five reserve stock split that was effectuated on November 25, 2024" — the listed 1-for-35, the day before (read: no direction, abstain) |
-| 0001437749-26-036465 | TRT | 10-Q | "On January 5, 2026, the Company effected a two-for-one forward stock split", in footnotes beside current dates — the listed 2-for-1 (read: 1 -> 2, no date) |
+| 0001437749-26-036465 | TRT | 10-Q | "On January 5, 2026, the Company effected a two-for-one forward stock split", in footnotes beside current dates — the listed 2-for-1 (read: 1 -> 2, no date; since 2026-11-26 a past split's ratio only: the filing dates nothing currently) |
+
+The date sentences the long-window check misread (2026-11-26, split-reader misreads PR-A) added three full
+submissions, copied from the evidence folder of prod's SEC cache (`docs/temp/split-reader-misreads-2026-11-26/forms/`)
+and trimmed the same way (the SGML header plus the documents the extractor reads, each kept whole and byte-exact;
+every reading of each trimmed file — bare, catch-all, screened, `wide` both ways, with and without the company's
+confirmed splits — CHECKED identical to its full submission's, on the pre-change and the changed extractor). On the
+pre-change extractor each reproduced the reading prod's 800-day check planned
+(`docs/temp/split-reader-misreads-2026-11-26/classification.md`):
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001628280-26-048496 | CYCU | 8-K (3.01, 7.01, 9.01) | a delisting notice: "Because the Company effected a 1-for-30 reverse stock split on October 27, 2025, … trading … is expected to be suspended at the opening of business on July 21, 2026" (read: 1-for-30, first session 2026-07-21) |
+| 0001193125-25-000195 | VRM | 8-K (7.01) | a 1-for-5 effective at the end of a Chapter 11 case (no date) beside "trading of the Common Stock formally suspended at the opening of business on December 2, 2024" (read: first session 2024-12-02) |
+| 0001641172-25-007892 | SKYA | 8-K (5.03, 9.01) | a 1-for-300 "effective at 11:59 p.m., Eastern Time, on April 27, 2025 and began trading on a post-split basis" — a Sunday (read: first session 2025-04-27) |

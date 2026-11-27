@@ -382,9 +382,11 @@ def test_the_nightly_attaches_an_item_8_01_reading_to_a_listed_split(db, tmp_pat
 
 def test_a_catch_all_8k_restating_a_past_split_is_never_listed(db, tmp_path, monkeypatch):
     """AIRE (no split on the list): its Item 7.01 8-K/A of 2026-09-23 restates a 1-for-25 beside a date 266
-    days back. Without the catch-all filing-date screen the nightly would LIST a new split on 2025-12-31 from it
-    — MEASURED on prod's basket 2026-10-23, the one new list row the wider item set produced. With it, nothing
-    is listed, and the filing is named as not placed (#9: shown, never dropped)."""
+    days back. Without the catch-all filing-date screen the nightly would have LISTED a new split on 2025-12-31
+    from it — MEASURED on prod's basket 2026-10-23, the one new list row the wider item set produced. Since
+    2026-11-26 that date (a tax table's, in a sentence about "the combined entity's deferred tax assets") dates
+    nothing even unscreened, so neither reading lists it, and the filing is named as not placed (#9: shown,
+    never dropped)."""
     seed_member(db, "AIRE", AIRE_CIK, [AIRE_8KA])
     asof = date(2026, 10, 23)
     edgar = EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False)
@@ -394,12 +396,7 @@ def test_a_catch_all_8k_restating_a_past_split_is_never_listed(db, tmp_path, mon
             asof=asof, allow_live=True, source=_polygon(tmp_path, today=asof), apply=False
         )
         ds.run_over_union(db, bare, edgar, tickers=["AIRE"])
-    (p,) = bare.planned
-    assert (p.action, p.decision.key_date, p.decision.status) == (
-        ds.APPEND,
-        date(2025, 12, 31),
-        STATUS_NEEDS_REVIEW,
-    )
+    assert bare.planned == []
     assert split_repo.count_rows(db) == 0  # a dry run
     det = _run(db, tmp_path, asof=asof, tickers=["AIRE"])
     assert det.planned == [] and det.result.appended == []
@@ -407,8 +404,7 @@ def test_a_catch_all_8k_restating_a_past_split_is_never_listed(db, tmp_path, mon
     (u,) = det.result.unplaced
     assert (u.ticker, u.accession, u.form) == ("AIRE", AIRE_8KA[0], "8-K/A")
     assert u.reason == (
-        "1-for-25 reverse split stated, but only a past date stated (2025-12-31), more than 90 days before "
-        "the filing"
+        "1-for-25 reverse split stated, but no first-session or effective date stated"
     )
 
 

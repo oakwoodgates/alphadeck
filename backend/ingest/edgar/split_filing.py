@@ -48,11 +48,13 @@ filings write a 1-for-16 reverse split as "1-for-16" and a 25-for-1 consolidatio
 OF SHARES / "combined" make it a reverse split (old = the larger number), "forward … split" / "stock dividend" /
 "subdivision" a forward one — and, in the ratio's own sentence when it names neither, "with a proportionate
 increase in … authorized" shares or "additional shares" (NOW). An accounting "consolidated financial statements"
-is no consolidation of shares. A ratio is only ever read inside a sentence that talks about a split (a "business
-combination" is a merger, not shares combined), and "1-for-1" (a share exchange) is not a split. An ADS RATIO
-CHANGE counts as a split of the ADS — "the same effect
-as a one-for-thirty reverse ADS split" (NIPG) — because it moves the ADS price exactly like one, and Massive.com
-lists it as one.
+is no consolidation of shares. A ratio is only ever read inside a sentence that talks about a split: "split", a
+consolidation, combination or subdivision OF SHARES, a reverse split or consolidation, a reclassification, an ADS
+ratio change — each word in its share sense (``_SPLIT_CUE``, since 2026-11-26), never "consolidating entities",
+"the combined company", "reverse osmosis" or "tectonic subdivisions"; a "business combination" is a merger, not
+shares combined. "1-for-1" (a share exchange) is not a split. An ADS RATIO CHANGE counts as a split of the ADS —
+"the same effect as a one-for-thirty reverse ADS split" (NIPG) — because it moves the ADS price exactly like one,
+and Massive.com lists it as one.
 
 **What does NOT count as the split's ratio** — the refinement of "more than one distinct ratio abstains" that
 the real filings forced (named so the rule stays checkable):
@@ -96,17 +98,22 @@ three (3)" shares).
 such as "split-adjusted basis", "post-consolidation basis", "market open", "opening of trading",
 "commencement of trading" — or "will begin trading" in a sentence about the split, "the first date when the
 … shares will begin trading … after implementation of the reverse split will be Monday, October 5, 2026",
-CMND) states it directly — kind ``trading``. Only when no trading sentence carries a date does a LEGAL sentence
+CMND) states it directly — kind ``trading``. Since 2026-11-26 a trading sentence is one about the split, or one
+with a cue only a split has (split-adjusted, post-split, post-consolidation, "consolidated basis", the NEW CUSIP /
+ISIN or the new ratio the shares trade under): a new ticker or a listing "at the opening of trading" dates nothing
+(CD's, EMAT's). A trading date that is no session (a weekend or an NYSE holiday, ``domain.trading_days``) is read
+as a legal one: "effective at 11:59 p.m., Eastern Time, on April 27, 2025 and began trading on a post-split basis"
+(SKYA's charter 8-K; a Sunday). Only when no trading sentence carries a date does a LEGAL sentence
 about the split ("effective as of", "Effective June 12, 2025", "will take effect on") supply one — kind
 ``legal``, which may be the session before the first one (a 5:00 p.m. effective time). Two different dates of
 the winning kind → no date (named in ``date_note``); the ratio still stands. A filing that states both reads
 its trading date: ENHA's 8.01 8-K says "effective at 12:01 a.m. Central Time on October 29, 2026" AND "expected
 to begin trading on a split-adjusted basis … at the opening of trading on October 29, 2026" — ``trading``. For a
 CATCH-ALL filing a date more than ``HISTORICAL_GAP_DAYS`` before its filing date dates nothing (AIRE's 7.01
-8-K/A of 2026-09-23 reaches only 2025-12-31, in a tax table): no date, named in ``date_note``. "With effect
-from 27 July 2026" is a legal cue (ZNB's 6-K of 2026-08-25), and a date a MEETING was held on ("extraordinary
-general meeting of shareholders … held on 10 September 2026", ZNB's charter exhibit) never dates a split — read
-anywhere, as a trading, legal or past date.
+8-K/A of 2026-09-23 reached only 2025-12-31, in a tax table, until 2026-11-26): no date, named in ``date_note``.
+"With effect from 27 July 2026" is a legal cue (ZNB's 6-K of 2026-08-25), and a date a MEETING was held on
+("extraordinary general meeting of shareholders … held on 10 September 2026", ZNB's charter exhibit) never dates a
+split — read anywhere, as a trading, legal or past date.
 
 The date sentences the split list misread until 2026-11-25 (W2-5), each MEASURED on its real filing: a SESSION
 cue names the first session without the word "trade" in a sentence about the split ("effective on the OTC
@@ -115,16 +122,21 @@ October 29, 2025" is a trading cue (NVA); a sentence naming the LAST session at 
 day of the prior ISIN", QGEN) states no first session. A date that NAMES SOMETHING ELSE never dates a split: a
 period end ("the year ended December 31, 2025", IMCC), an accounting standard "not yet effective" (PBM), the
 release's own date (its dateline "Nanjing, China, October 22, 2026 /PRNewswire/", SCAG; "On <date>, the Company
-issued a press release"), a deadline ("the June 10, 2026 compliance deadline", EZRA). A date may carry a space
-before its comma or suffix ("August 31 , 2026", VEEA; "December 15 th , 2025", COPR).
+issued a press release"), a deadline ("the June 10, 2026 compliance deadline", EZRA) — and, since 2026-11-26, a
+trading SUSPENSION, delisting or halt ("trading … is expected to be suspended at the opening of business on July 21,
+2026", CYCU's delisting notice; VRM's, SKYA's), a resolution's own date ("the authority granted by the special
+resolution passed on 19 June 2025", PMEC) and a share count's ("issued and outstanding as of April 18, 2025", HLYK;
+never "effective as of"). A date may carry a space before its comma or suffix ("August 31 , 2026", VEEA;
+"December 15 th , 2025", COPR).
 
 **The restatement screen** (``extract_split_screened`` — 6-Ks, charter 8-Ks, the wide forms) only ever
 REMOVES: a reading whose date is current stands exactly as read; a date more than ``HISTORICAL_GAP_DAYS``
 before the filing is dropped and nothing replaces it (a restated old split, or MEDS's mistyped "May 26, 2025"
 in an 8-K filed 2026-05-21); a ratio the text dates in the past (its own sentence, the date sentence beside an
 undated one — LGHL's "… the same effect as a one-for-fifty reverse ADS split. The change in the ADS ratio was
-effective on July 13, 2023." — or, in a filing that dates nothing currently, any mention of it) is a past
-split's; an abstain is never resolved into a reading. Its docstring holds the MEASURED reasons.
+effective on July 13, 2023." — or, in a filing that dates nothing currently, any mention of it, whether or not
+a date cue reaches the past date) is a past split's; an abstain is never resolved into a reading. Its docstring
+holds the MEASURED reasons.
 
 **The passage** is the filing's own sentence(s), verbatim after the HTML is stripped (tags removed, entities
 decoded, whitespace collapsed): the sentence that states the ratio and, when it is another one, the sentence
@@ -143,17 +155,10 @@ from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 
 from domain.splits import PAST_RATIO_ONLY
+from domain.trading_days import is_scheduled_day
 
-# a ratio's sentence must have this much of a split in it, or the "N for M" is something else
-# (an ADS RATIO CHANGE is a split of the ADS — "the same effect as a one-for-thirty reverse ADS split" (NIPG),
-# and Massive.com lists it as one). A "business combination" is a merger, not shares combined: "SAFE investors will
-# receive one warrant for every two shares acquired, … if the business combination is consummated" (ENHA's
-# Item 8.01 8-K of 2026-08-26) states no split.
-_SPLIT_CUE = re.compile(
-    r"revers|split|consolidat|subdivi|(?<!business\s)combin|reclassif|ratio\s+change|ADS\s+ratio",
-    re.I,
-)
-# the DIRECTION cues (``_REVERSE_CUE``, ``_FORWARD_CUE``, ``_FORWARD_SENTENCE_CUE``) follow the number words
+# what makes a sentence ABOUT a split (``_SPLIT_CUE``) and its DIRECTION cues (``_REVERSE_CUE``, ``_FORWARD_CUE``,
+# ``_FORWARD_SENTENCE_CUE``) follow the number words
 
 # a ratio this close after one of these words is an authorized RANGE / ceiling ("shall not effect … splits
 # that, in the aggregate, exceeds 1-for-12", ASNS) — or a HYPOTHETICAL ("assuming an Approved Consolidation
@@ -272,6 +277,45 @@ _FORWARD_SENTENCE_CUE = re.compile(
 )
 _NEGATED_BEFORE = re.compile(r"\b(?:without|no|not|never)\s+(?:an?\s+|any\s+)?$", re.I)
 
+# A ratio's sentence must have this much of a split in it, or the "N for M" is something else; and only a sentence
+# about the split dates it (``_cued_dates``). An ADS RATIO CHANGE is a split of the ADS — "the same effect as a
+# one-for-thirty reverse ADS split" (NIPG), and Massive.com lists it as one. Each word counts in its SHARE sense only
+# (2026-11-26; until then a bare stem, and the 800-day check of 2026-11-26 dated splits by "consolidating
+# entities" (STKE), "the combined company will begin trading" (MRLN), "RO reverse osmosis" and "Tectonic
+# subdivisions" (NMG)):
+# - "consolidat…": a consolidation OF SHARES (``_CONSOLIDATION_OF_SHARES``; and, for this test only, "a consolidation
+#   of the Company's authorised, issued and outstanding shares", commas between);
+# - "combin…": shares combined INTO fewer ("every 300 shares … were combined into one", "will be combined and
+#   converted into one share"), a "share combination", a "combination of … shares" — never a company, entity or
+#   business combined ("the combined company"), nor a "business combination" ("SAFE investors will receive one
+#   warrant for every two shares acquired, … if the business combination is consummated", ENHA's 8.01 8-K of
+#   2026-08-26, states no split);
+# - "subdivi…": a share subdivision, a subdivision of (or shares subdivided into) shares;
+# - "revers…": a reverse split or consolidation, "pre-/post-reverse".
+_COMBINATION_OF_SHARES = (
+    r"(?<!business\s)\bcombin(?:e|es|ed|ing)\b"
+    r"(?:(?!\b(?:compan\w*|entit\w*|business\w*|group|operations|results|financial)\b)[^.;]){0,60}?\binto\b|"
+    r"\b(?:share|stock)\s+combinations?\b|"
+    rf"(?<!business\s)\bcombination\s+of\s+(?:{_SHARE_QUALIFIER}\s+){{0,8}}?{_SHARE_WORD}"
+)
+_SUBDIVISION_OF_SHARES = (
+    r"\b(?:share|stock)\s+subdivi\w*|"
+    rf"\bsubdivi(?:de|des|ded|ding|sion|sions)\b(?:\s+(?:of|into))?\s+(?:{_SHARE_QUALIFIER}\s+){{0,8}}?{_SHARE_WORD}|"
+    rf"\b{_SHARE_WORD}\s+(?:(?:will|would|shall|to|be|been|being|is|are|was|were|has|have|had)\s+){{0,4}}subdivided"
+)
+_CONSOLIDATION_OF_ISSUED_SHARES = (
+    rf"\bconsolidat\w*\s+of\s+(?:(?:{_SHARE_QUALIFIER}|authori[sz]ed),?\s+){{0,8}}?{_SHARE_WORD}"
+)
+_REVERSE_SENSE = (
+    r"\breverse[\s-]+(?:[\w-]+[\s-]+){0,2}?(?:split|consolidat)|\b(?:pre|post)[\s-]*reverse\b"
+)
+_SPLIT_CUE = re.compile(
+    rf"split|{_CONSOLIDATION_OF_SHARES}|{_CONSOLIDATION_OF_ISSUED_SHARES}|{_COMBINATION_OF_SHARES}|"
+    rf"{_SUBDIVISION_OF_SHARES}|{_REVERSE_SENSE}|"
+    r"reclassif|ratio\s+change|ADS\s+ratio",
+    re.I,
+)
+
 # "1-for-16", "one-for-sixteen", "one (1) for nine (9)", "twenty five (25) -for- one (1)", "15 for 1"
 _FOR = re.compile(
     rf"(?<![\w$.,]){_num('a')}\s*(?P<sep>-\s*for\s*-|-\s*for\s+|\s+for\s*-|\s+for\s+)\s*{_num('b')}"
@@ -381,6 +425,19 @@ _TRADING_CUE = re.compile(
     rf"post[\s-]+consolidat\w*|consolidated\s+basis|split\s+basis|{_SESSION}|{_FIRST_SESSION}",
     re.I,
 )
+# … but a trading date comes only from a sentence ABOUT the split (``_SPLIT_CUE``) or one carrying a cue only a
+# split has (2026-11-26): "The new corporate name, ticker symbol "CD," and website … all went live on November 13,
+# 2025, at the opening of trading on the Nasdaq Global Market" (CD's interim 6-K, a ticker change) and "On January 6,
+# 2026, the WTMA Common Stock began trading on the Nasdaq Global Market as EMAT Common Stock" (a listing) name no
+# split's first session. The shares trading under their NEW CUSIP / ISIN or a NEW (ADS) ratio are the split's: "…
+# expected to commence trading on Nasdaq when the market opens on October 21, 2026 under the symbol "POM" with the
+# new CUSIP number" (POM's 6-K), "The first day of trading under the new ratio is expected to be October 29, 2025"
+# (NVA's), "… under the new CUSIP 776105108 when markets open on August 25, 2026" (REAX's)
+_SPLIT_TRADING_CUE = re.compile(
+    r"split[\s-]*adjusted|post[\s-]+(?:reverse[\s-]+)?(?:stock[\s-]+)?split|post[\s-]+consolidat\w*|"
+    r"consolidated\s+basis|\bnew\s+(?:CUSIP|ISIN)\b|\bnew\s+(?:ADS\s+|ADR\s+)?ratio\b",
+    re.I,
+)
 # The LAST session at the old price is never the first at the new one: "The last day of trading of the pre-split
 # shares … is planned to be Tuesday, January 28, 2025", "… January 28, 2025 (the “Effective Date” and the last
 # trading day of the prior ISIN / CUSIP / WKN)" (QGEN's 6-K of 2025-01-16) — a sentence naming it gives no trading
@@ -453,6 +510,30 @@ _DEADLINE_BEFORE = re.compile(r"\bdeadline\s+(?:of|on|is|was|date\s+(?:of|is))\s
 #   Not Yet Effective A number of new standards … are not yet effective for the period ended September 30, 2026"
 #   (PBM's 6-K of 2026-11-19: read as its split's legal date).
 _NOT_YET_EFFECTIVE = re.compile(r"\bnot\s+yet\s+effective\b", re.I)
+# … and since 2026-11-26 (the 800-day check's misreads):
+# - a trading SUSPENSION, delisting or halt: "… trading in the Company's securities is expected to be suspended at the
+#   opening of business on July 21, 2026" (CYCU's delisting notice, beside its past 1-for-30), "with trading of the
+#   Common Stock formally suspended at the opening of business on December 2, 2024" (VRM), "will be suspended at the
+#   opening of business on July 18, 2024" (SKYA's offering circular) — each read as a first session. Only when the
+#   words between name no split, no resumption and no other date: "halted on March 2, 2026 and resumed on a
+#   split-adjusted basis at the market open on March 4, 2026" still dates March 4;
+_SUSPENDED_BEFORE = re.compile(
+    r"\b(?:suspen(?:d|ds|ded|ding|sion)|delist(?:s|ed|ing)?|halt(?:s|ed|ing)?)\b"
+    r"(?:(?!\b(?:split\w*|consolidat\w*|resum\w*|(?:19|20)\d\d)\b)[^.;]){0,100}$",
+    re.I,
+)
+# - a RESOLUTION's own date: "the authority granted by the special resolution passed on 19 June 2025 be hereby
+#   extended" (PMEC's proxy 6-K of 2025-09-02, renewing an unused authority: read as its 1-for-6's legal date);
+_RESOLUTION_BEFORE = re.compile(
+    r"\bresolutions?\b(?:(?!\b(?:effect\w*|trad\w*|split\w*|consolidat\w*)\b)[^.;]){0,60}?"
+    r"\b(?:passed|adopted)\b(?:(?!\b(?:effect\w*|trad\w*|split\w*|consolidat\w*)\b)[^.;]){0,60}?"
+    r"\bon\s+(?:the\s+)?$",
+    re.I,
+)
+# - a COUNT's date: "the following securities issued and outstanding as of April 18, 2025 Prior to Reverse Split
+#   281,947,151 shares" (HLYK's offering circular of 2025-04-30, in a run-on sentence saying "the Reverse Split is
+#   effective") — "outstanding as of", never "effective as of".
+_OUTSTANDING_AS_OF = re.compile(r"\boutstanding\s+as\s+(?:of|at)\s+$", re.I)
 _STANDARD = re.compile(
     r"\b(?:accounting|standards?|pronouncements?|ASUs?|IFRSs?|IAS|GAAP|ASC|interpretations?)\b",
     re.I,
@@ -770,9 +851,15 @@ def _dates(text: str, *, dating: bool = False) -> list[tuple[int, date]]:
 
 
 def _names_something_else(before: str, after: str) -> bool:
-    """Is the date between ``before`` and ``after`` a period end, the release's own date or a deadline — never
-    a split's date?"""
+    """Is the date between ``before`` and ``after`` a period end, the release's own date, a deadline, a trading
+    suspension's, a resolution's or a share count's — never a split's date?"""
     if _PERIOD_END_BEFORE.search(before) or _PRESS_RELEASE_DATED.search(before):
+        return True
+    if (
+        _SUSPENDED_BEFORE.search(before)
+        or _RESOLUTION_BEFORE.search(before)
+        or _OUTSTANDING_AS_OF.search(before)
+    ):
         return True
     if _DEADLINE_BEFORE.search(before) or _DEADLINE_AFTER.match(after):
         return True
@@ -1008,8 +1095,9 @@ def _cued_dates(
 ) -> list[tuple[date, int, tuple[int, int], int]]:
     """``(date, doc, sentence, where)`` for every sentence carrying ``cue`` (and, for a trading sentence, a word
     about trading — or, in a sentence about the split, a SESSION cue): its only date, or the first date after the
-    cue when it has several. A date that names something else is none (``_dates(dating=True)``); a sentence
-    about an accounting standard not yet effective gives no date, one naming the LAST session no trading date.
+    cue when it has several. A trading sentence is one about the split, or one carrying a cue only a split has
+    (``_SPLIT_TRADING_CUE``). A date that names something else is none (``_dates(dating=True)``); a sentence about
+    an accounting standard not yet effective gives no date, one naming the LAST session no trading date.
     """
     out = []
     for di, d in enumerate(docs):
@@ -1021,6 +1109,8 @@ def _cued_dates(
                 cm = _TRADING_START.search(sent)  # "begin trading … after … the reverse split"
             if cm is None:
                 continue
+            if need_trading and not (about or _SPLIT_TRADING_CUE.search(sent)):
+                continue  # a ticker change, a listing: trading, but no split's (CD, EMAT)
             if need_trading and not (
                 _TRADING_WORD.search(sent)
                 or (about and _SESSION_CUE.search(sent) and not _PLAN_CHANGED.search(sent))
@@ -1262,6 +1352,11 @@ def _read(
     # the date first — the past-split screen measures against it
     trading = _cued_dates(docs, _TRADING_CUE, need_trading=True)
     legal = _cued_dates(docs, _LEGAL_CUE, need_trading=False)
+    # a trading date that is no session (a weekend, an NYSE holiday: ``domain.trading_days``) is no first session —
+    # "The Reverse Stock Split was effective at 11:59 p.m., Eastern Time, on April 27, 2025 and began trading on a
+    # post-split basis" (SKYA's charter 8-K: a Sunday) dates the split's legal effect, and is read with those
+    legal = legal + [c for c in trading if not is_scheduled_day(c[0])]
+    trading = [c for c in trading if is_scheduled_day(c[0])]
     cued_by_sentence: dict[tuple[int, tuple[int, int]], list[date]] = {}
     for c in trading + legal:
         cued_by_sentence.setdefault((c[1], c[2]), []).append(c[0])
@@ -1323,11 +1418,16 @@ def _read(
         if ds and any(all((a - x).days > HISTORICAL_GAP_DAYS for x in ds) for a in anchors):
             mt.kind = "historical"
     _set_known_aside(docs, mentions, known, effective)
-    if strict and past and not trading and not legal:
+    if strict and not trading and not legal:
         # the filing dates NOTHING currently — every split date it states is a past one — so a ratio it also
         # dates in the past somewhere is that past split's, wherever else it is restated undated: KXIN's interim
         # results of 2025-09-12 ("On October 25, 2024, the Group effected a share consolidation at a ratio of
-        # one-for-sixty" beside an undated "(iii) share consolidation at a ratio of one-for-sixty")
+        # one-for-sixty" beside an undated "(iii) share consolidation at a ratio of one-for-sixty"). Since
+        # 2026-11-26 also when no cue dates anything at all (until then a past CUED date was needed): ASST's 10-Q
+        # restates "On February 6, 2026, the Company amended its articles … to effect a 1:20 reverse stock split"
+        # (dated, uncued) beside an undated "every 20 shares … were reclassified into one share", and read the
+        # second as a new split once a junk date ("… Restatement Effective Date … June 16, 2026", a preferred
+        # stock's dividend terms) stopped counting
         dated_past = {m.key() for m in mentions if m.kind == "historical"}
         # an undirected mention by its two numbers, either way round (NUCL's 10-Q restating its 2-for-1 of
         # 2026-07-06, dated in one sentence and undated in another, with no direction word)
