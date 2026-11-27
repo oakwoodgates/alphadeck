@@ -42,7 +42,7 @@ from dashboards.cache import CACHE
 from db.bitemporal import append_fact
 from domain.scopes import DATA_TENANT_ID, SCOPE_OF, Scope
 from domain.settings import get_settings
-from domain.trading_days import is_scheduled_day
+from domain.trading_days import is_scheduled_day  # noqa: F401  (THROWAWAY probe)
 from ingest.prices.eod_loader import ingest_prices
 from pipeline.call_for_thesis import call_for_thesis
 from tests.auth_fixtures import sign_out
