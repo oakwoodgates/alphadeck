@@ -1496,3 +1496,143 @@ def test_the_restate_setting_ships_off(monkeypatch):
         assert (det.sec_restate_days, given) == (0, [0, 0])
     finally:
         get_settings.cache_clear()
+
+
+# --- F3b (dark, framework completion): a non-session legal date moves to the next session, through the detector ----
+#
+# ``split_legal_date_next_session`` (False = off, shipped): read once a pass beside the other split settings and passed
+# to ``detect_security``, which passes it to ``decide_sec_only``. The tape is read on the decision's first session: on,
+# Monday's bar for SKYA's Sunday-legal 8-K (as prod's plan reads it, filed 2025-04-30, 1-for-300, effective 04-27).
+
+SKYA_8K = _f8_sec("0001641172-25-007892", "8-K", date(2025, 4, 30), 300, date(2025, 4, 27), "legal")
+
+
+def _detect_next(monkeypatch, *filings: SecEvidence, next_session: bool):
+    """``detect_security`` over these filings (no Massive.com row), the F3b setting as given."""
+    read: list[date] = []
+
+    def tape_at(conn, *, tenant_id, security_id, session):
+        read.append(session)
+        return _tape(session)
+
+    monkeypatch.setattr(ds, "tape_at", tape_at)
+    m = bf.Member(DEFAULT_TENANT_ID, uuid.uuid4(), "SKYA", None, None)
+    det = ds.detect_security(
+        None,
+        _Filings(*filings),
+        m,
+        [],
+        asof=F8_ASOF,
+        sec_since=date(2025, 1, 1),
+        distribution_max_factor=None,
+        label_overrides_abstain=False,
+        confirmed=(),
+        next_session=next_session,
+    )
+    return m, det, read
+
+
+def test_off_the_detector_plans_skyas_sunday_legal_date_as_stated(monkeypatch):
+    _, det, read = _detect_next(monkeypatch, SKYA_8K, next_session=False)
+    (d,) = det.decisions
+    assert d == with_tape(decide_sec_only([SKYA_8K], asof=F8_ASOF), _tape(date(2025, 4, 27)))
+    assert (d.key_date, d.effective_date) == (date(2025, 4, 27), date(2025, 4, 27))
+    assert read == [date(2025, 4, 27)]
+
+
+def test_on_the_detector_plans_skya_on_mondays_session_and_reads_its_tape(monkeypatch):
+    m, det, read = _detect_next(monkeypatch, SKYA_8K, next_session=True)
+    (d,) = det.decisions
+    on = decide_sec_only([SKYA_8K], asof=F8_ASOF, next_session=True)
+    assert d == with_tape(on, _tape(date(2025, 4, 28)))
+    assert (d.key_date, d.effective_date, d.sec, d.status) == (
+        date(2025, 4, 28),
+        date(2025, 4, 28),
+        SKYA_8K,
+        STATUS_NEEDS_REVIEW,
+    )
+    assert read == [date(2025, 4, 28)]
+    assert "the first session is the next one, 2025-04-28, at the earliest." in d.note
+    assert "Tape as first served" in d.note
+    (new,) = _plan(m, det.decisions)
+    assert (new.action, new.reason, new.decision) == (ds.APPEND, "new", d)
+
+
+def test_on_the_listed_sunday_row_is_updated_to_mondays_session(monkeypatch):
+    """SKYA as listed off (the Sunday row, open, the system's): on, tonight's decision updates that row (``match_stored``:
+    the same ratio within 45 days) to the Monday, its key date kept. Off, it stays UNCHANGED."""
+    m = bf.Member(DEFAULT_TENANT_ID, uuid.uuid4(), "SKYA", None, None)
+    (off,) = _detect_next(monkeypatch, SKYA_8K, next_session=False)[1].decisions
+    listed = ds._as_version(m, off)
+    (on,) = _detect_next(monkeypatch, SKYA_8K, next_session=True)[1].decisions
+    det = _check_dry(monkeypatch, m, [on], stored=[listed])
+    (p,) = det.planned
+    assert (p.action, p.reason, p.stored) == (ds.APPEND, "updated", listed)
+    assert (p.decision.key_date, p.decision.effective_date) == (
+        date(2025, 4, 27),
+        date(2025, 4, 28),
+    )
+    det = _check_dry(monkeypatch, m, [off], stored=[listed])
+    assert [p.action for p in det.planned] == [ds.UNCHANGED]
+
+
+def test_on_a_trading_filing_is_planned_exactly_as_off(monkeypatch):
+    """A trading date is never moved, even on a non-session: the same decision and the same tape read."""
+    sunday_trading = _f8_sec("0000000000-26-000061", "8-K", date(2026, 2, 20), 10, date(2026, 3, 1))
+    for filings in ((CHRN_8K, CHRN_8K_NEXT), (sunday_trading,), (PTN_8KA, PTN_8K)):
+        _, off, off_read = _detect_next(monkeypatch, *filings, next_session=False)
+        _, on, on_read = _detect_next(monkeypatch, *filings, next_session=True)
+        assert (on.decisions, on_read) == (off.decisions, off_read)
+
+
+@pytest.fixture
+def next_session_on(monkeypatch):
+    """The rule turned on as an operator would (the env the Settings read), the cache cleared both ways."""
+    monkeypatch.setenv("ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION", "true")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def _check_two_next(monkeypatch) -> tuple[ds.SplitDetector, list[int], list[bool]]:
+    """A dry pass over two companies; how often the setting was read, and what each ``detect_security`` was given."""
+    reads: list[int] = []
+    real = ds.legal_date_next_session
+
+    def counted() -> bool:
+        reads.append(1)
+        return real()
+
+    monkeypatch.setattr(ds, "legal_date_next_session", counted)
+    given: list[bool] = []
+
+    def detect(conn, reader, m, rows, **kw):
+        given.append(kw["next_session"])
+        return ds.SecurityDetection(member=m)
+
+    monkeypatch.setattr(ds, "detect_security", detect)
+    monkeypatch.setattr(split_repo, "latest_versions", lambda conn, **kw: [])
+    det = ds.SplitDetector(asof=F8_ASOF, polygon_rows=[], polygon_status="on", apply=False)
+    det._former = {}
+    for t in ("AAA", "BBB"):
+        sec = ds._MasterRow(uuid.uuid4(), t, None, None)
+        assert det.check(None, None, sec, tenant_id=DEFAULT_TENANT_ID) == 0
+    return det, reads, given
+
+
+def test_the_next_session_setting_is_read_once_a_pass_and_given_to_every_company(
+    monkeypatch, next_session_on
+):
+    det, reads, given = _check_two_next(monkeypatch)
+    assert (det.legal_date_next_session, len(reads), given) == (True, 1, [True, True])
+
+
+def test_the_next_session_setting_ships_off(monkeypatch):
+    monkeypatch.delenv("ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert ds.legal_date_next_session() is False
+        det, _, given = _check_two_next(monkeypatch)
+        assert (det.legal_date_next_session, given) == (False, [False, False])
+    finally:
+        get_settings.cache_clear()
