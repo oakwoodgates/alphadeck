@@ -209,3 +209,14 @@ each reproduced the reading prod's 800-day check planned (`classification.md`, R
 | 0001193125-25-269718 | BETA | 8-K (1.01, 3.02, 3.03, 5.02, 5.03, 8.01, 9.01) | "in connection with the IPO": "(iv) a 6.3811681-for-1 forward split of the Company's capital stock … the 'IPO Recapitalization'" (read: 1 -> 6.3811681, legal 2025-11-04; now abstains, pre-listing) |
 | 0001628280-26-044474 | FRVO | 8-K (2.02, 7.01, 9.01) | an earnings release: "the 0.7194 -for-1 reverse stock split effected on May 14, 2026 in connection with the Company's IPO" (read: 1 -> 0.7194, legal 2026-05-14; now abstains, pre-listing) |
 | 0001171843-26-002879 | ANTA | 6-K | "Aurelion, Inc. (Nasdaq: AURE), a publicly traded subsidiary of Antalpha …, issued a press release …, incorporated by reference as Exhibit 99.1" — Aurelion's "1-for-10 share consolidation effective February 19, 2026" (read: 10 -> 1, legal 2026-02-19; now no ratio, the exhibit unread) |
+
+PR-A's replay over prod's whole split corpus (2026-11-27) added four more, from the review copies of prod's SEC
+cache (`docs/temp/split-reader-misreads-evidence/prod-a/forms/`), trimmed and checked the same way. Each is a split
+prod lists whose reading PR-A's first commit lost; each reads as before again:
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001493152-25-020018 | CJET | 6-K | a 1-for-100 "on November 3, 2025"; the shares "will trade … on a consolidation-adjusted basis" from "the opening of trading on November 3, 2025" (read: trading 2025-11-03) |
+| 0001178913-25-000145 | BLRX | 6-K | an ADS ratio change, "the same effect as a 1-for-40 reverse stock split of the ADSs"; "The new ADS to ordinary share ratio … will be effective prior to the commencement of trading … on Thursday, January 30, 2025" (read: trading 2025-01-30) |
+| 0001171843-26-000847 | BWAY | 6-K | one additional ADS for each ADS held; "The new 1-to-1 ADS to ordinary share ratio will take effect prior to the commencement of trading … on Tuesday, March 3, 2026" (read: 1 -> 2, trading 2026-03-03) |
+| 0001493152-26-030305 | XAIR | 8-K (2.02, 5.03, 7.01, 9.01) | "the Board approved a 1-for-20 reverse stock split, which is expected to enable the Company to regain compliance" (its 2026 split) beside its 2025 one-for-twenty (read knowing the 2025 one: 20 -> 1, no date) |
