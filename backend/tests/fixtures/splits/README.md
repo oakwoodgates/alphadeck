@@ -179,4 +179,29 @@ the fourth.
 |---|---|---|---|
 | 0001493152-26-048139 | GCTK | 8-K (1.01, 2.03, 3.02, 7.01, 9.01) | a 1-for-2, trading 2026-10-26, beside "On August 28, 2026, the Company implemented a 1-for-15 reverse stock split" — the listed 1-for-15 of 2026-08-31 (read: two ratios, abstain) |
 | 0001214659-24-019590 | GPUS | 8-K (7.01, 9.01) | a special dividend of preferred stock (record date 2024-12-13); "… the one-for-thirty-five reserve stock split that was effectuated on November 25, 2024" — the listed 1-for-35, the day before (read: no direction, abstain) |
-| 0001437749-26-036465 | TRT | 10-Q | "On January 5, 2026, the Company effected a two-for-one forward stock split", in footnotes beside current dates — the listed 2-for-1 (read: 1 -> 2, no date) |
+| 0001437749-26-036465 | TRT | 10-Q | "On January 5, 2026, the Company effected a two-for-one forward stock split", in footnotes beside current dates — the listed 2-for-1 (read: 1 -> 2, no date; since 2026-11-26 a past split's ratio only: the filing dates nothing currently) |
+
+The date sentences the long-window check misread (2026-11-26, split-reader misreads PR-A) added three full
+submissions, copied from the evidence folder of prod's SEC cache (`docs/temp/split-reader-misreads-2026-11-26/forms/`)
+and trimmed the same way (the SGML header plus the documents the extractor reads, each kept whole and byte-exact;
+every reading of each trimmed file — bare, catch-all, screened, `wide` both ways, with and without the company's
+confirmed splits — CHECKED identical to its full submission's, on the pre-change and the changed extractor). On the
+pre-change extractor each reproduced the reading prod's 800-day check planned
+(`docs/temp/split-reader-misreads-2026-11-26/classification.md`):
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001628280-26-048496 | CYCU | 8-K (3.01, 7.01, 9.01) | a delisting notice: "Because the Company effected a 1-for-30 reverse stock split on October 27, 2025, … trading … is expected to be suspended at the opening of business on July 21, 2026" (read: 1-for-30, first session 2026-07-21) |
+| 0001193125-25-000195 | VRM | 8-K (7.01) | a 1-for-5 effective at the end of a Chapter 11 case (no date) beside "trading of the Common Stock formally suspended at the opening of business on December 2, 2024" (read: first session 2024-12-02) |
+| 0001641172-25-007892 | SKYA | 8-K (5.03, 9.01) | a 1-for-300 "effective at 11:59 p.m., Eastern Time, on April 27, 2025 and began trading on a post-split basis" — a Sunday (read: first session 2025-04-27) |
+
+PR-A's replay over prod's whole split corpus (2026-11-27) added four more, from the review copies of prod's SEC
+cache (`docs/temp/split-reader-misreads-evidence/prod-a/forms/`), trimmed and checked the same way. Each is a split
+prod lists whose reading PR-A's first commit lost; each reads as before again:
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001493152-25-020018 | CJET | 6-K | a 1-for-100 "on November 3, 2025"; the shares "will trade … on a consolidation-adjusted basis" from "the opening of trading on November 3, 2025" (read: trading 2025-11-03) |
+| 0001178913-25-000145 | BLRX | 6-K | an ADS ratio change, "the same effect as a 1-for-40 reverse stock split of the ADSs"; "The new ADS to ordinary share ratio … will be effective prior to the commencement of trading … on Thursday, January 30, 2025" (read: trading 2025-01-30) |
+| 0001171843-26-000847 | BWAY | 6-K | one additional ADS for each ADS held; "The new 1-to-1 ADS to ordinary share ratio will take effect prior to the commencement of trading … on Tuesday, March 3, 2026" (read: 1 -> 2, trading 2026-03-03) |
+| 0001493152-26-030305 | XAIR | 8-K (2.02, 5.03, 7.01, 9.01) | "the Board approved a 1-for-20 reverse stock split, which is expected to enable the Company to regain compliance" (its 2026 split) beside its 2025 one-for-twenty (read knowing the 2025 one: 20 -> 1, no date) |
