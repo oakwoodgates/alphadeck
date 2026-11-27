@@ -28,10 +28,12 @@ from domain.splits import (
     decide,
 )
 from ingest.edgar.client import EdgarClient
+from ingest.edgar.form8k import filing_index_url
 from ingest.polygon_splits import PolygonSplitSource
 from pipeline import backfill_splits as bf
 from pipeline import detect_splits as ds
 from pipeline import ingest_thesis as IT
+from pipeline import split_unplaced as su
 from repositories import split_repo
 from tests.pipeline.test_ingest_thesis import _make_thesis, _patch
 from tests.split_801_fixtures import (
@@ -273,6 +275,148 @@ def test_the_artifact_block_and_a_quiet_night(db, tmp_path):
     ]
 
 
+# --- F1-1: an unplaced filing carries its evidence; ``--record`` keeps a long-window run's list -------------
+
+NO_DATE = "no first-session or effective date stated"
+UNPLACED_KEYS = {
+    "security_id",
+    "ticker",
+    "accession",
+    "form",
+    "filed",
+    "reason",
+    "url",
+    "document",
+    "passage",
+    "ratio_from",
+    "ratio_to",
+    "abstain_reason",
+    "date_note",
+}
+
+
+def _meta_unplaced(**evidence) -> ds.Unplaced:
+    """META's row on prod's 2026-11-25 artifact (``tests/fixtures/splits/unplaced``)."""
+    return ds.Unplaced(
+        uuid.UUID("826a470d-040b-4381-92c3-3c4e19cb81ad"),
+        "META",
+        "0001628280-26-066700",
+        "8-K",
+        date(2026, 10, 21),
+        f"2-for-1 forward split stated, but {NO_DATE}",
+        **evidence,
+    )
+
+
+def test_the_artifact_block_carries_each_unplaced_filings_evidence_the_passage_cut_at_600():
+    passage = "stand-in passage text; only its length matters here. " * 20  # 1,080 characters
+    det = ds.SplitDetection(
+        evaluated=True,
+        unplaced=[
+            _meta_unplaced(
+                url=filing_index_url("1326801", "0001628280-26-066700"),
+                document="stand-in.htm",
+                passage=passage,
+                ratio_from=Decimal(1),
+                ratio_to=Decimal(2),
+                date_note=NO_DATE,
+            ),
+            _meta_unplaced(),  # nothing read beyond the reason: every evidence key null
+        ],
+    )
+    full, bare = json.loads(json.dumps(det.payload()))["split_detect"]["unplaced"]
+    assert set(full) == set(bare) == UNPLACED_KEYS
+    assert ds.UNPLACED_PASSAGE_MAX == 600
+    assert full["passage"] == passage[:600] and len(passage) > 600
+    assert (full["ratio_from"], full["ratio_to"], full["date_note"]) == ("1", "2", NO_DATE)
+    assert full["url"].endswith("/1326801/000162828026066700/0001628280-26-066700-index.htm")
+    assert (full["document"], full["abstain_reason"]) == ("stand-in.htm", None)
+    evidence = UNPLACED_KEYS - {"security_id", "ticker", "accession", "form", "filed", "reason"}
+    assert {k for k in UNPLACED_KEYS if bare[k] is None} == evidence
+
+
+class _Conn:
+    """The CLI's connection, stood in: no database (the run itself is stubbed)."""
+
+    read_only = False
+
+    def close(self) -> None:
+        pass
+
+
+def _cli(monkeypatch, tmp_path, rows: list[ds.Unplaced]) -> list[_Conn]:
+    """``detect_splits.main`` with Massive.com off, no DB and a run that lists ``rows`` as unplaced; the record
+    home is a tmp dir. Returns the connections the CLI opened."""
+    opened: list[_Conn] = []
+
+    def connect() -> _Conn:
+        opened.append(_Conn())
+        return opened[-1]
+
+    def run_over_union(conn, detector, edgar, *, tickers=None):
+        assert conn.read_only  # a dry run
+        detector.result.checked += 1
+        detector.result.unplaced.extend(rows)
+        return []
+
+    monkeypatch.setattr(ds, "default_split_source", lambda: None)
+    monkeypatch.setattr(ds, "EdgarClient", lambda **kw: object())
+    monkeypatch.setattr("db.session.connect", connect)
+    monkeypatch.setattr(ds, "run_over_union", run_over_union)
+    monkeypatch.setattr(su, "UNPLACED_DIR", tmp_path / "split_unplaced")
+    return opened
+
+
+def test_record_writes_the_runs_unplaced_list_once(monkeypatch, tmp_path, capsys):
+    row = _meta_unplaced(ratio_from=Decimal(1), ratio_to=Decimal(2), date_note=NO_DATE)
+    _cli(monkeypatch, tmp_path, [row])
+    ds.main(["--asof", "2026-11-25", "--sec-days", "800", "--polygon-days", "800", "--record"])
+    (path,) = (tmp_path / "split_unplaced").iterdir()
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    assert set(doc) == {
+        "kind",
+        "started_at",
+        "finished_at",
+        "asof",
+        "sec_days",
+        "polygon_days",
+        "unplaced",
+    }
+    assert (doc["kind"], doc["asof"], doc["sec_days"], doc["polygon_days"]) == (
+        "detect_splits",
+        "2026-11-25",
+        800,
+        800,
+    )
+    assert doc["unplaced"] == [row.to_json()]
+    started = datetime.fromisoformat(doc["started_at"])
+    assert started <= datetime.fromisoformat(doc["finished_at"])
+    assert path.name == started.strftime("%Y%m%dT%H%M%SZ") + ".json"
+    out = capsys.readouterr().out
+    assert "DRY-RUN (read-only connection; no database write) · RECORD" in out
+    assert f"recorded 1 unplaced filing(s): {path}" in out
+    # the one reader reads it as the check's list
+    got = su.read_unplaced(records_dir=tmp_path / "split_unplaced")
+    assert [(r["ticker"], r["source"], r["seen_on"]) for r in got.rows] == [
+        ("META", "check", "2026-11-25")
+    ]
+
+
+def test_record_refuses_a_ticker_run_and_writes_nothing(monkeypatch, tmp_path, capsys):
+    opened = _cli(monkeypatch, tmp_path, [_meta_unplaced()])
+    with pytest.raises(SystemExit) as e:
+        ds.main(["--asof", "2026-11-25", "--record", "--ticker", "META"])
+    assert e.value.code == ds.EXIT_REFUSED == 2
+    assert opened == [] and not (tmp_path / "split_unplaced").exists()
+    assert "REFUSED: --record" in capsys.readouterr().out
+
+
+def test_without_record_a_dry_run_writes_nothing(monkeypatch, tmp_path):
+    opened = _cli(monkeypatch, tmp_path, [_meta_unplaced()])
+    ds.main(["--asof", "2026-11-25"])
+    assert len(opened) == 1 and not (tmp_path / "split_unplaced").exists()
+
+
 def test_the_public_clock_reads_a_detected_split_from_its_own_publication(db, tmp_path):
     # S2's history read (``split_repo.as_of_rows(clock="public")``): every version of the split counts from
     # its first SEC filing (GAME's 8-K, 2026-08-19), never from the nights the detector wrote it (announced
@@ -406,6 +550,21 @@ def test_a_catch_all_8k_restating_a_past_split_is_never_listed(db, tmp_path, mon
     assert u.reason == (
         "1-for-25 reverse split stated, but no first-session or effective date stated"
     )
+
+
+def test_an_unplaced_filing_carries_its_link_passage_and_ratio(db, tmp_path):
+    """F1-1: AIRE's 8-K/A (above) on the run artifact with what the extractor read from it, so the steward reads
+    the filing's own words without opening it."""
+    seed_member(db, "AIRE", AIRE_CIK, [AIRE_8KA])
+    det = _run(db, tmp_path, asof=date(2026, 10, 23), tickers=["AIRE"])
+    (row,) = json.loads(json.dumps(det.result.payload()))["split_detect"]["unplaced"]
+    assert set(row) == UNPLACED_KEYS
+    assert row["url"] == filing_index_url(AIRE_CIK, AIRE_8KA[0])
+    assert (row["ratio_from"], row["ratio_to"]) == ("25", "1")
+    assert (row["abstain_reason"], row["date_note"]) == (None, NO_DATE)
+    assert row["document"] == "EX-99.3 ea030360501ex99-3.htm"
+    assert "as adjusted for the Company\u2019s 1-for-25 reverse stock split" in row["passage"]
+    assert len(row["passage"]) <= ds.UNPLACED_PASSAGE_MAX
 
 
 # --- D2 (platform fixes W2-3): a distribution is set aside automatically; the steward's restore is final ------
