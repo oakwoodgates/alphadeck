@@ -681,6 +681,13 @@ class Settings(BaseSettings):
     # extractor abstained; GPUS 2024-12-13); a filing that states it still keeps it for review. False = W2-3's rule
     # exactly. ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN, injected into both services like the two above.
     split_distribution_label_overrides_abstain: bool = True
+    # F8-2 (decision D-F8b, framework completion 2026-11-27): a later SEC filing of the same exact ratio, filed within
+    # this many days of an SEC-only candidate's newest filing, joins that candidate even when its date is more than
+    # two sessions away, and the latest filing's date supersedes (``domain.splits.cluster_sec`` / ``decide_sec_only``;
+    # the nightly detector reads it once a pass, the pure rule reads none). CHRN's 8-K moved its first session from
+    # 05-27 to 06-02 a day later. Ships DARK: 0 = off (S4's clustering exactly); 30 is the operator's to turn on, from
+    # the ON-vs-OFF evidence. ALPHADECK_SPLIT_SEC_RESTATE_DAYS, injected into both services like the three above.
+    split_sec_restate_days: int = Field(default=0, ge=0)
 
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These two are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL; an LLM
