@@ -2180,3 +2180,93 @@ def test_a_split_beside_the_new_ratio_rules_still_reads(
     assert x.abstain_reason is None, x.abstain_reason
     assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
     assert (x.effective_date, x.date_kind, x.date_note) == (date.fromisoformat(when), kind, None)
+
+
+# --- 2026-11-27: prod's split corpus replayed (split-reader misreads, PR-A review) ------------------------------
+#
+# PR-A's first rule (a trading date comes only from a sentence about the split, or one with a cue only a split has)
+# dropped first sessions prod's list holds: the sentence names the split only by what the shares trade AS — "on a
+# consolidation-adjusted basis", "the new ADS to ordinary share ratio". Each is a full submission read as the nightly
+# reads it (a 6-K: the restatement screen), with the confirmed splits in effect by its filing date (none).
+SPLIT_ONLY_TRADING = [
+    # Chijet's 6-K of 2025-10-29: "will effect a one hundred (100)-for-one (1) share consolidation … on November 3,
+    # 2025" and "beginning with the opening of trading on November 3, 2025, the Company's class A ordinary shares will
+    # trade on the Nasdaq Capital Market on a consolidation-adjusted basis" (prod lists 100:1, 2025-11-03)
+    ("0001493152-25-020018.txt", ("100", "1"), "2025-11-03"),
+    # BioLineRx's 6-K of 2025-01-17: "will have the same effect as a 1-for-40 reverse stock split of the ADSs" and
+    # "The new ADS to ordinary share ratio of 1 for 600 will be effective prior to the commencement of trading on the
+    # Nasdaq Capital Market on Thursday, January 30, 2025" (prod lists 40:1, 2025-01-30)
+    ("0001178913-25-000145.txt", ("40", "1"), "2025-01-30"),
+    # Brainsway's 6-K of 2026-02-17: "each existing ADS holder will receive one additional ADS for each ADS held" and
+    # "The new 1-to-1 ADS to ordinary share ratio will take effect prior to the commencement of trading on the NASDAQ
+    # on Tuesday, March 3, 2026" — beside the legal "effective March 3, 2026" (prod lists 1:2, 2026-03-03)
+    ("0001171843-26-000847.txt", ("1", "2"), "2026-03-03"),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "ratio", "first_session"), SPLIT_ONLY_TRADING, ids=["CJET", "BLRX", "BWAY"]
+)
+def test_a_sentence_on_what_the_shares_trade_as_dates_the_split(name, ratio, first_session):
+    """Trading "on a consolidation-adjusted basis" or under "the new ADS to ordinary share ratio" is a cue only a
+    split has: the sentence's date is the first session, as "split-adjusted" and "the new ADS ratio" are.
+    """
+    screen, x = _as_prod_reads(name, "6-K", None)
+    assert screen == SCREEN_RESTATED
+    assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
+    assert (x.effective_date, x.date_kind) == (date.fromisoformat(first_session), "trading")
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        # a listing transfer of the ADSs: trading, ADSs, no ratio and no split
+        "The Company's ADSs will begin trading on the Nasdaq Capital Market at the opening of trading on March 3, "
+        "2026, under the existing ticker symbol.",
+        # the ratio the ADSs already trade under, restated beside a ticker change
+        "Each ADS continues to represent ten ordinary shares; the ADSs will begin trading under the new ticker "
+        "symbol at the opening of trading on March 3, 2026.",
+    ],
+    ids=["listing", "ticker"],
+)
+def test_ads_trading_without_a_ratio_change_never_dates_a_split(sentence):
+    """The ADS-ratio cue needs the ratio itself ("ADS ratio", "ADS to ordinary share ratio"): ADSs that merely trade
+    somewhere new date nothing."""
+    ref = _ref("0001493152-26-000001", "6-K", "2026-02-17")
+    ratio = "The Company will effect a ratio change of its ADSs from one ADS for one share to one ADS for ten shares."
+    docs = [FilingDocument(type="6-K", filename="t.htm", raw=f"{ratio} {sentence}")]
+    x = extract_for(docs, ref)
+    assert x.effective_date is None and x.date_kind is None
+
+
+def test_a_new_split_of_a_past_splits_ratio_is_never_taken_for_the_past_one():
+    """Beyond Air's charter 8-K of 2026-06-26 (Items 2.02 / 5.03 / 7.01 / 9.01: the restatement screen), read knowing
+    its listed 1-for-20 of 2025-07-14: "Following stockholder approval at the Company's June 18 special meeting, the
+    Board approved a 1-for-20 reverse stock split, which is expected to enable the Company to regain compliance ahead
+    of the deadline" is the NEXT 1-for-20 (prod lists it, first session 2026-07-13), undated here. The filing dates
+    nothing currently and restates the old one-for-twenty, but a sentence about what WILL happen is never that past
+    split's — unless a dated past cue says so (the rule before 2026-11-26)."""
+    screen, x = _as_prod_reads(
+        "0001493152-26-030305.txt",
+        "8-K",
+        ("2.02", "5.03", "7.01", "9.01"),
+        _known(("20", "1", "2025-07-14")),
+    )
+    assert screen == SCREEN_RESTATED
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to, x.effective_date) == (Decimal(20), Decimal(1), None)
+
+
+def test_a_subdivision_of_issued_and_unissued_shares_is_about_a_split():
+    """Hesai's 6-K of 2026-07-10: "Effective before the commencement of trading on The Stock Exchange of Hong Kong
+    Limited on July 10, 2026, the Company subdivided each of its issued and unissued ordinary shares into eight (8)
+    ordinary shares." is a share subdivision ("unissued" between the qualifiers, as "authorised" in a
+    consolidation): a sentence about a split, so its date is read, as before 2026-11-26 (the ratio is not, either
+    way)."""
+    ref = _ref("0001104659-26-082432", "6-K", "2026-07-10")
+    raw = (
+        "Effective before the commencement of trading on The Stock Exchange of Hong Kong Limited on July 10, 2026, "
+        "the Company subdivided each of its issued and unissued ordinary shares into eight (8) ordinary shares."
+    )
+    x = extract_for([FilingDocument(type="6-K", filename="t.htm", raw=raw)], ref)
+    assert (x.effective_date, x.date_kind) == (date(2026, 7, 10), "trading")

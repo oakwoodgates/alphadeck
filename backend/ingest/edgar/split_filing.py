@@ -111,11 +111,12 @@ such as "split-adjusted basis", "post-consolidation basis", "market open", "open
 "commencement of trading" — or "will begin trading" in a sentence about the split, "the first date when the
 … shares will begin trading … after implementation of the reverse split will be Monday, October 5, 2026",
 CMND) states it directly — kind ``trading``. Since 2026-11-26 a trading sentence is one about the split, or one
-with a cue only a split has (split-adjusted, post-split, post-consolidation, "consolidated basis", the NEW CUSIP /
-ISIN or the new ratio the shares trade under): a new ticker or a listing "at the opening of trading" dates nothing
-(CD's, EMAT's). A trading date that is no session (a weekend or an NYSE holiday, ``domain.trading_days``) is read
-as a legal one: "effective at 11:59 p.m., Eastern Time, on April 27, 2025 and began trading on a post-split basis"
-(SKYA's charter 8-K; a Sunday). Only when no trading sentence carries a date does a LEGAL sentence
+with a cue only a split has (split- or consolidation-adjusted, post-split, post-consolidation, "consolidated basis",
+the NEW CUSIP / ISIN, the new ratio the shares trade under or the ADS-to-share ratio the ADSs trade under): a new
+ticker or a listing "at the opening of trading" dates nothing (CD's, EMAT's). A trading date that is no session (a
+weekend or an NYSE holiday, ``domain.trading_days``) is read as a legal one: "effective at 11:59 p.m., Eastern Time,
+on April 27, 2025 and began trading on a post-split basis" (SKYA's charter 8-K; a Sunday). Only when no trading
+sentence carries a date does a LEGAL sentence
 about the split ("effective as of", "Effective June 12, 2025", "will take effect on") supply one — kind
 ``legal``, which may be the session before the first one (a 5:00 p.m. effective time). Two different dates of
 the winning kind → no date (named in ``date_note``); the ratio still stands. A filing that states both reads
@@ -147,8 +148,8 @@ before the filing is dropped and nothing replaces it (a restated old split, or M
 in an 8-K filed 2026-05-21); a ratio the text dates in the past (its own sentence, the date sentence beside an
 undated one — LGHL's "… the same effect as a one-for-fifty reverse ADS split. The change in the ADS ratio was
 effective on July 13, 2023." — or, in a filing that dates nothing currently, any mention of it, whether or not
-a date cue reaches the past date) is a past split's; an abstain is never resolved into a reading. Its docstring
-holds the MEASURED reasons.
+a date cue reaches the past date, though never one about what WILL happen unless a cue does) is a past split's; an
+abstain is never resolved into a reading. Its docstring holds the MEASURED reasons.
 
 **The passage** is the filing's own sentence(s), verbatim after the HTML is stripped (tags removed, entities
 decoded, whitespace collapsed): the sentence that states the ratio and, when it is another one, the sentence
@@ -303,7 +304,9 @@ _NEGATED_BEFORE = re.compile(r"\b(?:without|no|not|never)\s+(?:an?\s+|any\s+)?$"
 #   business combined ("the combined company"), nor a "business combination" ("SAFE investors will receive one
 #   warrant for every two shares acquired, … if the business combination is consummated", ENHA's 8.01 8-K of
 #   2026-08-26, states no split);
-# - "subdivi…": a share subdivision, a subdivision of (or shares subdivided into) shares;
+# - "subdivi…": a share subdivision, a subdivision of (or shares subdivided into) shares — "the Company subdivided
+#   each of its issued and unissued ordinary shares into eight (8)" (Hesai's 6-K; "unissued" / "authorised" may sit
+#   among the qualifiers, as in a consolidation of the authorised, issued and outstanding shares);
 # - "revers…": a reverse split or consolidation, "pre-/post-reverse".
 _COMBINATION_OF_SHARES = (
     r"(?<!business\s)\bcombin(?:e|es|ed|ing)\b"
@@ -313,11 +316,13 @@ _COMBINATION_OF_SHARES = (
 )
 _SUBDIVISION_OF_SHARES = (
     r"\b(?:share|stock)\s+subdivi\w*|"
-    rf"\bsubdivi(?:de|des|ded|ding|sion|sions)\b(?:\s+(?:of|into))?\s+(?:{_SHARE_QUALIFIER}\s+){{0,8}}?{_SHARE_WORD}|"
+    r"\bsubdivi(?:de|des|ded|ding|sion|sions)\b(?:\s+(?:of|into))?\s+"
+    rf"(?:(?:{_SHARE_QUALIFIER}|unissued|authori[sz]ed),?\s+){{0,8}}?{_SHARE_WORD}|"
     rf"\b{_SHARE_WORD}\s+(?:(?:will|would|shall|to|be|been|being|is|are|was|were|has|have|had)\s+){{0,4}}subdivided"
 )
 _CONSOLIDATION_OF_ISSUED_SHARES = (
-    rf"\bconsolidat\w*\s+of\s+(?:(?:{_SHARE_QUALIFIER}|authori[sz]ed),?\s+){{0,8}}?{_SHARE_WORD}"
+    r"\bconsolidat\w*\s+of\s+"
+    rf"(?:(?:{_SHARE_QUALIFIER}|unissued|authori[sz]ed),?\s+){{0,8}}?{_SHARE_WORD}"
 )
 _REVERSE_SENSE = (
     r"\breverse[\s-]+(?:[\w-]+[\s-]+){0,2}?(?:split|consolidat)|\b(?:pre|post)[\s-]*reverse\b"
@@ -467,10 +472,18 @@ _TRADING_CUE = re.compile(
 # split's first session. The shares trading under their NEW CUSIP / ISIN or a NEW (ADS) ratio are the split's: "…
 # expected to commence trading on Nasdaq when the market opens on October 21, 2026 under the symbol "POM" with the
 # new CUSIP number" (POM's 6-K), "The first day of trading under the new ratio is expected to be October 29, 2025"
-# (NVA's), "… under the new CUSIP 776105108 when markets open on August 25, 2026" (REAX's)
+# (NVA's), "… under the new CUSIP 776105108 when markets open on August 25, 2026" (REAX's). So are shares trading
+# on a split- / consolidation-ADJUSTED basis — "beginning with the opening of trading on November 3, 2025, the
+# Company's class A ordinary shares will trade … on a consolidation-adjusted basis" (Chijet's 6-K) — and ADSs under
+# their ADS-to-share ratio: "The new ADS to ordinary share ratio of 1 for 600 will be effective prior to the
+# commencement of trading … on Thursday, January 30, 2025" (BioLineRx's), "The new 1-to-1 ADS to ordinary share
+# ratio will take effect prior to the commencement of trading on the NASDAQ on Tuesday, March 3, 2026" (Brainsway's)
 _SPLIT_TRADING_CUE = re.compile(
-    r"split[\s-]*adjusted|post[\s-]+(?:reverse[\s-]+)?(?:stock[\s-]+)?split|post[\s-]+consolidat\w*|"
-    r"consolidated\s+basis|\bnew\s+(?:CUSIP|ISIN)\b|\bnew\s+(?:ADS\s+|ADR\s+)?ratio\b",
+    r"(?:split|consolidation|combination|subdivision)[\s-]*adjusted|"
+    r"post[\s-]+(?:reverse[\s-]+)?(?:stock[\s-]+)?split|post[\s-]+consolidat\w*|"
+    r"consolidated\s+basis|\bnew\s+(?:CUSIP|ISIN)\b|\bnew\s+(?:ADS\s+|ADR\s+)?ratio\b|"
+    r"\bAD[SR]s?[\s-]+to[\s-]+(?:ordinary[\s-]+|common[\s-]+)?shares?[\s-]+ratio\b|"
+    r"\b(?:ordinary[\s-]+|common[\s-]+)?shares?[\s-]+to[\s-]+AD[SR]s?[\s-]+ratio\b",
     re.I,
 )
 # The LAST session at the old price is never the first at the new one: "The last day of trading of the pre-split
@@ -1545,6 +1558,15 @@ def _read(
         # 2026-07-06, dated in one sentence and undated in another, with no direction word)
         past_pairs = {frozenset((m.old, m.new)) for m in mentions if m.kind == "historical"}
         for mt in mentions:
+            cs, ce = mt.sentence
+            if ce - cs > _LONG_SENTENCE:
+                cs, ce = max(cs, mt.pos - _WINDOW_BEFORE), min(ce, mt.pos + _WINDOW_AFTER)
+            if not past and _FUTURE.search(docs[mt.doc].match[cs:ce]):
+                # with no past CUED date (the widening above) a sentence about what WILL happen is a new split of
+                # the same ratio, never the past one: Beyond Air's 8-K of 2026-06-26 restates its one-for-twenty of
+                # 2025 beside "the Board approved a 1-for-20 reverse stock split, which is expected to enable the
+                # Company to regain compliance" (its next 1-for-20, first session 2026-07-13)
+                continue
             if mt.kind == "operative" and mt.key() in dated_past:
                 mt.kind = "historical"
             elif mt.kind == "undirected" and frozenset((mt.old, mt.new)) in past_pairs:
