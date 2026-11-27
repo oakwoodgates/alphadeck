@@ -610,7 +610,7 @@ def test_admin_readouts_never_name_another_workspace_thesis(world, db):
     a LATE-ONLY night (a row recorded after its night's next EDGAR open), which ``/admin/status`` lists by name.
     """
     night = world["asof"] - timedelta(days=1)
-    while not is_scheduled_day(night):  # a weekend or an NYSE holiday (Thanksgiving) is no night
+    while night.weekday() >= 5:  # THROWAWAY: #690 reverted to prove the probe catches it
         night -= timedelta(days=1)
     with db.cursor() as cur:
         cur.execute(
