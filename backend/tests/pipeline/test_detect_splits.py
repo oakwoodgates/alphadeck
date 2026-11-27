@@ -27,9 +27,11 @@ from domain.splits import (
     VIA_SEC_TAPE,
     PolygonEvidence,
     SecEvidence,
+    TapeEvidence,
     cluster_sec,
     decide,
     decide_sec_only,
+    with_tape,
 )
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form8k import filing_index_url
@@ -1316,3 +1318,181 @@ def test_a_competing_ratio_or_massive_row_is_named_in_its_own_words():
     assert new.decision == replace(
         a, note=f"{a.note} Another Massive.com row states first session 2026-03-05."
     )
+
+
+# --- F8-2 (dark, decision D-F8b): the restate rule through the detector -------------------------------------------
+#
+# ``split_sec_restate_days`` (0 = off, shipped): read once a pass beside D2's bound and passed to ``detect_security``,
+# which passes it to the pure rule (``cluster_sec`` / ``decide_sec_only``) and never puts a candidate whose filings
+# state dates more than ``SESSION_TOLERANCE`` sessions apart to the tape: the tape never picks between the company's
+# own dates.
+
+
+class _Filings:
+    """A ``SecReader`` stand-in: tonight's split filings in the SEC window are these readings (no fetch)."""
+
+    def __init__(self, *filings: SecEvidence) -> None:
+        self.filings = list(filings)
+        self.evidence = {s.accession: s for s in filings}
+        self.read_here = [s.accession for s in filings]
+        self.submissions: dict = {}
+
+    def refs(self, conn, m, since, asof):
+        return [s.accession for s in self.filings]
+
+    def read(self, m, refs, *, confirmed=()):
+        return list(self.filings), 0
+
+
+def _tape(session: date) -> TapeEvidence:
+    """CHRN's first-served tape shape (no step at the ratio): the reading only adds to a note."""
+    return TapeEvidence(
+        session=session,
+        prior=date(2025, 5, 23),
+        prior_close=4.2,
+        close=4.44,
+        prior_volume=57_553.0,
+        volume=95_307.0,
+        prior_served_before=False,
+    )
+
+
+def _detect(monkeypatch, *filings: SecEvidence, restate_days: int):
+    """``detect_security`` over these filings (no Massive.com row): its decisions and the sessions it read."""
+    read: list[date] = []
+
+    def tape_at(conn, *, tenant_id, security_id, session):
+        read.append(session)
+        return _tape(session)
+
+    monkeypatch.setattr(ds, "tape_at", tape_at)
+    m = bf.Member(DEFAULT_TENANT_ID, uuid.uuid4(), "CHRN", None, None)
+    det = ds.detect_security(
+        None,
+        _Filings(*filings),
+        m,
+        [],
+        asof=F8_ASOF,
+        sec_since=date(2025, 1, 1),
+        distribution_max_factor=None,
+        label_overrides_abstain=False,
+        confirmed=(),
+        restate_days=restate_days,
+    )
+    return m, det, read
+
+
+def test_at_0_the_detector_decides_chrn_exactly_as_before(monkeypatch):
+    """Two candidates, each put to the tape (its reading on the note), F8-1's plan: one row, the other on kept."""
+    m, det, read = _detect(monkeypatch, CHRN_8K, CHRN_8K_NEXT, restate_days=0)
+    first, second = _sec_only(CHRN_8K, CHRN_8K_NEXT)
+    assert det.decisions == [
+        with_tape(first, _tape(date(2025, 5, 27))),
+        with_tape(second, _tape(date(2025, 6, 2))),
+    ]
+    assert read == [date(2025, 5, 27), date(2025, 6, 2)]
+    assert [(p.action, p.reason) for p in _plan(m, det.decisions)] == [
+        (ds.APPEND, "new"),
+        (ds.KEPT, ds.ANOTHER_FILING),
+    ]
+
+
+def test_at_30_chrn_is_one_new_row_on_the_later_8ks_first_session_never_put_to_the_tape(
+    monkeypatch,
+):
+    m, det, read = _detect(monkeypatch, CHRN_8K, CHRN_8K_NEXT, restate_days=30)
+    (d,) = det.decisions
+    assert d == decide_sec_only([CHRN_8K, CHRN_8K_NEXT], asof=F8_ASOF, restate_days=30)
+    assert (d.effective_date, d.sec, d.status) == (
+        date(2025, 6, 2),
+        CHRN_8K_NEXT,
+        STATUS_NEEDS_REVIEW,
+    )
+    assert read == [] and "Tape as first served" not in d.note
+    (new,) = _plan(m, det.decisions)
+    assert (new.action, new.reason, new.decision) == (ds.APPEND, "new", d)
+
+
+def test_at_30_a_single_filing_or_one_date_is_still_put_to_the_tape(monkeypatch):
+    """Only a candidate whose filings disagree on the date skips the tape: one filing, or a restatement of the same
+    date, reads it as before."""
+    same_date = _f8_sec("0000000000-25-000003", "8-K/A", date(2025, 5, 22), 15, date(2025, 5, 27))
+    _, det, read = _detect(monkeypatch, CHRN_8K, same_date, restate_days=30)
+    (d,) = det.decisions
+    assert d == with_tape(
+        decide_sec_only([CHRN_8K, same_date], asof=F8_ASOF), _tape(date(2025, 5, 27))
+    )
+    assert read == [date(2025, 5, 27)]
+
+
+def test_at_30_the_listed_chrn_row_moves_to_the_later_first_session(monkeypatch):
+    """CHRN as listed before (the 05-27 row, open, the system's): with the rule on, tonight's one decision is an
+    update of that row to 06-02 (its key date kept), nothing left on ``kept``. At 0 it stays UNCHANGED (F8-1).
+    """
+    m = bf.Member(DEFAULT_TENANT_ID, uuid.uuid4(), "CHRN", None, None)
+    first, _ = _sec_only(CHRN_8K, CHRN_8K_NEXT)
+    listed = ds._as_version(m, first)
+    (d,) = _detect(monkeypatch, CHRN_8K, CHRN_8K_NEXT, restate_days=30)[1].decisions
+    det = _check_dry(monkeypatch, m, [d], stored=[listed])
+    (p,) = det.planned
+    assert (p.action, p.reason, p.stored) == (ds.APPEND, "updated", listed)
+    assert (p.decision.key_date, p.decision.effective_date) == (date(2025, 5, 27), date(2025, 6, 2))
+    assert det.result.kept == []
+
+
+@pytest.fixture
+def restate_30(monkeypatch):
+    """The rule turned on as an operator would (the env the Settings read), the cache cleared both ways."""
+    monkeypatch.setenv("ALPHADECK_SPLIT_SEC_RESTATE_DAYS", "30")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def _count_reads(monkeypatch) -> list[int]:
+    reads: list[int] = []
+    real = ds.sec_restate_days
+
+    def counted() -> int:
+        reads.append(1)
+        return real()
+
+    monkeypatch.setattr(ds, "sec_restate_days", counted)
+    return reads
+
+
+def _check_two(monkeypatch) -> tuple[ds.SplitDetector, list[int]]:
+    """A dry pass over two companies; what each ``detect_security`` call was given for the rule."""
+    given: list[int] = []
+
+    def detect(conn, reader, m, rows, **kw):
+        given.append(kw["restate_days"])
+        return ds.SecurityDetection(member=m)
+
+    monkeypatch.setattr(ds, "detect_security", detect)
+    monkeypatch.setattr(split_repo, "latest_versions", lambda conn, **kw: [])
+    det = ds.SplitDetector(asof=F8_ASOF, polygon_rows=[], polygon_status="on", apply=False)
+    det._former = {}
+    for t in ("AAA", "BBB"):
+        sec = ds._MasterRow(uuid.uuid4(), t, None, None)
+        assert det.check(None, None, sec, tenant_id=DEFAULT_TENANT_ID) == 0
+    return det, given
+
+
+def test_the_restate_setting_is_read_once_a_pass_and_given_to_every_company(
+    monkeypatch, restate_30
+):
+    reads = _count_reads(monkeypatch)
+    det, given = _check_two(monkeypatch)
+    assert (det.sec_restate_days, len(reads), given) == (30, 1, [30, 30])
+
+
+def test_the_restate_setting_ships_off(monkeypatch):
+    monkeypatch.delenv("ALPHADECK_SPLIT_SEC_RESTATE_DAYS", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert ds.sec_restate_days() == 0
+        det, given = _check_two(monkeypatch)
+        assert (det.sec_restate_days, given) == (0, [0, 0])
+    finally:
+        get_settings.cache_clear()
