@@ -51,6 +51,15 @@ nearest within ``UNPLACED_NEAR_DAYS``), read at once from the list already read 
 steward can **Dismiss** one ("not a split to list" — ``repositories.split_filing_dismissal_repo``, append-only):
 it is listed under ``unplaced_dismissed`` (WB#2); inverse: **Undo**. Display only: the split list, the detector
 and the split-night hold never read the unplaced list or a dismissal.
+
+**A split no source lists (framework completion F2-1)** — the steward can **Add** one, from exactly one signal: an
+unplaced filing (``from_accession``) or an "is this real?" jump (``from_jump``), with cited values and the same tape
+check as a cited-values confirm (``POST /admin/splits``; the form's tape read is ``GET
+/admin/splits/securities/{security_id}/tape-step``). The server copies the filing's evidence from the unplaced list,
+never from the client, and refuses (409) a filing or jump no longer listed or dismissed, and a split the list already
+holds (``split_repo.add_steward``: a live one of the same exact ratio within the nightly's merge window included).
+Inverse: **Revoke** (**Reject** while announced). The price leg rescales a stored tape only on a split's first
+night: a past added split waits for the operator's ``pipeline.repair_split_basis``.
 """
 
 from __future__ import annotations
@@ -89,6 +98,7 @@ from domain.splits import (
     scale_after,
 )
 from domain.text_types import Prose, RequestDate, UrlText
+from pipeline.backfill_splits import MATCH_WINDOW_DAYS
 from pipeline.detect_splits import TAPE_PRIOR_MAX_DAYS, tape_at, tape_window
 from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps, split_dismissed
 from pipeline.split_unplaced import read_unplaced
@@ -168,8 +178,9 @@ class AdminSplitListEntryOut(BaseModel):
     Massive.com", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
     ``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state
     different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
-    both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the
-    document that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both
+    both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3; ``action`` ``add``: a
+    split the steward added that no source lists): ``cited_url`` is the document that states them, ``tape_override``
+    whether the steward confirmed or added past the stored tape's step (both
     ``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on
     the list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before
     it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
@@ -401,6 +412,41 @@ class AdminSplitConfirmValuesIn(BaseModel):
         return self
 
 
+AccessionText = Annotated[str, StringConstraints(strip_whitespace=True, pattern=ACCESSION_PATTERN)]
+
+
+class AdminSplitAddIn(BaseModel):
+    """A split NO source lists, added by the steward (framework completion F2-1) with cited values: ``security_id``,
+    ``ratio_from`` old shares -> ``ratio_to`` new shares (decimal text, above 0 and at most 100,000, never equal),
+    ``first_session`` = the first session at the new price, ``cited_url`` = the https URL of the document that
+    states them (required), ``note`` (optional). It starts from exactly one signal: ``from_accession`` = an SEC
+    filing on the current unplaced list (its evidence is read by the server, never sent), or ``from_jump`` = the
+    step date of a split-shaped jump on the current "is this real?" list. ``override_tape`` = add although the stored
+    tape's step at that session sits outside the tolerance of the entered factor, or no bar can be read (the server
+    checks it either way: ``GET /admin/splits/securities/{security_id}/tape-step``).
+    """
+
+    security_id: UUID
+    ratio_from: RatioText
+    ratio_to: RatioText
+    first_session: RequestDate
+    cited_url: CitedUrl
+    note: Annotated[Prose, Field(max_length=CITED_NOTE_MAX)] | None = None
+    override_tape: bool | None = None
+    from_accession: AccessionText | None = None
+    from_jump: RequestDate | None = None
+
+    @model_validator(mode="after")
+    def _one_signal_and_a_split(self) -> AdminSplitAddIn:
+        if (self.from_accession is None) == (self.from_jump is None):
+            raise ValueError(
+                "name exactly one of from_accession (an unplaced filing) or from_jump (a jump's step date)"
+            )
+        if _ratio(self.ratio_from, "ratio_from") == _ratio(self.ratio_to, "ratio_to"):
+            raise ValueError("ratio_from equals ratio_to: that is not a split")
+        return self
+
+
 class AdminSplitTapeStepOut(BaseModel):
     """The stored tape at a first session, beside the factor the steward entered (D3) — what the confirm-values
     route checks. Each bar is read as the vendor FIRST served it (``pipeline.detect_splits.tape_at``: the bar on
@@ -534,9 +580,12 @@ def _decided_by(v: SplitVersion) -> str:
 
 
 def _decided_label(v: SplitVersion) -> str:
-    """``_decided_by``, with the steward's cited-values confirm named as such: "you (cited values), 11-25"."""
+    """``_decided_by``, with the steward's cited values named as such: "you (cited values), 11-25" for a confirm,
+    "added by you (cited values), 11-27" for a split the steward added (F2-1)."""
     if v.value_source == split_repo.SOURCE_STEWARD and v.action == split_repo.ACTION_CONFIRM:
         return f"you (cited values), {_md(v.recorded_at)}"
+    if v.action == split_repo.ACTION_ADD:
+        return f"added by you (cited values), {_md(v.recorded_at)}"
     return _decided_by(v)
 
 
@@ -1050,6 +1099,15 @@ def split_tape_step(
         tape = _tape_now(conn, v.security_id, first_session)
     finally:
         conn.rollback()  # a read: hold no snapshot
+    return tape_step_out(tape, first_session, ratio_from, ratio_to)
+
+
+def tape_step_out(
+    tape: TapeEvidence | None, first_session: date, ratio_from: str | None, ratio_to: str | None
+) -> AdminSplitTapeStepOut:
+    """The tape-step reading both routes answer (by split version, by security): the step at ``first_session`` as
+    first served, beside the entered ratio's factor and ``tape_why``'s verdict. **422** a ratio out of range.
+    """
     out = AdminSplitTapeStepOut(first_session=first_session)
     if tape is not None and tape.session == first_session:
         out.prior_date, out.prior_close, out.close = tape.prior, tape.prior_close, tape.close
@@ -1070,6 +1128,44 @@ def split_tape_step(
         out.reason = tape_why(tape, first_session, rf, rt)
         out.within_tolerance = out.reason is None
     return out
+
+
+def _data_security(conn: psycopg.Connection, security_id: UUID) -> Mapping[str, Any]:
+    """The data tenant's master row for ``security_id`` (id, ticker); ``LookupError`` when there is none."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, ticker FROM security_master WHERE id = %s AND tenant_id = %s",
+            (security_id, DATA_TENANT_ID),
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise LookupError(f"no security {security_id}")
+    return row
+
+
+@router.get("/securities/{security_id}/tape-step", response_model=AdminSplitTapeStepOut)
+def security_tape_step(
+    security_id: UUID,
+    first_session: Annotated[RequestDate, Query(description="the first session at the new price")],
+    ratio_from: Annotated[RatioText | None, Query(description="old shares (decimal text)")] = None,
+    ratio_to: Annotated[RatioText | None, Query(description="new shares (decimal text)")] = None,
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminSplitTapeStepOut:
+    """The stored tape's STEP at ``first_session`` for a security with no split listed there yet, each bar as first
+    served, beside the factor ``ratio_from`` -> ``ratio_to`` the steward entered (both or neither): what ``POST
+    /admin/splits`` checks, the same reading as ``GET /admin/splits/{version_id}/tape-step``. **404** unknown
+    security, **422** one side of the ratio only. Read-only.
+    """
+    if (ratio_from is None) != (ratio_to is None):
+        raise HTTPException(status_code=422, detail="give both ratio_from and ratio_to, or neither")
+    try:
+        _data_security(conn, security_id)
+        tape = _tape_now(conn, security_id, first_session)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    finally:
+        conn.rollback()  # a read: hold no snapshot
+    return tape_step_out(tape, first_session, ratio_from, ratio_to)
 
 
 @router.get("/{version_id}/tape", response_model=AdminSplitTapeOut)
@@ -1154,6 +1250,107 @@ def confirm_split_values(
             override_tape=body.override_tape,
             tenant_id=DATA_TENANT_ID,
             today=market_today(),
+        )
+
+    v = _commit(conn, act)
+    return _out(conn, v)
+
+
+def _filing_to_add(conn: psycopg.Connection, security_id: UUID, accession: str) -> dict[str, Any]:
+    """The unplaced filing an add starts from, as the unplaced list reads it NOW (its evidence is the server's,
+    never the client's); ``SplitConflict`` (409) when it is not listed, or the steward dismissed it.
+    """
+    versions = split_repo.latest_versions(
+        conn, tenant_id=DATA_TENANT_ID, security_ids=[security_id]
+    )
+    keep, gone, _, error = _unplaced(
+        conn, versions, tenant_id=DATA_TENANT_ID, only=(security_id, accession)
+    )
+    if gone:
+        raise SplitConflict(
+            f"filing {accession} was dismissed as not a split to list — undo the dismissal first"
+        )
+    if not keep:
+        raise SplitConflict(
+            f"filing {accession} is not on the unplaced list for security {security_id} — reload the panel"
+            + (f" ({error})" if error else "")
+        )
+    u = keep[0]
+    stated = stated_ratio(u.ratio_from, u.ratio_to)
+    return {
+        "accession": u.accession,
+        "form": u.form or None,
+        "filed": u.filed,
+        "url": u.url,
+        "passage": u.passage,
+        "document": u.document,
+        "ratio_from": stated[0] if stated else None,
+        "ratio_to": stated[1] if stated else None,
+        "reason": u.reason or None,
+    }
+
+
+def _jump_to_add(conn: psycopg.Connection, security_id: UUID, step_date: date) -> dict[str, Any]:
+    """The split-shaped jump an add starts from, as the "is this real?" list reads it NOW; ``SplitConflict`` (409)
+    when it is not listed, or the steward dismissed it as a real move."""
+    keep, gone = _jumps(conn, tenant_id=DATA_TENANT_ID, asof=market_today())
+    key = (security_id, step_date)
+    if any((j.security_id, j.step_date) == key for j in gone):
+        raise SplitConflict(
+            f"the split-shaped jump on {step_date.isoformat()} was dismissed as a real move — undo the dismissal "
+            "first"
+        )
+    for j in keep:
+        if (j.security_id, j.step_date) == key:
+            return {"step_date": j.step_date, "step": j.step}
+    raise SplitConflict(
+        f"no split-shaped jump on {step_date.isoformat()} is listed for security {security_id} — reload the panel"
+    )
+
+
+@router.post("", response_model=AdminSplitListEntryOut)
+def add_split(
+    body: AdminSplitAddIn,
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminSplitListEntryOut:
+    """ADD a split NO source lists, with the steward's cited values (framework completion F2-1): ``ratio_from`` ->
+    ``ratio_to``, ``first_session`` and the ``cited_url`` of the document that states them become a new split on the
+    list (``action`` ``add``, ``value_source`` ``steward``; ``confirmed``, or ``announced`` while the first session is
+    ahead). It starts from exactly one signal: ``from_accession`` (a filing on the current unplaced list, its
+    evidence copied by the server) or ``from_jump`` (a jump on the current "is this real?" list). The server reads the
+    stored tape's step at ``first_session`` as first served and refuses a factor outside the tape tolerance, or a
+    session with no bar, unless ``override_tape`` (stored as ``tape_override``). Undo with ``POST
+    /admin/splits/{version_id}/revoke`` (``/reject`` while announced). **404** unknown security, **409** the filing
+    or jump is not listed or was dismissed / a split is already keyed or listed on that session / a live split of the
+    same ratio is listed within 45 days / the tape does not support the values, **422** not exactly one signal, a bad
+    ratio, date, URL or accession."""
+    rf, rt = _ratio(body.ratio_from, "ratio_from"), _ratio(body.ratio_to, "ratio_to")
+
+    def act() -> SplitVersion:
+        _data_security(conn, body.security_id)
+        source_filing = source_jump = None
+        if body.from_accession is not None:
+            source_filing = _filing_to_add(conn, body.security_id, body.from_accession)
+        else:
+            assert body.from_jump is not None
+            source_jump = _jump_to_add(conn, body.security_id, body.from_jump)
+        return split_repo.add_steward(
+            conn,
+            tenant_id=DATA_TENANT_ID,
+            security_id=body.security_id,
+            ratio_from=rf,
+            ratio_to=rt,
+            first_session=body.first_session,
+            cited_url=body.cited_url,
+            note=body.note,
+            tape_why=tape_why(
+                _tape_now(conn, body.security_id, body.first_session), body.first_session, rf, rt
+            ),
+            override_tape=bool(body.override_tape),
+            today=market_today(),
+            near_days=MATCH_WINDOW_DAYS,
+            source_filing=source_filing,
+            source_jump=source_jump,
         )
 
     v = _commit(conn, act)

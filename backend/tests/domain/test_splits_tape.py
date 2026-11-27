@@ -17,10 +17,12 @@ from domain.splits import (
     VIA_POLYGON_TAPE,
     VIA_SEC_TAPE,
     PolygonEvidence,
+    SecEvidence,
     TapeEvidence,
     cluster_sec,
     decide,
     decide_sec_only,
+    restated,
     tape_agreement,
     with_tape,
 )
@@ -188,3 +190,194 @@ def test_a_past_split_restated_in_a_6k_is_listed_for_review_never_confirmed():
     assert (d.status, d.ratio_from, d.ratio_to) == (STATUS_NEEDS_REVIEW, Decimal(4), Decimal(1))
     assert d.effective_date == date(2025, 10, 22) and d.sec.date_kind == "legal"
     assert d.valid_from == date(2025, 10, 22)
+
+
+# --- F8-2 (dark, decision D-F8b): a later filing restating the split's ratio joins its candidate ----------------
+#
+# ``restate_days`` is the setting ``split_sec_restate_days``, read by the caller (0 = off, the shipped default). The
+# shapes are the 800-day check's (2026-11-26; the F8-1 tests' filings, as that plan's lines read them): CHRN's two
+# 8-Ks of one 1-for-15 filed a day apart (first session 05-27, then 06-02: the board moved it), PTN's 8-K/A (first
+# session 08-12) and its 8-K 30 days later (a legal 09-10).
+
+WSHP_6K = "0001493152-26-039876"
+RESTATE_ASOF = date(2026, 11, 26)
+
+
+def _filing(
+    accession: str, form: str, filed: date, ratio_from: int, effective: date, kind: str = "trading"
+) -> SecEvidence:
+    return SecEvidence(
+        accession,
+        form,
+        filed,
+        "u",
+        ratio_from=Decimal(ratio_from),
+        ratio_to=Decimal(1),
+        effective_date=effective,
+        date_kind=kind,
+        about_a_split=True,
+    )
+
+
+CHRN_8K = _filing("0001437749-25-017680", "8-K", date(2025, 5, 20), 15, date(2025, 5, 27))
+CHRN_8K_NEXT = _filing("0001437749-25-018005", "8-K", date(2025, 5, 21), 15, date(2025, 6, 2))
+PTN_8KA = _filing("0001654954-25-009330", "8-K/A", date(2025, 8, 11), 50, date(2025, 8, 12))
+PTN_8K = _filing("0001654954-25-010576", "8-K", date(2025, 9, 10), 50, date(2025, 9, 10), "legal")
+# one candidate by S4's own rule (each date within 2 sessions of the first filing's), its dates 4 sessions apart
+SPAN = [
+    _filing("0000000000-26-000001", "8-K", date(2026, 3, 2), 10, date(2026, 3, 10)),
+    _filing("0000000000-26-000002", "8-K/A", date(2026, 3, 3), 10, date(2026, 3, 12)),
+    _filing("0000000000-26-000003", "8-K/A", date(2026, 3, 4), 10, date(2026, 3, 6)),
+]
+
+
+def _accessions(groups) -> list[list[str]]:
+    return [[s.accession for s in g] for g in groups]
+
+
+def test_at_0_the_restate_rule_is_off_every_grouping_and_decision_as_before():
+    """The shipped default: each grouping and decision exactly as S4 made them (pinned values, not a re-run)."""
+    real = [sec(a) for a in (GAME_8K, NXL_8K, MDCX_8K, VRME_8K, WSHP_6K)]
+    filings = [*real, CHRN_8K, CHRN_8K_NEXT, PTN_8KA, PTN_8K, *SPAN]
+    groups = cluster_sec(filings, restate_days=0)
+    assert groups == cluster_sec(filings)
+    assert _accessions(groups) == [
+        [CHRN_8K.accession],
+        [CHRN_8K_NEXT.accession],
+        [PTN_8KA.accession],
+        [PTN_8K.accession],
+        [s.accession for s in SPAN],
+        [GAME_8K],
+        [WSHP_6K],
+        [NXL_8K],
+        [VRME_8K],
+        [MDCX_8K],
+    ]
+    decided = [decide_sec_only(g, asof=RESTATE_ASOF, restate_days=0) for g in groups]
+    assert decided == [decide_sec_only(g, asof=RESTATE_ASOF) for g in groups]
+    assert not any(restated(g, restate_days=0) for g in groups)
+    assert [(d.effective_date, d.sec.accession) for d in decided[:5]] == [
+        (date(2025, 5, 27), CHRN_8K.accession),
+        (date(2025, 6, 2), CHRN_8K_NEXT.accession),
+        (date(2025, 8, 12), PTN_8KA.accession),
+        (date(2025, 9, 10), PTN_8K.accession),
+        # the earliest filing's first session, as S4 picks it
+        (date(2026, 3, 10), SPAN[0].accession),
+    ]
+    assert decided[0].note == (
+        "SEC only: SEC 8-K 0001437749-25-017680 (filed 2025-05-20): 1-for-15 reverse split, first session "
+        "2025-05-27; no Massive.com row lists this split (tonight's pull)."
+    )
+    assert decided[4].note == (
+        "SEC only: SEC 8-K 0000000000-26-000001 (filed 2026-03-02): 1-for-10 reverse split, first session "
+        "2026-03-10; no Massive.com row lists this split (tonight's pull). 3 SEC filings state it. They state "
+        "different dates: 2026-03-06, 2026-03-10, 2026-03-12."
+    )
+
+
+def test_at_30_chrn_s_later_8k_joins_the_candidate_and_its_first_session_supersedes():
+    (g,) = cluster_sec([CHRN_8K_NEXT, CHRN_8K], restate_days=30)
+    assert g == [CHRN_8K, CHRN_8K_NEXT]
+    assert restated(g, restate_days=30) and not restated(g, restate_days=0)
+    d = decide_sec_only(g, asof=RESTATE_ASOF, restate_days=30)
+    assert (d.key_date, d.effective_date, d.ratio_from, d.ratio_to) == (
+        date(2025, 6, 2),
+        date(2025, 6, 2),
+        Decimal(15),
+        Decimal(1),
+    )
+    assert (d.status, d.confirmed_via, d.value_source, d.polygon, d.sec) == (
+        STATUS_NEEDS_REVIEW,
+        None,
+        SOURCE_SEC,
+        None,
+        CHRN_8K_NEXT,
+    )
+    assert d.valid_from == date(2025, 5, 20)  # S4's rule unchanged: the group's earliest filing
+    assert d.note == (
+        "SEC only: SEC 8-K 0001437749-25-018005 (filed 2025-05-21): 1-for-15 reverse split, first session "
+        "2025-06-02; no Massive.com row lists this split (tonight's pull). 2 SEC filings state it. They state "
+        "different dates: 8-K 0001437749-25-017680 (filed 2025-05-20) first session 2025-05-27; 8-K "
+        "0001437749-25-018005 (filed 2025-05-21) first session 2025-06-02. A later filing restating the split "
+        "supersedes: the latest stating the first session is kept."
+    )
+
+
+def test_at_30_ptn_keeps_the_8ka_s_first_session_over_the_later_8k_s_legal_date():
+    """The latest filing that states the first TRADING session wins; a later legal date never does."""
+    # filed 30 days apart: the bound is inclusive
+    (g,) = cluster_sec([PTN_8KA, PTN_8K], restate_days=30)
+    d = decide_sec_only(g, asof=RESTATE_ASOF, restate_days=30)
+    assert (d.effective_date, d.sec, d.valid_from) == (
+        date(2025, 8, 12),
+        PTN_8KA,
+        date(2025, 8, 11),
+    )
+    assert d.note == (
+        "SEC only: SEC 8-K/A 0001654954-25-009330 (filed 2025-08-11): 1-for-50 reverse split, first session "
+        "2025-08-12; no Massive.com row lists this split (tonight's pull). 2 SEC filings state it. They state "
+        "different dates: 8-K/A 0001654954-25-009330 (filed 2025-08-11) first session 2025-08-12; 8-K "
+        "0001654954-25-010576 (filed 2025-09-10) effective 2025-09-10. A later filing restating the split "
+        "supersedes: the latest stating the first session is kept."
+    )
+    assert _accessions(cluster_sec([PTN_8KA, PTN_8K], restate_days=29)) == [
+        [PTN_8KA.accession],
+        [PTN_8K.accession],
+    ]
+
+
+def test_with_legal_dates_only_the_latest_one_is_kept_and_said_to_be_legal():
+    first = _filing("0000000000-26-000011", "8-K", date(2026, 4, 1), 20, date(2026, 4, 6), "legal")
+    later = _filing("0000000000-26-000012", "8-K", date(2026, 4, 9), 20, date(2026, 4, 20), "legal")
+    (g,) = cluster_sec([first, later], restate_days=30)
+    d = decide_sec_only(g, asof=RESTATE_ASOF, restate_days=30)
+    assert (d.effective_date, d.sec) == (date(2026, 4, 20), later)
+    assert d.note.endswith(
+        "They state different dates: 8-K 0000000000-26-000011 (filed 2026-04-01) effective 2026-04-06; 8-K "
+        "0000000000-26-000012 (filed 2026-04-09) effective 2026-04-20. A later filing restating the split "
+        "supersedes: the latest effective date is kept. A legal effective date: the first session may be a "
+        "session later."
+    )
+
+
+def test_at_30_a_group_s_dates_apart_by_s4_s_own_rule_are_settled_by_the_latest_filing_too():
+    (g,) = cluster_sec(SPAN, restate_days=30)
+    d = decide_sec_only(g, asof=RESTATE_ASOF, restate_days=30)
+    assert (d.effective_date, d.sec, d.valid_from) == (date(2026, 3, 6), SPAN[2], date(2026, 3, 2))
+
+
+def test_the_restate_join_needs_the_same_ratio_and_a_filing_within_the_days():
+    other_ratio = _filing("0000000000-25-000021", "8-K", date(2025, 5, 22), 10, date(2025, 6, 9))
+    assert _accessions(cluster_sec([CHRN_8K, other_ratio], restate_days=30)) == [
+        [CHRN_8K.accession],
+        [other_ratio.accession],
+    ]
+    # APUS's shape: one ratio, a first session 120 days on, filed months later: two candidates (serial splits of
+    # one ratio exist), whatever the setting
+    march = _filing("0001213900-26-028332", "8-K", date(2026, 3, 16), 10, date(2026, 3, 26))
+    july = _filing("0000000000-26-000022", "8-K", date(2026, 7, 20), 10, date(2026, 7, 24))
+    assert _accessions(cluster_sec([march, july], restate_days=30)) == [
+        [march.accession],
+        [july.accession],
+    ]
+    # the window runs from the group's NEWEST filing: a chain of restatements stays one candidate
+    a = _filing("0000000000-26-000031", "8-K", date(2026, 1, 5), 8, date(2026, 1, 20))
+    b = _filing("0000000000-26-000032", "8-K", date(2026, 2, 2), 8, date(2026, 2, 9))
+    c = _filing("0000000000-26-000033", "8-K", date(2026, 3, 2), 8, date(2026, 3, 9))
+    (g,) = cluster_sec([a, b, c], restate_days=30)
+    assert g == [a, b, c]
+
+
+def test_a_date_match_still_wins_over_a_restate_join():
+    """A filing S4 already places by its date joins that candidate, never a newer one of the same ratio."""
+    early = _filing("0000000000-26-000041", "8-K", date(2026, 1, 2), 5, date(2026, 3, 2))
+    late = _filing("0000000000-26-000042", "8-K", date(2026, 2, 10), 5, date(2026, 6, 1))
+    restating_early = _filing(
+        "0000000000-26-000043", "8-K/A", date(2026, 2, 20), 5, date(2026, 3, 3)
+    )
+    groups = cluster_sec([early, late, restating_early], restate_days=30)
+    assert _accessions(groups) == [
+        [early.accession, restating_early.accession],
+        [late.accession],
+    ]
+    assert groups == cluster_sec([early, late, restating_early])

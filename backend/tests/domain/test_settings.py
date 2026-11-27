@@ -774,6 +774,37 @@ def test_compose_injects_the_split_distribution_dials_into_BOTH_services_at_the_
         ), f"{var}: {found}"
 
 
+def test_the_sec_restate_days_ship_off_and_compose_passes_0_to_both_services(monkeypatch):
+    """F8-2 (decision D-F8b): a later SEC filing restating a split's ratio within this many days joins its candidate
+    (``domain.splits.cluster_sec``), and the latest filing's date supersedes. It ships DARK: 0 = off, S4's clustering
+    exactly; turning it on (30) is the operator's. The nightly detector (cron) and a check or pass run by hand
+    (backend: ``python -m pipeline.detect_splits``) each get it from compose, at the Settings default (compose always
+    injects, so a drifted fallback would win). A negative value fails at load, never a silent default.
+    """
+    import re
+    from pathlib import Path
+
+    from pydantic import ValidationError
+
+    var = "ALPHADECK_SPLIT_SEC_RESTATE_DAYS"
+    monkeypatch.delenv(var, raising=False)
+    assert Settings().split_sec_restate_days == 0
+    assert Settings.model_fields["split_sec_restate_days"].default == 0
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        m = re.search(rf"^\s+{var}: \$\{{{var}:-(\d+)\}}", block, re.M)
+        assert m is not None, f"{var} is not passed to the {service}"
+        assert int(m.group(1)) == 0, f"{service}: compose fallback {m.group(1)} != 0"
+    monkeypatch.setenv(var, "30")
+    assert Settings().split_sec_restate_days == 30
+    monkeypatch.setenv(var, "-1")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
 _CROSS_CLASS_ENV = "ALPHADECK_PRICE_FEED_CROSS_CLASS_ADOPT"
 
 

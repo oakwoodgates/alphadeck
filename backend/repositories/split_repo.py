@@ -21,6 +21,12 @@ the caller names the CURRENT version — a stale click is refused, never applied
   a first session neither source states — POM's ADR termination), citing a document (``cited_url``): the same
   refusals as ``confirm``, plus the stored tape's verdict the caller read (``tape_why``), refused unless the
   steward overrides it (``tape_override`` records that). ``value_source`` ``steward``. Inverse: ``revoke``.
+- ``add_steward`` a split NO source lists (framework completion F2-1, migration 0219: the action ``add``), from
+  exactly one SEC filing the detector could not place or one split-shaped jump with no split listed, with the
+  steward's cited values and the same tape check. Refused when the list already holds it: a version keyed on that
+  first session, a live split on it, or a live split of the same exact ratio within the nightly's merge window (so a
+  later system decision lands on the steward's row, never on a twin). Inverse: ``revoke`` (``reject`` while
+  announced).
 - ``reject`` a needs-review (or announced) split. Inverse: ``restore``.
 - ``revoke`` a confirmed split, whoever confirmed it. Inverse: ``restore``.
 - ``restore`` a rejected or revoked split to EXACTLY the state the reject/revoke replaced — the version
@@ -40,6 +46,7 @@ operator; this module stores and returns versions. The caller owns the transacti
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -62,6 +69,7 @@ from domain.splits import (
     STATUS_REVOKED,
     VIA_OPERATOR,
     SplitDecision,
+    ratio_label,
     same_ratio,
 )
 
@@ -79,6 +87,8 @@ ACTION_CONFIRM = "confirm"
 ACTION_REJECT = "reject"
 ACTION_REVOKE = "revoke"
 ACTION_RESTORE = "restore"
+# F2-1 (migration 0219): the steward's add of a split no source lists — the first version of a new logical split
+ACTION_ADD = "add"
 
 # the CONTENT of a version — everything a re-run compares to decide "unchanged" (identity, authorship and the
 # version stamp excluded)
@@ -611,6 +621,190 @@ def confirm_steward(
             note=note or v.note,
         ),
         action=ACTION_CONFIRM,
+        author=author,
+    )
+
+
+# F2-1: the note an added split carries when the steward gives none (its provenance follows)
+ADDED_NOTE = "Added by the steward: no source lists this split."
+
+
+def _provenance(
+    source_filing: Mapping[str, Any] | None, source_jump: Mapping[str, Any] | None
+) -> str:
+    """Where an added split came from, in the steward's words: the filing (its form, accession, filing day and the
+    reader's reason it was not placed) or the jump (its step date and step)."""
+    if source_filing is not None:
+        f = source_filing
+        reason = str(f.get("reason") or "").strip().rstrip(".")
+        said = f": {reason}" if reason else ""
+        return f"From {f.get('form') or 'filing'} {f['accession']} filed {f['filed'].isoformat()}{said}."
+    assert source_jump is not None
+    step = float(source_jump["step"])
+    how = f"x{step:.3g}" if step >= 1 else f"down to 1/{1 / step:.3g}"
+    return f"From the split-shaped jump on {source_jump['step_date'].isoformat()}, {how}."
+
+
+def _stated(source_filing: Mapping[str, Any] | None) -> tuple[Decimal, Decimal] | None:
+    """The exact ratio the source filing states (both sides above 0), or ``None``."""
+    if source_filing is None:
+        return None
+    rf, rt = source_filing.get("ratio_from"), source_filing.get("ratio_to")
+    if rf is None or rt is None or Decimal(rf) <= 0 or Decimal(rt) <= 0:
+        return None
+    return Decimal(rf), Decimal(rt)
+
+
+def _refuse_a_listed_split(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    security_id: UUID,
+    who: str,
+    ratio_from: Decimal,
+    ratio_to: Decimal,
+    first_session: date,
+    near_days: int,
+) -> None:
+    """An add of a split the list already holds is refused: a version keyed on ``first_session`` (any status: act
+    on it), a LIVE split whose first session it is, or a LIVE split of the same exact ratio within ``near_days``
+    (the nightly's own merge window, ``pipeline.backfill_splits.match_stored``: a later system decision about the
+    split then lands on the steward's row, never on a twin)."""
+    listed = latest_versions(conn, tenant_id=tenant_id, security_ids=[security_id])
+    day = first_session.isoformat()
+    for v in listed:
+        if v.key_date == first_session:
+            raise SplitConflict(
+                f"a split of {who} is already keyed on {day} ({v.status}) — act on that one instead"
+            )
+    for v in listed:
+        if v.status in _LIVE and v.effective_date == first_session:
+            raise SplitConflict(
+                f"another split of {who} is already listed on {day} ({v.status}) — resolve that one first"
+            )
+
+    def gap(v: SplitVersion) -> int:
+        return abs((v.effective_date - first_session).days)
+
+    twins = [
+        v
+        for v in listed
+        if v.status in _LIVE
+        and same_ratio(v.ratio_from, v.ratio_to, ratio_from, ratio_to)
+        and gap(v) <= near_days
+    ]
+    if twins:
+        v = min(twins, key=lambda v: (gap(v), v.key_date))
+        raise SplitConflict(
+            f"a {ratio_label(ratio_from, ratio_to)} of {who} is already listed on "
+            f"{v.effective_date.isoformat()} ({v.status}), {gap(v)} days from {day}: the nightly reads the two as "
+            "one split — confirm that one's values or revoke it first"
+        )
+
+
+def add_steward(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    security_id: UUID,
+    ratio_from: Decimal,
+    ratio_to: Decimal,
+    first_session: date,
+    cited_url: str,
+    note: str | None,
+    tape_why: str | None,
+    override_tape: bool,
+    today: date,
+    near_days: int,
+    source_filing: Mapping[str, Any] | None,
+    source_jump: Mapping[str, Any] | None = None,
+    author: str = AUTHOR_OPERATOR,
+) -> SplitVersion:
+    """ADD a split no source lists (framework completion F2-1): ``ratio_from`` old shares -> ``ratio_to`` new shares,
+    first trading on ``first_session``, as the document at ``cited_url`` states them — the first version of a new
+    logical split keyed on ``first_session``, action ``add``.
+
+    It starts from exactly one signal (D-F2a): ``source_filing`` — an unplaced SEC filing as the caller read it
+    (``accession``, ``form``, ``filed``, ``url``, ``passage``, ``document``, ``ratio_from`` / ``ratio_to`` when it
+    states one, ``reason``) — or ``source_jump`` (``step_date``, ``step``). Refusals: ``ValueError`` on a bad ratio, a
+    blank URL or not exactly one signal; ``LookupError`` for a security not on ``tenant_id``; then, under an advisory
+    lock on the security's adds and on the key, ``SplitConflict`` when the list already holds the split
+    (``_refuse_a_listed_split``, ``near_days``), or when ``tape_why`` (the stored tape's verdict the caller read,
+    ``None`` = it supports the values) is set and ``override_tape`` is not.
+
+    The version: ``announced`` when ``first_session`` is after ``today``, else ``confirmed``; ``confirmed_via``
+    ``operator``, ``value_source`` ``steward``, the URL, ``tape_override`` = the steward added past the tape; the
+    filing as its SEC side (its stated ratio, its reason as ``sec_abstain_reason``), no Massive.com side. ``note`` =
+    the steward's, else ``ADDED_NOTE`` plus the provenance. ``valid_from`` = the filing's day when that filing states
+    the same exact ratio and was filed before the first session, else the first session: never early.
+    Inverse: ``revoke`` (``reject`` while announced); ``restore`` returns it.
+    """
+    if not cited_url:
+        raise ValueError("cited values need a cited URL")
+    if ratio_from <= 0 or ratio_to <= 0 or ratio_from == ratio_to:
+        raise ValueError(f"{ratio_from} -> {ratio_to} is not a split ratio")
+    if (source_filing is None) == (source_jump is None):
+        raise ValueError("an add starts from exactly one unplaced filing or one split-shaped jump")
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker FROM security_master WHERE id = %s AND tenant_id = %s",
+            (security_id, tenant_id),
+        )
+        master = cur.fetchone()
+        if master is None:
+            raise LookupError(f"no security {security_id}")
+        for key in (
+            f"security_split_add:{tenant_id}:{security_id}",
+            f"security_split:{tenant_id}:{security_id}:{first_session.isoformat()}",
+        ):
+            cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (key,))
+    _refuse_a_listed_split(
+        conn,
+        tenant_id=tenant_id,
+        security_id=security_id,
+        who=master["ticker"] or str(security_id),
+        ratio_from=ratio_from,
+        ratio_to=ratio_to,
+        first_session=first_session,
+        near_days=near_days,
+    )
+    if tape_why is not None and not override_tape:
+        raise SplitConflict(
+            f"{tape_why} — check the values against the cited document; add it with the tape override if the "
+            "document is right"
+        )
+    f = source_filing or {}
+    stated = _stated(source_filing)
+    valid_from = first_session
+    if stated is not None and same_ratio(ratio_from, ratio_to, *stated):
+        valid_from = min(first_session, f["filed"])
+    return append_version(
+        conn,
+        tenant_id=tenant_id,
+        security_id=security_id,
+        key_date=first_session,
+        values={
+            "effective_date": first_session,
+            "ratio_from": ratio_from,
+            "ratio_to": ratio_to,
+            "status": STATUS_ANNOUNCED if first_session > today else STATUS_CONFIRMED,
+            "confirmed_via": VIA_OPERATOR,
+            "value_source": SOURCE_STEWARD,
+            "sec_accession": f.get("accession"),
+            "sec_form": f.get("form"),
+            "sec_filed": f.get("filed"),
+            "sec_url": f.get("url"),
+            "sec_passage": f.get("passage"),
+            "sec_document": f.get("document"),
+            "sec_ratio_from": stated[0] if stated else None,
+            "sec_ratio_to": stated[1] if stated else None,
+            "sec_abstain_reason": f.get("reason") or None,
+            "note": note or f"{ADDED_NOTE} {_provenance(source_filing, source_jump)}",
+            "valid_from": valid_from,
+            "cited_url": cited_url,
+            "tape_override": tape_why is not None,
+        },
+        action=ACTION_ADD,
         author=author,
     )
 

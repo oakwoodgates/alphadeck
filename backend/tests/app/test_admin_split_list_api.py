@@ -1383,3 +1383,237 @@ def test_a_filing_dismissal_never_reaches_the_split_list_or_the_hold():
         src = inspect.getsource(mod)
         assert "split_filing_dismissal" not in src, mod.__name__
         assert "split_filing_dismissal_repo" not in src, mod.__name__
+
+
+# --- F2-1: the steward ADDS a split no source lists, from an unplaced filing or a jump (framework completion) ------
+
+ADD_CITED = "https://example.test/vrm/8-k/0001193125-25-000195"
+VRM_INDEX = "https://www.sec.gov/Archives/edgar/data/1580864/000119312525000195/"
+GAME_CITED = "https://example.test/game/8-k"
+ADDED_NOTE = "Added by the steward: no source lists this split."
+
+
+def _add_body(security_id, **over) -> dict:
+    """VRM's 1-for-5, first session 2025-01-15, as the steward types it (the filing's fields are the server's)."""
+    return {
+        "security_id": str(security_id),
+        "ratio_from": "5",
+        "ratio_to": "1",
+        "first_session": "2025-01-15",
+        "cited_url": ADD_CITED,
+        **over,
+    }
+
+
+def test_the_steward_adds_a_split_from_an_unplaced_filing(client, db, unplaced_home, pinned):
+    """VRM's 8-K (the long-window check's row: a 1-for-5 with no date) is on no list. The steward adds the split
+    with cited values: no stored bar on that session, so it is refused (409, nothing written) until the steward
+    overrides the tape. The row is the steward's (``value_source`` ``steward``, action ``add``), carries the filing
+    the server read from the unplaced list (never the client's), and is public from the filing's day (the same
+    ratio). On the next read the filing's ``listed_near`` cites it. One version: the table counted.
+    """
+    ids = _seed_unplaced(db, unplaced_home)
+    n = split_repo.count_rows(db)
+    body = _add_body(ids["VRM"], from_accession=VRM_8K)
+    r = client.post(BASE, json=body)
+    assert r.status_code == 409 and "no stored bar on 2025-01-15" in r.json()["detail"], r.text
+    assert split_repo.count_rows(db) == n
+    ok = client.post(BASE, json={**body, "override_tape": True})
+    assert ok.status_code == 200, ok.text
+    a = ok.json()
+    assert (a["ticker"], a["key_date"], a["effective_date"], a["label"]) == (
+        "VRM",
+        "2025-01-15",
+        "2025-01-15",
+        "1-for-5 reverse split",
+    )
+    assert (a["status"], a["value_source"], a["confirmed_via"], a["author"], a["action"]) == (
+        "confirmed",
+        "steward",
+        "operator",
+        "operator",
+        "add",
+    )
+    assert a["decided_by"].startswith("added by you (cited values), ") and a["actions"] == [
+        "revoke"
+    ]
+    assert (a["cited_url"], a["tape_override"], a["valid_from"]) == (ADD_CITED, True, "2025-01-02")
+    sec = a["sec"]
+    assert (sec["accession"], sec["form"], sec["filed"], sec["url"], sec["ratio_label"]) == (
+        VRM_8K,
+        "8-K",
+        "2025-01-02",
+        VRM_INDEX,  # the check's row carries no link: the index built from the company's CIK
+        "1-for-5 reverse split",
+    )
+    reason = f"1-for-5 reverse split stated, but {NO_DATE}"
+    assert sec["abstain_reason"] == reason
+    assert a["note"] == f"{ADDED_NOTE} From 8-K {VRM_8K} filed 2025-01-02: {reason}."
+    assert split_repo.count_rows(db) == n + 1
+    stored = _stored(db, a["version_id"])
+    assert (stored["action"], stored["author"], stored["cited_url"]) == (
+        "add",
+        "operator",
+        ADD_CITED,
+    )
+    listed = client.get(BASE).json()
+    assert _find(listed, "VRM", "2025-01-15")[0] == "confirmed"
+    (vrm,) = [u for u in listed["unplaced"] if u["ticker"] == "VRM"]
+    assert _near(vrm) == (a["version_id"], True, True, 13)  # a listed split now cites the filing
+
+
+def test_an_added_split_is_undone_by_revoke_and_returned_by_restore(
+    client, db, unplaced_home, pinned
+):
+    ids = _seed_unplaced(db, unplaced_home)
+    a = client.post(
+        BASE, json=_add_body(ids["VRM"], from_accession=VRM_8K, override_tape=True)
+    ).json()
+    n = split_repo.count_rows(db)
+    rv = client.post(f"{BASE}/{a['version_id']}/revoke").json()
+    assert (rv["status"], rv["restore_to"], rv["value_source"], rv["cited_url"]) == (
+        "revoked",
+        "confirmed",
+        "steward",
+        ADD_CITED,
+    )
+    assert _find(client.get(BASE).json(), "VRM", "2025-01-15")[0] == "set_aside"  # kept, grayed
+    back = client.post(f"{BASE}/{rv['version_id']}/restore").json()
+    assert (back["status"], back["ratio_from"], back["cited_url"], back["valid_from"]) == (
+        "confirmed",
+        "5",
+        ADD_CITED,
+        "2025-01-02",
+    )
+    assert back["decided_by"].startswith("restored by you, ")
+    assert split_repo.count_rows(db) == n + 2
+
+
+def test_an_add_is_refused_for_a_split_already_listed_or_a_filing_not_on_the_list(
+    client, db, unplaced_home, pinned
+):
+    """PBK's 1-for-20 is listed on 11-30 (a live split of the same ratio within 45 days: 409); WLDS's 12-15 is keyed
+    already (409); a dismissed filing or one not on the unplaced list is refused (409), an unknown security is 404.
+    Each refusal writes nothing."""
+    ids = _seed_unplaced(db, unplaced_home)
+    client.post(f"{BASE}/unplaced/{ids['META']}/{META_8K}/dismiss")
+    n = split_repo.count_rows(db)
+    pbk = _add_body(ids["PBK"], ratio_from="20", first_session="2026-12-01", from_accession=PBK_6K)
+    r = client.post(BASE, json={**pbk, "override_tape": True})
+    assert r.status_code == 409 and "1-for-20 reverse split" in r.json()["detail"], r.text
+    wlds = _add_body(
+        ids["WLDS"], ratio_from="20", first_session="2026-12-15", from_accession=WLDS_8K
+    )
+    r = client.post(BASE, json={**wlds, "override_tape": True})
+    assert r.status_code == 409 and "2026-12-15" in r.json()["detail"], r.text
+    meta = _add_body(ids["META"], ratio_from="1", ratio_to="2", from_accession=META_8K)
+    r = client.post(BASE, json={**meta, "override_tape": True})
+    assert r.status_code == 409 and "dismissed" in r.json()["detail"], r.text
+    r = client.post(BASE, json={**meta, "from_accession": PBK_6K, "override_tape": True})
+    assert r.status_code == 409 and "not on the unplaced list" in r.json()["detail"], r.text
+    unknown = _add_body(uuid.uuid4(), from_accession=VRM_8K, override_tape=True)
+    assert client.post(BASE, json=unknown).status_code == 404
+    assert split_repo.count_rows(db) == n
+
+
+def test_an_add_names_exactly_one_signal_and_is_bounded(client, db, unplaced_home, pinned):
+    ids = _seed_unplaced(db, unplaced_home)
+    n = split_repo.count_rows(db)
+    vrm = _add_body(ids["VRM"], from_accession=VRM_8K, override_tape=True)
+    no_url = {k: v for k, v in vrm.items() if k != "cited_url"}
+    for bad in (
+        {k: v for k, v in vrm.items() if k != "from_accession"},  # neither: no bare add (D-F2a)
+        {**vrm, "from_jump": "2025-01-15"},  # both
+        no_url,
+        {**vrm, "cited_url": "http://example.test/vrm"},  # https only
+        {**vrm, "ratio_to": "5"},  # 5 -> 5 is not a split
+        {**vrm, "ratio_from": "0"},
+        {**vrm, "ratio_from": "1e3"},
+        {**vrm, "from_accession": "0001193125-25-00019"},  # not an accession number
+        {**vrm, "first_session": "1980-01-01"},
+        {**vrm, "note": "x" * 501},
+        {k: v for k, v in vrm.items() if k != "security_id"},
+    ):
+        assert client.post(BASE, json=bad).status_code == 422, bad
+    assert split_repo.count_rows(db) == n
+
+
+def test_the_steward_adds_a_split_from_a_split_shaped_jump(client, db, monkeypatch):
+    """GAME's real 08-24 step (its 1-for-8 NOT on the list), asof 08-28: the "is this real?" card. A dismissed jump
+    is refused (409); undone, the steward adds the 1-for-8 the 8-K states: the stored tape's x7.5 is inside the
+    tolerance of x8, so no override. The jump leaves the list (the split now covers it), and is not dismissed.
+    """
+    from tests import split_s5_fixtures as s5
+
+    monkeypatch.setattr(admin_splits, "market_today", lambda: date(2026, 8, 28))
+    sid = s5.seed(db, "GAME", listed=False)
+    s5.seed_thesis(db, [("GAME", sid)])
+    assert [j["ticker"] for j in client.get(BASE).json()["unlisted_jumps"]] == ["GAME"]
+    q = {"first_session": "2026-08-24", "ratio_from": "8", "ratio_to": "1"}
+    t = client.get(f"{BASE}/securities/{sid}/tape-step", params=q).json()
+    assert t["step"] == pytest.approx(7.5, rel=1e-3) and t["within_tolerance"] is True
+    body = {
+        "security_id": str(sid),
+        "ratio_from": "8",
+        "ratio_to": "1",
+        "first_session": "2026-08-24",
+        "cited_url": GAME_CITED,
+        "from_jump": "2026-08-24",
+    }
+    d = client.post(f"{BASE}/jumps/{sid}/2026-08-24/dismiss").json()
+    n = split_repo.count_rows(db)
+    r = client.post(BASE, json=body)
+    assert r.status_code == 409 and "dismissed" in r.json()["detail"], r.text
+    assert client.post(f"{BASE}/jumps/dismissals/{d['dismissal_id']}/undo").status_code == 200
+    ok = client.post(BASE, json=body)
+    assert ok.status_code == 200, ok.text
+    a = ok.json()
+    assert (a["ticker"], a["effective_date"], a["status"], a["value_source"], a["action"]) == (
+        "GAME",
+        "2026-08-24",
+        "confirmed",
+        "steward",
+        "add",
+    )
+    assert (a["tape_override"], a["valid_from"], a["sec"], a["polygon"]) == (
+        False,
+        "2026-08-24",
+        None,
+        None,
+    )
+    assert a["note"] == f"{ADDED_NOTE} From the split-shaped jump on 2026-08-24, x7.5."
+    assert split_repo.count_rows(db) == n + 1
+    listed = client.get(BASE).json()
+    assert listed["unlisted_jumps"] == [] and listed["dismissed_jumps"] == []
+    assert _find(listed, "GAME", "2026-08-24")[0] == "confirmed"
+    # the jump is no longer on the list: a second add from it is refused, as is one from a day with no jump
+    assert client.post(BASE, json=body).status_code == 409
+    other = client.post(
+        BASE, json={**body, "first_session": "2026-08-21", "from_jump": "2026-08-21"}
+    )
+    assert other.status_code == 409 and "no split-shaped jump" in other.json()["detail"]
+    assert split_repo.count_rows(db) == n + 1
+
+
+def test_the_security_tape_step_is_the_version_tape_step_on_the_same_bars(client, db):
+    """``GET /admin/splits/securities/{security_id}/tape-step`` (the add form's read) is the version route's reading
+    keyed by security: the same answer on POM's bars for every query, 404 for an unknown security, 422 for half a
+    ratio. A read."""
+    sid = _seed_pom(db)
+    card = _pom_card(client)
+    n = split_repo.count_rows(db)
+    q = {"first_session": "2026-10-21", "ratio_from": "10", "ratio_to": "3"}
+    for params in (
+        q,
+        {**q, "ratio_to": "1"},
+        {"first_session": "2026-10-21"},
+        {**q, "first_session": "2026-10-22"},
+    ):
+        by_version = client.get(f"{BASE}/{card['version_id']}/tape-step", params=params)
+        by_security = client.get(f"{BASE}/securities/{sid}/tape-step", params=params)
+        assert by_security.status_code == 200, by_security.text
+        assert by_security.json() == by_version.json(), params
+    assert client.get(f"{BASE}/securities/{uuid.uuid4()}/tape-step", params=q).status_code == 404
+    half = {"first_session": "2026-10-21", "ratio_from": "10"}
+    assert client.get(f"{BASE}/securities/{sid}/tape-step", params=half).status_code == 422
+    assert split_repo.count_rows(db) == n

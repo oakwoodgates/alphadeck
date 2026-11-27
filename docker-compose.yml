@@ -121,6 +121,8 @@ services:
       ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR: ${ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR:-1.5}
       # W6-2 — Massive.com's stock-dividend label sets such a row aside even beside a filing that states no ratio.
       ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN: ${ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN:-true}
+      # F8-2 — a later SEC filing restating a split joins its candidate (days; 0 = off, the shipped default).
+      ALPHADECK_SPLIT_SEC_RESTATE_DAYS: ${ALPHADECK_SPLIT_SEC_RESTATE_DAYS:-0}
       # The run-loader off-switch (a dev/test cost-saver: load a saved draft run instead of paying for a fresh
       # one). Unset -> False (the Settings default; the feature + its /runs endpoints are absent). Set
       # ALPHADECK_RUN_LOADER_ENABLED=true in `.env` to turn it on for the operator; the FE picker follows.
@@ -308,6 +310,8 @@ services:
       ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE: ${ALPHADECK_SPLIT_DISTRIBUTION_AUTO_SET_ASIDE:-true}
       ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR: ${ALPHADECK_SPLIT_DISTRIBUTION_MAX_FACTOR:-1.5}
       ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN: ${ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN:-true}
+      # F8-2 — the SAME restate dial as the backend's (the nightly detector reads it here).
+      ALPHADECK_SPLIT_SEC_RESTATE_DAYS: ${ALPHADECK_SPLIT_SEC_RESTATE_DAYS:-0}
       # The nightly fund-shares sample rides this ingest — the cron needs the SAME Massive.com key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
