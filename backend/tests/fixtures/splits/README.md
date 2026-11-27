@@ -191,6 +191,6 @@ pre-change extractor each reproduced the reading prod's 800-day check planned
 
 | accession | filer | form | what it states / why it is here |
 |---|---|---|---|
-| 0001628280-26-048496 | CYCU | 8-K (3.01, 7.01, 9.01) | a delisting notice: "Because the Company effected a 1-for-30 reverse stock split on October 27, 2025, … trading … is expected to be suspended at the opening of business on July 21, 2026" (read: 1-for-30, first session 2026-07-21) |
+| 0001628280-26-048496 | CYCU | 8-K (3.01, 7.01, 9.01) | a delisting notice: "Because the Company effected a 1-for-30 reverse stock split on October 27, 2025, … trading … is expected to be suspended at the opening of business on July 21, 2026" (read: 1-for-30, first session 2026-07-21; since PR-B a past split's ratio only — its own clause dates it 262 days back — the trimmed file re-checked identical to the full submission on every reading path) |
 | 0001193125-25-000195 | VRM | 8-K (7.01) | a 1-for-5 effective at the end of a Chapter 11 case (no date) beside "trading of the Common Stock formally suspended at the opening of business on December 2, 2024" (read: first session 2024-12-02) |
 | 0001641172-25-007892 | SKYA | 8-K (5.03, 9.01) | a 1-for-300 "effective at 11:59 p.m., Eastern Time, on April 27, 2025 and began trading on a post-split basis" — a Sunday (read: first session 2025-04-27) |
