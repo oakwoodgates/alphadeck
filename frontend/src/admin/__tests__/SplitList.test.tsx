@@ -254,6 +254,8 @@ const h = vi.hoisted(() => ({
   restore: {} as Record<string, unknown>,
   dismiss: {} as Record<string, unknown>,
   undoDismiss: {} as Record<string, unknown>,
+  dismissUnplaced: {} as Record<string, unknown>,
+  undoUnplaced: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -269,6 +271,8 @@ vi.mock("../../api/hooks", () => ({
   useRestoreSplit: () => h.restore,
   useDismissJump: () => h.dismiss,
   useUndoJumpDismissal: () => h.undoDismiss,
+  useDismissUnplaced: () => h.dismissUnplaced,
+  useUndoUnplacedDismissal: () => h.undoUnplaced,
 }));
 
 const m = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null });
@@ -310,6 +314,8 @@ beforeEach(() => {
   h.restore = m();
   h.dismiss = m();
   h.undoDismiss = m();
+  h.dismissUnplaced = m();
+  h.undoUnplaced = m();
   h.tapeCall.mockClear();
   tapeAnswers(undefined);
   serve({ needs_review: [MI], announced: [], confirmed: [BTOC], set_aside: [LRHC_REJECTED], total: 3 });
@@ -828,5 +834,433 @@ describe("SplitList", () => {
     h.confirm = { ...m(), isError: true, error: { detail: "this split changed since you looked — reload the panel" } };
     render(<SplitList />);
     expect(screen.getByTestId("adm-splits")).toHaveTextContent("this split changed since you looked");
+  });
+});
+
+// F1-5 — the "Split filings not placed" section: SEC filings about a split the list could not place, as GET
+// /admin/splits carries them (unplaced, unplaced_dismissed, unplaced_runs, unplaced_error; backend F1-3). The
+// tickers and accessions of PBK, WLDS and META are the ones the framework-completion plan names from the
+// 2026-11-25 nightly artifact; every reason and passage here is a SYNTHETIC sentence in the shape of its class
+// (ratio but no date, an authorized range only, no direction, a past date only), never a quote of a filing. TSTX
+// and the other accessions are invented.
+const NEAR_PBK = {
+  version_id: "9b1d0000-0000-4000-8000-0000000000a1",
+  key_date: "2026-11-30",
+  effective_date: "2026-11-30",
+  label: "1-for-20 reverse split",
+  status: "needs_review",
+  same_ratio: true,
+  cites_filing: false,
+  days_from: 13,
+};
+const UNPLACED_BASE = {
+  name: null,
+  url: "https://www.sec.gov/Archives/edgar/data/1/000000000026000000/0000000000-26-000000-index.htm",
+  document: null,
+  passage: null,
+  ratio_from: null,
+  ratio_to: null,
+  ratio_label: null,
+  source: "nightly",
+  seen_on: "2026-11-25",
+  listed_near: null,
+  dismissal_id: null,
+  dismissed_at: null,
+  dismissed_reason: null,
+};
+// a ratio stated, no first session; a listed split of that ratio sits 13 days after the filing
+const PBK_UNPLACED = {
+  ...UNPLACED_BASE,
+  security_id: "9b1d0000-0000-4000-8000-0000000000b1",
+  ticker: "PBK",
+  name: "PBK Holdings Ltd",
+  accession: "0001493152-26-052687",
+  form: "6-K",
+  filed: "2026-11-17",
+  url: "https://www.sec.gov/Archives/edgar/data/1/000149315226052687/0001493152-26-052687-index.htm",
+  reason: "1-for-20 reverse split stated, but no first session stated",
+  document: "6-K ea0289999-6k_pbk.htm",
+  passage: "The Board approved a one-for-twenty (1-for-20) reverse share split of the Company's ordinary shares.",
+  ratio_from: "20",
+  ratio_to: "1",
+  ratio_label: "1-for-20 reverse split",
+  listed_near: NEAR_PBK,
+};
+// an authorized range only: no ratio set, nothing on the list near it, no link; found by the long-window check
+const WLDS_UNPLACED = {
+  ...UNPLACED_BASE,
+  security_id: "9b1d0000-0000-4000-8000-0000000000b2",
+  ticker: "WLDS",
+  accession: "0001213900-26-120001",
+  form: "8-K",
+  filed: "2026-11-21",
+  url: null,
+  reason: "only an authorized range of ratios (one-for-ten, 1:10, one-for-twenty, 1:20) — no ratio set",
+  document: "8-K ea0290001-8k_wlds.htm",
+  passage: "authorize the Board to effect a reverse split at a ratio of not less than one-for-ten and not more than one-for-twenty",
+  source: "check",
+  seen_on: "2026-11-27",
+};
+// no direction stated, nothing near it
+const META_UNPLACED = {
+  ...UNPLACED_BASE,
+  security_id: "9b1d0000-0000-4000-8000-0000000000b3",
+  ticker: "META",
+  accession: "0001628280-26-066700",
+  form: "8-K",
+  filed: "2026-11-12",
+  url: "https://www.sec.gov/Archives/edgar/data/1/000162828026066700/0001628280-26-066700-index.htm",
+  reason: "no direction stated",
+  document: "8-K meta-20261112.htm",
+  passage: "The Company announced a change to its share capital, effective in the coming weeks.",
+};
+// a past date only; a listed split cites this very filing
+const AVX_UNPLACED = {
+  ...UNPLACED_BASE,
+  security_id: "9b1d0000-0000-4000-8000-0000000000b4",
+  ticker: "AVX",
+  accession: "0001213900-26-120002",
+  form: "8-K",
+  filed: "2026-11-24",
+  reason: "only a past date stated (2026-10-08)",
+  passage: "The reverse share split became effective on October 8, 2026.",
+  listed_near: {
+    version_id: "9b1d0000-0000-4000-8000-0000000000a2",
+    key_date: "2026-10-08",
+    effective_date: "2026-10-08",
+    label: "1-for-10 reverse split",
+    status: "confirmed",
+    same_ratio: null,
+    cites_filing: true,
+    days_from: -47,
+  },
+};
+// a listed split of ANOTHER ratio 30 days before the filing
+const TSTX_UNPLACED = {
+  ...UNPLACED_BASE,
+  security_id: "9b1d0000-0000-4000-8000-0000000000b5",
+  ticker: "TSTX",
+  accession: "0001213900-26-120003",
+  form: "6-K",
+  filed: "2026-11-22",
+  reason: "several ratios stated (1-for-2, 1-for-5)",
+  passage: "at a ratio of one-for-two or one-for-five, to be set by the Board",
+  listed_near: {
+    version_id: "9b1d0000-0000-4000-8000-0000000000a3",
+    key_date: "2026-10-23",
+    effective_date: "2026-10-23",
+    label: "1-for-10 reverse split",
+    status: "confirmed",
+    same_ratio: null,
+    cites_filing: false,
+    days_from: -30,
+  },
+};
+const DISMISSAL_ID = "9b1d0000-0000-4000-8000-0000000000d1";
+const META_DISMISSED = {
+  ...META_UNPLACED,
+  dismissal_id: DISMISSAL_ID,
+  dismissed_at: "2026-11-27T15:02:00Z",
+  dismissed_reason: "a share-capital notice, not a split",
+};
+const RUNS = [
+  { source: "nightly", asof: "2026-11-25", started_at: "2026-11-25T22:30:00Z", sec_days: null, rows: 3 },
+  { source: "check", asof: "2026-11-27", started_at: "2026-11-27T13:00:00Z", sec_days: 800, rows: 2 },
+];
+
+describe("SplitList: split filings not placed (F1-5)", () => {
+  const onlyUnplaced = (extra: Record<string, unknown>) =>
+    serve({ needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0, ...extra });
+  const section = () => screen.getByTestId("adm-splits-unplaced");
+  const rows = () => within(section()).getAllByTestId("adm-split-unplaced-row");
+  const countOf = (text: string, part: string) => text.split(part).length - 1;
+
+  it("lists a filing once: ticker, form and filed date as the link, the reason, the source and the passage", () => {
+    onlyUnplaced({ unplaced: [PBK_UNPLACED], unplaced_runs: RUNS });
+    render(<SplitList />);
+    const [row] = rows();
+    expect(row).toHaveTextContent("PBK (PBK Holdings Ltd)");
+    const link = within(row).getByRole("link", { name: "6-K filed 2026-11-17" });
+    expect(link).toHaveAttribute("href", PBK_UNPLACED.url);
+    expect(within(row).getByTestId("adm-split-unplaced-why")).toHaveTextContent(
+      "1-for-20 reverse split stated, but no first session stated",
+    );
+    expect(within(row).getByTestId("adm-split-unplaced-source")).toHaveTextContent("nightly 11-25");
+    const passage = within(row).getByTestId("adm-split-unplaced-passage");
+    expect(passage).toHaveTextContent("a one-for-twenty (1-for-20) reverse share split");
+    expect(passage).toHaveTextContent("6-K ea0289999-6k_pbk.htm");
+    // each thing once: the ratio the reason names is not said again by the hint or a separate field
+    expect(countOf(row.textContent ?? "", "1-for-20 reverse split")).toBe(1);
+    expect(countOf(row.textContent ?? "", "0001493152-26-052687")).toBe(0); // the link carries it, in its href
+  });
+
+  it("names the ratio a reason does not, once", () => {
+    const quiet = { ...PBK_UNPLACED, reason: "no first session stated", listed_near: null };
+    onlyUnplaced({ unplaced: [quiet] });
+    render(<SplitList />);
+    const [row] = rows();
+    expect(within(row).getByTestId("adm-split-unplaced-why")).toHaveTextContent(
+      "No first session stated — the filing states 1-for-20 reverse split",
+    );
+    expect(countOf(row.textContent ?? "", "1-for-20 reverse split")).toBe(1);
+  });
+
+  it("says no ratio for a filing with none, and shows the form as plain text when it has no link", () => {
+    onlyUnplaced({ unplaced: [WLDS_UNPLACED] });
+    render(<SplitList />);
+    const [row] = rows();
+    expect(within(row).queryByRole("link")).toBeNull();
+    expect(row).toHaveTextContent("WLDS — 8-K filed 2026-11-21");
+    expect(within(row).getByTestId("adm-split-unplaced-why")).toHaveTextContent(
+      "Only an authorized range of ratios (one-for-ten, 1:10, one-for-twenty, 1:20) — no ratio set",
+    );
+    expect(within(row).getByTestId("adm-split-unplaced-source")).toHaveTextContent("long-window check 11-27");
+    expect(row).not.toHaveTextContent("states");
+  });
+
+  it("is quiet: closed, never loud, and fires nothing on mount", () => {
+    onlyUnplaced({ unplaced: [PBK_UNPLACED, META_UNPLACED] });
+    render(<SplitList />);
+    const box = section();
+    expect(box.tagName).toBe("DETAILS");
+    expect(box).not.toHaveAttribute("open");
+    expect(box.querySelector(".adm-loud")).toBeNull();
+    expect(box.querySelector("summary")).toHaveTextContent("Split filings not placed (2)");
+    for (const mm of [h.dismissUnplaced, h.undoUnplaced, h.dismiss, h.confirm]) expect(fn(mm)).not.toHaveBeenCalled();
+  });
+
+  it("counts its own rows in the heading and lists the ones no listed split covers first", () => {
+    // the server's order is newest filing first: AVX (cited) 11-24, TSTX 11-22, WLDS 11-21, PBK (same ratio) 11-17, META 11-12
+    onlyUnplaced({ unplaced: [AVX_UNPLACED, TSTX_UNPLACED, WLDS_UNPLACED, PBK_UNPLACED, META_UNPLACED] });
+    render(<SplitList />);
+    expect(section().querySelector("summary")).toHaveTextContent("Split filings not placed (5) · 2 covered by a listed split");
+    const order = rows().map((r) => within(r).getByText(/^(AVX|TSTX|WLDS|PBK|META)$/).textContent);
+    expect(order).toEqual(["TSTX", "WLDS", "META", "AVX", "PBK"]); // uncovered first; the server's order inside each group
+  });
+
+  it("leaves the covered note out when no listed split covers any filing", () => {
+    onlyUnplaced({ unplaced: [WLDS_UNPLACED, TSTX_UNPLACED] });
+    render(<SplitList />);
+    expect(section().querySelector("summary")).toHaveTextContent("Split filings not placed (2)");
+    expect(section().querySelector("summary")).not.toHaveTextContent("covered");
+  });
+
+  it.each([
+    [AVX_UNPLACED, "A listed split cites this filing: 1-for-10 reverse split, confirmed, first session 10-08."],
+    [PBK_UNPLACED, "The list holds this ratio: needs review, first session 11-30, 13 days after this filing."],
+    [TSTX_UNPLACED, "Nearest listed split: 1-for-10 reverse split, confirmed, first session 10-23, 30 days before this filing."],
+  ])("words the listed-split hint for %#", (u, line) => {
+    onlyUnplaced({ unplaced: [u] });
+    render(<SplitList />);
+    expect(within(rows()[0]).getByTestId("adm-split-unplaced-near").textContent).toBe(line);
+  });
+
+  it("words the distance for one day and for the day of the filing, and says nothing when no split is near", () => {
+    const near = (days: number, n: number) => ({
+      ...TSTX_UNPLACED,
+      accession: `0001213900-26-12010${n}`,
+      listed_near: { ...TSTX_UNPLACED.listed_near, days_from: days },
+    });
+    onlyUnplaced({ unplaced: [near(1, 1), near(-1, 2), near(0, 3), META_UNPLACED] });
+    render(<SplitList />);
+    // the covered-first order does not matter here: no row is covered, so the server's order stands
+    const lines = rows().map((r) => within(r).queryByTestId("adm-split-unplaced-near")?.textContent ?? null);
+    expect(lines[0]).toContain("1 day after this filing");
+    expect(lines[1]).toContain("1 day before this filing");
+    expect(lines[2]).toContain("the same day as this filing");
+    expect(lines[3]).toBeNull(); // META: nothing near it
+  });
+
+  it("states the runs it read, and that Dismiss changes no split or call", () => {
+    onlyUnplaced({ unplaced: [PBK_UNPLACED], unplaced_runs: RUNS });
+    render(<SplitList />);
+    expect(within(section()).getByTestId("adm-split-unplaced-runs")).toHaveTextContent(
+      "Read from nightly 11-25: 3 filings; long-window check 11-27, 800 days: 2 filings.",
+    );
+    expect(within(section()).getByTestId("adm-split-unplaced-help")).toHaveTextContent(
+      "Dismiss means this is not a split to list",
+    );
+    expect(within(section()).getByTestId("adm-split-unplaced-help")).toHaveTextContent("changes no split, hold or call");
+  });
+
+  it("Dismiss sends the typed reason, trimmed", async () => {
+    onlyUnplaced({ unplaced: [PBK_UNPLACED, META_UNPLACED] });
+    render(<SplitList />);
+    // META is not covered by a listed split, so it comes first
+    const pbk = rows()[1];
+    await userEvent.type(within(pbk).getByLabelText("Reason for dismissing PBK (optional)"), "  covered by the 11-30 split ");
+    await userEvent.click(within(pbk).getByRole("button", { name: "Dismiss" }));
+    expect(fn(h.dismissUnplaced)).toHaveBeenCalledTimes(1);
+    expect(fn(h.dismissUnplaced)).toHaveBeenCalledWith({
+      securityId: PBK_UNPLACED.security_id,
+      accession: PBK_UNPLACED.accession,
+      reason: "covered by the 11-30 split",
+    });
+  });
+
+  it("Dismiss without a reason sends none, and a typed reason stays on its own row", async () => {
+    onlyUnplaced({ unplaced: [WLDS_UNPLACED, META_UNPLACED] });
+    render(<SplitList />);
+    const [wlds, meta] = rows();
+    await userEvent.type(within(wlds).getByLabelText("Reason for dismissing WLDS (optional)"), "typed here");
+    expect(within(meta).getByLabelText("Reason for dismissing META (optional)")).toHaveValue("");
+    await userEvent.click(within(meta).getByRole("button", { name: "Dismiss" }));
+    expect(fn(h.dismissUnplaced)).toHaveBeenCalledWith({ securityId: META_UNPLACED.security_id, accession: META_UNPLACED.accession });
+    expect(fn(h.dismissUnplaced).mock.calls[0][0]).not.toHaveProperty("reason");
+  });
+
+  it("enables Dismiss and the reason box, and disables every decision while a write is sending", () => {
+    onlyUnplaced({ unplaced: [PBK_UNPLACED], unplaced_dismissed: [META_DISMISSED] });
+    const { unmount } = render(<SplitList />);
+    expect(within(rows()[0]).getByRole("button", { name: "Dismiss" })).toBeEnabled();
+    expect(within(rows()[0]).getByLabelText("Reason for dismissing PBK (optional)")).toBeEnabled();
+    unmount();
+    for (const key of ["dismissUnplaced", "undoUnplaced", "confirm"] as const) {
+      h[key] = { ...m(), isPending: true };
+      onlyUnplaced({ unplaced: [PBK_UNPLACED], unplaced_dismissed: [META_DISMISSED] });
+      const r = render(<SplitList />);
+      expect(within(rows()[0]).getByRole("button", { name: "Dismiss" })).toBeDisabled();
+      r.unmount();
+      h[key] = m();
+    }
+  });
+
+  it("keeps a dismissed filing behind a 'dismissed' filter, grayed, with its reason and an Undo", async () => {
+    onlyUnplaced({ unplaced: [PBK_UNPLACED], unplaced_dismissed: [META_DISMISSED] });
+    render(<SplitList />);
+    const filter = within(section()).getByTestId("adm-splits-unplaced-dismissed");
+    expect(within(filter).queryByTestId("adm-split-unplaced-dismissed-row")).toBeNull(); // closed to start
+    expect(rows()).toHaveLength(1); // the dismissed one is not on the list
+    await userEvent.click(within(filter).getByRole("button", { name: "Show dismissed (1)" }));
+    const row = within(filter).getByTestId("adm-split-unplaced-dismissed-row");
+    expect(row).toHaveTextContent("META — 8-K filed 2026-11-12");
+    expect(row).toHaveTextContent("dismissed by you, 11-27 — “a share-capital notice, not a split”");
+    expect(within(row).getByTestId("adm-split-unplaced-why")).toHaveTextContent("No direction stated");
+    expect(within(row).queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(row.querySelector(".adm-grayed")).not.toBeNull();
+    // the Undo itself is not grayed: it must read as enabled
+    const undo = within(row).getByRole("button", { name: "Undo" });
+    expect(undo).toBeEnabled();
+    expect(undo.closest(".adm-grayed")).toBeNull();
+    await userEvent.click(undo);
+    expect(fn(h.undoUnplaced)).toHaveBeenCalledWith({ dismissalId: DISMISSAL_ID });
+    expect(fn(h.dismissUnplaced)).not.toHaveBeenCalled();
+    await userEvent.click(within(filter).getByRole("button", { name: "Hide dismissed (1)" }));
+    expect(within(filter).queryByTestId("adm-split-unplaced-dismissed-row")).toBeNull();
+  });
+
+  it("disables Undo while a write is sending", async () => {
+    h.undoUnplaced = { ...m(), isPending: true };
+    onlyUnplaced({ unplaced: [], unplaced_dismissed: [META_DISMISSED] });
+    render(<SplitList />);
+    await userEvent.click(within(section()).getByRole("button", { name: "Show dismissed (1)" }));
+    expect(within(section()).getByRole("button", { name: "Undo" })).toBeDisabled();
+  });
+
+  it("shows the section when only dismissed filings remain, its heading counting none", () => {
+    onlyUnplaced({ unplaced: [], unplaced_dismissed: [META_DISMISSED] });
+    render(<SplitList />);
+    expect(section().querySelector("summary")).toHaveTextContent("Split filings not placed (0)");
+    expect(within(section()).getByRole("button", { name: "Show dismissed (1)" })).toBeInTheDocument();
+  });
+
+  it("shows the server's sentence for a refused Dismiss in that filing's row only, once", () => {
+    const sentence = "filing 0001493152-26-052687 is already dismissed";
+    h.dismissUnplaced = {
+      ...m(),
+      isError: true,
+      error: { detail: sentence },
+      variables: { securityId: PBK_UNPLACED.security_id, accession: PBK_UNPLACED.accession },
+    };
+    onlyUnplaced({ unplaced: [PBK_UNPLACED, META_UNPLACED] });
+    render(<SplitList />);
+    const [meta, pbk] = rows(); // META is not covered by a listed split, so it comes first
+    expect(within(pbk).getByTestId("adm-split-unplaced-row-error")).toHaveTextContent(sentence);
+    expect(within(meta).queryByTestId("adm-split-unplaced-row-error")).toBeNull();
+    expect(screen.getAllByText(sentence)).toHaveLength(1); // not repeated at the foot of the panel
+  });
+
+  it("shows the server's sentence for a refused Undo in the dismissed row, once", async () => {
+    const sentence = "filing 0001628280-26-066700 is no longer on the unplaced list";
+    h.undoUnplaced = { ...m(), isError: true, error: { detail: sentence }, variables: { dismissalId: DISMISSAL_ID } };
+    onlyUnplaced({ unplaced: [], unplaced_dismissed: [META_DISMISSED] });
+    render(<SplitList />);
+    await userEvent.click(within(section()).getByRole("button", { name: "Show dismissed (1)" }));
+    expect(within(section()).getByTestId("adm-split-unplaced-row-error")).toHaveTextContent(sentence);
+    expect(screen.getAllByText(sentence)).toHaveLength(1);
+  });
+
+  it("shows a failed unplaced read beside the rest of the panel instead of hiding either", () => {
+    serve({
+      needs_review: [MI],
+      announced: [],
+      confirmed: [BTOC],
+      set_aside: [],
+      total: 2,
+      unplaced_error: "OSError: the nightly's run file is unreadable",
+    });
+    render(<SplitList />);
+    expect(screen.getByTestId("adm-splits-unplaced-error")).toHaveTextContent(
+      "The split filings not placed could not be fully read: OSError: the nightly's run file is unreadable",
+    );
+    expect(screen.queryByTestId("adm-splits-unplaced")).toBeNull(); // no rows to list
+    expect(screen.getAllByTestId("adm-split-review-row")).toHaveLength(1);
+    expect(screen.getByTestId("adm-splits-confirmed")).toBeInTheDocument();
+  });
+
+  it("renders the panel for an unplaced read that failed alone, and keeps the rows an error left readable", () => {
+    onlyUnplaced({ unplaced_error: "ValueError: bad run file" });
+    const { unmount } = render(<SplitList />);
+    expect(screen.getByTestId("adm-splits-unplaced-error")).toHaveTextContent("ValueError: bad run file");
+    unmount();
+    onlyUnplaced({ unplaced: [PBK_UNPLACED], unplaced_error: "ValueError: bad run file" });
+    render(<SplitList />);
+    expect(screen.getByTestId("adm-splits-unplaced-error")).toBeInTheDocument();
+    expect(rows()).toHaveLength(1);
+  });
+
+  it("renders the panel for unplaced filings alone, with no split on the list", () => {
+    onlyUnplaced({ unplaced: [META_UNPLACED] });
+    render(<SplitList />);
+    expect(screen.getByTestId("adm-splits")).toBeInTheDocument();
+    expect(rows()).toHaveLength(1);
+  });
+
+  describe("an older server's payload (the new keys absent)", () => {
+    const OLD = {
+      needs_review: [MI],
+      announced: [],
+      confirmed: [BTOC],
+      set_aside: [LRHC_REJECTED],
+      total: 3,
+      unlisted_jumps: [GAME_JUMP],
+    };
+
+    it("renders exactly today's panel: the same markup as empty new keys, and none of the new section", () => {
+      serve(OLD);
+      const old = render(<SplitList />);
+      const html = old.container.innerHTML;
+      old.unmount();
+      serve({ ...OLD, unplaced: [], unplaced_dismissed: [], unplaced_runs: [], unplaced_error: null });
+      const empty = render(<SplitList />);
+      expect(empty.container.innerHTML).toBe(html);
+      expect(html).not.toContain("adm-splits-unplaced");
+      expect(html).not.toContain("not placed");
+      expect(html).toContain("adm-splits-review");
+    });
+
+    it("renders nothing for an older server's empty list", () => {
+      serve({ needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0 });
+      const { container } = render(<SplitList />);
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it("keeps today's decisions working (a Dismiss on a jump is still the jump's)", async () => {
+      serve(OLD);
+      render(<SplitList />);
+      await userEvent.click(within(screen.getByTestId("adm-split-jump-row")).getByRole("button", { name: "Dismiss" }));
+      expect(fn(h.dismiss)).toHaveBeenCalledWith({ securityId: GAME_JUMP.security_id, stepDate: "2026-08-24" });
+      expect(fn(h.dismissUnplaced)).not.toHaveBeenCalled();
+    });
   });
 });

@@ -2501,6 +2501,10 @@ export type AdminSplitTapeStepOut = components["schemas"]["AdminSplitTapeStepOut
 // S5 — a split-shaped price jump the split-night hold released that no source listed (the operator's
 // "is this real?"); read with the list, no write of its own
 export type AdminSplitJumpOut = components["schemas"]["AdminSplitJumpOut"];
+// F1-5 — an SEC filing about a split the list could not place, and the run it was read from (read with the list;
+// its writes are the steward's Dismiss and Undo below)
+export type AdminSplitUnplacedOut = components["schemas"]["AdminSplitUnplacedOut"];
+export type AdminSplitUnplacedRunOut = components["schemas"]["AdminSplitUnplacedRunOut"];
 
 export function useSplitList() {
   return useQuery({
@@ -2667,6 +2671,32 @@ export function useDismissJump() {
 export function useUndoJumpDismissal() {
   return useSplitAction(async (vars: { dismissalId: string }) => {
     const { data, error } = await api.POST("/admin/splits/jumps/dismissals/{dismissal_id}/undo", {
+      params: { path: { dismissal_id: vars.dismissalId } },
+      body: {},
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// DISMISS an unplaced split filing (F1-5): the steward says it is not a split to list. Display only — no split, hold
+// or call reads it. The reason is optional (the server stores its own when none is sent). Inverse:
+// useUndoUnplacedDismissal.
+export function useDismissUnplaced() {
+  return useSplitAction(async (vars: { securityId: string; accession: string; reason?: string }) => {
+    const { data, error } = await api.POST("/admin/splits/unplaced/{security_id}/{accession}/dismiss", {
+      params: { path: { security_id: vars.securityId, accession: vars.accession } },
+      body: vars.reason?.trim() ? { reason: vars.reason.trim() } : {},
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO a filing's dismissal — it is back on the unplaced list.
+export function useUndoUnplacedDismissal() {
+  return useSplitAction(async (vars: { dismissalId: string }) => {
+    const { data, error } = await api.POST("/admin/splits/unplaced/dismissals/{dismissal_id}/undo", {
       params: { path: { dismissal_id: vars.dismissalId } },
       body: {},
     });

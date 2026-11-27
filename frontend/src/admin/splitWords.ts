@@ -1,7 +1,12 @@
 // The Splits cards in PLAIN ENGLISH (operator ask, 2026-10-24): what the split is, what each source says, and what
 // each button does. Pure words over the GET /admin/splits payload — never a different decision, only how it is
 // explained (backend: app/routers/admin_splits.py; the verbs: repositories/split_repo.py).
-import type { AdminSplitListEntryOut, AdminSplitTapeStepOut } from "../api/hooks";
+import type {
+  AdminSplitListEntryOut,
+  AdminSplitTapeStepOut,
+  AdminSplitUnplacedOut,
+  AdminSplitUnplacedRunOut,
+} from "../api/hooks";
 import { safeHttpUrl } from "../components/ExternalLink";
 
 type Split = AdminSplitListEntryOut;
@@ -206,4 +211,106 @@ export function hintLine(s: Split): string | null {
   if (!parts.length) return null;
   const line = parts.join("; ");
   return `${line[0].toUpperCase()}${line.slice(1)}.`;
+}
+
+// --- F1-5: SEC filings about a split the list could not place (the "Split filings not placed" section) ---
+
+type Unplaced = AdminSplitUnplacedOut;
+
+/** The API's limit on a dismissal's reason (backend `AdminSplitJumpReasonIn.reason`). */
+export const REASON_MAX = 500;
+
+/** A split's `status` in words. */
+export const STATUS_WORD: Record<string, string> = {
+  needs_review: "needs review",
+  confirmed: "confirmed",
+  announced: "announced",
+  rejected: "rejected",
+  revoked: "revoked",
+};
+
+const SOURCE_WORD = { nightly: "nightly", check: "long-window check" } as const;
+
+const upper = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
+
+/** Does the list already answer this filing: a listed split cites it, or has the ratio it states? Such a filing
+ *  needs the steward least, so the section lists it after the ones nothing on the list answers. */
+export function unplacedCovered(u: Unplaced): boolean {
+  const near = u.listed_near;
+  return near != null && (near.cites_filing || near.same_ratio === true);
+}
+
+/** The filings no listed split covers first, each group in the order the server sent (newest filing first). Drops
+ *  none (WB#2). */
+export function orderUnplaced(rows: Unplaced[]): Unplaced[] {
+  return [...rows.filter((u) => !unplacedCovered(u)), ...rows.filter((u) => unplacedCovered(u))];
+}
+
+/** Why the filing was not placed, said once: the detector's reason, which names the ratio the filing states when it
+ *  states one ("1-for-20 reverse split stated, but no first session stated"). The ratio is added only when the
+ *  reason does not already name it. */
+export function unplacedWhy(u: Unplaced): string {
+  const reason = u.reason.trim();
+  const label = u.ratio_label;
+  if (!label) return reason ? upper(reason) : "No reason recorded";
+  if (!reason) return `The filing states ${label}`;
+  return reason.includes(label) ? upper(reason) : `${upper(reason)} — the filing states ${label}`;
+}
+
+/** Which run read the filing, and the day it read: "nightly 11-25" / "long-window check 11-27". */
+export function unplacedSource(u: Pick<Unplaced, "source" | "seen_on">): string {
+  return `${SOURCE_WORD[u.source]} ${md(u.seen_on)}`;
+}
+
+/** The days from the filing to a listed split's first session, in words (signed: after is positive). */
+function distance(days: number): string {
+  if (days === 0) return "the same day as this filing";
+  const n = Math.abs(days);
+  return `${n} day${n === 1 ? "" : "s"} ${days > 0 ? "after" : "before"} this filing`;
+}
+
+/** The split on the list the filing most likely talks about (the API's `listed_near`), one line; null when none is
+ *  near. The ratio is left out where the reason already names it. "The list holds this ratio: needs review, first
+ *  session 11-30, 13 days after this filing." */
+export function listedNearLine(u: Unplaced): string | null {
+  const near = u.listed_near;
+  if (!near) return null;
+  const what = [
+    near.label === u.ratio_label ? null : near.label,
+    STATUS_WORD[near.status] ?? near.status,
+    `first session ${md(near.effective_date)}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  if (near.cites_filing) return `A listed split cites this filing: ${what}.`;
+  if (near.same_ratio === true) return `The list holds this ratio: ${what}, ${distance(near.days_from)}.`;
+  return `Nearest listed split: ${what}, ${distance(near.days_from)}.`;
+}
+
+/** The runs the section was read from: "Read from nightly 11-25: 65 filings; long-window check 11-27, 800 days: 363
+ *  filings." Null when the API named none. */
+export function unplacedRunsLine(runs: AdminSplitUnplacedRunOut[]): string | null {
+  if (runs.length === 0) return null;
+  const parts = runs.map((r) => {
+    const days = r.sec_days != null ? `, ${r.sec_days} days` : "";
+    return `${SOURCE_WORD[r.source]} ${md(r.asof)}${days}: ${r.rows} ${r.rows === 1 ? "filing" : "filings"}`;
+  });
+  return `Read from ${parts.join("; ")}.`;
+}
+
+/** What the section is and what Dismiss does, once for the whole list. */
+export function unplacedHelp(): string {
+  return (
+    "These are SEC filings about a split that the nightly or the long-window check read but could not place on the " +
+    "list (no ratio, no first session, or an extractor abstain). Covered means a listed split cites the filing or " +
+    "has the ratio it states: the rest come first. Dismiss means this is not a split to list: the filing leaves " +
+    "this list and stays under “dismissed”, with an Undo. A dismissal changes no split, hold or call."
+  );
+}
+
+/** A dismissed filing's line: "dismissed by you, 11-27 — “a share-capital notice, not a split”". */
+export function unplacedDismissedLine(u: Unplaced): string {
+  const day = u.dismissed_at ? `, ${md(u.dismissed_at.slice(0, 10))}` : "";
+  const why = u.dismissed_reason ? ` — “${u.dismissed_reason}”` : "";
+  return `dismissed by you${day}${why}`;
 }
