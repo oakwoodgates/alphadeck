@@ -1,24 +1,35 @@
 import { type ReactNode, useState } from "react";
 
-import type { AdminSplitJumpOut, AdminSplitListEntryOut, AdminSplitListOut } from "../api/hooks";
+import type {
+  AdminSplitJumpOut,
+  AdminSplitListEntryOut,
+  AdminSplitListOut,
+  AdminSplitUnplacedOut,
+} from "../api/hooks";
 import {
   useConfirmSplit,
   useConfirmSplitValues,
   useDismissJump,
+  useDismissUnplaced,
   useRejectSplit,
   useRestoreSplit,
   useRevokeSplit,
   useSplitList,
   useSplitTapeStep,
   useUndoJumpDismissal,
+  useUndoUnplacedDismissal,
 } from "../api/hooks";
 import { errText } from "../workbench/format";
 import {
   NOTE_MAX,
+  REASON_MAX,
+  STATUS_WORD,
   confirmLine,
   confirmValuesLine,
   hintLine,
   isDate,
+  listedNearLine,
+  orderUnplaced,
   overrideLabel,
   polygonSays,
   ratioProblem,
@@ -28,24 +39,25 @@ import {
   splitSentence,
   tapeFactorSentence,
   tapeStepSentence,
+  unplacedCovered,
+  unplacedDismissedLine,
+  unplacedHelp,
+  unplacedRunsLine,
+  unplacedSource,
+  unplacedWhy,
   valuesProblem,
 } from "./splitWords";
 import { ExternalLink } from "../components/ExternalLink";
 import { LIMITS } from "../api/limits";
 
 type Split = AdminSplitListEntryOut;
+type Unplaced = AdminSplitUnplacedOut;
 type ConfirmValuesMutation = ReturnType<typeof useConfirmSplitValues>;
+type DismissUnplacedMutation = ReturnType<typeof useDismissUnplaced>;
+type UndoUnplacedMutation = ReturnType<typeof useUndoUnplacedDismissal>;
 
 const bucket = (d: AdminSplitListOut, k: "needs_review" | "announced" | "confirmed" | "set_aside"): Split[] =>
   d[k] ?? [];
-
-const STATUS_WORD: Record<string, string> = {
-  needs_review: "needs review",
-  confirmed: "confirmed",
-  announced: "announced",
-  rejected: "rejected",
-  revoked: "revoked",
-};
 
 /** "BTOC — 1-for-16 reverse split · first session 2026-10-15", and on an open split what a confirm would touch
  *  (W2-8: a first session on its first stored bar, the share count it rescales). */
@@ -151,6 +163,112 @@ function Jump({ j, action }: { j: AdminSplitJumpOut; action?: ReactNode }) {
         </div>
       ) : null}
       {action}
+    </li>
+  );
+}
+
+/** F1-5 — one SEC filing the list could not place, each thing said once: who and which filing (the link), where it was
+ *  read, why it was not placed (the ratio it states is in that reason), the listed split nearest it, and the passage
+ *  the extractor located. Shared by the open row and the dismissed one. */
+function UnplacedInfo({ u }: { u: Unplaced }) {
+  const who = u.ticker ?? u.name ?? u.security_id;
+  const near = listedNearLine(u);
+  return (
+    <>
+      <div>
+        <b>{who}</b>
+        {u.ticker && u.name ? <span className="adm-sub"> ({u.name})</span> : null} —{" "}
+        <ExternalLink className="adm-link" href={u.url} title={u.accession}>
+          {u.form || "filing"} filed {u.filed}
+        </ExternalLink>{" "}
+        <span className="adm-sub" data-testid="adm-split-unplaced-source">
+          · {unplacedSource(u)}
+        </span>
+      </div>
+      <div className="adm-plain" data-testid="adm-split-unplaced-why">
+        {unplacedWhy(u)}
+      </div>
+      {near ? (
+        <div className="adm-sub" data-testid="adm-split-unplaced-near">
+          {near}
+        </div>
+      ) : null}
+      {u.passage ? (
+        <blockquote className="adm-passage" data-testid="adm-split-unplaced-passage">
+          “{u.passage}”{u.document ? <span className="adm-note"> — {u.document}</span> : null}
+        </blockquote>
+      ) : null}
+    </>
+  );
+}
+
+/** A refused write's sentence, shown in the row it was about (not at the foot of a long list). */
+function RowError({ text }: { text: string | null }) {
+  return text ? (
+    <div className="adm-err" data-testid="adm-split-unplaced-row-error">
+      {text}
+    </div>
+  ) : null;
+}
+
+/** An unplaced filing on the list: the evidence, and Dismiss (“not a split to list”) with an optional reason. */
+function UnplacedRow({ u, busy, send }: { u: Unplaced; busy: boolean; send: DismissUnplacedMutation }) {
+  const [reason, setReason] = useState("");
+  const who = u.ticker ?? u.name ?? u.security_id;
+  const why = reason.trim();
+  const refused =
+    send.isError && send.variables?.securityId === u.security_id && send.variables?.accession === u.accession;
+  return (
+    <li data-testid="adm-split-unplaced-row">
+      <UnplacedInfo u={u} />
+      <div className="adm-act">
+        <input
+          className="adm-input adm-input-sm"
+          type="text"
+          placeholder="reason (optional)"
+          value={reason}
+          maxLength={REASON_MAX}
+          onChange={(e) => setReason(e.target.value)}
+          aria-label={`Reason for dismissing ${who} (optional)`}
+        />
+        <button
+          type="button"
+          className="adm-minibtn"
+          disabled={busy}
+          onClick={() =>
+            send.mutate({ securityId: u.security_id, accession: u.accession, ...(why ? { reason: why } : {}) })
+          }
+        >
+          Dismiss
+        </button>
+      </div>
+      <RowError text={refused ? errText(send.error) : null} />
+    </li>
+  );
+}
+
+/** A dismissed filing: grayed and still listed (WB#2), what the steward said, and its Undo (WB#1). Only the words are
+ *  grayed: the Undo must read as enabled. */
+function DismissedUnplacedRow({ u, busy, send }: { u: Unplaced; busy: boolean; send: UndoUnplacedMutation }) {
+  const id = u.dismissal_id;
+  const refused = send.isError && id != null && send.variables?.dismissalId === id;
+  return (
+    <li data-testid="adm-split-unplaced-dismissed-row">
+      <div className="adm-grayed">
+        <UnplacedInfo u={u} />
+        <div className="adm-sub">{unplacedDismissedLine(u)}</div>
+      </div>
+      <div className="adm-act">
+        <button
+          type="button"
+          className="adm-minibtn"
+          disabled={busy || id == null}
+          onClick={() => id != null && send.mutate({ dismissalId: id })}
+        >
+          Undo
+        </button>
+      </div>
+      <RowError text={refused ? errText(send.error) : null} />
     </li>
   );
 }
@@ -359,8 +477,11 @@ function ValuesForm({
  *  move", 2026-10-24) takes it off the list into the "dismissed" filter, its Undo puts it back, and neither
  *  changes a call. Each review card says in plain words what the split is, what each source says, and what each
  *  button does. D3 adds a third way to confirm a review card, "Confirm with other values" (the steward's own
- *  ratio, first session and cited https document, checked against the stored tape; Revoke undoes it). Renders
- *  nothing when the list and that question are both empty. */
+ *  ratio, first session and cited https document, checked against the stored tape; Revoke undoes it). F1-5 adds a
+ *  quiet section, "Split filings not placed": the SEC filings about a split the detector could not place, each with
+ *  the evidence, the listed split nearest it and a Dismiss ("not a split to list", optional reason; display only)
+ *  whose inverse is Undo under a "dismissed" filter; a failed read of them is shown beside the panel, never hidden.
+ *  Renders nothing when the list and those questions are all empty. */
 export function SplitList() {
   const q = useSplitList();
   const confirm = useConfirmSplit();
@@ -370,7 +491,10 @@ export function SplitList() {
   const restore = useRestoreSplit();
   const dismiss = useDismissJump();
   const undoDismiss = useUndoJumpDismissal();
+  const dismissUnplaced = useDismissUnplaced();
+  const undoUnplaced = useUndoUnplacedDismissal();
   const [showDismissed, setShowDismissed] = useState(false);
+  const [showUnplacedDismissed, setShowUnplacedDismissed] = useState(false);
   const busy =
     confirm.isPending ||
     confirmValues.isPending ||
@@ -378,8 +502,11 @@ export function SplitList() {
     revoke.isPending ||
     restore.isPending ||
     dismiss.isPending ||
-    undoDismiss.isPending;
-  // a refused Confirm with other values is shown in its own form (the server's sentence), not here
+    undoDismiss.isPending ||
+    dismissUnplaced.isPending ||
+    undoUnplaced.isPending;
+  // a refused Confirm with other values is shown in its own form (the server's sentence), and a refused Dismiss or
+  // Undo of an unplaced filing in its own row, not here
   const failed = [confirm, reject, revoke, restore, dismiss, undoDismiss].find((m) => m.isError);
 
   if (q.isError) {
@@ -393,12 +520,30 @@ export function SplitList() {
   const jumps = q.data?.unlisted_jumps ?? [];
   const dismissed = q.data?.dismissed_jumps ?? [];
   const jumpsError = q.data?.unlisted_jumps_error ?? null;
-  if (!q.data || (!q.data.total && !jumps.length && !dismissed.length && !jumpsError)) return null;
+  // an older server's payload carries none of these keys: every one reads empty, and the panel is today's
+  const unplaced = q.data?.unplaced ?? [];
+  const unplacedDismissed = q.data?.unplaced_dismissed ?? [];
+  const unplacedRuns = q.data?.unplaced_runs ?? [];
+  const unplacedError = q.data?.unplaced_error ?? null;
+  if (
+    !q.data ||
+    (!q.data.total &&
+      !jumps.length &&
+      !dismissed.length &&
+      !jumpsError &&
+      !unplaced.length &&
+      !unplacedDismissed.length &&
+      !unplacedError)
+  ) {
+    return null;
+  }
   const review = bucket(q.data, "needs_review");
   const announced = bucket(q.data, "announced");
   const confirmed = bucket(q.data, "confirmed");
   const setAside = bucket(q.data, "set_aside");
   const id = (s: Split) => ({ versionId: s.version_id });
+  const covered = unplaced.filter(unplacedCovered).length;
+  const runsLine = unplacedRunsLine(unplacedRuns);
 
   return (
     <section className="adm-card" data-testid="adm-splits">
@@ -609,6 +754,62 @@ export function SplitList() {
               </li>
             ))}
           </ul>
+        </details>
+      )}
+
+      {unplacedError ? (
+        <div className="adm-err" data-testid="adm-splits-unplaced-error">
+          The split filings not placed could not be fully read: {unplacedError}
+        </div>
+      ) : null}
+      {(unplaced.length > 0 || unplacedDismissed.length > 0) && (
+        <details className="adm-quietlist" data-testid="adm-splits-unplaced">
+          <summary className="adm-line adm-quiet">
+            Split filings not placed ({unplaced.length})
+            {covered > 0 ? <span className="adm-sub"> · {covered} covered by a listed split</span> : null}
+          </summary>
+          {runsLine ? (
+            <div className="adm-sub" data-testid="adm-split-unplaced-runs">
+              {runsLine}
+            </div>
+          ) : null}
+          {unplaced.length > 0 ? (
+            <ul className="adm-repairs adm-unplaced">
+              {orderUnplaced(unplaced).map((u) => (
+                <UnplacedRow key={`${u.security_id}:${u.accession}`} u={u} busy={busy} send={dismissUnplaced} />
+              ))}
+            </ul>
+          ) : (
+            <div className="adm-sub">No split filing is left unplaced.</div>
+          )}
+          {unplacedDismissed.length > 0 && (
+            <div className="adm-unplaced-filter" data-testid="adm-splits-unplaced-dismissed">
+              <button
+                type="button"
+                className="adm-minibtn"
+                aria-pressed={showUnplacedDismissed}
+                onClick={() => setShowUnplacedDismissed((v) => !v)}
+              >
+                {showUnplacedDismissed ? "Hide" : "Show"} dismissed ({unplacedDismissed.length})
+              </button>{" "}
+              <span className="adm-sub">split filing(s) you dismissed as not a split to list</span>
+              {showUnplacedDismissed && (
+                <ul className="adm-repairs adm-unplaced">
+                  {unplacedDismissed.map((u) => (
+                    <DismissedUnplacedRow
+                      key={`${u.security_id}:${u.accession}`}
+                      u={u}
+                      busy={busy}
+                      send={undoUnplaced}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          <div className="adm-sub" data-testid="adm-split-unplaced-help">
+            {unplacedHelp()}
+          </div>
         </details>
       )}
 
