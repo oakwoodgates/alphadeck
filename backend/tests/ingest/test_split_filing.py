@@ -2575,3 +2575,119 @@ def test_a_subdivision_of_issued_and_unissued_shares_is_about_a_split():
     )
     x = extract_for([FilingDocument(type="6-K", filename="t.htm", raw=raw)], ref)
     assert (x.effective_date, x.date_kind) == (date(2026, 7, 10), "trading")
+
+
+# --- 2026-11-27: prod's split corpus replayed (split-reader misreads, PR-C review) ------------------------------
+#
+# PR-C's ADS rule (an ADS ratio change beside a split of the shares abstains) hit two splits prod lists: a sentence
+# that EQUATES the ADS change to a split was taken for a split of the shares beside it, and a filing that describes
+# ONE event twice — the ADS ratio change and "a reverse share split" of the same factor — abstained. Each is a full
+# submission read as the nightly reads it (a 6-K: the restatement screen), knowing the confirmed splits in effect by
+# its filing date.
+
+
+def test_a_sentence_equating_the_ads_change_to_a_split_reads_the_ads_split():
+    """BioLineRx's 6-K of 2025-01-21 (an investor letter, EX-99.1): "… our intent to change the ratio of our American
+    Depositary Shares to ordinary shares, from 15 ordinary shares per ADS to 600 ordinary shares per ADS. This is
+    equivalent to a 1-for-40 reverse stock split, and will go into effect on January 30, 2025." The second sentence
+    is the ADS change itself, never a split of the shares beside it (prod lists 40:1, first session 2025-01-30).
+    Until this rule: ``ADS_RATIO_CHANGE``. Its date is not read here, on prod's code either ("will go into effect" is
+    no date cue); its sibling 6-K of 2025-01-17 dates it (``test_a_sentence_on_what_the_shares_trade_as_dates_...``).
+    """
+    screen, x = _as_prod_reads("0001178913-25-000177.txt", "6-K", None)
+    assert screen == SCREEN_RESTATED
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to) == (Decimal(40), Decimal(1))
+    assert "This is equivalent to a 1-for-40 reverse stock split" in x.passage
+
+
+def test_an_ads_ratio_change_of_the_splits_own_factor_reads_the_split():
+    """Trident Digital's 6-K of 2026-05-01: "… to change the ratio of its ADS to Class B ordinary shares from the
+    previous ratio of one (1) ADS to eight (8) Class B ordinary shares to a new ratio of one (1) ADS to two hundred
+    and forty (240) Class B ordinary shares. Effective April 24, 2026, the Company effected a 1-for-30 reverse share
+    split." The ADS change's own factor (240 / 8 = 30) is the split's: one event, described twice (prod lists 30:1,
+    2026-04-24, two sources agreeing). Until this rule: ``ADS_RATIO_CHANGE``."""
+    screen, x = _as_prod_reads(
+        "0001213900-26-051029.txt", "6-K", None, _known(("30", "1", "2026-04-24"))
+    )
+    assert screen == SCREEN_RESTATED
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to) == (Decimal(30), Decimal(1))
+    assert (x.effective_date, x.date_kind) == (date(2026, 4, 24), "legal")
+
+
+# --- the same rules on direct inputs -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "equates",
+    [
+        "This is equivalent to a 1-for-10 reverse stock split.",
+        "This will have the same effect as a 1-for-10 reverse stock split.",
+        "The change is the equivalent of a 1-for-10 reverse share split.",
+        "This is analogous to a 1-for-10 reverse stock split.",
+    ],
+    ids=["equivalent-to", "same-effect-as", "the-equivalent-of", "analogous-to"],
+)
+def test_a_sentence_equating_the_ads_change_to_a_split_is_no_split_of_the_shares(equates):
+    """No factor is stated here, so only the equating sentence decides: the ADS change alone, its own split."""
+    x = _x(
+        "The Company will change the ratio of its ADSs to ordinary shares, effective as of March 2, 2026. "
+        + equates
+    )
+    assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(10), Decimal(1), None)
+
+
+@pytest.mark.parametrize(
+    ("text", "ratio"),
+    [
+        # reverse, the ADS first: one (1) ADS from five (5) shares to fifty (50), a 1-for-10 reverse share split
+        (
+            "The Company will change the ratio of its ADSs to ordinary shares from one (1) ADS representing five (5) "
+            "ordinary shares to one (1) ADS representing fifty (50) ordinary shares. Effective March 2, 2026, the "
+            "Company effected a 1-for-10 reverse share split.",
+            ("10", "1"),
+        ),
+        # forward, the shares first: from 60 shares per ADS to 12, a 5-for-1 forward share split
+        (
+            "The ADS ratio will change from 60 ordinary shares per ADS to 12 ordinary shares per ADS. Effective "
+            "March 2, 2026, the Company effected a 5-for-1 forward share split.",
+            ("1", "5"),
+        ),
+    ],
+    ids=["reverse", "forward"],
+)
+def test_an_ads_ratio_change_of_the_stated_ratio_is_that_split(text, ratio):
+    x = _x(text)
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
+    assert (x.effective_date, x.date_kind) == (date(2026, 3, 2), "legal")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # the ADS's factor the other way round (OPRA's): ten shares per ADS to one, beside a ten-to-one consolidation
+        "Every ten (10) ordinary shares will be consolidated into one (1) ordinary share, effective as of March 2, "
+        "2026. The Company will change the ADS ratio from one (1) ADS representing ten (10) ordinary shares to one "
+        "(1) ADS representing one (1) ordinary share.",
+        # a factor that is not the split's: five shares per ADS to ten, beside a ten-to-one consolidation
+        "Every ten (10) ordinary shares will be consolidated into one (1) ordinary share, effective as of March 2, "
+        "2026. The Company will change the ADS ratio from one (1) ADS representing five (5) ordinary shares to one "
+        "(1) ADS representing ten (10) ordinary shares.",
+        # one side of the ADS change unstated (MOB's)
+        "Every ten (10) ordinary shares will be consolidated into one (1) ordinary share, effective as of March 2, "
+        "2026. Following the consolidation, each ADS will represent one ordinary share, instead of ten "
+        "pre-consolidation shares.",
+        # both sides stated, but new before old: the order is not read
+        "Every ten (10) ordinary shares will be consolidated into one (1) ordinary share, effective as of March 2, "
+        "2026. The Company will change the ADS ratio to one (1) ADS representing one hundred (100) ordinary shares, "
+        "instead of one (1) ADS representing ten (10) ordinary shares.",
+    ],
+    ids=["other-way-round", "other-factor", "one-side", "new-first"],
+)
+def test_an_ads_ratio_change_of_another_or_no_factor_still_abstains(text):
+    """PINNED (each reads so before and after): the ADS's factor differs from the shares' ratio, or is unreadable."""
+    x = _x(text)
+    assert not x.has_ratio, (x.ratio_from, x.ratio_to)
+    assert x.abstain_reason == split_filing.ADS_RATIO_CHANGE

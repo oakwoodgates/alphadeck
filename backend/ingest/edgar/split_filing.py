@@ -66,7 +66,12 @@ and Massive.com lists it as one. Not BESIDE A SPLIT OF THE SHARES THEMSELVES (si
 the listed ADS then moves by its own factor, never the shares' ratio the filing states — OPRA's AGM notice
 consolidates "every two (2) … ordinary shares … into one (1)" and changes "the ADS ratio … from one (1) ADS
 representing two (2) ordinary shares to … one (1) ADS representing one (1) ordinary share" (the ADS's price does not
-move) — so the filing abstains.
+move) — so the filing abstains. Two narrowings (2026-11-27): a sentence EQUATING the ADS change to a split ("This is
+equivalent to a 1-for-40 reverse stock split", "the same effect as", "the equivalent of", "analogous to") is the ADS
+change itself, never a split of the shares beside it; and when the ADS change's own factor — the shares one ADS
+represents after ÷ before, both stated "from … to …" — equals the split ratio the filing states, the two are one
+event described twice ("from … one (1) ADS to eight (8) … shares to … one (1) ADS to two hundred and forty (240) …
+shares" beside "a 1-for-30 reverse share split") and the ratio is read; a different or unreadable factor abstains.
 
 **What does NOT count as the split's ratio** — the refinement of "more than one distinct ratio abstains" that
 the real filings forced (named so the rule stays checkable):
@@ -732,6 +737,35 @@ _SHARE_SPLIT = re.compile(
     rf"{_SUBDIVISION_OF_SHARES}",
     re.I,
 )
+# Two narrowings (2026-11-27: prod's split corpus replayed — R1 abstained on two splits prod lists):
+# - a sentence that EQUATES the ADS change to a split is that change, never a split of the shares beside it:
+#   "… change the ratio of our American Depositary Shares to ordinary shares, from 15 ordinary shares per ADS to 600
+#   ordinary shares per ADS. This is equivalent to a 1-for-40 reverse stock split, and will go into effect on January
+#   30, 2025." (BioLineRx's 6-K of 2025-01-21; prod lists 40:1);
+_EQUATES = re.compile(r"\bequivalent\s+(?:to|of)\b|\bsame\s+effect\s+as\b|\banalogous\s+to\b", re.I)
+# - the ADS change IS the split when its own factor — the shares one ADS represents after ÷ before, both stated in a
+#   sentence stating the change, "from" the old one "to" the new — equals the split ratio the filing states: "… from
+#   the previous ratio of one (1) ADS to eight (8) Class B ordinary shares to a new ratio of one (1) ADS to two hundred
+#   and forty (240) Class B ordinary shares. Effective April 24, 2026, the Company effected a 1-for-30 reverse share
+#   split." (Trident Digital's 6-K of 2026-05-01: 240 / 8 = 30; prod lists 30:1). A factor that differs (OPRA's 1 / 2
+#   beside its 2-to-1), or one not stated both ways in that order (MOB's "each ADS will represent one Share, instead
+#   of … (275)", AZUL's "one (1) share unit" of 500,000 shares), still abstains. An amount is "N ADS(s)
+#   representing / to / for / : M … shares" or "M … shares per / to / for (N) ADS" (M / N shares per ADS; a share
+#   UNIT is not a share).
+_PER_ADS_SHARES = r"(?:[\w-]+\s+){0,3}?shares?\b(?!\s+units?\b)"
+_ADS_FIRST = re.compile(
+    rf"\b{_num('a')}\s+(?:new\s+|existing\s+)?{_ADS_WORD}"
+    r"(?:\s*[:=]\s*|\s+(?:representing|represents?|to|for)\s+)(?:the\s+right\s+to\s+receive\s+)?"
+    rf"{_num('s')}\s+{_PER_ADS_SHARES}",
+    re.I,
+)
+_SHARES_FIRST = re.compile(
+    rf"\b{_num('s')}\s+{_PER_ADS_SHARES}(?:\s*:|\s+(?:per|to|for))\s+(?:{_num('a')}\s+)?"
+    rf"(?:new\s+|existing\s+)?{_ADS_WORD}",
+    re.I,
+)
+_FROM = re.compile(r"\bfrom\b", re.I)
+_NEW_FIRST = re.compile(r"\binstead\s+of\b|\brather\s+than\b", re.I)
 
 # A split made FOR THE IPO (2026-11-26): a ratio whose sentence says it was made "in connection with the IPO" /
 # "initial public offering" ("… the 0.7194 -for-1 reverse stock split effected on May 14, 2026 in connection with the
@@ -1521,12 +1555,57 @@ def _ads_termination(docs: list[_Doc]) -> _Part | None:
     return first
 
 
-def _ads_ratio_change(docs: list[_Doc], current: list[_Mention]) -> _Part | None:
+def _shares_per_ads(m: re.Match) -> Decimal | None:
+    """The shares one ADS represents in one amount (``_ADS_FIRST`` / ``_SHARES_FIRST``): M / N; None when a side's
+    words and digits disagree or a side is zero."""
+    shares, s_conflict = _side(m, "s")
+    if m.groupdict().get("aw") or m.groupdict().get("ad"):
+        ads, a_conflict = _side(m, "a")
+    else:
+        ads, a_conflict = Decimal(1), False
+    if s_conflict or a_conflict or not shares or not ads:
+        return None
+    return shares / ads
+
+
+def _own_factor(sentence: str) -> Fraction | None:
+    """The ADS change's own factor in one sentence stating it: the shares one ADS represents after ÷ before, read
+    as exactly two amounts "from" the old "to" the new (the first amount after a "from"; never with "instead of" /
+    "rather than", which put the new one first). None when not stated so."""
+    if _NEW_FIRST.search(sentence):
+        return None
+    found: list[tuple[int, int, Decimal | None]] = []
+    for rx in (_ADS_FIRST, _SHARES_FIRST):
+        found.extend((m.start(), m.end(), _shares_per_ads(m)) for m in rx.finditer(sentence))
+    found.sort()
+    amounts: list[Decimal] = []
+    end = -1
+    for start, stop, v in found:
+        if start < end:
+            continue  # overlaps the amount before it
+        if v is None:
+            return None
+        end = stop
+        if v not in amounts:
+            amounts.append(v)
+    if len(amounts) != 2:
+        return None
+    if not _FROM.search(sentence, 0, found[0][0]):
+        return None
+    return Fraction(amounts[1]) / Fraction(amounts[0])
+
+
+def _ads_ratio_change(
+    docs: list[_Doc], current: list[_Mention]
+) -> tuple[_Part, Fraction | None] | None:
     """Where a filing states an ADS RATIO CHANGE BESIDE A SPLIT OF THE SHARES (``ADS_RATIO_CHANGE``): its first
-    sentence stating the change with a verb, else its first stating it at all — when some sentence with no ADS in it
-    (and no ratio change) names a split of the shares (``_SHARE_SPLIT``) or holds a ratio read (``current``), and no
-    sentence says the underlying shares are untouched. None otherwise."""
+    sentence stating the change with a verb, else its first stating it at all, and the change's own factor
+    (``_own_factor``; None unless every sentence that states one states the same) — when some sentence with no ADS in
+    it (no ratio change, and not EQUATING the change to a split, ``_EQUATES``) names a split of the shares
+    (``_SHARE_SPLIT``) or holds a ratio read (``current``), and no sentence says the underlying shares are untouched.
+    None otherwise."""
     stated: list[tuple[bool, _Part]] = []
+    factors: set[Fraction] = set()
     shares = False
     for di, d in enumerate(docs):
         for s, e in d.spans:
@@ -1538,9 +1617,13 @@ def _ads_ratio_change(docs: list[_Doc], current: list[_Mention]) -> _Part | None
             m = _ADS_RATIO_WORDS.search(sent)
             if m and _RATIO_CHANGED.search(sent) and not _RATIO_KEPT.search(sent):
                 stated.append((bool(_CHANGE_VERB.search(sent)), (di, (s, e), s + m.start())))
+                f = _own_factor(sent)
+                if f is not None:
+                    factors.add(f)
             elif (
                 not _ADS_MENTION.search(sent)
                 and not _RATIO_CHANGE_WORDS.search(sent)
+                and not _EQUATES.search(sent)
                 and _SHARE_SPLIT.search(sent)
             ):
                 shares = True
@@ -1548,12 +1631,15 @@ def _ads_ratio_change(docs: list[_Doc], current: list[_Mention]) -> _Part | None
         return None
     if not shares:
         shares = any(
-            not _ADS_MENTION.search(sent) and not _RATIO_CHANGE_WORDS.search(sent)
+            not _ADS_MENTION.search(sent)
+            and not _RATIO_CHANGE_WORDS.search(sent)
+            and not _EQUATES.search(sent)
             for sent in (docs[m.doc].match[m.sentence[0] : m.sentence[1]] for m in current)
         )
     if not shares:
         return None
-    return next((p for verb, p in stated if verb), stated[0][1])
+    first = next((p for verb, p in stated if verb), stated[0][1])
+    return first, (next(iter(factors)) if len(factors) == 1 else None)
 
 
 def _states_done(clause: str) -> bool:
@@ -1796,10 +1882,16 @@ def _read(
     current = [*operative, *undirected, *conflicts]
     changed = _ads_ratio_change(docs, current) if current else None
     if changed is not None:
-        # the ADS moves by its own factor, never the shares' ratio read here (OPRA, MOB, AZUL)
-        return abstain(
-            ADS_RATIO_CHANGE, [*distinct.values(), *conflicts, *undirected], first=changed
-        )
+        first, own = changed
+        # the split ratio the filing states: one, directed, with no conflict
+        one = len(distinct) == 1 and not conflicts and not undirected
+        stated_ratio = next(iter(distinct)) if one else None
+        if own is None or own != stated_ratio:
+            # the ADS moves by its own factor, never the shares' ratio read here (OPRA, MOB, AZUL); the same factor
+            # is one event described twice, read below (Trident Digital)
+            return abstain(
+                ADS_RATIO_CHANGE, [*distinct.values(), *conflicts, *undirected], first=first
+            )
     if conflicts:
         return abstain(
             "a ratio's words and its digits disagree: " + "; ".join(m.raw for m in conflicts[:3]),

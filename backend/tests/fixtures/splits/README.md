@@ -220,3 +220,13 @@ prod lists whose reading PR-A's first commit lost; each reads as before again:
 | 0001178913-25-000145 | BLRX | 6-K | an ADS ratio change, "the same effect as a 1-for-40 reverse stock split of the ADSs"; "The new ADS to ordinary share ratio … will be effective prior to the commencement of trading … on Thursday, January 30, 2025" (read: trading 2025-01-30) |
 | 0001171843-26-000847 | BWAY | 6-K | one additional ADS for each ADS held; "The new 1-to-1 ADS to ordinary share ratio will take effect prior to the commencement of trading … on Tuesday, March 3, 2026" (read: 1 -> 2, trading 2026-03-03) |
 | 0001493152-26-030305 | XAIR | 8-K (2.02, 5.03, 7.01, 9.01) | "the Board approved a 1-for-20 reverse stock split, which is expected to enable the Company to regain compliance" (its 2026 split) beside its 2025 one-for-twenty (read knowing the 2025 one: 20 -> 1, no date) |
+
+The PR-C review (2026-11-27: prod's split corpus replayed on the merged stack) added two full submissions, copied
+from prod's cache (`docs/temp/split-reader-misreads-evidence/prod-stack/forms/`) and trimmed the same way (every
+reading of each trimmed file CHECKED identical to its full submission's, on the pre-change and the changed
+extractor). Each is a split prod lists, abstained by PR-C's ADS rule:
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001178913-25-000177 | BLRX | 6-K | an investor letter: "change the ratio of our American Depositary Shares to ordinary shares, from 15 ordinary shares per ADS to 600 ordinary shares per ADS. This is equivalent to a 1-for-40 reverse stock split" — the equating sentence is the ADS change itself (read: ADS ratio change abstain; now 40 -> 1, no date: "will go into effect on" is no date cue) |
+| 0001213900-26-051029 | TDTH | 6-K | the ADS ratio "from … one (1) ADS to eight (8) Class B ordinary shares to … one (1) ADS to two hundred and forty (240)" beside "Effective April 24, 2026, the Company effected a 1-for-30 reverse share split" — the ADS change's own factor (30) is the split's (read: ADS ratio change abstain; now 30 -> 1, legal 2026-04-24) |
