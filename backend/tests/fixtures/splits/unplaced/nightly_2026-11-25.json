@@ -1,0 +1,65 @@
+{
+  "status": "finished",
+  "pass_kind": "nightly",
+  "started_at": "2026-11-26T03:30:01.884083+00:00",
+  "finished_at": "2026-11-26T03:51:08.680635+00:00",
+  "asof": "2026-11-25",
+  "mode": "live",
+  "catch_up": false,
+  "code_sha": "6ecc880261c301f70eb23ebb865bfea2d3dbaf9c",
+  "split_detect": {
+    "evaluated": true,
+    "polygon": "on",
+    "polygon_rows": 334,
+    "polygon_live_pages": 1,
+    "checked": 1801,
+    "filings_read": 3269,
+    "filings_unread": 0,
+    "appended": [],
+    "unplaced": [
+      {
+        "security_id": "ba617cb0-a79f-4a9c-9de6-0c641d0e8aaa",
+        "ticker": "WLDS",
+        "accession": "0001213900-26-124210",
+        "form": "6-K",
+        "filed": "2026-11-25",
+        "reason": "only an authorized range of ratios (1 -for-2, 1 -for-250, 1-FOR-250) \u2014 no ratio set"
+      },
+      {
+        "security_id": "826a470d-040b-4381-92c3-3c4e19cb81ad",
+        "ticker": "META",
+        "accession": "0001628280-26-066700",
+        "form": "8-K",
+        "filed": "2026-10-21",
+        "reason": "2-for-1 forward split stated, but no first-session or effective date stated"
+      },
+      {
+        "security_id": "c2ee6a48-fa7e-405b-bd55-10d8c6dab9b3",
+        "ticker": "EVGN",
+        "accession": "0001178913-26-004636",
+        "form": "6-K",
+        "filed": "2026-09-28",
+        "reason": "only an authorized range of ratios (1-for-2, 1-for-15) \u2014 no ratio set"
+      },
+      {
+        "security_id": "2a9e09c9-3084-4929-9cce-30934c2ccdc4",
+        "ticker": "TURB",
+        "accession": "0001213900-26-124175",
+        "form": "6-K",
+        "filed": "2026-11-25",
+        "reason": "1-for-5 reverse split stated, but no first-session or effective date stated"
+      },
+      {
+        "security_id": "f80c3160-53fa-490b-9efb-394ae026f48f",
+        "ticker": "SPRC",
+        "accession": "0001213900-26-124162",
+        "form": "6-K",
+        "filed": "2026-11-25",
+        "reason": "more than one ratio stated: 21->1, 9->1, 5->1, 2->1"
+      }
+    ],
+    "kept": [],
+    "errors": [],
+    "duration_s": 35.082
+  }
+}

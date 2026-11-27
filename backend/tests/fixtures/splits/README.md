@@ -33,6 +33,10 @@ hand-written or edited; the only change is TRIMMING, and the source's spelling i
 - `tape_2026-10-22.json` — S4: EVERY stored version (close, volume, `recorded_at`) of the price bars around the
   GAME / NXL / VRME / MDCX / FDCT splits, read from a read-only copy of prod on 2026-10-22, untouched — the
   tape-confirmation tests read each bar's FIRST-served version from it, exactly as the detector does.
+- `unplaced/nightly_2026-11-25.json` — F1-1: prod's 2026-11-25 nightly run artifact (`data/cron_runs`, cron
+  `code_sha` 6ecc8802), cut to its run identity and its `split_detect` block: `unplaced` keeps 5 of its 65 rows
+  (WLDS, META, EVGN, TURB, SPRC), `appended`, `kept` and `errors` are emptied. Rows written before an unplaced
+  filing carried its evidence (no `url`, `passage` or ratio).
 
 The table's LAST SEVEN rows (ELBM … LGHL) were added from the 2026-10-20 dev backfill: each was copied from
 the dev EDGAR cache (the text the backfill read) and trimmed the same way — filings the first extractor sent to

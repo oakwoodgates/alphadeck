@@ -96,7 +96,7 @@ differ as the skill says.
 | `pipeline.backfill_splits` | the split list | on apply |
 | `pipeline.backfill_surfaced_terms` | members' discovery terms | always |
 | `pipeline.dedup_identical_versions` | byte-identical re-versions (deletes) | on apply |
-| `pipeline.detect_splits` | new splits | on apply |
+| `pipeline.detect_splits` | new splits; `--record` keeps the run's unplaced filings, dry run too | on apply |
 | `pipeline.rederive_amendment_matches` | legacy Form 4/A decisions | on apply |
 | `pipeline.reingest_fundamentals` | revenue under the current label rule | on apply |
 | `pipeline.relink_amendments` | Form 4/A links | on apply |

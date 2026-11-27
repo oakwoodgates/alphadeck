@@ -34,7 +34,9 @@ an SEC-only candidate (``domain.splits.decide_sec_only``); then the tape. Each f
 6-K restating an old split never becomes a new candidate at its old date), knowing the company's splits already
 CONFIRMED on the list (``backfill_splits.known_for``: a ratio equal to one, stated as done, is that past split's
 whatever its age). A filing that mentions a split the list cannot place (no ratio, no date, an extractor abstain)
-is listed on the run artifact (``unplaced``), never dropped silently (#9).
+is listed on the run artifact (``unplaced``) with its link, passage and any ratio, never dropped silently (#9).
+The CLI's ``--record`` keeps a long-window run's list the same way (``pipeline/split_unplaced.py``, the one
+reader of both).
 
 THE PLAN against the stored list (``plan_against``): a split is found by S1's ``match_stored``. A new one is
 appended. A stored one is appended to ONLY when the system wrote its newest version, it is still OPEN
@@ -56,6 +58,7 @@ name its ingest or the night its record.
     python -m pipeline.detect_splits                       # dry run over the basket union (read-only)
     python -m pipeline.detect_splits --apply               # append (holds the call-of-record lock)
     python -m pipeline.detect_splits --sec-days 90 --polygon-days 90 --ticker BTOC --no-live
+    python -m pipeline.detect_splits --sec-days 800 --polygon-days 800 --record   # keep its unplaced list
 """
 
 from __future__ import annotations
@@ -66,7 +69,7 @@ import sys
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from time import perf_counter
@@ -142,6 +145,8 @@ UNCHANGED = "unchanged"
 KEPT = "kept"
 
 EXIT_REFUSED = 2
+# an unplaced filing's passage on the run artifact (and a check's record) is cut to this many characters
+UNPLACED_PASSAGE_MAX = 600
 
 
 # --- the tape ----------------------------------------------------------------------------------------------
@@ -256,9 +261,15 @@ def tape_window(
 # --- one company -------------------------------------------------------------------------------------------
 
 
+def _decimal_text(v: Decimal | None) -> str | None:
+    return None if v is None else format(Decimal(v).normalize(), "f")
+
+
 @dataclass(frozen=True)
 class Unplaced:
-    """An SEC filing that talks about a split the list could not place (no ratio, no date, an abstain)."""
+    """An SEC filing that talks about a split the list could not place (no ratio, no date, an abstain), with
+    what the extractor read from it (``SecEvidence``): the filing index link, the document and passage it
+    located, the ratio when one is stated, and why it abstained or what the date said."""
 
     security_id: UUID
     ticker: str | None
@@ -266,8 +277,16 @@ class Unplaced:
     form: str
     filed: date
     reason: str
+    url: str | None = None
+    document: str | None = None
+    passage: str | None = None
+    ratio_from: Decimal | None = None
+    ratio_to: Decimal | None = None
+    abstain_reason: str | None = None
+    date_note: str | None = None
 
     def to_json(self) -> dict:
+        """The artifact row (a reader uses ``.get``: a row written before the evidence keys reads null)."""
         return {
             "security_id": str(self.security_id),
             "ticker": self.ticker,
@@ -275,6 +294,13 @@ class Unplaced:
             "form": self.form,
             "filed": self.filed.isoformat(),
             "reason": self.reason,
+            "url": self.url,
+            "document": self.document,
+            "passage": (self.passage or "")[:UNPLACED_PASSAGE_MAX] or None,
+            "ratio_from": _decimal_text(self.ratio_from),
+            "ratio_to": _decimal_text(self.ratio_to),
+            "abstain_reason": self.abstain_reason,
+            "date_note": self.date_note,
         }
 
 
@@ -371,7 +397,23 @@ def detect_security(
         why = s.abstain_reason or s.date_note or "no first session stated"
         if s.has_ratio:
             why = f"{ratio_label(s.ratio_from, s.ratio_to)} stated, but {why}"  # type: ignore[arg-type]
-        out.unplaced.append(Unplaced(m.security_id, m.ticker, s.accession, s.form, s.filed, why))
+        out.unplaced.append(
+            Unplaced(
+                m.security_id,
+                m.ticker,
+                s.accession,
+                s.form,
+                s.filed,
+                why,
+                url=s.url,
+                document=s.document,
+                passage=s.passage,
+                ratio_from=s.ratio_from,
+                ratio_to=s.ratio_to,
+                abstain_reason=s.abstain_reason,
+                date_note=s.date_note,
+            )
+        )
     return out
 
 
@@ -972,12 +1014,27 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--no-live", action="store_true", help="caches only (no SEC / Massive.com request)"
     )
+    p.add_argument(
+        "--record",
+        action="store_true",
+        help="keep this run's unplaced filings in data/split_unplaced, read beside the nightly's (the whole "
+        "basket union only, so not with --ticker)",
+    )
     args = p.parse_args(argv)
+    if args.record and args.ticker:
+        print(
+            "REFUSED: --record keeps the whole basket's unplaced list; a --ticker run would replace it with "
+            "part of one (nothing was written)"
+        )
+        raise SystemExit(EXIT_REFUSED)
     asof = args.asof or market_today()
     if asof > market_today():
         print(f"REFUSED: --asof {asof.isoformat()} is in the future (nothing was written)")
         raise SystemExit(EXIT_REFUSED)
     mode = "APPLY" if args.apply else "DRY-RUN (read-only connection; nothing written)"
+    if args.record:
+        mode = mode.replace("nothing written", "no database write")
+        mode += " · RECORD (its unplaced filings go to data/split_unplaced)"
     print(
         f"detect_splits · {mode} · asof {asof.isoformat()} · SEC {args.sec_days}d · Massive.com {args.polygon_days}d"
     )
@@ -988,6 +1045,7 @@ def main(argv: list[str] | None = None) -> None:
             f"detect_splits: ALREADY RUNNING — {exc}. Nothing was written (exit {EXIT_ALREADY_RUNNING})"
         )
         raise SystemExit(EXIT_ALREADY_RUNNING) from None
+    started_at = datetime.now(timezone.utc)
     try:
         detector = SplitDetector.start(
             asof=asof,
@@ -1006,7 +1064,20 @@ def main(argv: list[str] | None = None) -> None:
     finally:
         if lock is not None:
             lock.release()
+    finished_at = datetime.now(timezone.utc)
     print_plan(detector)
+    if args.record:
+        from pipeline.split_unplaced import record_check
+
+        path = record_check(
+            detector.result,
+            started_at=started_at,
+            finished_at=finished_at,
+            asof=asof,
+            sec_days=args.sec_days,
+            polygon_days=args.polygon_days,
+        )
+        print(f"recorded {len(detector.result.unplaced)} unplaced filing(s): {path}")
 
 
 if __name__ == "__main__":
