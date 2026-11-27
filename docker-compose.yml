@@ -123,6 +123,8 @@ services:
       ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN: ${ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN:-true}
       # F8-2 — a later SEC filing restating a split joins its candidate (days; 0 = off, the shipped default).
       ALPHADECK_SPLIT_SEC_RESTATE_DAYS: ${ALPHADECK_SPLIT_SEC_RESTATE_DAYS:-0}
+      # F3b — an SEC-only split's legal date that is no session is planned on the next session (false = off, shipped).
+      ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION: ${ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION:-false}
       # The run-loader off-switch (a dev/test cost-saver: load a saved draft run instead of paying for a fresh
       # one). Unset -> False (the Settings default; the feature + its /runs endpoints are absent). Set
       # ALPHADECK_RUN_LOADER_ENABLED=true in `.env` to turn it on for the operator; the FE picker follows.
@@ -312,6 +314,8 @@ services:
       ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN: ${ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN:-true}
       # F8-2 — the SAME restate dial as the backend's (the nightly detector reads it here).
       ALPHADECK_SPLIT_SEC_RESTATE_DAYS: ${ALPHADECK_SPLIT_SEC_RESTATE_DAYS:-0}
+      # F3b — the SAME next-session switch as the backend's.
+      ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION: ${ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION:-false}
       # The nightly fund-shares sample rides this ingest — the cron needs the SAME Massive.com key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}

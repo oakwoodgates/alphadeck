@@ -38,7 +38,8 @@ is listed on the run artifact (``unplaced``) with its link, passage and any rati
 The CLI's ``--record`` keeps a long-window run's list the same way (``pipeline/split_unplaced.py``, the one
 reader of both). F8-2 (decision D-F8b, dark: ``split_sec_restate_days``, 0 = off): a later filing restating a
 candidate's ratio within that many days joins it, the latest filing's date supersedes, and such a candidate is never
-put to the tape.
+put to the tape. F3b (dark: ``split_legal_date_next_session``, False = off): an SEC-only candidate's legal date that
+is no session is planned on the next session, and the tape is read there.
 
 THE PLAN against the stored list (``plan_against``): a split is found by S1's ``match_stored``. A new one is
 appended. A stored one is appended to ONLY when the system wrote its newest version, it is still OPEN
@@ -340,6 +341,13 @@ def sec_restate_days() -> int:
     return get_settings().split_sec_restate_days
 
 
+def legal_date_next_session() -> bool:
+    """F3b (dark): does an SEC-only candidate's LEGAL date that is no session give way to the next session
+    (``domain.splits.decide_sec_only``; the setting ``split_legal_date_next_session``, False = off)? Read once a
+    pass beside ``sec_restate_days`` and passed down: the pure rule reads no settings."""
+    return get_settings().split_legal_date_next_session
+
+
 def detect_security(
     conn: psycopg.Connection,
     reader: SecReader,
@@ -352,13 +360,16 @@ def detect_security(
     label_overrides_abstain: bool,
     confirmed: tuple[ConfirmedSplit, ...] | None = None,
     restate_days: int = 0,
+    next_session: bool = False,
 ) -> SecurityDetection:
     """Every split tonight's evidence states for ONE company (the module docstring). Reads only.
     ``distribution_max_factor``: D2's bound (``backfill_splits.distribution_cap``); ``label_overrides_abstain``:
     W6-2's label rule (``backfill_splits.distribution_label_overrides_abstain``). ``confirmed``: the company's
     splits confirmed on the list (``backfill_splits.confirmed_of``; read here when not given) — every filing is
     read knowing them. ``restate_days``: F8-2's rule (``sec_restate_days``; 0 = off): a candidate its filings
-    restate with dates more than two sessions apart is never put to the tape."""
+    restate with dates more than two sessions apart is never put to the tape. ``next_session``: F3b's rule
+    (``legal_date_next_session``; False = off): a legal date that is no session is planned on the next session.
+    """
     out = SecurityDetection(member=m)
     if confirmed is None:
         confirmed = confirmed_splits(conn, m)
@@ -402,7 +413,7 @@ def detect_security(
     out.filings_unread = sum(1 for a in seen if reader.evidence[a] is None)
     fresh = [s for s in read if s.accession not in absorbed]
     for g in cluster_sec(fresh, restate_days=restate_days):
-        d = decide_sec_only(g, asof=asof, restate_days=restate_days)
+        d = decide_sec_only(g, asof=asof, restate_days=restate_days, next_session=next_session)
         # F8-2: the tape never picks between the company's own dates (``restated``: never true at 0)
         if d.effective_date <= asof and not restated(g, restate_days=restate_days):
             d = with_tape(
@@ -802,6 +813,8 @@ class SplitDetector:
         self.label_overrides_abstain = distribution_label_overrides_abstain()
         # F8-2's restate rule (days; 0 = off, the shipped default), read beside them
         self.sec_restate_days = sec_restate_days()
+        # F3b's next-session rule (False = off, the shipped default), read beside it
+        self.legal_date_next_session = legal_date_next_session()
         self.planned: list[Planned] = []
         self.detections: list[SecurityDetection] = []
 
@@ -884,6 +897,7 @@ class SplitDetector:
                 label_overrides_abstain=self.label_overrides_abstain,
                 confirmed=confirmed_of(stored),
                 restate_days=self.sec_restate_days,
+                next_session=self.legal_date_next_session,
             )
             self.detections.append(det)
             self.result.checked += 1
