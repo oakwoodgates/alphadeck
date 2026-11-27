@@ -11,6 +11,7 @@ vi.mock("../client", () => ({ api: { GET: h.get, POST: h.post, PUT: h.put } }));
 
 import {
   invalidateDashboards,
+  useAddSplit,
   useAdoptPriceSymbol,
   useApplyAmendment,
   useConfirmSplit,
@@ -212,6 +213,18 @@ describe("a write that can change a dashboard marks dashboard queries stale", ()
           cited_url: "https://example.com/notice",
           override_tape: false,
         },
+      },
+    ],
+    [
+      "a split added from a filing or a jump (useAddSplit)",
+      () => useAddSplit(),
+      {
+        security_id: "sec-1",
+        ratio_from: "20",
+        ratio_to: "1",
+        first_session: "2026-11-30",
+        cited_url: "https://example.com/notice",
+        from_accession: "0001493152-26-052687",
       },
     ],
     // the resolve can flip an existing company's master row to a fund

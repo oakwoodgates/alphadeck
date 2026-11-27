@@ -256,14 +256,16 @@ const h = vi.hoisted(() => ({
   undoDismiss: {} as Record<string, unknown>,
   dismissUnplaced: {} as Record<string, unknown>,
   undoUnplaced: {} as Record<string, unknown>,
+  addSplit: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
   useSplitList: () => h.q,
   useConfirmSplit: () => h.confirm,
   useConfirmSplitValues: () => h.confirmValues,
-  useSplitTapeStep: (versionId: string, args: unknown) => {
-    h.tapeCall(versionId, args);
+  // F2-2: the read names its target, a version ({ versionId }) or a security ({ securityId })
+  useSplitTapeStep: (target: unknown, args: unknown) => {
+    h.tapeCall(target, args);
     return h.tape;
   },
   useRejectSplit: () => h.reject,
@@ -273,9 +275,10 @@ vi.mock("../../api/hooks", () => ({
   useUndoJumpDismissal: () => h.undoDismiss,
   useDismissUnplaced: () => h.dismissUnplaced,
   useUndoUnplacedDismissal: () => h.undoUnplaced,
+  useAddSplit: () => h.addSplit,
 }));
 
-const m = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null });
+const m = () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null });
 const fn = (x: Record<string, unknown>) => (x as { mutate: ReturnType<typeof vi.fn> }).mutate;
 
 function serve(data: Record<string, unknown>) {
@@ -316,6 +319,7 @@ beforeEach(() => {
   h.undoDismiss = m();
   h.dismissUnplaced = m();
   h.undoUnplaced = m();
+  h.addSplit = m();
   h.tapeCall.mockClear();
   tapeAnswers(undefined);
   serve({ needs_review: [MI], announced: [], confirmed: [BTOC], set_aside: [LRHC_REJECTED], total: 3 });
@@ -530,12 +534,12 @@ describe("SplitList", () => {
       await openForm();
       const r = within(row());
       // the first session is what the tape is read at: nothing is read, and nothing shown, before it is entered
-      expect(h.tapeCall).toHaveBeenLastCalledWith(MI.version_id, null);
+      expect(h.tapeCall).toHaveBeenLastCalledWith({ versionId: MI.version_id }, null);
       expect(r.queryByTestId("adm-split-tape-step")).toBeNull();
       expect(r.getByRole("button", { name: SUBMIT })).toBeDisabled();
 
       await enter({ from: "10", to: "3", session: "2026-09-24" });
-      expect(h.tapeCall).toHaveBeenLastCalledWith(MI.version_id, {
+      expect(h.tapeCall).toHaveBeenLastCalledWith({ versionId: MI.version_id }, {
         firstSession: "2026-09-24",
         ratioFrom: "10",
         ratioTo: "3",
@@ -589,7 +593,7 @@ describe("SplitList", () => {
       render(<SplitList />);
       await openForm();
       await enter({ session: "2026-09-24" });
-      expect(h.tapeCall).toHaveBeenLastCalledWith(MI.version_id, { firstSession: "2026-09-24" });
+      expect(h.tapeCall).toHaveBeenLastCalledWith({ versionId: MI.version_id }, { firstSession: "2026-09-24" });
       const step = within(row()).getByTestId("adm-split-tape-step");
       expect(step).toHaveTextContent("The stored tape stepped x4.53 on 09-24");
       expect(step).not.toHaveTextContent("Your values");
@@ -1261,6 +1265,602 @@ describe("SplitList: split filings not placed (F1-5)", () => {
       await userEvent.click(within(screen.getByTestId("adm-split-jump-row")).getByRole("button", { name: "Dismiss" }));
       expect(fn(h.dismiss)).toHaveBeenCalledWith({ securityId: GAME_JUMP.security_id, stepDate: "2026-08-24" });
       expect(fn(h.dismissUnplaced)).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// F2-2 — "Add this split...": the steward lists a split NO source lists, from exactly one signal on the panel: a split
+// filing not placed, or a split-shaped jump nobody dismissed (D-F2a). The form is the D3 form's sibling (ratio old -> new,
+// first session, the cited https document, an optional note, the stored tape's step beside the entered factor, the
+// override past the tolerance) and posts POST /admin/splits (backend F2-1). PBK, WLDS and GAME are the rows above (a
+// ratio but no date; an authorized range only; GAME's real 08-24 step); every tape answer below is a SYNTHETIC reading
+// in the shape of the server's AdminSplitTapeStepOut, never a stored bar.
+describe("SplitList: Add this split... (F2-2)", () => {
+  const ADD = "Add this split...";
+  const SUBMIT = "Add these values";
+  const PBK_TAPE = {
+    first_session: "2026-11-30",
+    prior_date: "2026-11-27",
+    prior_close: 0.5,
+    close: 9.8,
+    prior_volume: 2000000,
+    volume: 100000,
+    step: 19.6,
+    volume_ratio: 0.05,
+    prior_served_before: false,
+    price_factor: 20,
+    tolerance: 0.5,
+    step_low: 12.13,
+    step_high: 32.97,
+    within_tolerance: true,
+    reason: null,
+  };
+  // GAME's 08-24 step is x7.5: a 1-for-4 entered against it sits outside the band
+  const GAME_TAPE = {
+    ...PBK_TAPE,
+    first_session: "2026-08-24",
+    prior_date: "2026-08-21",
+    prior_close: 0.42,
+    close: 3.16,
+    step: 7.5,
+    volume_ratio: 0.37,
+    price_factor: 4,
+    step_low: 2.43,
+    step_high: 6.59,
+    within_tolerance: false,
+    reason: "the tape steps x7.5 on 2026-08-24, not within x1.65 of the entered x4 (1-for-4 reverse split)",
+  };
+  const NO_BAR = {
+    first_session: "2026-11-30",
+    step: null,
+    price_factor: 20,
+    tolerance: 0.5,
+    step_low: 12.13,
+    step_high: 32.97,
+    within_tolerance: false,
+    reason: "no stored bar on 2026-11-30 (with one in the 14 days before it) to read",
+  };
+  const GAME_DISMISSED = {
+    ...GAME_JUMP,
+    dismissal_id: "9b1d0000-0000-4000-8000-0000000000d2",
+    dismissed_at: "2026-11-26T15:00:00Z",
+    dismissed_reason: "a real move",
+  };
+  const PANEL = {
+    needs_review: [],
+    announced: [],
+    confirmed: [],
+    set_aside: [],
+    total: 0,
+    unlisted_jumps: [GAME_JUMP],
+    unplaced: [PBK_UNPLACED, WLDS_UNPLACED],
+  };
+  const CITED = "https://example.com/pbk-notice";
+
+  const filingRow = (ticker: string) =>
+    screen.getAllByTestId("adm-split-unplaced-row").find((r) => within(r).queryByText(ticker) !== null)!;
+  const jumpRow = () => screen.getByTestId("adm-split-jump-row");
+  const openIn = async (row: HTMLElement) => userEvent.click(within(row).getByRole("button", { name: ADD }));
+  const form = (row: HTMLElement) => within(within(row).getByTestId("adm-split-add-form"));
+  const keys = (call: number) => Object.keys(fn(h.addSplit).mock.calls[call][0]).sort();
+
+  beforeEach(() => serve(PANEL));
+
+  it("is offered on every open filing and every undismissed jump, closed until asked: nothing is read or sent", async () => {
+    serve({ ...PANEL, dismissed_jumps: [GAME_DISMISSED], unplaced_dismissed: [META_DISMISSED] });
+    render(<SplitList />);
+    expect(screen.getAllByRole("button", { name: ADD })).toHaveLength(3); // PBK, WLDS and the jump
+    for (const row of [filingRow("PBK"), filingRow("WLDS"), jumpRow()]) {
+      expect(within(row).getByRole("button", { name: ADD })).toBeEnabled();
+      expect(within(row).queryByTestId("adm-split-add-form")).toBeNull();
+    }
+    // a dismissed jump and a dismissed filing are off the list: no Add on them (the server refuses it too)
+    await userEvent.click(within(screen.getByTestId("adm-splits-jumps-dismissed")).getByRole("button", { name: /Show dismissed/ }));
+    await userEvent.click(within(screen.getByTestId("adm-splits-unplaced-dismissed")).getByRole("button", { name: /Show dismissed/ }));
+    expect(screen.getByTestId("adm-split-jump-dismissed-row")).toBeInTheDocument();
+    expect(screen.getByTestId("adm-split-unplaced-dismissed-row")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: ADD })).toHaveLength(3);
+    expect(h.tapeCall).not.toHaveBeenCalled();
+    expect(fn(h.addSplit)).not.toHaveBeenCalled();
+  });
+
+  it("opens on a filing with its ratio filled in, the cited document empty, and the source filing linked as a reference", async () => {
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    const f = form(row);
+    expect(f.getByLabelText("Old shares")).toHaveValue("20");
+    expect(f.getByLabelText("New shares")).toHaveValue("1");
+    // the cited document must state the values: the filing's address is NOT put in the box (it is usually unplaced
+    // because it does not state the date)
+    expect(f.getByLabelText("Cited document")).toHaveValue("");
+    expect(f.getByLabelText("First session")).toHaveValue(""); // no date is known: the steward reads it off the document
+    expect(f.getByLabelText("Note")).toHaveValue("");
+    // the filing is shown beside the form as a reference, once, as a link
+    const source = f.getByTestId("adm-split-add-source");
+    expect(source).toHaveTextContent("Source filing: 6-K filed 2026-11-17");
+    expect(within(source).getByRole("link", { name: "6-K filed 2026-11-17" })).toHaveAttribute("href", PBK_UNPLACED.url);
+    // the tape is asked for the security (no version exists yet) and not before a first session is entered
+    expect(h.tapeCall).toHaveBeenLastCalledWith({ securityId: PBK_UNPLACED.security_id }, null);
+    expect(f.queryByTestId("adm-split-tape-step")).toBeNull();
+    expect(f.getByRole("button", { name: SUBMIT })).toBeDisabled();
+    expect(f.getByTestId("adm-split-add-hint")).toHaveTextContent("Enter the first session");
+    expect(fn(h.addSplit)).not.toHaveBeenCalled();
+  });
+
+  it("says once what an add does: the tape is checked, the split is listed, prices before it are rescaled, Revoke undoes it", async () => {
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    const intro = within(row).getByTestId("adm-split-add-intro");
+    expect(intro).toHaveTextContent("No source lists this split");
+    expect(intro).toHaveTextContent("The ratio it states is filled in from the filing");
+    expect(intro).not.toHaveTextContent("address"); // nothing is cited for the steward
+    expect(intro).toHaveTextContent("stored tape is checked against the values you enter first");
+    expect(intro).toHaveTextContent("prices before that session are put on the new scale");
+    expect(intro).toHaveTextContent("Revoke undoes it");
+    expect(screen.getAllByText(/stored tape is checked against the values you enter first/)).toHaveLength(1);
+  });
+
+  it("opens on a filing that states no ratio with nothing filled in, says so, and shows its source as plain text when it has no link", async () => {
+    render(<SplitList />);
+    const row = filingRow("WLDS");
+    await openIn(row);
+    const f = form(row);
+    for (const label of ["Old shares", "New shares", "First session", "Cited document", "Note"]) {
+      expect(f.getByLabelText(label)).toHaveValue("");
+    }
+    expect(within(row).getByTestId("adm-split-add-intro")).toHaveTextContent("states no single ratio");
+    const source = f.getByTestId("adm-split-add-source");
+    expect(source).toHaveTextContent("Source filing: 8-K filed 2026-11-21");
+    expect(within(source).queryByRole("link")).toBeNull();
+    expect(f.getByRole("button", { name: SUBMIT })).toBeDisabled();
+  });
+
+  it("shows no source filing on a jump: it has none to name", async () => {
+    render(<SplitList />);
+    await openIn(jumpRow());
+    expect(within(jumpRow()).queryByTestId("adm-split-add-source")).toBeNull();
+  });
+
+  it("opens on a jump with its step date filled in and no ratio: the nearest whole ratio is named, never entered", async () => {
+    render(<SplitList />);
+    await openIn(jumpRow());
+    const f = form(jumpRow());
+    expect(f.getByLabelText("First session")).toHaveValue("2026-08-24");
+    for (const label of ["Old shares", "New shares", "Cited document", "Note"]) {
+      expect(f.getByLabelText(label)).toHaveValue("");
+    }
+    // the date is known, so the stored tape is read at once (the step is the jump's own)
+    expect(h.tapeCall).toHaveBeenLastCalledWith({ securityId: GAME_JUMP.security_id }, { firstSession: "2026-08-24" });
+    expect(within(jumpRow()).getByTestId("adm-split-add-intro")).toHaveTextContent("No ratio is filled in");
+    const scale = f.getByTestId("adm-split-add-scale");
+    expect(scale).toHaveTextContent("Nearest whole-number ratio to that step: 1-for-8 reverse split (x8).");
+    expect(f.getByRole("button", { name: SUBMIT })).toBeDisabled();
+    // once a ratio is typed the tape's own factor line takes over: said once
+    await userEvent.type(f.getByLabelText("Old shares"), "8");
+    expect(f.queryByTestId("adm-split-add-scale")).toBeNull();
+  });
+
+  it("words the nearest whole ratio of a drop as a forward split, and says nothing for a step near x1", async () => {
+    const down = { ...GAME_JUMP, step: 0.5 };
+    const flat = { ...GAME_JUMP, security_id: "9b1d0000-0000-4000-8000-0000000000c9", ticker: "FLAT", step: 1.2 };
+    serve({ ...PANEL, unlisted_jumps: [down, flat], unplaced: [] });
+    render(<SplitList />);
+    const [first, second] = screen.getAllByTestId("adm-split-jump-row");
+    await openIn(first);
+    expect(form(first).getByTestId("adm-split-add-scale")).toHaveTextContent(
+      "Nearest whole-number ratio to that step: 2-for-1 forward split (x0.5).",
+    );
+    await openIn(second);
+    expect(form(second).queryByTestId("adm-split-add-scale")).toBeNull();
+  });
+
+  it("reads the stored tape for the security once a first session is entered, and shows its step beside the factor", async () => {
+    tapeAnswers(PBK_TAPE);
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    // the ratio the filing stated joins the read at once
+    expect(h.tapeCall).toHaveBeenLastCalledWith(
+      { securityId: PBK_UNPLACED.security_id },
+      { firstSession: "2026-11-30", ratioFrom: "20", ratioTo: "1" },
+    );
+    const step = form(row).getByTestId("adm-split-tape-step");
+    expect(step).toHaveTextContent("The stored tape stepped x19.6 on 11-30: close 0.5 on 11-27 → 9.8, volume x0.05.");
+    expect(step).toHaveTextContent("Your values: every 20 shares became 1, a price factor of x20; the tape accepts x12.1 to x33.");
+    expect(step).toHaveTextContent("The tape supports your values.");
+    expect(form(row).queryByRole("checkbox")).toBeNull(); // inside the tolerance: no override to offer
+    // nothing is cited for the steward: Add waits for the document the steward cites
+    expect(form(row).getByRole("button", { name: SUBMIT })).toBeDisabled();
+    expect(form(row).getByTestId("adm-split-add-hint")).toHaveTextContent("Cite the document");
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
+    expect(form(row).getByRole("button", { name: SUBMIT })).toBeEnabled();
+    expect(form(row).queryByTestId("adm-split-add-hint")).toBeNull();
+  });
+
+  it("says it is reading the tape and holds Add until it is read", async () => {
+    h.tape = { data: undefined, isFetching: true, isError: false, error: null };
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED); // so only the reading holds Add
+    await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    expect(form(row).getByTestId("adm-split-tape-step")).toHaveTextContent("Reading the stored tape…");
+    expect(form(row).getByRole("button", { name: SUBMIT })).toBeDisabled();
+  });
+
+  it("says so when the tape cannot be read, and leaves the decision to the server's own check", async () => {
+    h.tape = { data: undefined, isFetching: false, isError: true, error: { detail: "no security 9b1d" } };
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    expect(form(row).getByTestId("adm-split-tape-step")).toHaveTextContent("The stored tape could not be read: no security 9b1d");
+    expect(form(row).queryByRole("checkbox")).toBeNull();
+  });
+
+  it("posts the pinned body from a filing: its accession as the one provenance, no override, no note unless typed", async () => {
+    tapeAnswers(PBK_TAPE);
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    // the cited document is the steward's to enter: the filing's address is not in the box
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
+    await userEvent.click(form(row).getByRole("button", { name: SUBMIT }));
+    expect(fn(h.addSplit)).toHaveBeenCalledTimes(1);
+    expect(fn(h.addSplit)).toHaveBeenCalledWith({
+      security_id: PBK_UNPLACED.security_id,
+      ratio_from: "20",
+      ratio_to: "1",
+      first_session: "2026-11-30",
+      cited_url: CITED,
+      from_accession: PBK_UNPLACED.accession,
+    });
+    // toHaveBeenCalledWith ignores keys holding undefined: the keys themselves are pinned too
+    expect(keys(0)).toEqual(["cited_url", "first_session", "from_accession", "ratio_from", "ratio_to", "security_id"]);
+    expect(fn(h.addSplit).mock.calls[0][0].cited_url).not.toBe(PBK_UNPLACED.url);
+    expect(fn(h.dismissUnplaced)).not.toHaveBeenCalled();
+    expect(fn(h.confirmValues)).not.toHaveBeenCalled();
+  });
+
+  it("sends what was changed: the steward's ratio, document and trimmed note replace the filled-in ratio", async () => {
+    tapeAnswers({ ...PBK_TAPE, price_factor: 10, step_low: 6.07, step_high: 16.49, step: 9.9 });
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    const f = form(row);
+    await userEvent.clear(f.getByLabelText("Old shares"));
+    await userEvent.type(f.getByLabelText("Old shares"), " 10 ");
+    await userEvent.type(f.getByLabelText("Cited document"), ` ${CITED} `);
+    await userEvent.type(f.getByLabelText("First session"), "2026-11-30");
+    await userEvent.type(f.getByLabelText("Note"), "  corrected from the exchange notice ");
+    await userEvent.click(f.getByRole("button", { name: SUBMIT }));
+    expect(fn(h.addSplit)).toHaveBeenCalledWith({
+      security_id: PBK_UNPLACED.security_id,
+      ratio_from: "10",
+      ratio_to: "1",
+      first_session: "2026-11-30",
+      cited_url: CITED,
+      note: "corrected from the exchange notice",
+      from_accession: PBK_UNPLACED.accession,
+    });
+  });
+
+  it("posts the pinned body from a jump: its step date as the one provenance, never an accession", async () => {
+    tapeAnswers({ ...GAME_TAPE, price_factor: 8, step_low: 4.85, step_high: 13.19, within_tolerance: true, reason: null });
+    render(<SplitList />);
+    await openIn(jumpRow());
+    const f = form(jumpRow());
+    await userEvent.type(f.getByLabelText("Old shares"), "8");
+    await userEvent.type(f.getByLabelText("New shares"), "1");
+    await userEvent.type(f.getByLabelText("Cited document"), "https://example.com/game-8k");
+    expect(h.tapeCall).toHaveBeenLastCalledWith(
+      { securityId: GAME_JUMP.security_id },
+      { firstSession: "2026-08-24", ratioFrom: "8", ratioTo: "1" },
+    );
+    await userEvent.click(f.getByRole("button", { name: SUBMIT }));
+    expect(fn(h.addSplit)).toHaveBeenCalledTimes(1);
+    expect(fn(h.addSplit)).toHaveBeenCalledWith({
+      security_id: GAME_JUMP.security_id,
+      ratio_from: "8",
+      ratio_to: "1",
+      first_session: "2026-08-24",
+      cited_url: "https://example.com/game-8k",
+      from_jump: "2026-08-24",
+    });
+    expect(keys(0)).toEqual(["cited_url", "first_session", "from_jump", "ratio_from", "ratio_to", "security_id"]);
+    expect(fn(h.dismiss)).not.toHaveBeenCalled();
+  });
+
+  it("keeps Add off until the ratio, the session and an https document are all there", async () => {
+    tapeAnswers(PBK_TAPE);
+    render(<SplitList />);
+    const row = filingRow("WLDS");
+    await openIn(row);
+    const f = form(row);
+    const submit = f.getByRole("button", { name: SUBMIT });
+    expect(f.getByTestId("adm-split-add-hint")).toHaveTextContent("old and the new share counts");
+    await userEvent.type(f.getByLabelText("Old shares"), "20");
+    await userEvent.type(f.getByLabelText("New shares"), "1");
+    expect(f.getByTestId("adm-split-add-hint")).toHaveTextContent("Enter the first session");
+    await userEvent.type(f.getByLabelText("First session"), "2026-11-30");
+    expect(f.getByTestId("adm-split-add-hint")).toHaveTextContent("Cite the document");
+    await userEvent.type(f.getByLabelText("Cited document"), "http://example.com/notice");
+    expect(submit).toBeDisabled();
+    expect(f.getByTestId("adm-split-add-hint")).toHaveTextContent("https://");
+    await userEvent.clear(f.getByLabelText("Cited document"));
+    await userEvent.type(f.getByLabelText("Cited document"), CITED);
+    expect(submit).toBeEnabled();
+    expect(f.queryByTestId("adm-split-add-hint")).toBeNull();
+  });
+
+  it("outside the tolerance: shows the stored step beside the factor and the override box; Add waits for it, and sends it only when ticked", async () => {
+    tapeAnswers(GAME_TAPE);
+    render(<SplitList />);
+    await openIn(jumpRow());
+    const f = form(jumpRow());
+    await userEvent.type(f.getByLabelText("Old shares"), "4");
+    await userEvent.type(f.getByLabelText("New shares"), "1");
+    await userEvent.type(f.getByLabelText("Cited document"), CITED);
+    const step = f.getByTestId("adm-split-tape-step");
+    expect(step).toHaveTextContent("The stored tape stepped x7.5 on 08-24: close 0.42 on 08-21 → 3.16, volume x0.37.");
+    expect(step).toHaveTextContent("a price factor of x4; the tape accepts x2.43 to x6.59.");
+    expect(step).toHaveTextContent("The tape does not support your values.");
+    const box = f.getByRole("checkbox", { name: /add anyway/i });
+    expect(box).not.toBeChecked();
+    expect(f.getByRole("button", { name: SUBMIT })).toBeDisabled();
+    expect(f.getByTestId("adm-split-add-hint")).toHaveTextContent("Tick the box above to add past the tape.");
+    expect(fn(h.addSplit)).not.toHaveBeenCalled();
+
+    await userEvent.click(box);
+    expect(f.getByRole("button", { name: SUBMIT })).toBeEnabled();
+    await userEvent.click(f.getByRole("button", { name: SUBMIT }));
+    expect(fn(h.addSplit)).toHaveBeenCalledWith({
+      security_id: GAME_JUMP.security_id,
+      ratio_from: "4",
+      ratio_to: "1",
+      first_session: "2026-08-24",
+      cited_url: CITED,
+      override_tape: true,
+      from_jump: "2026-08-24",
+    });
+  });
+
+  it("offers the override when the tape has no bar to read, and drops it, and its flag, when the values fit", async () => {
+    tapeAnswers(NO_BAR);
+    const { rerender } = render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    expect(form(row).getByTestId("adm-split-tape-step")).toHaveTextContent("The stored tape has no bar to read on 2026-11-30");
+    const box = form(row).getByRole("checkbox", { name: /add anyway/i });
+    expect(box.closest("label")).toHaveTextContent("Add anyway: the split is then marked “past the tape”.");
+    expect(box.closest("label")).not.toHaveTextContent("The tape has no bar"); // the tape line above says it, once
+    await userEvent.click(box);
+    // the values now fit: the box leaves, and a ticked box is NOT sent (the key is not there at all)
+    tapeAnswers(PBK_TAPE);
+    rerender(<SplitList />);
+    expect(form(filingRow("PBK")).queryByRole("checkbox")).toBeNull();
+    await userEvent.type(form(filingRow("PBK")).getByLabelText("Cited document"), CITED);
+    await userEvent.click(form(filingRow("PBK")).getByRole("button", { name: SUBMIT }));
+    expect(keys(0)).not.toContain("override_tape");
+  });
+
+  it("shows the server's 409 sentence in that filing's form, once, and keeps the form and what was typed", async () => {
+    const sentence = "a live 1-for-20 reverse split is already listed within 45 days of 2026-11-30 — revoke it first";
+    h.addSplit = {
+      ...m(),
+      isError: true,
+      error: { detail: sentence },
+      variables: { security_id: PBK_UNPLACED.security_id, from_accession: PBK_UNPLACED.accession },
+    };
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    expect(within(row).queryByTestId("adm-split-add-error")).toBeNull(); // the form is closed
+    await openIn(row);
+    expect(form(row).getByTestId("adm-split-add-error")).toHaveTextContent(sentence);
+    expect(screen.getAllByText(sentence)).toHaveLength(1); // not repeated at the foot of the panel
+    expect(form(row).getByLabelText("Old shares")).toHaveValue("20");
+    // the same refusal is not shown on the other filing or on the jump
+    await openIn(filingRow("WLDS"));
+    await openIn(jumpRow());
+    expect(within(filingRow("WLDS")).queryByTestId("adm-split-add-error")).toBeNull();
+    expect(within(jumpRow()).queryByTestId("adm-split-add-error")).toBeNull();
+  });
+
+  it("shows a 422's first message with the field it names, in the jump's form", async () => {
+    h.addSplit = {
+      ...m(),
+      isError: true,
+      error: { detail: [{ loc: ["body", "cited_url"], msg: "Value error, the cited document must be an https:// address with a host", type: "value_error" }] },
+      variables: { security_id: GAME_JUMP.security_id, from_jump: GAME_JUMP.step_date },
+    };
+    render(<SplitList />);
+    await openIn(jumpRow());
+    expect(form(jumpRow()).getByTestId("adm-split-add-error")).toHaveTextContent(
+      "cited_url: the cited document must be an https:// address with a host.",
+    );
+  });
+
+  it("disables every decision while the split is being sent, and Cancel stays", async () => {
+    h.addSplit = { ...m(), isPending: true };
+    tapeAnswers(PBK_TAPE);
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    // everything the form needs is entered: only the write in flight holds Add
+    await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
+    expect(form(row).queryByTestId("adm-split-add-hint")).toBeNull();
+    expect(form(row).getByRole("button", { name: SUBMIT })).toBeDisabled();
+    expect(within(row).getByRole("button", { name: "Dismiss" })).toBeDisabled();
+    expect(form(row).getByRole("button", { name: "Cancel" })).toBeEnabled();
+  });
+
+  it("disables Add while another decision is being sent", async () => {
+    h.dismissUnplaced = { ...m(), isPending: true };
+    tapeAnswers(PBK_TAPE);
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    await userEvent.type(form(row).getByLabelText("First session"), "2026-11-30");
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
+    expect(form(row).queryByTestId("adm-split-add-hint")).toBeNull();
+    expect(form(row).getByRole("button", { name: SUBMIT })).toBeDisabled();
+  });
+
+  it("closes with Cancel and opens again filled the same way, nothing carried over", async () => {
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    await userEvent.type(form(row).getByLabelText("Note"), "typed");
+    await userEvent.type(form(row).getByLabelText("Cited document"), CITED);
+    await userEvent.clear(form(row).getByLabelText("Old shares"));
+    await userEvent.click(form(row).getByRole("button", { name: "Cancel" }));
+    expect(within(row).queryByTestId("adm-split-add-form")).toBeNull();
+    await openIn(row);
+    expect(form(row).getByLabelText("Old shares")).toHaveValue("20");
+    expect(form(row).getByLabelText("Note")).toHaveValue("");
+    expect(form(row).getByLabelText("Cited document")).toHaveValue("");
+    expect(fn(h.addSplit)).not.toHaveBeenCalled();
+  });
+
+  it("keeps a filing's Dismiss, with its reason, working beside the form", async () => {
+    render(<SplitList />);
+    const row = filingRow("PBK");
+    await openIn(row);
+    await userEvent.type(within(row).getByLabelText("Reason for dismissing PBK (optional)"), "not one");
+    await userEvent.click(within(row).getByRole("button", { name: "Dismiss" }));
+    expect(fn(h.dismissUnplaced)).toHaveBeenCalledWith({
+      securityId: PBK_UNPLACED.security_id,
+      accession: PBK_UNPLACED.accession,
+      reason: "not one",
+    });
+    expect(fn(h.addSplit)).not.toHaveBeenCalled();
+  });
+
+  describe("after an add", () => {
+    const ADDED = {
+      ...BTOC,
+      ticker: "PBK",
+      security_id: PBK_UNPLACED.security_id,
+      value_source: "steward",
+      action: "add",
+      effective_date: "2026-11-20",
+      status: "confirmed",
+    };
+    const line = () => screen.getByTestId("adm-split-added");
+
+    it("says, for a confirmed add with a past first session, that the nightly does not rescale a stored tape, and what the operator runs", () => {
+      h.addSplit = { ...m(), isSuccess: true, data: ADDED };
+      render(<SplitList />);
+      expect(line()).toHaveTextContent("PBK's split is added and confirmed (first session 11-20)");
+      expect(line()).toHaveTextContent("The nightly rescales a stored tape only on a first night");
+      expect(line()).toHaveTextContent(
+        "the operator runs python -m pipeline.repair_split_basis --ticker PBK (dry run, then --apply)",
+      );
+      expect(screen.getAllByText(/repair_split_basis/)).toHaveLength(1);
+    });
+
+    it("says nothing for an announced add (its first session is ahead), and nothing before an add", () => {
+      h.addSplit = { ...m(), isSuccess: true, data: { ...ADDED, status: "announced", effective_date: "2026-12-14" } };
+      const { unmount } = render(<SplitList />);
+      expect(screen.queryByTestId("adm-split-added")).toBeNull();
+      unmount();
+      h.addSplit = m();
+      render(<SplitList />);
+      expect(screen.queryByTestId("adm-split-added")).toBeNull();
+    });
+
+    it("closes the form that sent the add once it is listed, and no other, and opens again", async () => {
+      const { rerender } = render(<SplitList />);
+      await openIn(filingRow("PBK"));
+      await openIn(filingRow("WLDS"));
+      await openIn(jumpRow());
+      h.addSplit = {
+        ...m(),
+        isSuccess: true,
+        data: { ...ADDED, status: "announced", effective_date: "2026-12-14" },
+        variables: {
+          security_id: PBK_UNPLACED.security_id,
+          ratio_from: "20",
+          ratio_to: "1",
+          first_session: "2026-12-14",
+          cited_url: CITED,
+          from_accession: PBK_UNPLACED.accession,
+        },
+      };
+      rerender(<SplitList />);
+      expect(within(filingRow("PBK")).queryByTestId("adm-split-add-form")).toBeNull(); // the one that sent it
+      expect(within(filingRow("WLDS")).getByTestId("adm-split-add-form")).toBeInTheDocument();
+      expect(within(jumpRow()).getByTestId("adm-split-add-form")).toBeInTheDocument();
+      await openIn(filingRow("PBK")); // still a button, and the form opens again filled the same way
+      expect(form(filingRow("PBK")).getByLabelText("Old shares")).toHaveValue("20");
+    });
+
+    it("falls back to the security id for a split with no ticker, and closes with its own button", async () => {
+      h.addSplit = { ...m(), isSuccess: true, data: { ...ADDED, ticker: null } };
+      render(<SplitList />);
+      expect(line()).toHaveTextContent(`${PBK_UNPLACED.security_id}'s split is added and confirmed`);
+      expect(line()).toHaveTextContent(`--ticker ${PBK_UNPLACED.security_id}`);
+      await userEvent.click(within(line()).getByRole("button", { name: "Close" }));
+      expect((h.addSplit as { reset: ReturnType<typeof vi.fn> }).reset).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("lists a steward's add past the tape as announced or confirmed, by its own status", () => {
+    const STEWARD = {
+      ...BTOC,
+      version_id: "0b6f0c55-0000-4000-8000-0000000000e2",
+      ticker: "PBK",
+      status: "announced",
+      effective_date: "2026-12-14",
+      value_source: "steward",
+      action: "add",
+      decided_by: "added by you (cited values), 11-27",
+      cited_url: CITED,
+      tape_override: true,
+      sec: null,
+      polygon: null,
+    };
+    serve({ needs_review: [], announced: [STEWARD], confirmed: [{ ...STEWARD, status: "confirmed", effective_date: "2026-11-20" }], set_aside: [], total: 2 });
+    render(<SplitList />);
+    expect(within(screen.getByTestId("adm-splits-announced")).getByRole("link", { name: /cited document/ })).toHaveAttribute("href", CITED);
+    expect(screen.getByTestId("adm-splits-announced")).toHaveTextContent("announced past the tape");
+    expect(screen.getByTestId("adm-splits-announced")).not.toHaveTextContent("confirmed past the tape");
+    expect(screen.getByTestId("adm-splits-confirmed")).toHaveTextContent("confirmed past the tape");
+  });
+
+  describe("an older server's payload (no unplaced keys)", () => {
+    const OLD = {
+      needs_review: [MI],
+      announced: [],
+      confirmed: [BTOC],
+      set_aside: [LRHC_REJECTED],
+      total: 3,
+      unlisted_jumps: [GAME_JUMP],
+    };
+
+    it("renders today's panel: no section for filings, no Add on the review row, and the form on the jump alone", async () => {
+      serve(OLD);
+      render(<SplitList />);
+      expect(screen.queryByTestId("adm-splits-unplaced")).toBeNull();
+      expect(screen.queryByTestId("adm-split-unplaced-row")).toBeNull();
+      expect(within(screen.getByTestId("adm-split-review-row")).queryByRole("button", { name: ADD })).toBeNull();
+      expect(screen.getAllByRole("button", { name: ADD })).toHaveLength(1);
+      await openIn(jumpRow());
+      expect(form(jumpRow()).getByLabelText("First session")).toHaveValue("2026-08-24");
+      expect(screen.queryByTestId("adm-split-added")).toBeNull();
+    });
+
+    it("renders no Add at all when it lists no jump either", () => {
+      serve({ needs_review: [MI], announced: [], confirmed: [BTOC], set_aside: [], total: 2 });
+      render(<SplitList />);
+      expect(screen.queryByRole("button", { name: ADD })).toBeNull();
+      expect(h.tapeCall).not.toHaveBeenCalled();
     });
   });
 });
