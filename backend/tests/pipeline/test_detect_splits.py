@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -22,10 +23,13 @@ from domain.splits import (
     STATUS_NEEDS_REVIEW,
     STATUS_REJECTED,
     VIA_AUTO,
+    VIA_OPERATOR,
     VIA_SEC_TAPE,
     PolygonEvidence,
     SecEvidence,
+    cluster_sec,
     decide,
+    decide_sec_only,
 )
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form8k import filing_index_url
@@ -1085,3 +1089,230 @@ def test_cycus_operator_rejection_is_never_re_decided(db, tmp_path):
     assert split_repo.count_rows(db) == 2
     (now,) = _latest(db, sid)
     assert (now.id, now.status, now.author) == (rejected.id, STATUS_REJECTED, "operator")
+
+
+# --- F8-1: a competing decision the same night is never dropped silently -----------------------------------------
+#
+# The 800-day check's plan on prod (2026-11-26, ``split-reader-misreads-evidence/prod-o2-rerun``) held three companies
+# where a later decision met the row an earlier one had claimed that night, stated another first session, and was
+# dropped as "already planned tonight" without a trace: CHRN (two 8-Ks of one 1-for-15 filed a day apart, first
+# sessions 05-27 and 06-02), PTN (an 8-K/A trading 08-12, then an 8-K with the legal date 09-10) and CANG (Massive.com
+# and a 6-K on 07-21 against a later 6-K's legal 07-20). Each filing below states what that plan's own lines say it
+# states (the filings' text is not read here); the plan, not the reader, is under test.
+
+F8_ASOF = date(2026, 11, 26)
+
+
+def _f8_sec(
+    accession: str, form: str, filed: date, ratio_from: int, effective: date, kind: str = "trading"
+) -> SecEvidence:
+    """What the extractor read from one split filing: a 1-for-``ratio_from`` reverse split on ``effective``."""
+    return SecEvidence(
+        accession,
+        form,
+        filed,
+        "u",
+        ratio_from=Decimal(ratio_from),
+        ratio_to=Decimal(1),
+        effective_date=effective,
+        date_kind=kind,
+        about_a_split=True,
+    )
+
+
+CHRN_8K = _f8_sec("0001437749-25-017680", "8-K", date(2025, 5, 20), 15, date(2025, 5, 27))
+CHRN_8K_NEXT = _f8_sec("0001437749-25-018005", "8-K", date(2025, 5, 21), 15, date(2025, 6, 2))
+PTN_8KA = _f8_sec("0001654954-25-009330", "8-K/A", date(2025, 8, 11), 50, date(2025, 8, 12))
+PTN_8K = _f8_sec("0001654954-25-010576", "8-K", date(2025, 9, 10), 50, date(2025, 9, 10), "legal")
+CANG_ROW = PolygonEvidence(
+    "E-CANG-2026-07-21", "CANG", date(2026, 7, 21), Decimal(10), Decimal(1), "reverse_split"
+)
+CANG_6K = _f8_sec("0001104659-26-082390", "6-K", date(2026, 7, 10), 10, date(2026, 7, 21))
+CANG_6K_LATER = _f8_sec(
+    "0001493152-26-041303", "6-K", date(2026, 9, 3), 10, date(2026, 7, 20), "legal"
+)
+
+
+def _sec_only(*filings: SecEvidence) -> list:
+    """The SEC-only decisions tonight's filings make, as ``detect_security`` makes them (tape aside)."""
+    return [decide_sec_only(g, asof=F8_ASOF) for g in cluster_sec(list(filings))]
+
+
+def _plan(member: bf.Member, decisions, stored=()) -> list[ds.Planned]:
+    return ds.plan_against(
+        ds.SecurityDetection(member=member, decisions=list(decisions)),
+        list(stored),
+        asof=F8_ASOF,
+        distribution_max_factor=None,
+        label_overrides_abstain=False,
+    )
+
+
+def _tonight(monkeypatch, decisions) -> None:
+    """Tonight's evidence for the company checked is these decisions (the reads behind them are not the test)."""
+    monkeypatch.setattr(
+        ds,
+        "detect_security",
+        lambda conn, reader, m, rows, **kw: ds.SecurityDetection(
+            member=m, decisions=list(decisions)
+        ),
+    )
+
+
+def _check_dry(monkeypatch, member: bf.Member, decisions, stored=()) -> ds.SplitDetector:
+    """One company's whole ``check`` with no database: the stored list as given, a dry run."""
+    _tonight(monkeypatch, decisions)
+    monkeypatch.setattr(split_repo, "latest_versions", lambda conn, **kw: list(stored))
+    det = ds.SplitDetector(asof=F8_ASOF, polygon_rows=[], polygon_status="on", apply=False)
+    det._former = {}
+    sec = ds._MasterRow(member.security_id, member.ticker, None, None)
+    assert det.check(None, None, sec, tenant_id=member.tenant_id) == 0
+    return det
+
+
+def _without_note(values: dict) -> dict:
+    return {k: v for k, v in values.items() if k != "note"}
+
+
+def test_chrn_the_second_8k_is_named_on_the_new_rows_note_and_on_kept(db, monkeypatch):
+    """CHRN: two candidates (4 sessions apart, past ``cluster_sec``'s 2), one row (``match_stored``'s 45 days).
+    The row is the first filing's, values unchanged; the second filing is on its note, on ``kept`` and counted
+    in the report line. The next night appends nothing and still lists it."""
+    sid = seed_member(db, "CHRN", None, [])
+    first, second = _sec_only(CHRN_8K, CHRN_8K_NEXT)
+    _tonight(monkeypatch, [first, second])
+    edgar = None  # tonight's decisions are given: no filing is read
+    chrn = ds._MasterRow(sid, "CHRN", None, None)
+    det = ds.SplitDetector(asof=F8_ASOF, polygon_rows=[], polygon_status="on")
+    assert det.check(db, edgar, chrn, tenant_id=DEFAULT_TENANT_ID) == 1
+    db.commit()
+    new, other = det.planned
+    assert (new.action, new.reason) == (ds.APPEND, "new")
+    assert (other.action, other.reason, other.decision.sec) == (
+        ds.KEPT,
+        ds.ANOTHER_FILING,
+        CHRN_8K_NEXT,
+    )
+    named = "Another SEC filing (8-K 0001437749-25-018005, filed 2025-05-21) states first session 2025-06-02."
+    assert new.decision == replace(first, note=f"{first.note} {named}")
+    (row,) = _latest(db, sid)
+    assert (row.key_date, row.effective_date, row.ratio_from, row.ratio_to, row.status) == (
+        date(2025, 5, 27),
+        date(2025, 5, 27),
+        Decimal(15),
+        Decimal(1),
+        STATUS_NEEDS_REVIEW,
+    )
+    assert _without_note(row.model_dump()) == _without_note(
+        {**row.model_dump(), **split_repo.decision_values(first)}
+    )
+    assert row.note == new.decision.note and det.result.appended[0].note.endswith(named)
+    (kept,) = det.result.kept
+    assert (kept["key_date"], kept["status"], kept["reason"]) == (
+        "2025-05-27",
+        STATUS_NEEDS_REVIEW,
+        ds.ANOTHER_FILING,
+    )
+    assert "0001437749-25-018005" in kept["tonight"] and "2025-06-02" in kept["tonight"]
+    (line,) = det.result.report_lines()
+    assert "1 listed split(s) left as decided though tonight's evidence differs" in line
+    # the next night: the listed row is not re-versioned (only its note would differ), the filing still listed
+    again = ds.SplitDetector(asof=F8_ASOF, polygon_rows=[], polygon_status="on")
+    assert again.check(db, edgar, chrn, tenant_id=DEFAULT_TENANT_ID) == 0
+    db.commit()
+    assert [p.action for p in again.planned] == [ds.UNCHANGED, ds.KEPT]
+    assert [k["reason"] for k in again.result.kept] == [ds.ANOTHER_FILING]
+    assert split_repo.count_rows(db) == 1
+
+
+def test_ptn_the_later_8k_with_its_legal_date_is_named_on_the_8ka_row():
+    m = bf.Member(DEFAULT_TENANT_ID, uuid.uuid4(), "PTN", None, None)
+    first, second = _sec_only(PTN_8KA, PTN_8K)
+    new, other = _plan(m, [first, second])
+    assert (new.action, other.action, other.reason) == (ds.APPEND, ds.KEPT, ds.ANOTHER_FILING)
+    assert new.decision == replace(
+        first,
+        note=f"{first.note} Another SEC filing (8-K 0001654954-25-010576, filed 2025-09-10) states the "
+        "effective date 2025-09-10.",
+    )
+    assert other.decision.sec == PTN_8K and other.stored.key_date == date(2025, 8, 12)
+
+
+def test_cang_a_later_6k_against_the_operators_row_is_on_kept_and_nothing_is_appended(monkeypatch):
+    """CANG: tonight's first decision (Massive.com and the July 6-K, 07-21) meets the operator's row and is kept;
+    the September 6-K's legal 07-20 meets the same row. Prod's row was not read: the plan's lines say it is the
+    operator's, holds other values than tonight's 07-21 (that decision was KEPT) and carries no Massive.com row (the
+    6-K was not re-read against one); 07-20 here. The later 6-K is weighed against tonight's first decision, which
+    claimed the row: against the row's own 07-20 it would be silent."""
+    m = bf.Member(DEFAULT_TENANT_ID, uuid.uuid4(), "CANG", None, None)
+    first = decide(CANG_ROW, [CANG_6K], asof=F8_ASOF)
+    (second,) = _sec_only(CANG_6K_LATER)
+    assert (first.status, first.effective_date, second.effective_date) == (
+        STATUS_CONFIRMED,
+        date(2026, 7, 21),
+        date(2026, 7, 20),
+    )
+    operators = ds._as_version(
+        m, replace(second, status=STATUS_CONFIRMED, confirmed_via=VIA_OPERATOR)
+    ).model_copy(update={"author": split_repo.AUTHOR_OPERATOR, "action": split_repo.ACTION_CONFIRM})
+    det = _check_dry(monkeypatch, m, [first, second], stored=[operators])
+    assert [(p.action, p.reason) for p in det.planned] == [
+        (ds.KEPT, "the operator's decision stands"),
+        (ds.KEPT, ds.ANOTHER_FILING),
+    ]
+    assert [p.decision.sec for p in det.planned] == [CANG_6K, CANG_6K_LATER]
+    assert [k["reason"] for k in det.result.kept] == [
+        "the operator's decision stands",
+        ds.ANOTHER_FILING,
+    ]
+    assert "0001493152-26-041303" in det.result.kept[1]["tonight"]
+
+
+def test_a_same_value_duplicate_stays_silent(monkeypatch):
+    """A second reading of the same split (same ratio, same first session) is no news: not on ``kept``, no note."""
+    m = bf.Member(DEFAULT_TENANT_ID, uuid.uuid4(), "CHRN", None, None)
+    (first,) = _sec_only(CHRN_8K)
+    restated = _f8_sec("0000000000-25-000003", "8-K/A", date(2025, 5, 22), 15, date(2025, 5, 27))
+    (again,) = _sec_only(restated)
+    det = _check_dry(monkeypatch, m, [first, again])
+    new, dup = det.planned
+    assert (new.action, new.decision) == (ds.APPEND, first)
+    assert (dup.action, dup.reason) == (ds.KEPT, ds.ALREADY_PLANNED) and det.result.kept == []
+
+
+def test_a_listed_open_row_is_never_re_versioned_for_a_competing_filing(monkeypatch):
+    """CHRN's row as listed before F8-1 (open, the system's, no sentence): tonight's two filings append nothing."""
+    m = bf.Member(DEFAULT_TENANT_ID, uuid.uuid4(), "CHRN", None, None)
+    first, second = _sec_only(CHRN_8K, CHRN_8K_NEXT)
+    det = _check_dry(monkeypatch, m, [first, second], stored=[ds._as_version(m, first)])
+    assert [(p.action, p.reason) for p in det.planned] == [
+        (ds.UNCHANGED, ""),
+        (ds.KEPT, ds.ANOTHER_FILING),
+    ]
+    assert det.planned[0].decision == first
+    (kept,) = det.result.kept
+    assert (kept["key_date"], kept["reason"]) == ("2025-05-27", ds.ANOTHER_FILING)
+
+
+def test_a_competing_ratio_or_massive_row_is_named_in_its_own_words():
+    """Another ratio on the same first session (met by key date) names it; a second Massive.com row of the same
+    ratio a few sessions on (met by the 45-day window) is named as Massive.com's."""
+    m = bf.Member(DEFAULT_TENANT_ID, uuid.uuid4(), "TEST", None, None)
+    one, other_ratio = _sec_only(
+        _f8_sec("0000000000-26-000001", "8-K", date(2026, 2, 20), 20, date(2026, 3, 2)),
+        _f8_sec("0000000000-26-000002", "8-K/A", date(2026, 2, 23), 25, date(2026, 3, 2)),
+    )
+    new, kept = _plan(m, [one, other_ratio])
+    assert (kept.action, kept.reason) == (ds.KEPT, ds.ANOTHER_FILING)
+    assert new.decision.note == (
+        f"{one.note} Another SEC filing (8-K/A 0000000000-26-000002, filed 2026-02-23) states a 1-for-25 reverse "
+        "split, first session 2026-03-02."
+    )
+    row_a = PolygonEvidence("E-stand-in-a", "TEST", date(2026, 3, 2), Decimal(20), Decimal(1))
+    row_b = PolygonEvidence("E-stand-in-b", "TEST", date(2026, 3, 5), Decimal(20), Decimal(1))
+    a, b = decide(row_a, [], asof=F8_ASOF), decide(row_b, [], asof=F8_ASOF)
+    new, kept = _plan(m, [a, b])
+    assert (kept.action, kept.reason) == (ds.KEPT, ds.ANOTHER_FILING)
+    assert new.decision == replace(
+        a, note=f"{a.note} Another Massive.com row states first session 2026-03-05."
+    )

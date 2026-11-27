@@ -232,10 +232,10 @@ submission, by the deterministic extractor `ingest/edgar/split_filing.py`, keepi
   `split_distribution_auto_set_aside`, `split_distribution_max_factor`). A wide form can still confirm it. So
   is one Massive.com labels a stock dividend whose filing mentions a split without a ratio
   (`split_distribution_label_overrides_abstain`); a filing that states it still sends it to review.
-- **Who runs it.** `pipeline/detect_splits.py` checks each company nightly inside its ingest, before its price
-  leg; the stored price tape can confirm a split one documentary source states, never alone. Filings it cannot
-  place go on the run artifact with link, passage and ratio; `detect_splits --record` keeps a long-window run's.
-  `pipeline/split_history.py` gives a company joining a basket its history at onboarding.
+- **Who runs it.** `pipeline/detect_splits.py` runs in each company's nightly ingest, before its price leg; the
+  stored tape confirms a split only beside one documentary source. Unplaced filings go on the run artifact with
+  link, passage and ratio (`--record` keeps a long-window run's), as does one contradicting that night's plan
+  (and a new row's note). `pipeline/split_history.py` backfills an onboarding company's splits;
   `pipeline.backfill_splits` is the operator's CLI. Nothing a steward decided is overwritten; the steward reviews
   the list on Admin ("Splits").
 

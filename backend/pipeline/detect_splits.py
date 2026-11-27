@@ -46,7 +46,10 @@ back to review), tonight's evidence covers every source it already carries (a so
 off, a filing unread — never downgrades it), and the content changed: a second source arrived, the tape confirmed
 it, an announced split's first session came (announced -> confirmed), or D2 set it aside. A confirmed split, one
 the operator rejected or revoked, and anything the operator decided (a restore included), is never touched; when
-tonight's evidence differs from such a split it is listed on the artifact (``kept``), not written.
+tonight's evidence differs from such a split it is listed on the artifact (``kept``), not written. A later decision
+tonight about a split an earlier one claimed is no news when it states the same ratio and first session; one stating
+others is another filing's, never dropped silently: listed on ``kept`` and, on a split new tonight, named on its
+note. It decides nothing.
 
 WHERE IT RUNS (``pipeline/ingest_thesis._ingest_one``): per company, right after its 8-K and 13D legs and
 BEFORE its price leg — so a split filed today, with a second source, is on the list before that company's
@@ -82,6 +85,8 @@ from domain.market_time import market_today, market_tz
 from domain.splits import (
     AUTO_VIA_LABELS,
     PAST_RATIO_ONLY,
+    SOURCE_POLYGON,
+    SOURCE_SEC,
     STATUS_ANNOUNCED,
     STATUS_NEEDS_REVIEW,
     STATUS_REJECTED,
@@ -143,6 +148,10 @@ TAPE_PRIOR_MAX_DAYS = 14
 APPEND = "append"
 UNCHANGED = "unchanged"
 KEPT = "kept"
+# why a later decision tonight about a split an earlier one claimed is KEPT: the same values (no news, never on the
+# artifact's ``kept``), or other values (another filing's: on ``kept``, and on a new split's note)
+ALREADY_PLANNED = "already planned tonight"
+ANOTHER_FILING = "another filing tonight states other values"
 
 EXIT_REFUSED = 2
 # an unplaced filing's passage on the run artifact (and a check's record) is cut to this many characters
@@ -502,8 +511,9 @@ def _material(d: SplitDecision, v: SplitVersion) -> bool:
     return _TAPE_MARK in d.note and _TAPE_MARK not in (v.note or "")
 
 
-def _same_values(d: SplitDecision, v: SplitVersion) -> bool:
-    """Does tonight's decision state what the stored split already holds (ratio exactly, first session)?"""
+def _same_values(d: SplitDecision, v: SplitVersion | SplitDecision) -> bool:
+    """Does tonight's decision state what the stored split (or an earlier decision tonight) holds: the ratio
+    exactly, the first session?"""
     return d.effective_date == v.effective_date and same_ratio(
         d.ratio_from, d.ratio_to, v.ratio_from, v.ratio_to
     )
@@ -525,7 +535,8 @@ def plan_against(
     and W6-2's ``label_overrides_abstain``) — so the two sources still meet.
     """
     vs = list(stored)
-    claimed: set[date] = set()
+    # each split a decision tonight claimed -> where that decision's plan is in ``out``
+    claimed: dict[date, int] = {}
     out: list[Planned] = []
     for d in detection.decisions:
         v = match_stored(d, vs)
@@ -533,7 +544,7 @@ def plan_against(
             out.append(Planned(detection.member, d, None, APPEND, "new"))
             # a later decision about the same (new) split matches this one, never lists it twice
             vs.append(_as_version(detection.member, d))
-            claimed.add(d.key_date)
+            claimed[d.key_date] = len(out) - 1
             continue
         if d.polygon is None and d.sec is not None and d.sec.has_ratio:
             poly = _stored_polygon(v)
@@ -547,9 +558,20 @@ def plan_against(
                 )
         d = replace(d, key_date=v.key_date)
         if v.key_date in claimed:
-            out.append(Planned(detection.member, d, v, KEPT, "already planned tonight"))
+            # an earlier decision tonight claimed this split: the same values are no news; other values are
+            # another filing's, never dropped silently. It decides nothing: the split keeps the first decision's
+            # values, and a listed one is never re-versioned for it (a note alone is not ``_material``).
+            i = claimed[v.key_date]
+            first = out[i]
+            if _same_values(d, first.decision):
+                out.append(Planned(detection.member, d, v, KEPT, ALREADY_PLANNED))
+                continue
+            if first.action == APPEND and first.stored is None:
+                note = f"{first.decision.note} {_another_says(d, first.decision)}"
+                out[i] = replace(first, decision=replace(first.decision, note=note))
+            out.append(Planned(detection.member, d, v, KEPT, ANOTHER_FILING))
             continue
-        claimed.add(v.key_date)
+        claimed[v.key_date] = len(out)
         if content_of(decision_values(d)) == v.content():
             out.append(Planned(detection.member, d, v, UNCHANGED))
             continue
@@ -578,6 +600,29 @@ def plan_against(
         else:
             out.append(Planned(detection.member, d, v, KEPT, why))
     return out
+
+
+def _another_says(d: SplitDecision, planned: SplitDecision) -> str:
+    """What a split new tonight gains on its note for another decision tonight stating other values: that filing
+    (or Massive.com row) and what it states, in the notes' words. Evidence text: no call reads a split's note.
+    """
+    what = (
+        ""
+        if same_ratio(d.ratio_from, d.ratio_to, planned.ratio_from, planned.ratio_to)
+        else f"a {ratio_label(d.ratio_from, d.ratio_to)}, "
+    )
+    s = d.sec
+    if s is None or d.value_source == SOURCE_POLYGON:
+        return f"Another Massive.com row states {what}first session {d.effective_date.isoformat()}."
+    when = (
+        "the effective date"
+        if d.value_source == SOURCE_SEC and s.date_kind != "trading"
+        else "first session"
+    )
+    return (
+        f"Another SEC filing ({s.form} {s.accession}, filed {s.filed.isoformat()}) states {what}{when} "
+        f"{d.effective_date.isoformat()}."
+    )
 
 
 def _as_version(m: Member, d: SplitDecision) -> SplitVersion:
@@ -837,7 +882,7 @@ class SplitDetector:
             )
             self.planned.extend(plan)
             for p in plan:
-                if p.action == KEPT and p.reason != "already planned tonight":
+                if p.action == KEPT and p.reason != ALREADY_PLANNED:
                     self.result.kept.append(
                         {
                             "security_id": str(sec.id),
