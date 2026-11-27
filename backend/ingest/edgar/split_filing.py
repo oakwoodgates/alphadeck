@@ -27,7 +27,9 @@ own window agrees with — the WIDE forms (``WIDE_KEEP_TYPES``: a 10-Q / 10-K / 
   "1-for-16", "one-for-sixteen (1-for-16)", "one (1) for nine (9)", "twenty five (25) -for- one (1)",
   "15 for 1 Share Consolidation", "1-for-6.25" — and ``N-to-M`` right before "basis" ("on a 9-to-1 basis", DFSC);
 - ``N:M`` when it sits next to the word "ratio" or a split word — "fixed the split ratio at 8:1", "a 1:300
-  reverse stock split" (a clock time such as "5:00 p.m." never qualifies);
+  reverse stock split" (a clock time such as "5:00 p.m." never qualifies; since 2026-11-26 the WORD "ratio", never
+  the one inside "exploration", and a year is never a side: "Figure 9-2: 2013 and 2015 Airborne TDEM survey results",
+  NMG's list of figures);
 - ``N share(s) for every M`` — "one (1) share for every sixteen (16)", "1 post-split ordinary share for every
   20 pre-split ordinary shares", and the other way round, "four (4) pre-Reverse Split shares for every one (1)
   post-Reverse Split share" (ELBM): the words beside each number (pre / old / outstanding vs post / new) say
@@ -37,7 +39,9 @@ own window agrees with — the WIDE forms (``WIDE_KEEP_TYPES``: a 10-Q / 10-K / 
   additional share of common stock for every two shares owned" (SNEX's three-for-two, 2 -> 3), "two additional
   shares for every one pre-split share" (ZCSH's 3-for-1), "nine (9) additional shares … for every" one (KLA) —
   and with no number after "for each / every", one old share: "four additional shares for each share" (NOW's
-  5-for-1), "three additional ADSs for every ADS held" (EMBJ; read even with no split word in the sentence);
+  5-for-1), "three additional ADSs for every ADS held" (EMBJ; read even with no split word in the sentence — but
+  then, since 2026-11-26, only for shares HELD: "held", "then-held", "owned", "of record"; "3 Additional Shares for
+  each Ordinary Share that the PIPE Investor purchases upon exercise", CRML's warrant term, is no split);
 - ``every/each M … combined/consolidated/converted … into N`` — "every fifteen (15) … consolidated into one
   (1)", "each nine (9) pre-split shares … combine into one (1) new share", "every twenty-eight and one half …
   combined into one" (SMX; a word number may end "and one half").
@@ -69,7 +73,15 @@ the real filings forced (named so the rule stays checkable):
   own effective date (PBM's 6-K restates "a 1-for-7.97 consolidation ratio which was implemented Monday, May 5,
   2025" beside its 1-for-6.25) — or, for a CATCH-ALL filing, before its FILING date: ASST's 8.01 8-K of
   2026-10-05 restates "the 1-for-20 reverse stock split effected on February 6, 2026", and NAKA's and CURLD's
-  restate theirs (MEASURED 2026-10-23: four such 8.01 / 7.01 readings on the basket, 123 to 266 days back).
+  restate theirs (MEASURED 2026-10-23: four such 8.01 / 7.01 readings on the basket, 123 to 266 days back). Where
+  the filing date is given (a catch-all, the restatement screen's second reading), since 2026-11-26 also a ratio
+  stated as DONE ("effected", "implemented", "occurred" …) whose OWN clause dates it more than
+  ``HISTORICAL_GAP_DAYS`` before the filing, WHATEVER ELSE its sentence dates — the clause's date is the sentence's
+  nearest to the ratio, full or MONTH AND YEAR ("In June 2022"), with no other ratio between: CYCU's delisting notice
+  "Because the Company effected a 1-for-30 reverse stock split on October 27, 2025, … trading … is expected to be
+  suspended … on July 21, 2026", STKE's share table "(1) Reflects the 1 for 8 share consolidation that occurred on
+  August 5, 2025" beside its 2026 dates, EMAT's de-SPAC exhibit "In June 2022, the Company implemented a 1-for-10
+  stock split".
 
 Both hold whether or not the filing says which way the ratio points (since 2026-11-25: a 10-Q's covenant "no more
 than 4.0:1.0" is a ceiling, NEE's 10-Q restating its 2020 "four-for-one stock split" a past split, with no
@@ -147,6 +159,7 @@ what it states, marked "[…]".
 
 from __future__ import annotations
 
+import calendar
 import html
 import re
 from collections.abc import Iterable
@@ -327,7 +340,11 @@ _FOR = re.compile(
     r"(?![\w]|[.,]\d)",
     re.I,
 )
-# "8:1", "1:300" — only beside "ratio" or a split word (never a clock time)
+# "8:1", "1:300" — only beside the word "ratio" or a split word (never a clock time). Since 2026-11-26 the WORD:
+# "Figure 9-1: Significant 2013-2022 exploration results 9-4 Figure 9-2: 2013 and 2015 Airborne TDEM survey results"
+# (NMG's technical report, a list of figures) read as a 2:2013 ratio by the "ratio" inside "exploration" — and a
+# year (1900-2100) is never a side of one (``_plausible``)
+_COLON_CUE_BEFORE = re.compile(r"\bratio\b", re.I)
 _COLON = re.compile(
     r"(?<![\w$.:])(?P<ad>\d+(?:\.\d+)?)\s*:\s*(?P<bd>\d+(?:\.\d+)?)(?![\w:]|\.\d)(?!\s*[ap]\.?\s*m\b)",
     re.I,
@@ -361,6 +378,12 @@ _ADDITIONAL_EACH = re.compile(
     rf"(?:(?!{_WORD}\b)[A-Za-z][\w'-]*\s+){{0,2}}?{_HELD_UNIT}",
     re.I,
 )
+# … but with no split word in the sentence only for the shares a holder HOLDS (since 2026-11-26): "held" ("for each
+# then-held share"), "owned" or "of record", in the phrase or right after it (``_HELD_REACH`` characters). "The
+# Empery Warrants provide the PIPE Investor with 3 Additional Shares for each Ordinary Share that the PIPE Investor
+# purchases upon exercise" (CRML's 6-K of 2025-03-19, a warrant term) read as a 4-for-1 split
+_HELD = re.compile(r"\bheld\b|\bowned\b|\bof\s+record\b", re.I)
+_HELD_REACH = 40
 # "a consolidation of its common shares on a 9-to-1 basis" (DFSC's two 6-Ks of 2026-11): "N-to-M" is read only
 # right before "basis" (elsewhere "1-to-5 to 1-to-50" is a range); oriented like "N-for-M"
 _TO_BASIS = re.compile(
@@ -403,6 +426,18 @@ _DATE = re.compile(
     r"\b(?P<y3>(?:19|20)\d\d)-(?P<m3>\d\d)-(?P<d3>\d\d)\b",
     re.I,
 )
+
+# A MONTH AND YEAR ("In June 2022", "our February 2023 1-for-400 share consolidation") dates a ratio only as its
+# OWN date, to say it is a PAST split's (``_own_clause``) — never a split's date: it names no day. Read as the
+# month's LAST day, the latest it can be. Capitalized only (never the verb "may").
+_MONTH_YEAR = re.compile(
+    r"\b(?P<m>January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+    r"(?P<y>(?:19|20)\d\d)\b"
+)
+# a ratio's OWN date is its sentence's nearest date at most this many characters from it; its clause reaches this
+# far before the two (never past another date or ratio)
+_OWN_DATE_REACH = 150
+_CLAUSE_LEAD = 120
 
 _TRADING_WORD = re.compile(r"\btrad(?:e|es|ed|ing)\b", re.I)
 # A SESSION cue names the first session's own moment, so in a sentence about the split it is a trading date
@@ -593,6 +628,7 @@ _FUTURE = re.compile(
 KNOWN_DATE_TOLERANCE_DAYS = 10
 _DONE = re.compile(
     r"\b(?:implemented|effected|effectuated|completed|consummated|became\s+effective|took\s+effect|"
+    r"(?<!\bnot\s)(?<!\bnot\syet\s)occurred|"
     r"restated\s+to\s+reflect|(?:retroactively|retrospectively)\s+(?:adjusted|restated|applied)|"
     r"adjusted\s+to\s+reflect|as\s+adjusted\s+for|"
     r"giving\s+(?:retroactive\s+|retrospective\s+)?effect\s+to|"
@@ -863,6 +899,60 @@ def _dates(text: str, *, dating: bool = False) -> list[tuple[int, date]]:
     return out
 
 
+def _date_spans(text: str) -> list[tuple[int, int, date]]:
+    """``(start, end, date)`` for every date in ``text`` that may date a split (as ``_dates(dating=True)``) and every
+    MONTH-YEAR one (``_MONTH_YEAR``, read as the month's last day; never part of a full date: "28 February 2023").
+    """
+    out: list[tuple[int, int, date]] = []
+    full: list[tuple[int, int]] = []
+    for m in _DATE.finditer(text):
+        full.append((m.start(), m.end()))
+        d = _parse_date(m)
+        before = text[max(0, m.start() - _MEETING_LOOKBACK) : m.start()]
+        if d is None or _MEETING_BEFORE.search(before):
+            continue
+        if not _names_something_else(before, text[m.end() : m.end() + 160]):
+            out.append((m.start(), m.end(), d))
+    for m in _MONTH_YEAR.finditer(text):
+        if any(s < m.end() and m.start() < e for s, e in full):
+            continue
+        before = text[max(0, m.start() - _MEETING_LOOKBACK) : m.start()]
+        if _MEETING_BEFORE.search(before) or _names_something_else(
+            before, text[m.end() : m.end() + 160]
+        ):
+            continue
+        y, mo = int(m.group("y")), _MONTHS[m.group("m")[:3].lower()]
+        out.append((m.start(), m.end(), date(y, mo, calendar.monthrange(y, mo)[1])))
+    return sorted(out)
+
+
+def _own_clause(
+    sent: str, start: int, end: int, others: list[tuple[int, int]]
+) -> tuple[date, str] | None:
+    """The ratio at ``sent[start:end]``'s OWN date and clause: its sentence's NEAREST date (full or month-year,
+    ``_date_spans``), at most ``_OWN_DATE_REACH`` characters away with no other ratio (``others``) between — else
+    None; the clause runs from the earlier of the two back to the previous date or ratio (at most ``_CLAUSE_LEAD``
+    characters) to the later one's end: "Because the Company effected a 1-for-30 reverse stock split on October 27,
+    2025", "In June 2022, the Company implemented a 1-for-10"."""
+    spans = _date_spans(sent)
+    best: tuple[int, int, int, date] | None = None
+    for ds, de, d in spans:
+        gap = ds - end if ds >= end else start - de
+        if gap < 0 or gap > _OWN_DATE_REACH:
+            continue
+        if best is None or gap < best[0]:
+            best = (gap, ds, de, d)
+    if best is None:
+        return None
+    _, ds, de, d = best
+    lo, hi = (end, ds) if ds >= end else (de, start)
+    if any(lo <= rs < hi for rs, _ in others):
+        return None  # another ratio sits between: the date is that one's
+    a, b = min(start, ds), max(end, de)
+    bounds = [e for _, e, _ in spans if e <= a] + [re_ for _, re_ in others if re_ <= a]
+    return d, sent[max([0, a - _CLAUSE_LEAD, *bounds]) : b]
+
+
 def _names_something_else(before: str, after: str) -> bool:
     """Is the date between ``before`` and ``after`` a period end, the release's own date, a deadline, a trading
     suspension's, a resolution's or a share count's — never a split's date?"""
@@ -998,11 +1088,12 @@ def _for_every_oriented(
     return _oriented(a, b, direction)
 
 
-def _plausible(v: Decimal | None, *, plain_for: bool) -> bool:
+def _plausible(v: Decimal | None, *, no_year: bool) -> bool:
+    """Can ``v`` be one side of a split ratio? ``no_year``: a year (1900-2100) is not — a bare "2025 for 2026" is
+    years, and so is the "2013" of "Figure 9-2: 2013" (a colon ratio, NMG)."""
     if v is None or v <= 0 or v > 100000:
         return False
-    # a bare "2025 for 2026" is years, not a ratio
-    return not (plain_for and v == v.to_integral_value() and 1900 <= v <= 2100)
+    return not (no_year and v == v.to_integral_value() and 1900 <= v <= 2100)
 
 
 def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
@@ -1011,14 +1102,19 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
         for s, e in d.spans:
             sent = d.match[s:e]
             about = _SPLIT_CUE.search(sent) is not None
-            if not about and not _ADDITIONAL_EACH.search(sent):
+            extra = [
+                m
+                for m in _ADDITIONAL_EACH.finditer(sent)
+                if about or _HELD.search(sent, m.start(), m.end() + _HELD_REACH)
+            ]
+            if not about and not extra:
                 continue
             direction = _direction(sent, doc_direction)
             found: list[tuple[int, int, Decimal | None, Decimal | None, str, str]] = []
-            for m in _ADDITIONAL_EACH.finditer(sent):
+            for m in extra:
                 # "A additional shares for each share": one old share -> 1 + A new (a forward split)
                 a, ca = _side(m, "a")
-                if not _plausible(a, plain_for=False):
+                if not _plausible(a, no_year=False):
                     continue
                 kind = "conflict" if ca else "explicit"
                 found.append((m.start(), m.end(), Decimal(1), a + 1, kind, m.group(0)))  # type: ignore[operator]
@@ -1027,7 +1123,7 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                 if not _COMBINE_VERB.search(m.group("fill")):
                     continue
                 (a, ca), (b, cb) = _side(m, "a"), _side(m, "b")
-                if not (_plausible(a, plain_for=False) and _plausible(b, plain_for=False)):
+                if not (_plausible(a, no_year=False) and _plausible(b, no_year=False)):
                     continue
                 kind = "conflict" if ca or cb else "explicit"
                 if kind == "explicit" and _EVERY_RANGE.match(m.group("fill")):
@@ -1037,7 +1133,7 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                 found.append((m.start(), m.end(), a, b, kind, m.group(0)))
             for m in _FOR_EVERY.finditer(scan):
                 (a, ca), (b, cb) = _side(m, "a"), _side(m, "b")
-                if not (_plausible(a, plain_for=False) and _plausible(b, plain_for=False)):
+                if not (_plausible(a, no_year=False) and _plausible(b, no_year=False)):
                     continue
                 if ca or cb:
                     found.append((m.start(), m.end(), a, b, "conflict", m.group(0)))
@@ -1057,7 +1153,7 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                     continue  # already read as "N share for every M"
                 plain = m.group("sep").strip().lower() in ("for", "to")
                 (a, ca), (b, cb) = _side(m, "a"), _side(m, "b")
-                if not (_plausible(a, plain_for=plain) and _plausible(b, plain_for=plain)):
+                if not (_plausible(a, no_year=plain) and _plausible(b, no_year=plain)):
                     continue
                 if ca or cb:
                     found.append((m.start(), m.end(), a, b, "conflict", m.group(0)))
@@ -1070,10 +1166,10 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
             for m in _COLON.finditer(scan):
                 before = sent[max(0, m.start() - 40) : m.start()]
                 after = sent[m.end() : m.end() + 30]
-                if not (re.search(r"ratio", before, re.I) or _COLON_AFTER.match(after)):
+                if not (_COLON_CUE_BEFORE.search(before) or _COLON_AFTER.match(after)):
                     continue
                 a, b = _digits(m.group("ad")), _digits(m.group("bd"))
-                if not (_plausible(a, plain_for=False) and _plausible(b, plain_for=False)):
+                if not (_plausible(a, no_year=True) and _plausible(b, no_year=True)):
                     continue
                 o = _oriented(a, b, direction)  # type: ignore[arg-type]
                 if o is None:
@@ -1408,11 +1504,27 @@ def _read(
     mentions = _mentions(docs, direction)
     anchors = [a for a in (effective, filed) if a is not None]
     index = {(di, sp): i for di, d in enumerate(docs) for i, sp in enumerate(d.spans)}
+    ratios_at: dict[tuple[int, tuple[int, int]], list[tuple[int, int]]] = {}
+    for mt in mentions:
+        span = (mt.pos - mt.sentence[0], mt.pos - mt.sentence[0] + len(mt.raw))
+        ratios_at.setdefault((mt.doc, mt.sentence), []).append(span)
     for mt in mentions:
         if mt.kind not in ("operative", "undirected"):
             continue  # a past split's ratio is past whichever way it points (NEE's 2020 four-for-one)
         s, e = mt.sentence
         own = docs[mt.doc].match[s:e]
+        if filed is not None:
+            # a ratio stated as DONE whose OWN clause dates it more than ``HISTORICAL_GAP_DAYS`` before the filing is
+            # a past split's, whatever else its sentence dates (since 2026-11-26): CYCU's "Because the Company
+            # effected a 1-for-30 reverse stock split on October 27, 2025, … trading … is expected to be suspended …
+            # on July 21, 2026", STKE's "(1) Reflects the 1 for 8 share consolidation that occurred on August 5,
+            # 2025" in a share table dated 2026, EMAT's "In June 2022, the Company implemented a 1-for-10 stock split"
+            at = mt.pos - s
+            others = [sp for sp in ratios_at[(mt.doc, mt.sentence)] if sp[0] != at]
+            oc = _own_clause(own, at, at + len(mt.raw), others)
+            if oc is not None and _past(oc[0], filed) and _states_done(oc[1]):
+                mt.kind = "historical"
+                continue
         if strict and _FUTURE.search(own):
             continue  # what WILL happen is never a past split's
         ds = [x for _, x in _dates(own)]
