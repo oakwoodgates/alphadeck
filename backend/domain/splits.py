@@ -49,7 +49,7 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Any
 
-from domain.trading_days import is_scheduled_day
+from domain.trading_days import is_scheduled_day, next_scheduled_day, why_not_a_session
 
 STATUS_ANNOUNCED = "announced"
 STATUS_CONFIRMED = "confirmed"
@@ -834,7 +834,11 @@ def _restated_said(group: Sequence[SecEvidence], chosen: SecEvidence) -> str:
 
 
 def decide_sec_only(
-    group: Sequence[SecEvidence], *, asof: date, restate_days: int = 0
+    group: Sequence[SecEvidence],
+    *,
+    asof: date,
+    restate_days: int = 0,
+    next_session: bool = False,
 ) -> SplitDecision:
     """The verdict for one SEC-only candidate (``cluster_sec``): ``needs_review`` — one source never confirms
     a split (S1's rule) — carrying the SEC values: the first TRADING session one of the filings states, else
@@ -843,6 +847,12 @@ def decide_sec_only(
     F8-2 (dark): with ``restate_days`` above 0, a candidate whose dates sit more than ``SESSION_TOLERANCE`` sessions
     apart (``restated``) carries the LATEST filing's trading session (else its latest legal date), and its note
     names every filing's date. 0 = as above exactly.
+
+    F3b (dark; the setting ``split_legal_date_next_session``, read by the caller): with ``next_session``, a chosen
+    LEGAL date that is no session (a weekend, an NYSE full-day closure: ``domain.trading_days``) gives way to the
+    next session as the key date and first session (SKYA's Sunday 2025-04-27 -> Monday 04-28), and the note says
+    why. A trading date is never moved; the SEC evidence keeps the stated date, ``valid_from`` stays as above.
+    False = as above exactly.
     """
     later = restated(group, restate_days=restate_days)
     trading = [s for s in group if s.date_kind == "trading"]
@@ -857,9 +867,16 @@ def decide_sec_only(
         note += _restated_said(group, chosen)
     elif len(dates) > 1:
         note += " They state different dates: " + ", ".join(d.isoformat() for d in dates) + "."
-    if chosen.date_kind != "trading":
+    stated: date = chosen.effective_date  # type: ignore[assignment]
+    eff = stated
+    if next_session and chosen.date_kind == "legal" and not is_scheduled_day(stated):
+        eff = next_scheduled_day(stated)
+        note += (
+            f" The stated effective date {stated.isoformat()} is {why_not_a_session(stated)}: the first session"
+            f" is the next one, {eff.isoformat()}, at the earliest."
+        )
+    elif chosen.date_kind != "trading":
         note += " A legal effective date: the first session may be a session later."
-    eff: date = chosen.effective_date  # type: ignore[assignment]
     if eff > asof:
         note += f" Takes effect {eff.isoformat()}."
     return SplitDecision(
@@ -870,7 +887,7 @@ def decide_sec_only(
         status=STATUS_NEEDS_REVIEW,
         confirmed_via=None,
         value_source=SOURCE_SEC,
-        valid_from=min(first.filed, eff),
+        valid_from=min(first.filed, stated),
         polygon=None,
         sec=chosen,
         note=note,

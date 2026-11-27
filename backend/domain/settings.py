@@ -688,6 +688,13 @@ class Settings(BaseSettings):
     # 05-27 to 06-02 a day later. Ships DARK: 0 = off (S4's clustering exactly); 30 is the operator's to turn on, from
     # the ON-vs-OFF evidence. ALPHADECK_SPLIT_SEC_RESTATE_DAYS, injected into both services like the three above.
     split_sec_restate_days: int = Field(default=0, ge=0)
+    # F3b (framework completion 2026-11-27): an SEC-only split whose chosen filing states only a LEGAL effective date
+    # that is no session (a weekend, an NYSE full-day closure) is planned on the NEXT session (key date and first
+    # session; ``domain.splits.decide_sec_only``; the nightly detector reads it once a pass, the pure rule reads
+    # none). SKYA's 8-K states Sunday 2025-04-27; it first traded Monday 04-28. A trading date is never moved. Ships
+    # DARK: False = the date as stated; turning it on is the operator's. ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION,
+    # injected into both services like the four above.
+    split_legal_date_next_session: bool = False
 
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These two are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL; an LLM

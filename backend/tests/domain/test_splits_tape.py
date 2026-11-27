@@ -27,6 +27,7 @@ from domain.splits import (
     with_tape,
 )
 from ingest.edgar.split_filing import extract_split
+from pipeline.backfill_splits import FilingRef, extract_for
 from tests.split_fixtures import documents
 from tests.split_s4_fixtures import first_served, polygon_row, sec
 
@@ -381,3 +382,187 @@ def test_a_date_match_still_wins_over_a_restate_join():
         [late.accession],
     ]
     assert groups == cluster_sec([early, late, restating_early])
+
+
+# --- F3b (dark, framework completion): a NON-SESSION legal date moves to the next session ------------------------
+#
+# ``next_session`` is the setting ``split_legal_date_next_session``, read by the caller (False = off, the shipped
+# default). SKYA's charter 8-K (filed 2025-04-30) states only a legal date, Sunday 2025-04-27 (the reader demotes its
+# trading cue on a non-session to legal); SKYA first traded on the new basis on Monday 04-28. Only the chosen filing's
+# LEGAL date moves, and only when it is no session (``domain.trading_days``); a trading date is never moved, and the
+# SEC evidence keeps the date its passage states.
+
+SKYA_8K = "0001641172-25-007892"
+F3B_ASOF = date(2026, 11, 27)
+
+
+def _skya() -> SecEvidence:
+    """SKYA's 8-K read the way the pipeline reads it: a charter 8-K (5.03) through the restatement screen."""
+    ref = FilingRef(accession=SKYA_8K, form="8-K", filed=date(2025, 4, 30), items=("5.03", "9.01"))
+    x = extract_for(documents(f"{SKYA_8K}.txt"), ref)
+    return SecEvidence(
+        accession=SKYA_8K,
+        form="8-K",
+        filed=ref.filed,
+        url="https://www.sec.gov/",
+        ratio_from=x.ratio_from,
+        ratio_to=x.ratio_to,
+        effective_date=x.effective_date,
+        date_kind=x.date_kind,
+        passage=x.passage,
+        document=x.document,
+        abstain_reason=x.abstain_reason,
+        date_note=x.date_note,
+        about_a_split=x.about_a_split,
+    )
+
+
+SKYA_OFF_NOTE = (
+    "SEC only: SEC 8-K 0001641172-25-007892 (filed 2025-04-30): 1-for-300 reverse split, effective 2025-04-27; no "
+    "Massive.com row lists this split (tonight's pull). A legal effective date: the first session may be a session "
+    "later."
+)
+
+
+def test_off_skyas_sunday_legal_date_is_planned_as_stated():
+    """The shipped default: the first session is the legal date as the filing states it (a Sunday), as before."""
+    s = _skya()
+    assert (s.ratio_from, s.ratio_to, s.effective_date, s.date_kind) == (
+        Decimal(300),
+        Decimal(1),
+        date(2025, 4, 27),
+        "legal",
+    )
+    d = decide_sec_only([s], asof=F3B_ASOF)
+    assert decide_sec_only([s], asof=F3B_ASOF, next_session=False) == d
+    assert (d.key_date, d.effective_date, d.valid_from, d.status, d.sec) == (
+        date(2025, 4, 27),
+        date(2025, 4, 27),
+        date(2025, 4, 27),
+        STATUS_NEEDS_REVIEW,
+        s,
+    )
+    assert d.note == SKYA_OFF_NOTE
+
+
+def test_on_skyas_sunday_legal_date_moves_to_mondays_session():
+    s = _skya()
+    off = decide_sec_only([s], asof=F3B_ASOF)
+    on = decide_sec_only([s], asof=F3B_ASOF, next_session=True)
+    assert (on.key_date, on.effective_date) == (date(2025, 4, 28), date(2025, 4, 28))
+    # the evidence keeps the date its passage states
+    assert on.sec == s and on.sec.effective_date == date(2025, 4, 27)
+    assert (on.status, on.confirmed_via, on.value_source, on.polygon) == (
+        STATUS_NEEDS_REVIEW,
+        None,
+        SOURCE_SEC,
+        None,
+    )
+    assert on.note == (
+        "SEC only: SEC 8-K 0001641172-25-007892 (filed 2025-04-30): 1-for-300 reverse split, effective 2025-04-27; "
+        "no Massive.com row lists this split (tonight's pull). The stated effective date 2025-04-27 is a weekend: "
+        "the first session is the next one, 2025-04-28, at the earliest."
+    )
+    # nothing else moves: the ratio, the status, the evidence and valid_from (the stated date) are as off
+    assert (
+        replace(on, key_date=off.key_date, effective_date=off.effective_date, note=off.note) == off
+    )
+
+
+def test_on_a_holiday_legal_date_moves_to_the_next_session():
+    """A legal date on an NYSE full-day closure (Christmas Day 2026, a Friday) moves over the weekend to Monday;
+    Juneteenth 2025 (a Thursday: PMEC's resolution date in the 2026-11-26 list) to the Friday."""
+    xmas = _filing(
+        "0000000000-26-000051", "8-K", date(2026, 12, 18), 10, date(2026, 12, 25), "legal"
+    )
+    d = decide_sec_only([xmas], asof=date(2026, 12, 21), next_session=True)
+    assert (d.key_date, d.effective_date, d.sec.effective_date) == (
+        date(2026, 12, 28),
+        date(2026, 12, 28),
+        date(2026, 12, 25),
+    )
+    assert d.note.endswith(
+        "The stated effective date 2026-12-25 is a market holiday (Christmas Day): the first session is the next "
+        "one, 2026-12-28, at the earliest. Takes effect 2026-12-28."
+    )
+    assert d.valid_from == date(2026, 12, 18)
+    off = decide_sec_only([xmas], asof=date(2026, 12, 21), next_session=False)
+    assert (off.key_date, off.effective_date) == (date(2026, 12, 25), date(2026, 12, 25))
+    assert off.note.endswith(
+        "A legal effective date: the first session may be a session later. Takes effect 2026-12-25."
+    )
+    june = _filing("0000000000-25-000052", "6-K", date(2025, 9, 2), 6, date(2025, 6, 19), "legal")
+    d = decide_sec_only([june], asof=F3B_ASOF, next_session=True)
+    assert d.effective_date == date(2025, 6, 20)
+    assert "2025-06-19 is a market holiday (Juneteenth" in d.note
+
+
+def test_on_a_trading_date_on_a_non_session_is_never_moved():
+    """Only a LEGAL date moves. A trading date the reader left on a non-session is decided exactly as off."""
+    for effective in (date(2026, 3, 1), date(2026, 12, 25)):  # a Sunday, a closure
+        s = _filing("0000000000-26-000053", "8-K", date(2026, 2, 20), 10, effective, "trading")
+        off = decide_sec_only([s], asof=F3B_ASOF)
+        assert decide_sec_only([s], asof=F3B_ASOF, next_session=True) == off
+        assert off.effective_date == effective
+
+
+def test_on_a_legal_date_on_a_session_and_a_trading_filing_in_the_group_are_unchanged():
+    # MDCX's real legal reading (a session), and a legal weekday
+    mdcx = sec(MDCX_8K)
+    assert mdcx.date_kind == "legal"
+    weekday = _filing(
+        "0000000000-26-000054", "8-K", date(2026, 4, 1), 20, date(2026, 4, 6), "legal"
+    )
+    # SKYA's shape on prod: a sibling 8-K stating the first TRADING session wins over the Sunday-legal one
+    sibling = _filing("0001641172-25-006045", "8-K", date(2025, 4, 25), 300, date(2025, 4, 28))
+    for group, asof in (
+        ([mdcx], date(2026, 10, 16)),
+        ([weekday], F3B_ASOF),
+        ([sibling, _skya()], F3B_ASOF),
+        ([sec(a) for a in (GAME_8K, NXL_8K, VRME_8K, WSHP_6K)], F3B_ASOF),
+    ):
+        for g in cluster_sec(group):
+            assert decide_sec_only(g, asof=asof, next_session=True) == decide_sec_only(g, asof=asof)
+    (g,) = cluster_sec([sibling, _skya()])
+    assert decide_sec_only(g, asof=F3B_ASOF, next_session=True).effective_date == date(2025, 4, 28)
+
+
+def test_on_the_tape_is_read_on_the_moved_session_and_never_confirms_a_legal_date():
+    """The detector reads the tape on the decision's first session: on, Monday's bar (a Sunday has none). A legal
+    date is never confirmed by it: the reading is evidence on the note, the decision stays for review.
+    """
+    s = _skya()
+    on = decide_sec_only([s], asof=F3B_ASOF, next_session=True)
+    tape = TapeEvidence(
+        session=date(2025, 4, 28),
+        prior=date(2025, 4, 25),
+        prior_close=0.05,
+        close=15.0,
+        prior_volume=3_000_000.0,
+        volume=10_000.0,
+        prior_served_before=True,
+    )
+    out = with_tape(on, tape)
+    assert (out.status, out.confirmed_via) == (STATUS_NEEDS_REVIEW, None)
+    assert out.note == f"{on.note} {tape.describe()}."
+    # off, the decision's first session is the Sunday: a reading of another session never answers for it
+    off = decide_sec_only([s], asof=F3B_ASOF)
+    assert with_tape(off, tape) is off
+
+
+def test_on_with_the_restate_rule_the_latest_legal_date_kept_moves_too():
+    """F8-2's restated candidate keeps its latest filing's legal date; a Saturday one moves to Monday."""
+    first = _filing("0000000000-26-000055", "8-K", date(2026, 4, 1), 20, date(2026, 4, 6), "legal")
+    later = _filing("0000000000-26-000056", "8-K", date(2026, 4, 9), 20, date(2026, 4, 18), "legal")
+    (g,) = cluster_sec([first, later], restate_days=30)
+    off = decide_sec_only(g, asof=RESTATE_ASOF, restate_days=30)
+    on = decide_sec_only(g, asof=RESTATE_ASOF, restate_days=30, next_session=True)
+    assert (off.effective_date, on.effective_date, on.sec) == (
+        date(2026, 4, 18),
+        date(2026, 4, 20),
+        later,
+    )
+    assert on.note.endswith(
+        "the latest effective date is kept. The stated effective date 2026-04-18 is a weekend: the first session "
+        "is the next one, 2026-04-20, at the earliest."
+    )
