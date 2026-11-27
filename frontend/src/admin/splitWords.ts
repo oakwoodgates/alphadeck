@@ -385,3 +385,37 @@ export function addedLine(
     after: " (dry run, then --apply).",
   };
 }
+
+// --- F8-3: an open split's other listed splits of its exact ratio nearby (the API's same_ratio_listed) ---
+
+type SameRatio = NonNullable<Split["same_ratio_listed"]>[number];
+
+// a status as the word before the ratio: "a confirmed 1-for-10", "a needs-review 1-for-10"
+const SAME_STATUS: Record<string, string> = { needs_review: "needs-review" };
+
+/** "a confirmed 1-for-10 reverse split" / "an announced one". */
+function sameWhat(n: SameRatio, what: string): string {
+  const adj = SAME_STATUS[n.status] ?? STATUS_WORD[n.status] ?? n.status;
+  return `${/^[aeiou]/i.test(adj) ? "an" : "a"} ${adj} ${what}`;
+}
+
+/** The days from this split's first session to the other's, in words (signed: later is positive). */
+function away(days: number): string {
+  if (days === 0) return "the same day";
+  const k = Math.abs(days);
+  return `${k} day${k === 1 ? "" : "s"} ${days > 0 ? "later" : "earlier"}`;
+}
+
+/** One line on an open split naming the other splits on the list of its exact ratio near it, in the server's order
+ *  (nearest first, at most two); null when the API names none. Display only: nothing merges two splits, and which one
+ *  went ahead is the steward's. "The list also holds a confirmed 1-for-10 reverse split on 07-24, 120 days later:
+ *  check this one went ahead." */
+export function sameRatioLine(s: Split): string | null {
+  const near = s.same_ratio_listed ?? [];
+  if (!near.length) return null;
+  const parts = near.map((n, i) => {
+    const cites = n.cites_filing ? ", citing the same SEC filing" : "";
+    return `${sameWhat(n, i === 0 ? n.label : "one")} on ${md(n.effective_date)}, ${away(n.days_from)}${cites}`;
+  });
+  return `The list also holds ${parts.join(", and ")}: check this one went ahead.`;
+}

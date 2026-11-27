@@ -206,6 +206,55 @@ def test_an_open_row_carries_the_first_bar_and_the_share_count_a_confirm_rescale
     assert entry["first_bar"] == "2025-03-14" and entry["shares_rescaled"]["count"] == 13_524_682.0
 
 
+SAME_BRIEF = {"effective_date", "label", "status", "same_ratio", "cites_filing", "days_from"}
+
+
+def test_an_open_row_carries_the_listed_splits_of_its_ratio_near_it_when_stated():
+    """F8-3: a needs-review or announced row carries the API's ``same_ratio_listed`` (the other splits on the list of
+    its exact ratio within 180 days, nearest first) when stated, each entry brief (no version id or key date), copied
+    in the API's order, never derived; a row the API states none for carries no key. section=one carries it whole.
+    """
+    body = afx.splits()
+    near = afx.same_ratio_near(4, "needs_review", effective_date="2027-03-01", days_from=119)
+    body["announced"][0]["same_ratio_listed"] = [near]
+    api = FakeApi(splits=body)
+    first, second, third = ok(api, "get_splits")["needs_review"]
+    assert first["same_ratio_listed"] == [
+        {
+            "effective_date": "2026-06-01",
+            "label": "1-for-10",
+            "status": "confirmed",
+            "same_ratio": True,
+            "cites_filing": False,
+            "days_from": -154,
+        }
+    ]
+    assert "same_ratio_listed" not in second and "same_ratio_listed" not in third
+    (announced,) = ok(api, "get_splits", section="announced")["announced"]
+    assert announced["same_ratio_listed"] == [{k: near[k] for k in SAME_BRIEF}]
+    for section in ("confirmed", "set_aside"):
+        assert all(
+            "same_ratio_listed" not in r for r in ok(api, "get_splits", section=section)[section]
+        )
+    entry = ok(api, "get_splits", section="one", t="TK01")["entries"][0]
+    assert entry["same_ratio_listed"] == body["needs_review"][0]["same_ratio_listed"]  # whole
+    assert entry["same_ratio_listed"][0]["version_id"] == body["confirmed"][1]["version_id"]
+
+
+def test_a_forty_row_list_naming_two_splits_of_its_ratio_on_every_row_fits_the_budget():
+    """F8-3: the default reply stays within the budget when every open row names the most the API names (two), and
+    the cursor reads on from the first row it left out."""
+    body = afx.splits(extra_needs_review=37, extra_same_ratio=True)
+    api = FakeApi(splits=body)
+    reply = ok(api, "get_splits")
+    shown = len(reply["needs_review"])
+    assert 1 <= shown < 40 and size(reply) <= BUDGET
+    assert reply["next_cursor"] == shown and reply["next_cursor_for"] == "needs_review"
+    assert all(len(r["same_ratio_listed"]) == 2 for r in reply["needs_review"][3:])
+    more = ok(api, "get_splits", section="needs_review", cursor=shown)
+    assert more["needs_review"][0]["ticker"] == body["needs_review"][shown]["ticker"]
+
+
 def test_a_bucket_section_continues_at_its_cursor():
     reply = ok(FakeApi(), "get_splits", section="confirmed", cursor=1)
     assert [r["ticker"] for r in reply["confirmed"]] == ["TK01", "TK06"]
@@ -399,6 +448,7 @@ def test_the_get_splits_description_names_the_unplaced_section():
 
     tool = asyncio.run(go())
     assert "section=unplaced" in tool.description and "listed_near" in tool.description
+    assert "same_ratio_listed" in tool.description  # F8-3
     assert "unplaced" in tool.input_schema["properties"]["section"]["description"]
 
 

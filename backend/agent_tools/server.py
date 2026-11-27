@@ -1148,9 +1148,11 @@ def build_server(
         "filing in full, each needs-review or announced entry with tape: the stored closes and volumes around "
         "its first session, each bar as first served beside its newest close. Every needs-review row carries "
         "review_reason (sources_differ, extractor_abstained or one_source) and counts.needs_review_by_reason "
-        "counts them; reason narrows section=needs_review to one. polygon.ticker is the vendor's symbol at the "
-        "split; ticker is the master's current one (they differ after a rename). Reads only: a split's values, "
-        "an added split and a dismissal change only on the panel. Steward scope.",
+        "counts them; reason narrows section=needs_review to one. A needs-review or announced row carries "
+        "same_ratio_listed when the list holds another split of its exact ratio within 180 days (nearest first, "
+        "days_from signed): display only, which went ahead is the steward's. polygon.ticker is the vendor's symbol "
+        "at the split; ticker is the master's current one (they differ after a rename). Reads only: a split's "
+        "values, an added split and a dismissal change only on the panel. Steward scope.",
         scope=STEWARD,
     )
     async def get_splits(

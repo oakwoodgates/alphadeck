@@ -43,6 +43,7 @@ import {
   polygonSays,
   ratioProblem,
   rejectLine,
+  sameRatioLine,
   secSays,
   setAsideLine,
   splitSentence,
@@ -72,13 +73,20 @@ const bucket = (d: AdminSplitListOut, k: "needs_review" | "announced" | "confirm
   d[k] ?? [];
 
 /** "BTOC — 1-for-16 reverse split · first session 2026-10-15", and on an open split what a confirm would touch
- *  (W2-8: a first session on its first stored bar, the share count it rescales). */
+ *  (W2-8: a first session on its first stored bar, the share count it rescales) and the other listed splits of its
+ *  exact ratio near it (F8-3). */
 function Header({ s }: { s: Split }) {
+  const same = sameRatioLine(s);
   return (
     <div>
       <b>{s.ticker ?? s.security_id}</b> — {s.label} · first session {s.effective_date}
       {s.name ? <span className="adm-sub"> ({s.name})</span> : null}
       {hintLine(s) ? <div className="adm-sub" data-testid="adm-split-hint">{hintLine(s)}</div> : null}
+      {same ? (
+        <div className="adm-sub" data-testid="adm-split-same-ratio">
+          {same}
+        </div>
+      ) : null}
     </div>
   );
 }

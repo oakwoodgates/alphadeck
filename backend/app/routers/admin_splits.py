@@ -60,6 +60,12 @@ never from the client, and refuses (409) a filing or jump no longer listed or di
 holds (``split_repo.add_steward``: a live one of the same exact ratio within the nightly's merge window included).
 Inverse: **Revoke** (**Reject** while announced). The price leg rescales a stored tape only on a split's first
 night: a past added split waits for the operator's ``pipeline.repair_split_basis``.
+
+**A listed split of the same ratio nearby (framework completion F8-3)** — each needs-review or announced split names
+the other splits on the list of its exact ratio whose first session is within ``SAME_RATIO_NEAR_DAYS`` of its own
+(``same_ratio_listed``, from the versions already read): APUS's needs-review 1-for-10 in March beside its confirmed
+1-for-10 in July. Display only: serial reverse splits of one ratio exist, so no rule merges two splits; the steward
+settles them.
 """
 
 from __future__ import annotations
@@ -171,6 +177,30 @@ class AdminSplitSharesOut(BaseModel):
     date: date
 
 
+# F8-3: how many calendar days either side of an open split's first session another split on the list of its exact
+# ratio is named beside it (``same_ratio_listed``), and at most how many are named
+SAME_RATIO_NEAR_DAYS = 180
+SAME_RATIO_SHOWN = 2
+
+
+class AdminSplitListedNearOut(BaseModel):
+    """The split on the list nearest a filing or a split (display only; no decision reads it): its NEWEST version,
+    any status. ``label`` = its ratio in words; ``same_ratio`` = it is the exact ratio the filing (or the split)
+    states (``null`` when the filing states none); ``cites_filing`` = its SEC filing IS this filing (beside a split:
+    that split's own SEC filing); ``days_from`` = its first session minus the reference date (an unplaced filing's
+    filing date, or a split's first session), signed.
+    """
+
+    version_id: UUID
+    key_date: date
+    effective_date: date
+    label: str
+    status: str
+    same_ratio: bool | None
+    cites_filing: bool
+    days_from: int
+
+
 class AdminSplitListEntryOut(BaseModel):
     """One split on the list (its NEWEST version). ``version_id`` names that version — every action posts it,
     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
@@ -184,7 +214,9 @@ class AdminSplitListEntryOut(BaseModel):
     ``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on
     the list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before
     it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
-    none dated before the first session).
+    none dated before the first session). ``same_ratio_listed`` (F8-3; a needs-review or announced split on the list
+    read, ``null`` elsewhere and when none) = the other splits on the list of its exact ratio whose first session is
+    within 180 days of its own, nearest first, at most two; display only, nothing merges them.
     """
 
     version_id: UUID
@@ -217,6 +249,7 @@ class AdminSplitListEntryOut(BaseModel):
     tape_override: bool | None = None
     first_bar: date | None = None
     shares_rescaled: AdminSplitSharesOut | None = None
+    same_ratio_listed: list[AdminSplitListedNearOut] | None = None
 
 
 class AdminSplitJumpBarOut(BaseModel):
@@ -260,23 +293,6 @@ UNPLACED_NEAR_DAYS = 120
 ACCESSION_PATTERN = r"^\d{10}-\d{2}-\d{6}$"
 UNPLACED_DISMISS_REASON = "not a split to list, said the steward"
 UNPLACED_UNDO_REASON = "undone by the steward"
-
-
-class AdminSplitListedNearOut(BaseModel):
-    """The split on the list nearest a filing or a split (display only; no decision reads it): its NEWEST version,
-    any status. ``label`` = its ratio in words; ``same_ratio`` = it is the exact ratio the filing states (``null``
-    when the filing states none); ``cites_filing`` = its SEC filing IS this filing; ``days_from`` = its first
-    session minus the reference date (an unplaced filing's filing date), signed.
-    """
-
-    version_id: UUID
-    key_date: date
-    effective_date: date
-    label: str
-    status: str
-    same_ratio: bool | None
-    cites_filing: bool
-    days_from: int
 
 
 class AdminSplitUnplacedOut(BaseModel):
@@ -797,6 +813,45 @@ def listed_near(
     )
 
 
+def same_ratio_listed(
+    versions: Iterable[SplitVersion], v: SplitVersion, *, near_days: int = SAME_RATIO_NEAR_DAYS
+) -> list[AdminSplitListedNearOut] | None:
+    """The OTHER splits on the list (F8-3), from the newest versions already read (any status), of ``v``'s security
+    and ``v``'s exact ratio whose first session lies within ``near_days`` of ``v``'s: nearest first (the earlier
+    first session on a tie), at most ``SAME_RATIO_SHOWN``. ``days_from`` = the other's first session minus ``v``'s;
+    ``cites_filing`` = both cite the same SEC filing. ``None`` when none qualifies. APUS's needs-review 1-for-10 of
+    03-26 names its confirmed 1-for-10 of 07-24 (+120). PURE; display only: serial reverse splits of one ratio
+    exist, so nothing merges two splits (the steward settles them).
+    """
+    ratio = (v.ratio_from, v.ratio_to)
+
+    def gap(o: SplitVersion) -> int:
+        return abs((o.effective_date - v.effective_date).days)
+
+    near = sorted(
+        (
+            o
+            for o in versions
+            if o.security_id == v.security_id
+            and o.id != v.id
+            and same_ratio(o.ratio_from, o.ratio_to, *ratio)
+            and gap(o) <= near_days
+        ),
+        key=lambda o: (gap(o), o.effective_date, str(o.id)),
+    )[:SAME_RATIO_SHOWN]
+    if not near:
+        return None
+    return [
+        near_out(
+            o,
+            ref=v.effective_date,
+            ratio=ratio,
+            cites=v.sec_accession is not None and o.sec_accession == v.sec_accession,
+        )
+        for o in near
+    ]
+
+
 def _masters(
     conn: psycopg.Connection, *, tenant_id: UUID, security_ids: Collection[UUID]
 ) -> dict[UUID, Mapping[str, Any]]:
@@ -958,8 +1013,9 @@ def splits_out(
     conn: psycopg.Connection, *, tenant_id: UUID, asof: date | None = None
 ) -> AdminSplitListOut:
     """The panel, read live from the list's newest versions — plus the released, unlisted split-shaped jumps
-    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``), each open split's hints (W2-8), and
-    the split filings the list could not place (F1-3; ``pipeline.split_unplaced``, files). SELECTs only.
+    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``), each open split's hints (W2-8) and the
+    listed splits of its exact ratio near it (F8-3, from the same versions), and the split filings the list could
+    not place (F1-3; ``pipeline.split_unplaced``, files). SELECTs only.
     """
     versions = split_repo.latest_versions(conn, tenant_id=tenant_id)
     out = AdminSplitListOut(total=len(versions))
@@ -972,11 +1028,16 @@ def splits_out(
     ) as e:  # noqa: BLE001 — a failed jump read is shown on the panel, never a failed panel
         conn.rollback()
         out.unlisted_jumps_error = f"{type(e).__name__}: {' '.join(str(e).split())[:200]}"
+    by_security: dict[UUID, list[SplitVersion]] = defaultdict(list)
+    for v in versions:
+        by_security[v.security_id].append(v)
     for v in versions:
         o = split_out(
             v,
             restore_to=split_repo.prior_status(conn, v) if v.status in SET_ASIDE else None,
         )
+        if v.status in (STATUS_NEEDS_REVIEW, STATUS_ANNOUNCED):
+            o.same_ratio_listed = same_ratio_listed(by_security[v.security_id], v)
         if v.status == STATUS_NEEDS_REVIEW:
             out.needs_review.append(o)
         elif v.status == STATUS_ANNOUNCED:
@@ -1049,7 +1110,8 @@ def list_splits(
     needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — the split-shaped price jumps
     on basket names that no source listed, after the split-night hold released them (the operator's "is this
     real?"), and the SEC filings about a split the list could not place, each with the listed split nearest it.
-    Read-only."""
+    Each split awaiting review or announced names the listed splits of its exact ratio near it. Read-only.
+    """
     try:
         return splits_out(conn, tenant_id=DATA_TENANT_ID)
     finally:

@@ -19,6 +19,9 @@ F1-4: ``unplaced`` is the API's SEC filings about a split the list could not pla
 dismissal, if any. The default reply counts them (``unplaced_on_list``: ``listed_near`` cites the filing or states its
 ratio) and briefs the first ``UNPLACED_SHOWN``, dropped before any needs-review row when the reply is too large;
 ``section=unplaced`` pages the listed then the dismissed ones; ``one`` adds the ticker's, in full.
+F8-3: an open entry carries the API's ``same_ratio_listed`` when stated (the other splits on the list of its exact
+ratio within 180 days of its first session, nearest first, at most two), each brief like ``listed_near`` in every
+reply but ``one``, which carries it whole: display only, which one went ahead is the steward's.
 """
 
 from __future__ import annotations
@@ -87,7 +90,8 @@ UNPLACED_BRIEF_KEYS = (
     "source",
     "seen_on",
 )
-# the brief ``listed_near``: the version id and key date ride section=one's full row only
+# the brief ``listed_near`` (and each brief ``same_ratio_listed`` entry, F8-3): the version id and key date ride
+# section=one's full row only
 NEAR_BRIEF_KEYS = ("effective_date", "label", "status", "same_ratio", "cites_filing", "days_from")
 # W2-8: what a confirm would touch, as the API states it on an open entry (copied when stated, never derived)
 HINT_KEYS = ("first_bar", "shares_rescaled")
@@ -132,6 +136,10 @@ def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
         out["cited_url"] = e.get("cited_url")
         out["tape_override"] = e.get("tape_override")
     out.update(_hints(e))
+    # F8-3: the other listed splits of its exact ratio near it, as the API states them (an open entry, when any)
+    same = e.get("same_ratio_listed")
+    if same:
+        out["same_ratio_listed"] = [{k: s.get(k) for k in NEAR_BRIEF_KEYS} for s in same]
     if bucket == "set_aside":
         out["restore_to"] = e.get("restore_to")
         note = e.get("note")
