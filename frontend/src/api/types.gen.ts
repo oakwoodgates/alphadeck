@@ -2295,9 +2295,10 @@ export interface paths {
         /**
          * List Splits
          * @description Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:
-         *     needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — and the split-shaped price jumps
+         *     needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — the split-shaped price jumps
          *     on basket names that no source listed, after the split-night hold released them (the operator's "is this
-         *     real?"). Read-only.
+         *     real?"), and the SEC filings about a split the list could not place, each with the listed split nearest it.
+         *     Read-only.
          */
         get: operations["list_splits_admin_splits_get"];
         put?: never;
@@ -2487,6 +2488,51 @@ export interface paths {
          *     **404** unknown dismissal (or its jump no longer listed), **409** already undone.
          */
         post: operations["undo_jump_dismissal_admin_splits_jumps_dismissals__dismissal_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/unplaced/{security_id}/{accession}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Unplaced
+         * @description DISMISS an unplaced split filing — the steward says it is NOT A SPLIT TO LIST (author ``operator:dismiss``,
+         *     append-only). It leaves ``unplaced`` and is listed under ``unplaced_dismissed``; display only (no split,
+         *     hold or call changes). Undo with ``POST /admin/splits/unplaced/dismissals/{dismissal_id}/undo``. **404** the
+         *     filing is not on the unplaced list, **409** already dismissed, **422** a malformed accession.
+         */
+        post: operations["dismiss_unplaced_admin_splits_unplaced__security_id___accession__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/unplaced/dismissals/{dismissal_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Unplaced Dismissal
+         * @description UNDO a filing's dismissal (author ``operator:undo``, append-only): the filing is back on ``unplaced``.
+         *     **404** unknown dismissal, or its filing is no longer on the unplaced list (nothing written), **409** already
+         *     undone.
+         */
+        post: operations["undo_unplaced_dismissal_admin_splits_unplaced_dismissals__dismissal_id__undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6429,7 +6475,10 @@ export interface components {
          *     ``unlisted_jumps`` (S5) — split-shaped jumps on basket names that the split-night hold has released and no
          *     source ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).
          *     ``dismissed_jumps`` — the ones the operator dismissed as a real move (still listed, behind the panel's
-         *     "dismissed" filter; each undoable).
+         *     "dismissed" filter; each undoable). ``unplaced`` — SEC filings about a split the list could not place, newest
+         *     filing first; ``unplaced_dismissed`` — the ones the steward dismissed (each undoable); ``unplaced_runs`` — the
+         *     runs they were read from; ``unplaced_error`` when that read failed or passed over an unreadable file (shown,
+         *     never hidden).
          */
         AdminSplitListOut: {
             /** Needs Review */
@@ -6451,6 +6500,14 @@ export interface components {
             unlisted_jumps_error?: string | null;
             /** Dismissed Jumps */
             dismissed_jumps?: components["schemas"]["AdminSplitJumpOut"][];
+            /** Unplaced */
+            unplaced?: components["schemas"]["AdminSplitUnplacedOut"][];
+            /** Unplaced Dismissed */
+            unplaced_dismissed?: components["schemas"]["AdminSplitUnplacedOut"][];
+            /** Unplaced Runs */
+            unplaced_runs?: components["schemas"]["AdminSplitUnplacedRunOut"][];
+            /** Unplaced Error */
+            unplaced_error?: string | null;
         };
         /**
          * AdminSplitListPolygonOut
@@ -6505,6 +6562,40 @@ export interface components {
             ratio_label?: string | null;
             /** Abstain Reason */
             abstain_reason?: string | null;
+        };
+        /**
+         * AdminSplitListedNearOut
+         * @description The split on the list nearest a filing or a split (display only; no decision reads it): its NEWEST version,
+         *     any status. ``label`` = its ratio in words; ``same_ratio`` = it is the exact ratio the filing states (``null``
+         *     when the filing states none); ``cites_filing`` = its SEC filing IS this filing; ``days_from`` = its first
+         *     session minus the reference date (an unplaced filing's filing date), signed.
+         */
+        AdminSplitListedNearOut: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /**
+             * Key Date
+             * Format: date
+             */
+            key_date: string;
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Label */
+            label: string;
+            /** Status */
+            status: string;
+            /** Same Ratio */
+            same_ratio: boolean | null;
+            /** Cites Filing */
+            cites_filing: boolean;
+            /** Days From */
+            days_from: number;
         };
         /**
          * AdminSplitOut
@@ -6710,6 +6801,96 @@ export interface components {
             within_tolerance?: boolean | null;
             /** Reason */
             reason?: string | null;
+        };
+        /**
+         * AdminSplitUnplacedOut
+         * @description An SEC filing about a split the list could not place (no ratio, no date, an extractor abstain), as the
+         *     nightly's newest run (``source`` ``nightly``) or the long-window check's newest record (``check``) lists it;
+         *     ``seen_on`` = the day that run read. ``url`` = the filing index (built from the company's CIK when the run's row
+         *     carries none); ``document`` / ``passage`` = the located document and passage, verbatim; ``ratio_from`` ->
+         *     ``ratio_to`` = the ratio it states, when one; ``reason`` = why it was not placed. ``listed_near`` = the split on
+         *     the list it most likely talks about: the one citing it, else the nearest of its exact ratio, else the nearest
+         *     within 120 days of its filing (``null``: none). ``dismissal_id`` / ``dismissed_at`` / ``dismissed_reason`` = the
+         *     steward's standing dismissal ("not a split to list"), when one stands: undo it with ``POST
+         *     /admin/splits/unplaced/dismissals/{dismissal_id}/undo``. Display only.
+         */
+        AdminSplitUnplacedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Name */
+            name: string | null;
+            /** Accession */
+            accession: string;
+            /** Form */
+            form: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Url */
+            url?: string | null;
+            /** Reason */
+            reason: string;
+            /** Document */
+            document: string | null;
+            /** Passage */
+            passage: string | null;
+            /** Ratio From */
+            ratio_from: string | null;
+            /** Ratio To */
+            ratio_to: string | null;
+            /** Ratio Label */
+            ratio_label: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "nightly" | "check";
+            /**
+             * Seen On
+             * Format: date
+             */
+            seen_on: string;
+            listed_near?: components["schemas"]["AdminSplitListedNearOut"] | null;
+            /** Dismissal Id */
+            dismissal_id: string | null;
+            /** Dismissed At */
+            dismissed_at: string | null;
+            /** Dismissed Reason */
+            dismissed_reason: string | null;
+        };
+        /**
+         * AdminSplitUnplacedRunOut
+         * @description A run the unplaced filings were read from: the nightly's newest (``source`` ``nightly``; ``sec_days``
+         *     ``null``: the nightly's own window) or the long-window check's newest record (``check``). ``asof`` = the night
+         *     or day it read; ``rows`` = how many filings it listed, dismissed ones included.
+         */
+        AdminSplitUnplacedRunOut: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "nightly" | "check";
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Sec Days */
+            sec_days: number | null;
+            /** Rows */
+            rows: number;
         };
         /**
          * AdminStaleTapeOut
@@ -24919,6 +25100,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminSplitJumpOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_unplaced_admin_splits_unplaced__security_id___accession__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+                /** @description the filing's SEC accession number */
+                accession: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminSplitJumpReasonIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitUnplacedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_unplaced_dismissal_admin_splits_unplaced_dismissals__dismissal_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dismissal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminSplitJumpReasonIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitUnplacedOut"];
                 };
             };
             /** @description Validation Error */

@@ -42,23 +42,33 @@ security's first stored bar (``first_bar``: a split whose first session is on or
 adjust) and the platform share count a confirm would put on the new scale (``shares_rescaled``: the Workbench count
 the market cap reads, dated before the first session). Read for the whole list at once, in a fixed number of
 queries, never one per split; display only.
+
+**Split filings the list could not place (framework completion F1-3)** — the panel also lists the SEC filings
+about a split the detector could not place (no ratio, no date, an extractor abstain), as the nightly's newest run
+and the long-window check's newest record list them (``pipeline.split_unplaced``), each with the split on the list
+it most likely talks about (``listed_near``: the one citing it, else the nearest of its exact ratio, else the
+nearest within ``UNPLACED_NEAR_DAYS``), read at once from the list already read and one read of the master. The
+steward can **Dismiss** one ("not a split to list" — ``repositories.split_filing_dismissal_repo``, append-only):
+it is listed under ``unplaced_dismissed`` (WB#2); inverse: **Undo**. Display only: the split list, the detector
+and the split-night hold never read the unplaced list or a dismissal.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Collection, Mapping
+from collections import defaultdict
+from collections.abc import Callable, Collection, Iterable, Mapping
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, TypeVar
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
 
 from app.deps import get_conn
-from domain.links import HttpUrlOut, safe_http_url
+from domain.links import HttpUrlOut, filing_index_url, safe_http_url
 from domain.market_time import market_today, market_tz
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import (
@@ -75,13 +85,16 @@ from domain.splits import (
     direction,
     price_factor,
     ratio_label,
+    same_ratio,
     scale_after,
 )
 from domain.text_types import Prose, RequestDate, UrlText
 from pipeline.detect_splits import TAPE_PRIOR_MAX_DAYS, tape_at, tape_window
 from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps, split_dismissed
+from pipeline.split_unplaced import read_unplaced
 from platform_values.state import read_states
-from repositories import split_jump_repo, split_repo
+from repositories import split_filing_dismissal_repo, split_jump_repo, split_repo
+from repositories.split_filing_dismissal_repo import FilingDismissalConflict
 from repositories.split_jump_repo import JumpDismissalConflict
 from repositories.split_repo import SplitConflict, SplitVersion
 
@@ -229,6 +242,78 @@ class AdminSplitJumpOut(BaseModel):
     dismissed_reason: str | None = None
 
 
+# F1-3: how many calendar days either side of an unplaced filing a listed split of another ratio still counts as
+# near it (``listed_near``)
+UNPLACED_NEAR_DAYS = 120
+# an SEC accession number, ``0001628280-26-066700`` (the dismissal log's CHECK)
+ACCESSION_PATTERN = r"^\d{10}-\d{2}-\d{6}$"
+UNPLACED_DISMISS_REASON = "not a split to list, said the steward"
+UNPLACED_UNDO_REASON = "undone by the steward"
+
+
+class AdminSplitListedNearOut(BaseModel):
+    """The split on the list nearest a filing or a split (display only; no decision reads it): its NEWEST version,
+    any status. ``label`` = its ratio in words; ``same_ratio`` = it is the exact ratio the filing states (``null``
+    when the filing states none); ``cites_filing`` = its SEC filing IS this filing; ``days_from`` = its first
+    session minus the reference date (an unplaced filing's filing date), signed.
+    """
+
+    version_id: UUID
+    key_date: date
+    effective_date: date
+    label: str
+    status: str
+    same_ratio: bool | None
+    cites_filing: bool
+    days_from: int
+
+
+class AdminSplitUnplacedOut(BaseModel):
+    """An SEC filing about a split the list could not place (no ratio, no date, an extractor abstain), as the
+    nightly's newest run (``source`` ``nightly``) or the long-window check's newest record (``check``) lists it;
+    ``seen_on`` = the day that run read. ``url`` = the filing index (built from the company's CIK when the run's row
+    carries none); ``document`` / ``passage`` = the located document and passage, verbatim; ``ratio_from`` ->
+    ``ratio_to`` = the ratio it states, when one; ``reason`` = why it was not placed. ``listed_near`` = the split on
+    the list it most likely talks about: the one citing it, else the nearest of its exact ratio, else the nearest
+    within 120 days of its filing (``null``: none). ``dismissal_id`` / ``dismissed_at`` / ``dismissed_reason`` = the
+    steward's standing dismissal ("not a split to list"), when one stands: undo it with ``POST
+    /admin/splits/unplaced/dismissals/{dismissal_id}/undo``. Display only.
+    """
+
+    security_id: UUID
+    ticker: str | None
+    name: str | None
+    accession: str
+    form: str
+    filed: date
+    url: HttpUrlOut = None
+    reason: str
+    document: str | None
+    passage: str | None
+    ratio_from: str | None
+    ratio_to: str | None
+    ratio_label: str | None
+    source: Literal["nightly", "check"]
+    seen_on: date
+    listed_near: AdminSplitListedNearOut | None = None
+    dismissal_id: UUID | None
+    dismissed_at: datetime | None
+    dismissed_reason: str | None
+
+
+class AdminSplitUnplacedRunOut(BaseModel):
+    """A run the unplaced filings were read from: the nightly's newest (``source`` ``nightly``; ``sec_days``
+    ``null``: the nightly's own window) or the long-window check's newest record (``check``). ``asof`` = the night
+    or day it read; ``rows`` = how many filings it listed, dismissed ones included.
+    """
+
+    source: Literal["nightly", "check"]
+    asof: date
+    started_at: datetime
+    sec_days: int | None
+    rows: int
+
+
 class AdminSplitListOut(BaseModel):
     """The "Splits" panel. ``needs_review`` is the one LOUD list (one source could not settle it);
     ``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``
@@ -236,7 +321,10 @@ class AdminSplitListOut(BaseModel):
     ``unlisted_jumps`` (S5) — split-shaped jumps on basket names that the split-night hold has released and no
     source ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).
     ``dismissed_jumps`` — the ones the operator dismissed as a real move (still listed, behind the panel's
-    "dismissed" filter; each undoable).
+    "dismissed" filter; each undoable). ``unplaced`` — SEC filings about a split the list could not place, newest
+    filing first; ``unplaced_dismissed`` — the ones the steward dismissed (each undoable); ``unplaced_runs`` — the
+    runs they were read from; ``unplaced_error`` when that read failed or passed over an unreadable file (shown,
+    never hidden).
     """
 
     needs_review: list[AdminSplitListEntryOut] = Field(default_factory=list)
@@ -247,6 +335,10 @@ class AdminSplitListOut(BaseModel):
     unlisted_jumps: list[AdminSplitJumpOut] = Field(default_factory=list)
     unlisted_jumps_error: str | None = None
     dismissed_jumps: list[AdminSplitJumpOut] = Field(default_factory=list)
+    unplaced: list[AdminSplitUnplacedOut] = Field(default_factory=list)
+    unplaced_dismissed: list[AdminSplitUnplacedOut] = Field(default_factory=list)
+    unplaced_runs: list[AdminSplitUnplacedRunOut] = Field(default_factory=list)
+    unplaced_error: str | None = None
 
 
 class AdminSplitListConfirmIn(BaseModel):
@@ -581,6 +673,179 @@ def _jumps(
     )
 
 
+# --- split filings the list could not place (F1-3): display only; no decision reads them --------------------
+
+
+def _text(v: Any) -> str | None:
+    return v if isinstance(v, str) and v else None
+
+
+def stated_ratio(ratio_from: Any, ratio_to: Any) -> tuple[Decimal, Decimal] | None:
+    """The exact ratio a filing states (decimal text, both sides above 0), or ``None``."""
+    if not isinstance(ratio_from, str) or not isinstance(ratio_to, str):
+        return None
+    try:
+        rf, rt = Decimal(ratio_from), Decimal(ratio_to)
+    except ArithmeticError:
+        return None
+    if not (rf.is_finite() and rt.is_finite() and rf > 0 and rt > 0):
+        return None
+    return rf, rt
+
+
+def near_out(
+    v: SplitVersion, *, ref: date, ratio: tuple[Decimal, Decimal] | None, cites: bool
+) -> AdminSplitListedNearOut:
+    """One listed split as a hint beside ``ref`` (a filing date): ``same_ratio`` against ``ratio`` (``None``
+    when none is stated), ``days_from`` = its first session minus ``ref``."""
+    return AdminSplitListedNearOut(
+        version_id=v.id,
+        key_date=v.key_date,
+        effective_date=v.effective_date,
+        label=ratio_label(v.ratio_from, v.ratio_to),
+        status=v.status,
+        same_ratio=None if ratio is None else same_ratio(v.ratio_from, v.ratio_to, *ratio),
+        cites_filing=cites,
+        days_from=(v.effective_date - ref).days,
+    )
+
+
+def listed_near(
+    versions: Iterable[SplitVersion],
+    *,
+    security_id: UUID,
+    ref: date,
+    accession: str | None = None,
+    ratio: tuple[Decimal, Decimal] | None = None,
+    near_days: int = UNPLACED_NEAR_DAYS,
+) -> AdminSplitListedNearOut | None:
+    """The split on the list an unplaced filing most likely talks about, from the newest versions already read
+    (any status), of the filing's own security: (1) the one whose SEC filing is ``accession``; else (2) when the
+    filing states a ``ratio``, the nearest of that exact ratio, at any distance; else (3) the nearest within
+    ``near_days`` of ``ref`` (the filing's date). Nearest = the fewest calendar days between its first session and
+    ``ref``, the earlier first session on a tie. ``None`` when none qualifies. PURE; display only.
+    """
+    own = [v for v in versions if v.security_id == security_id]
+
+    def gap(v: SplitVersion) -> int:
+        return abs((v.effective_date - ref).days)
+
+    def nearest(vs: Iterable[SplitVersion]) -> SplitVersion | None:
+        return min(vs, key=lambda v: (gap(v), v.effective_date, str(v.id)), default=None)
+
+    pick = nearest(v for v in own if accession is not None and v.sec_accession == accession)
+    if pick is None and ratio is not None:
+        pick = nearest(v for v in own if same_ratio(v.ratio_from, v.ratio_to, *ratio))
+    if pick is None:
+        pick = nearest(v for v in own if gap(v) <= near_days)
+    if pick is None:
+        return None
+    return near_out(
+        pick,
+        ref=ref,
+        ratio=ratio,
+        cites=accession is not None and pick.sec_accession == accession,
+    )
+
+
+def _masters(
+    conn: psycopg.Connection, *, tenant_id: UUID, security_ids: Collection[UUID]
+) -> dict[UUID, Mapping[str, Any]]:
+    """The master's CIK and name for ``security_ids``, in one read."""
+    if not security_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, cik, name FROM security_master WHERE tenant_id = %s AND id = ANY(%s)",
+            (tenant_id, list(security_ids)),
+        )
+        return {r["id"]: r for r in cur.fetchall()}
+
+
+def unplaced_out(
+    row: Mapping[str, Any],
+    *,
+    master: Mapping[str, Any] | None,
+    versions: Iterable[SplitVersion],
+    dismissal: Mapping[str, Any] | None = None,
+) -> AdminSplitUnplacedOut:
+    """One row of ``pipeline.split_unplaced.read_unplaced`` as the panel lists it: the link the row carries, else
+    the filing index built from the master's CIK (never a guessed one); the master's name; ``listed_near``; the
+    standing ``dismissal``, if any."""
+    sid = UUID(str(row["security_id"]))
+    filed = date.fromisoformat(row["filed"])
+    accession = row["accession"]
+    ratio = stated_ratio(row.get("ratio_from"), row.get("ratio_to"))
+    cik = master.get("cik") if master is not None else None
+    return AdminSplitUnplacedOut(
+        security_id=sid,
+        ticker=_text(row.get("ticker")),
+        name=master.get("name") if master is not None else None,
+        accession=accession,
+        form=_text(row.get("form")) or "",
+        filed=filed,
+        url=safe_http_url(row.get("url")) or filing_index_url(cik, accession),
+        reason=_text(row.get("reason")) or "",
+        document=_text(row.get("document")),
+        passage=_text(row.get("passage")),
+        ratio_from=_text(row.get("ratio_from")),
+        ratio_to=_text(row.get("ratio_to")),
+        ratio_label=ratio_label(*ratio) if ratio is not None else None,
+        source=row["source"],
+        seen_on=date.fromisoformat(row["seen_on"]),
+        listed_near=listed_near(
+            versions, security_id=sid, ref=filed, accession=accession, ratio=ratio
+        ),
+        dismissal_id=dismissal["id"] if dismissal is not None else None,
+        dismissed_at=dismissal["recorded_at"] if dismissal is not None else None,
+        dismissed_reason=dismissal["reason"] if dismissal is not None else None,
+    )
+
+
+def _unplaced(
+    conn: psycopg.Connection,
+    versions: Iterable[SplitVersion],
+    *,
+    tenant_id: UUID,
+    only: tuple[UUID, str] | None = None,
+) -> tuple[
+    list[AdminSplitUnplacedOut],
+    list[AdminSplitUnplacedOut],
+    list[AdminSplitUnplacedRunOut],
+    str | None,
+]:
+    """``(the unplaced filings still listed, the ones the steward dismissed, the runs read, the read's error)``:
+    one read of the unplaced list (files), one of the master, one of the standing dismissals; ``listed_near`` from
+    ``versions`` (the list's newest versions). ``only`` = one filing ``(security_id, accession)``.
+    """
+    read = read_unplaced()
+    rows = [
+        r
+        for r in read.rows
+        if only is None or (r["security_id"], r["accession"]) == (str(only[0]), only[1])
+    ]
+    runs = [AdminSplitUnplacedRunOut(**run) for run in read.runs]
+    if not rows:
+        return [], [], runs, read.error
+    ids = {UUID(r["security_id"]) for r in rows}
+    masters = _masters(conn, tenant_id=tenant_id, security_ids=ids)
+    dismissed = split_filing_dismissal_repo.standing_dismissals(conn, tenant_id=tenant_id)
+    by_security: dict[UUID, list[SplitVersion]] = defaultdict(list)
+    for v in versions:
+        if v.security_id in ids:
+            by_security[v.security_id].append(v)
+    keep: list[AdminSplitUnplacedOut] = []
+    gone: list[AdminSplitUnplacedOut] = []
+    for r in rows:  # newest filing first, as read
+        sid = UUID(r["security_id"])
+        dismissal = dismissed.get((sid, r["accession"]))
+        o = unplaced_out(
+            r, master=masters.get(sid), versions=by_security.get(sid, ()), dismissal=dismissal
+        )
+        (keep if dismissal is None else gone).append(o)
+    return keep, gone, runs, read.error
+
+
 # --- what a confirm would touch (W2-8): read for the whole list at once; no decision reads it -------------------
 
 
@@ -644,8 +909,9 @@ def splits_out(
     conn: psycopg.Connection, *, tenant_id: UUID, asof: date | None = None
 ) -> AdminSplitListOut:
     """The panel, read live from the list's newest versions — plus the released, unlisted split-shaped jumps
-    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``), and each open split's hints (W2-8).
-    SELECTs only."""
+    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``), each open split's hints (W2-8), and
+    the split filings the list could not place (F1-3; ``pipeline.split_unplaced``, files). SELECTs only.
+    """
     versions = split_repo.latest_versions(conn, tenant_id=tenant_id)
     out = AdminSplitListOut(total=len(versions))
     try:
@@ -676,6 +942,15 @@ def splits_out(
     out.set_aside.sort(key=newest_first, reverse=True)
     out.announced.sort(key=newest_first)
     _hints(conn, out, tenant_id=tenant_id, asof=asof or market_today())
+    try:
+        out.unplaced, out.unplaced_dismissed, out.unplaced_runs, out.unplaced_error = _unplaced(
+            conn, versions, tenant_id=tenant_id
+        )
+    except (
+        Exception
+    ) as e:  # noqa: BLE001 — a failed unplaced read is shown on the panel, never a failed panel
+        conn.rollback()
+        out.unplaced_error = f"{type(e).__name__}: {' '.join(str(e).split())[:200]}"
     return out
 
 
@@ -722,9 +997,10 @@ def list_splits(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> AdminSplitListOut:
     """Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:
-    needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — and the split-shaped price jumps
+    needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — the split-shaped price jumps
     on basket names that no source listed, after the split-night hold released them (the operator's "is this
-    real?"). Read-only."""
+    real?"), and the SEC filings about a split the list could not place, each with the listed split nearest it.
+    Read-only."""
     try:
         return splits_out(conn, tenant_id=DATA_TENANT_ID)
     finally:
@@ -912,7 +1188,8 @@ _T = TypeVar("_T")
 
 
 def _commit_jump(conn: psycopg.Connection, fn: Callable[[], _T]) -> _T:
-    """One dismissal (or its Undo) in its own transaction — the errors mapped like every split action."""
+    """One dismissal (or its Undo) of a jump or of an unplaced filing in its own transaction — the errors mapped
+    like every split action."""
     try:
         out = fn()
         conn.commit()
@@ -920,7 +1197,7 @@ def _commit_jump(conn: psycopg.Connection, fn: Callable[[], _T]) -> _T:
     except LookupError as e:
         conn.rollback()
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except JumpDismissalConflict as e:
+    except (JumpDismissalConflict, FilingDismissalConflict) as e:
         conn.rollback()
         raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
@@ -998,6 +1275,93 @@ def undo_jump_dismissal(
     return _jump_now(
         conn, tenant_id=DATA_TENANT_ID, security_id=row["security_id"], step_date=row["step_date"]
     )
+
+
+def _unplaced_now(
+    conn: psycopg.Connection, *, security_id: UUID, accession: str
+) -> AdminSplitUnplacedOut:
+    """The filing as the panel lists it now (with its standing dismissal, if any); 404 when it is not listed."""
+    try:
+        versions = split_repo.latest_versions(
+            conn, tenant_id=DATA_TENANT_ID, security_ids=[security_id]
+        )
+        keep, gone, _, _ = _unplaced(
+            conn, versions, tenant_id=DATA_TENANT_ID, only=(security_id, accession)
+        )
+    finally:
+        conn.rollback()  # a read: hold no snapshot
+    found = [*keep, *gone]
+    if found:
+        return found[0]
+    raise HTTPException(
+        status_code=404,
+        detail=f"filing {accession} is not on the unplaced list for security {security_id}",
+    )
+
+
+def _still_unplaced(security_id: UUID, accession: str) -> bool:
+    """Is the filing on the unplaced list now (a file read; no DB)?"""
+    key = (str(security_id), accession)
+    return any((r["security_id"], r["accession"]) == key for r in read_unplaced().rows)
+
+
+@router.post("/unplaced/{security_id}/{accession}/dismiss", response_model=AdminSplitUnplacedOut)
+def dismiss_unplaced(
+    security_id: UUID,
+    accession: Annotated[
+        str, Path(pattern=ACCESSION_PATTERN, description="the filing's SEC accession number")
+    ],
+    body: AdminSplitJumpReasonIn | None = Body(default=None),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminSplitUnplacedOut:
+    """DISMISS an unplaced split filing — the steward says it is NOT A SPLIT TO LIST (author ``operator:dismiss``,
+    append-only). It leaves ``unplaced`` and is listed under ``unplaced_dismissed``; display only (no split,
+    hold or call changes). Undo with ``POST /admin/splits/unplaced/dismissals/{dismissal_id}/undo``. **404** the
+    filing is not on the unplaced list, **409** already dismissed, **422** a malformed accession."""
+    u = _unplaced_now(conn, security_id=security_id, accession=accession)
+    reason = (body.reason if body and body.reason else None) or UNPLACED_DISMISS_REASON
+    _commit_jump(
+        conn,
+        lambda: split_filing_dismissal_repo.dismiss(
+            conn,
+            tenant_id=DATA_TENANT_ID,
+            security_id=security_id,
+            accession=accession,
+            reason=reason,
+            detail={
+                "ticker": u.ticker,
+                "form": u.form,
+                "filed": u.filed.isoformat(),
+                "reason": u.reason,
+                "source": u.source,
+                "seen_on": u.seen_on.isoformat(),
+            },
+        ),
+    )
+    return _unplaced_now(conn, security_id=security_id, accession=accession)
+
+
+@router.post("/unplaced/dismissals/{dismissal_id}/undo", response_model=AdminSplitUnplacedOut)
+def undo_unplaced_dismissal(
+    dismissal_id: UUID,
+    body: AdminSplitJumpReasonIn | None = Body(default=None),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminSplitUnplacedOut:
+    """UNDO a filing's dismissal (author ``operator:undo``, append-only): the filing is back on ``unplaced``.
+    **404** unknown dismissal, or its filing is no longer on the unplaced list (nothing written), **409** already
+    undone."""
+    reason = (body.reason if body and body.reason else None) or UNPLACED_UNDO_REASON
+
+    def act() -> Mapping[str, Any]:
+        row = split_filing_dismissal_repo.undo(
+            conn, dismissal_id, tenant_id=DATA_TENANT_ID, reason=reason
+        )
+        if not _still_unplaced(row["security_id"], row["accession"]):
+            raise LookupError(f"filing {row['accession']} is no longer on the unplaced list")
+        return row
+
+    row = _commit_jump(conn, act)
+    return _unplaced_now(conn, security_id=row["security_id"], accession=row["accession"])
 
 
 @router.post("/{version_id}/restore", response_model=AdminSplitListEntryOut)
