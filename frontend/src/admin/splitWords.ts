@@ -171,10 +171,20 @@ export function tapeFactorSentence(t: TapeStep, ratioFrom: string, ratioTo: stri
   return `${mine}${band}.${verdict}`;
 }
 
-/** The override box beside a tape that does not support the values (or has no bar to check them against). */
-export function overrideLabel(t: TapeStep): string {
+/** What an override form does: confirm a split already on the list (D3), or add one no source lists (F2-2). */
+export type FormAct = "confirm" | "add";
+
+/** The override box beside a tape that does not support the values (or has no bar to check them against). The add form
+ *  leaves the verdict to the tape line above it, which already says which of the two it is. */
+export function overrideLabel(t: TapeStep, act: FormAct = "confirm"): string {
+  if (act === "add") return "Add anyway: the split is then marked “past the tape”.";
   const why = t.step == null ? "The tape has no bar to check these values against" : "The tape does not support these values";
   return `${why} — confirm anyway. The split is then marked “confirmed past the tape”.`;
+}
+
+/** Why the form's button is off while the override box stands unticked. */
+export function overrideHint(act: FormAct = "confirm"): string {
+  return `Tick the box above to ${act} past the tape.`;
 }
 
 // --- W2-8: what a confirm would touch, from the API's first_bar and shares_rescaled (needs-review / announced) ---
@@ -313,4 +323,65 @@ export function unplacedDismissedLine(u: Unplaced): string {
   const day = u.dismissed_at ? `, ${md(u.dismissed_at.slice(0, 10))}` : "";
   const why = u.dismissed_reason ? ` — “${u.dismissed_reason}”` : "";
   return `dismissed by you${day}${why}`;
+}
+
+// --- F2-2: "Add this split...": a split no source lists, from an unplaced filing or a split-shaped jump ---
+
+// what an add does, said once in the form's intro: the tape check, the listing, the rescale, the undo
+const ADD_EFFECT =
+  "The stored tape is checked against the values you enter first. Then the split joins the list (confirmed, or " +
+  "announced while its first session is ahead): prices before that session are put on the new scale and the " +
+  "split-night hold on this company's price triggers lifts. Revoke undoes it (Reject, while it is announced).";
+
+/** The form's lead from a filing: what is filled in from it (the ratio it states, its address as the cited document),
+ *  what is left, and what an add does. A filing that states no ratio and carries no address fills in nothing. */
+export function addFilingIntro(u: Pick<Unplaced, "ratio_from" | "ratio_to" | "url">): string {
+  const ratio = u.ratio_from != null && u.ratio_to != null;
+  const filled = [ratio ? "the ratio it states" : null, u.url ? "its address as the cited document" : null]
+    .filter(Boolean)
+    .join(" and ");
+  const lead = filled
+    ? `Filled in from the filing: ${filled}. ` +
+      (ratio
+        ? "Check what is filled in against the document you cite, and enter the first session."
+        : "Enter the ratio and the first session the document you cite states.")
+    : "The filing states no single ratio and has no address to cite: enter the values the document you cite states.";
+  return `No source lists this split. ${lead} ${ADD_EFFECT}`;
+}
+
+/** The form's lead from a jump: its date is the first session, no ratio is guessed, and what an add does. */
+export function addJumpIntro(): string {
+  return (
+    "No source lists this split. The jump's date is filled in as the first session. No ratio is filled in: enter " +
+    `the one the document you cite states. ${ADD_EFFECT}`
+  );
+}
+
+/** The whole-number ratio a jump's price step is nearest to, beside the empty ratio boxes (never put in them):
+ *  "Nearest whole-number ratio to that step: 1-for-8 reverse split (x8)." Null for a step within x1.5 of flat, where
+ *  no whole ratio is near. */
+export function jumpScaleLine(step: number): string | null {
+  if (!(step > 0)) return null;
+  const up = step >= 1;
+  const k = Math.round(up ? step : 1 / step);
+  if (k < 2) return null;
+  const what = up ? `1-for-${k} reverse split (x${k})` : `${k}-for-1 forward split (${x(1 / k)})`;
+  return `Nearest whole-number ratio to that step: ${what}.`;
+}
+
+/** After a confirmed add (its first session is past): the nightly rescales a stored tape only on a first night, so the
+ *  operator runs the repair. Split in three so the command can be set apart; null for an announced add, which the
+ *  nightly handles when it comes into force. */
+export function addedLine(
+  s: Pick<Split, "ticker" | "security_id" | "effective_date" | "status">,
+): { before: string; command: string; after: string } | null {
+  if (s.status !== "confirmed") return null;
+  const who = s.ticker ?? s.security_id;
+  return {
+    before:
+      `${who}'s split is added and confirmed (first session ${md(s.effective_date)}). The nightly rescales a ` +
+      "stored tape only on a first night: the operator runs ",
+    command: `python -m pipeline.repair_split_basis --ticker ${who}`,
+    after: " (dry run, then --apply).",
+  };
 }

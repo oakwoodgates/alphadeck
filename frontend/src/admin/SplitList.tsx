@@ -1,12 +1,15 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import type {
+  AdminSplitAddIn,
   AdminSplitJumpOut,
   AdminSplitListEntryOut,
   AdminSplitListOut,
   AdminSplitUnplacedOut,
+  SplitTapeTarget,
 } from "../api/hooks";
 import {
+  useAddSplit,
   useConfirmSplit,
   useConfirmSplitValues,
   useDismissJump,
@@ -21,15 +24,21 @@ import {
 } from "../api/hooks";
 import { errText } from "../workbench/format";
 import {
+  type FormAct,
   NOTE_MAX,
   REASON_MAX,
   STATUS_WORD,
+  addFilingIntro,
+  addJumpIntro,
+  addedLine,
   confirmLine,
   confirmValuesLine,
   hintLine,
   isDate,
+  jumpScaleLine,
   listedNearLine,
   orderUnplaced,
+  overrideHint,
   overrideLabel,
   polygonSays,
   ratioProblem,
@@ -53,7 +62,9 @@ import { LIMITS } from "../api/limits";
 type Split = AdminSplitListEntryOut;
 type Unplaced = AdminSplitUnplacedOut;
 type ConfirmValuesMutation = ReturnType<typeof useConfirmSplitValues>;
+type AddSplitMutation = ReturnType<typeof useAddSplit>;
 type DismissUnplacedMutation = ReturnType<typeof useDismissUnplaced>;
+type DismissJumpMutation = ReturnType<typeof useDismissJump>;
 type UndoUnplacedMutation = ReturnType<typeof useUndoUnplacedDismissal>;
 
 const bucket = (d: AdminSplitListOut, k: "needs_review" | "announced" | "confirmed" | "set_aside"): Split[] =>
@@ -211,9 +222,21 @@ function RowError({ text }: { text: string | null }) {
   ) : null;
 }
 
-/** An unplaced filing on the list: the evidence, and Dismiss (“not a split to list”) with an optional reason. */
-function UnplacedRow({ u, busy, send }: { u: Unplaced; busy: boolean; send: DismissUnplacedMutation }) {
+/** An unplaced filing on the list: the evidence, "Add this split..." (F2-2: a real split no source lists) and Dismiss
+ *  (“not a split to list”) with an optional reason. */
+function UnplacedRow({
+  u,
+  busy,
+  send,
+  add,
+}: {
+  u: Unplaced;
+  busy: boolean;
+  send: DismissUnplacedMutation;
+  add: AddSplitMutation;
+}) {
   const [reason, setReason] = useState("");
+  const adding = useAddSplitForm({ kind: "filing", u }, busy, add);
   const who = u.ticker ?? u.name ?? u.security_id;
   const why = reason.trim();
   const refused =
@@ -222,6 +245,7 @@ function UnplacedRow({ u, busy, send }: { u: Unplaced; busy: boolean; send: Dism
     <li data-testid="adm-split-unplaced-row">
       <UnplacedInfo u={u} />
       <div className="adm-act">
+        {adding.button}
         <input
           className="adm-input adm-input-sm"
           type="text"
@@ -242,6 +266,7 @@ function UnplacedRow({ u, busy, send }: { u: Unplaced; busy: boolean; send: Dism
           Dismiss
         </button>
       </div>
+      {adding.form}
       <RowError text={refused ? errText(send.error) : null} />
     </li>
   );
@@ -283,7 +308,9 @@ function Cited({ s }: { s: Split }) {
       <ExternalLink className="adm-link" href={s.cited_url}>
         cited document
       </ExternalLink>
-      {s.tape_override ? <span className="adm-sub"> · confirmed past the tape</span> : null}
+      {s.tape_override ? (
+        <span className="adm-sub"> · {s.status === "announced" ? "announced" : "confirmed"} past the tape</span>
+      ) : null}
     </>
   );
 }
@@ -310,57 +337,71 @@ function ConfirmValues({ s, busy, send }: { s: Split; busy: boolean; send: Confi
   );
 }
 
-function ValuesForm({
-  s,
+type FormValues = {
+  ratioFrom: string;
+  ratioTo: string;
+  firstSession: string;
+  citedUrl: string;
+  note: string;
+  /** the override box, counted only while the stored tape still does not support the values */
+  override: boolean;
+};
+
+/** The form "Confirm with other values" and "Add this split..." share: the ratio (old -> new shares), the first
+ *  session, the https document that states them, an optional note; once a first session is entered, the stored tape's
+ *  step there beside the entered factor (the override box appears only when the tape does not support the values);
+ *  then the button, Cancel, what is still missing and the server's refusal. The two differ in what they start from
+ *  (`initial`), what they say first (`intro`), where the tape is read (`tapeTarget`) and what the button sends. */
+function SplitValuesForm({
+  act,
+  tapeTarget,
+  initial,
+  intro,
+  scale,
+  submitLabel,
   busy,
-  send,
+  failure,
+  onSubmit,
   onCancel,
 }: {
-  s: Split;
+  act: FormAct;
+  tapeTarget: SplitTapeTarget;
+  initial?: Partial<Pick<FormValues, "ratioFrom" | "ratioTo" | "firstSession" | "citedUrl">>;
+  intro: string;
+  /** a jump's nearest whole ratio, said while no ratio is typed */
+  scale?: string | null;
+  submitLabel: string;
   busy: boolean;
-  send: ConfirmValuesMutation;
+  failure: string | null;
+  onSubmit: (v: FormValues) => void;
   onCancel: () => void;
 }) {
-  const [ratioFrom, setRatioFrom] = useState("");
-  const [ratioTo, setRatioTo] = useState("");
-  const [firstSession, setFirstSession] = useState("");
-  const [citedUrl, setCitedUrl] = useState("");
+  const [ratioFrom, setRatioFrom] = useState(initial?.ratioFrom ?? "");
+  const [ratioTo, setRatioTo] = useState(initial?.ratioTo ?? "");
+  const [firstSession, setFirstSession] = useState(initial?.firstSession ?? "");
+  const [citedUrl, setCitedUrl] = useState(initial?.citedUrl ?? "");
   const [note, setNote] = useState("");
   const [override, setOverride] = useState(false);
   const rf = ratioFrom.trim();
   const rt = ratioTo.trim();
   const url = citedUrl.trim();
+  const id = act === "add" ? "add" : "values";
 
   // the tape is read once a first session is entered; the ratio joins the read once it is a ratio
   const ratioReady = ratioProblem(rf, rt) === null;
   const args = isDate(firstSession) ? { firstSession, ...(ratioReady ? { ratioFrom: rf, ratioTo: rt } : {}) } : null;
-  const tape = useSplitTapeStep(s.version_id, args);
+  const tape = useSplitTapeStep(tapeTarget, args);
   const t = args ? tape.data : undefined;
   const reading = args !== null && !t && Boolean(tape.isFetching);
   const outside = t?.within_tolerance === false; // no bar to read counts: the server refuses it too
 
   const problem = valuesProblem({ ratioFrom: rf, ratioTo: rt, firstSession, citedUrl: url });
-  const hint = problem ?? (outside && !override ? "Tick the box above to confirm past the tape." : null);
-  const failure = send.isError && send.variables?.versionId === s.version_id ? errText(send.error) : null;
-
-  const submit = () =>
-    send.mutate({
-      versionId: s.version_id,
-      body: {
-        ratio_from: rf,
-        ratio_to: rt,
-        first_session: firstSession,
-        cited_url: url,
-        ...(note.trim() ? { note: note.trim() } : {}),
-        // a ticked box counts only while the tape still does not support the values
-        override_tape: outside && override,
-      },
-    });
+  const hint = problem ?? (outside && !override ? overrideHint(act) : null);
 
   return (
-    <div className="adm-hold-edit" data-testid="adm-split-values-form">
-      <div className="adm-hold-full">
-        Now listed: {s.label}, first session {s.effective_date}. Enter the values the document you cite states.
+    <div className="adm-hold-edit" data-testid={`adm-split-${id}-form`}>
+      <div className="adm-hold-full" data-testid={`adm-split-${id}-intro`}>
+        {intro}
       </div>
       <label>
         Every{" "}
@@ -434,10 +475,15 @@ function ValuesForm({
           )}
         </div>
       )}
+      {scale && !rf && !rt ? (
+        <div className="adm-sub adm-hold-full" data-testid="adm-split-add-scale">
+          {scale}
+        </div>
+      ) : null}
       {outside && t && (
         <label className="adm-hold-full">
           <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />{" "}
-          {overrideLabel(t)}
+          {overrideLabel(t, act)}
         </label>
       )}
 
@@ -445,24 +491,193 @@ function ValuesForm({
         type="button"
         className="adm-minibtn primary"
         disabled={busy || reading || hint !== null}
-        onClick={submit}
+        onClick={() =>
+          onSubmit({
+            ratioFrom: rf,
+            ratioTo: rt,
+            firstSession,
+            citedUrl: url,
+            note: note.trim(),
+            // a ticked box counts only while the tape still does not support the values
+            override: outside && override,
+          })
+        }
       >
-        Confirm these values
+        {submitLabel}
       </button>
       <button type="button" className="adm-minibtn" onClick={onCancel}>
         Cancel
       </button>
       {hint && (
-        <div className="adm-sub adm-hold-full" data-testid="adm-split-values-hint">
+        <div className="adm-sub adm-hold-full" data-testid={`adm-split-${id}-hint`}>
           {hint}
         </div>
       )}
       {failure && (
-        <div className="adm-err adm-hold-full" data-testid="adm-split-values-error">
+        <div className="adm-err adm-hold-full" data-testid={`adm-split-${id}-error`}>
           {failure}
         </div>
       )}
     </div>
+  );
+}
+
+function ValuesForm({
+  s,
+  busy,
+  send,
+  onCancel,
+}: {
+  s: Split;
+  busy: boolean;
+  send: ConfirmValuesMutation;
+  onCancel: () => void;
+}) {
+  const failure = send.isError && send.variables?.versionId === s.version_id ? errText(send.error) : null;
+  return (
+    <SplitValuesForm
+      act="confirm"
+      tapeTarget={{ versionId: s.version_id }}
+      intro={`Now listed: ${s.label}, first session ${s.effective_date}. Enter the values the document you cite states.`}
+      submitLabel="Confirm these values"
+      busy={busy}
+      failure={failure}
+      onCancel={onCancel}
+      onSubmit={(v) =>
+        send.mutate({
+          versionId: s.version_id,
+          body: {
+            ratio_from: v.ratioFrom,
+            ratio_to: v.ratioTo,
+            first_session: v.firstSession,
+            cited_url: v.citedUrl,
+            ...(v.note ? { note: v.note } : {}),
+            override_tape: v.override,
+          },
+        })
+      }
+    />
+  );
+}
+
+/** F2-2 — what an add starts from: exactly one signal (D-F2a), an unplaced filing or an undismissed jump. */
+type AddOrigin = { kind: "filing"; u: Unplaced } | { kind: "jump"; j: AdminSplitJumpOut };
+
+/** Is this the add that `origin`'s form sent (so its refusal is shown in that form and no other)? */
+function sentBy(v: AdminSplitAddIn | undefined, o: AddOrigin): boolean {
+  if (!v) return false;
+  return o.kind === "filing"
+    ? v.security_id === o.u.security_id && v.from_accession === o.u.accession
+    : v.security_id === o.j.security_id && v.from_jump === o.j.step_date;
+}
+
+/** What the form opens filled in with: a filing's ratio (when it states one) and its address as the cited document, no
+ *  date (none is known); a jump's step date, and no ratio (none is guessed) and no document. */
+function addInitial(o: AddOrigin): { ratioFrom?: string; ratioTo?: string; firstSession?: string; citedUrl?: string } {
+  if (o.kind === "jump") return { firstSession: o.j.step_date };
+  const { ratio_from: from, ratio_to: to, url } = o.u;
+  return { ...(from != null && to != null ? { ratioFrom: from, ratioTo: to } : {}), ...(url ? { citedUrl: url } : {}) };
+}
+
+/** F2-2 — "Add this split...": the steward lists a split no source lists, from a split filing not placed or a
+ *  split-shaped jump. The values and the cited https document are theirs (a filing's ratio and address come filled in,
+ *  to check); the stored tape's step at that session, read for the security, sits beside the entered factor, and the
+ *  override box appears only outside the tolerance. The server checks the same again and answers 409 with its own
+ *  sentence (a duplicate, a tape that does not fit), shown here; Revoke undoes the add. */
+function AddForm({
+  origin,
+  busy,
+  send,
+  onCancel,
+}: {
+  origin: AddOrigin;
+  busy: boolean;
+  send: AddSplitMutation;
+  onCancel: () => void;
+}) {
+  const failure = send.isError && sentBy(send.variables, origin) ? errText(send.error) : null;
+  const filing = origin.kind === "filing";
+  const securityId = filing ? origin.u.security_id : origin.j.security_id;
+  const provenance = filing ? { from_accession: origin.u.accession } : { from_jump: origin.j.step_date };
+  return (
+    <SplitValuesForm
+      act="add"
+      tapeTarget={{ securityId }}
+      initial={addInitial(origin)}
+      intro={filing ? addFilingIntro(origin.u) : addJumpIntro()}
+      scale={filing ? null : jumpScaleLine(origin.j.step)}
+      submitLabel="Add these values"
+      busy={busy}
+      failure={failure}
+      onCancel={onCancel}
+      onSubmit={(v) =>
+        send.mutate({
+          security_id: securityId,
+          ratio_from: v.ratioFrom,
+          ratio_to: v.ratioTo,
+          first_session: v.firstSession,
+          cited_url: v.citedUrl,
+          ...(v.note ? { note: v.note } : {}),
+          // sent only when ticked, and only while the tape still does not support the values
+          ...(v.override ? { override_tape: true } : {}),
+          ...provenance,
+        })
+      }
+    />
+  );
+}
+
+/** The opener and the form of one "Add this split..." (the button sits in the row's own action line, the form below).
+ *  The form closes once the add it sent is listed: the row then says so itself (a listed split cites the filing; the
+ *  jump leaves the list) and a second click would only be refused as a duplicate. */
+function useAddSplitForm(origin: AddOrigin, busy: boolean, send: AddSplitMutation) {
+  const [open, setOpen] = useState(false);
+  const listed = send.isSuccess && sentBy(send.variables, origin);
+  useEffect(() => {
+    if (listed) setOpen(false);
+  }, [listed]);
+  return {
+    button: (
+      <button type="button" className="adm-minibtn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        Add this split...
+      </button>
+    ),
+    form: open ? <AddForm origin={origin} busy={busy} send={send} onCancel={() => setOpen(false)} /> : null,
+  };
+}
+
+/** A jump's two actions: Dismiss (“this was a real move”, display only) and Add this split... (it was a split). */
+function JumpActions({
+  j,
+  busy,
+  dismiss,
+  add,
+}: {
+  j: AdminSplitJumpOut;
+  busy: boolean;
+  dismiss: DismissJumpMutation;
+  add: AddSplitMutation;
+}) {
+  const adding = useAddSplitForm({ kind: "jump", j }, busy, add);
+  return (
+    <>
+      <div className="adm-act">
+        <button
+          type="button"
+          className="adm-minibtn"
+          disabled={busy}
+          onClick={() => dismiss.mutate({ securityId: j.security_id, stepDate: j.step_date })}
+        >
+          Dismiss
+        </button>
+        <span className="adm-act-line" data-testid="adm-split-jump-effect">
+          This was a real move: the card leaves this list (it stays under “dismissed”, with an Undo). No call changes —
+          the split-night hold already released it.
+        </span>
+      </div>
+      <div className="adm-act">{adding.button}</div>
+      {adding.form}
+    </>
   );
 }
 
@@ -481,7 +696,9 @@ function ValuesForm({
  *  quiet section, "Split filings not placed": the SEC filings about a split the detector could not place, each with
  *  the evidence, the listed split nearest it and a Dismiss ("not a split to list", optional reason; display only)
  *  whose inverse is Undo under a "dismissed" filter; a failed read of them is shown beside the panel, never hidden.
- *  Renders nothing when the list and those questions are all empty. */
+ *  F2-2 adds "Add this split..." to each of those filings and to each undismissed jump: the steward lists a real split no
+ *  source lists, with the ratio, the first session and the https document that states them, beside the stored tape's
+ *  step at that session (Revoke undoes it). Renders nothing when the list and those questions are all empty. */
 export function SplitList() {
   const q = useSplitList();
   const confirm = useConfirmSplit();
@@ -493,6 +710,7 @@ export function SplitList() {
   const undoDismiss = useUndoJumpDismissal();
   const dismissUnplaced = useDismissUnplaced();
   const undoUnplaced = useUndoUnplacedDismissal();
+  const addSplit = useAddSplit();
   const [showDismissed, setShowDismissed] = useState(false);
   const [showUnplacedDismissed, setShowUnplacedDismissed] = useState(false);
   const busy =
@@ -504,9 +722,10 @@ export function SplitList() {
     dismiss.isPending ||
     undoDismiss.isPending ||
     dismissUnplaced.isPending ||
-    undoUnplaced.isPending;
-  // a refused Confirm with other values is shown in its own form (the server's sentence), and a refused Dismiss or
-  // Undo of an unplaced filing in its own row, not here
+    undoUnplaced.isPending ||
+    addSplit.isPending;
+  // a refused Confirm with other values or Add this split... is shown in its own form (the server's sentence), and a
+  // refused Dismiss or Undo of an unplaced filing in its own row, not here
   const failed = [confirm, reject, revoke, restore, dismiss, undoDismiss].find((m) => m.isError);
 
   if (q.isError) {
@@ -544,10 +763,23 @@ export function SplitList() {
   const id = (s: Split) => ({ versionId: s.version_id });
   const covered = unplaced.filter(unplacedCovered).length;
   const runsLine = unplacedRunsLine(unplacedRuns);
+  // after a confirmed add (its first session is past): the repair the nightly does not do (an announced add: nothing)
+  const added = addSplit.isSuccess && addSplit.data ? addedLine(addSplit.data) : null;
 
   return (
     <section className="adm-card" data-testid="adm-splits">
       <div className="adm-h">Splits</div>
+
+      {added && (
+        <div className="adm-plain" data-testid="adm-split-added">
+          {added.before}
+          <code className="adm-mono">{added.command}</code>
+          {added.after}{" "}
+          <button type="button" className="adm-minibtn" onClick={() => addSplit.reset()}>
+            Close
+          </button>
+        </div>
+      )}
 
       {jumps.length > 0 && (
         <div className="adm-stale" data-testid="adm-splits-jumps">
@@ -559,22 +791,7 @@ export function SplitList() {
               <Jump
                 key={`${j.security_id}:${j.step_date}`}
                 j={j}
-                action={
-                  <div className="adm-act">
-                    <button
-                      type="button"
-                      className="adm-minibtn"
-                      disabled={busy}
-                      onClick={() => dismiss.mutate({ securityId: j.security_id, stepDate: j.step_date })}
-                    >
-                      Dismiss
-                    </button>
-                    <span className="adm-act-line" data-testid="adm-split-jump-effect">
-                      This was a real move: the card leaves this list (it stays under “dismissed”, with an Undo). No
-                      call changes — the split-night hold already released it.
-                    </span>
-                  </div>
-                }
+                action={<JumpActions j={j} busy={busy} dismiss={dismiss} add={addSplit} />}
               />
             ))}
           </ul>
@@ -776,7 +993,13 @@ export function SplitList() {
           {unplaced.length > 0 ? (
             <ul className="adm-repairs adm-unplaced">
               {orderUnplaced(unplaced).map((u) => (
-                <UnplacedRow key={`${u.security_id}:${u.accession}`} u={u} busy={busy} send={dismissUnplaced} />
+                <UnplacedRow
+                  key={`${u.security_id}:${u.accession}`}
+                  u={u}
+                  busy={busy}
+                  send={dismissUnplaced}
+                  add={addSplit}
+                />
               ))}
             </ul>
           ) : (
