@@ -12,8 +12,20 @@ concurrency:
 
 jobs:
   backend:
-    name: backend (ruff, black, pytest)
+    name: backend probe ${{ matrix.instant }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        instant:
+          - "2026-12-24T23:00:00-05:00"
+          - "2026-12-25T12:00:00-05:00"
+          - "2026-12-28T12:00:00-05:00"
+          - "2027-01-01T12:00:00-05:00"
+          - "2027-01-04T12:00:00-05:00"
+          - "2026-12-17T23:00:00-05:00"
+          - "2026-12-18T12:00:00-05:00"
+          - "2026-12-21T12:00:00-05:00"
     defaults:
       run:
         working-directory: backend
@@ -35,6 +47,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      ALPHADECK_TEST_MARKET_NOW: ${{ matrix.instant }}  # THROWAWAY closure probe (framework F5): never merged
       DATABASE_URL: postgresql://alphadeck:alphadeck@localhost:5544/alphadeck
       # ALPHADECK_TEST_DB is deliberately NOT set: a pin wins over the per-worker suffix, so under `pytest -n` every
       # worker would share one DB and the per-test TRUNCATE would wipe the others' rows. Unpinned, the hook derives
@@ -58,7 +71,7 @@ jobs:
       - name: Black (format check)
         run: black --check .
       - name: Pytest (parallel, -n 4)  # serial was ~19 min
-        run: pytest -n 4
+        run: pytest -n 4 -rf -p no:cacheprovider
 
   frontend:
     name: frontend (typecheck + build)
