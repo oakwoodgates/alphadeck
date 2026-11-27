@@ -38,8 +38,21 @@ reading's most material change: ``abstain->ratio``, ``ratio changed``, ``ratio->
 (passage, document, mentions), ``error`` (one side raised). A GUARD HIT is a guard accession whose ratio, date or
 date kind changed (or one side raised).
 
-**Exit**: 1 on any ``abstain->ratio``, ``ratio changed``, ``error`` (one side raised where the other did not) or
-guard hit; 2 on bad arguments; else 0.
+**Listed readings** (``--accept-listed``; off by default = the gate above; needs ``--known``). An ``abstain->ratio``
+then passes when the new ratio equals a split ``--known`` lists for the filing's CIK (the header's, else
+``--index`` column 5): the same exact fraction, old -> new in the same orientation, and the reading near that
+split's first session. A dated reading must sit within ``--listed-date-days`` of it (default: the new reader's
+``KNOWN_DATE_TOLERANCE_DAYS``, else 10); an undated one must have been filed within ``--listed-undated-days``
+(default 120) before or after it. Every listed row of the CIK counts, not only those in effect at the filing's
+date. ``changes.jsonl`` then carries ``listed`` on every line (``{from, to, first_session, days, dated}``, or
+``null``); the summary counts the accepted ones, names each abstain->ratio that is not listed and why ("no CIK",
+...), and counts the ratio-bearing date changes (report only: each needs a human verdict). Nothing else is
+accepted: a ``ratio changed``, an ``error`` and a guard hit still fail, and a guard hit that equals a listed split
+is only labelled so, for a human to read.
+
+**Exit**: 1 on any ``abstain->ratio`` (with ``--accept-listed``: one that is not a listed split, or sits on a
+guard accession), ``ratio changed``, ``error`` (one side raised where the other did not) or guard hit; 2 on bad
+arguments; else 0.
 """
 
 from __future__ import annotations
@@ -56,6 +69,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -111,6 +125,12 @@ _ITEM_NAMES = (
 FAIL_CLASSES = frozenset({"abstain->ratio", "ratio changed", "error"})
 # the classes a guard accession may show without being a hit (no ratio, date or kind moved)
 _TEXT_CLASSES = frozenset({"reason only", "text only"})
+# the changes that keep a ratio and move its date: each needs a human verdict (``--accept-listed``'s report line)
+_DATE_CLASSES = frozenset({"date added", "date changed", "date dropped", "kind changed"})
+# ``--accept-listed``'s windows: days from a listed split's first session (the new reader's own tolerance, when it
+# has one, is the dated default)
+DATED_DAYS = 10
+UNDATED_DAYS = 120
 CLASS_ORDER = (
     "abstain->ratio",
     "ratio changed",
@@ -377,6 +397,70 @@ def _ratio(r: dict[str, Any]) -> tuple[Decimal, Decimal] | None:
     return Decimal(r["ratio_from"]), Decimal(r["ratio_to"])
 
 
+def _fraction(a: Decimal, b: Decimal) -> Fraction | None:
+    """``a / b`` as an exact fraction (``None`` when either is not a positive number)."""
+    if not (a.is_finite() and b.is_finite()) or a <= 0 or b <= 0:
+        return None
+    return Fraction(a) / Fraction(b)
+
+
+def _plain(d: Decimal) -> str:
+    return f"{d.normalize():f}"
+
+
+def match_listed(
+    cik: str | None,
+    filed: date | None,
+    reading: dict[str, Any],
+    known: dict[str, list[tuple]],
+    *,
+    dated_days: int = DATED_DAYS,
+    undated_days: int = UNDATED_DAYS,
+) -> tuple[dict[str, Any] | None, str]:
+    """``(listed, "")`` when ``reading``'s ratio equals a split ``known`` lists for ``cik`` (the same exact fraction,
+    old -> new) and sits near that split's first session; else ``(None, why)``. A dated reading is judged by its date
+    (within ``dated_days``); an undated one by when it was filed (within ``undated_days``). Every row of the CIK
+    counts; of several rows with the ratio, the nearest one is the match. ``listed`` is ``{from, to, first_session,
+    days, dated}`` (``days`` absolute)."""
+    ratio = _ratio(reading)
+    want = _fraction(*ratio) if ratio else None
+    if ratio is None or want is None:
+        return None, "no ratio"
+    if cik is None:
+        return None, "no CIK (no SGML header, no --index cik)"
+    rows = known.get(cik) or []
+    if not rows:
+        return None, f"no listed splits for CIK {cik}"
+    same = [r for r in rows if _fraction(r[0], r[1]) == want]
+    if not same:
+        listed = ", ".join(
+            f"{_plain(r[0])}->{_plain(r[1])} {r[2]}" for r in sorted(rows, key=lambda r: r[2])
+        )
+        return (
+            None,
+            f"{_plain(ratio[0])}->{_plain(ratio[1])} is not a listed split of CIK {cik} (listed: {listed})",
+        )
+    when = reading.get("effective_date")
+    anchor = date.fromisoformat(when) if when else filed
+    if anchor is None:
+        return None, "undated reading and no filing date to place it by"
+    days, row = min(((abs((anchor - r[2]).days), r) for r in same), key=lambda t: (t[0], t[1][2]))
+    limit = dated_days if when else undated_days
+    if days > limit:
+        how = "dated" if when else "undated, filed"
+        return None, (
+            f"{how} {days} days from the listed {_plain(row[0])}->{_plain(row[1])} first session "
+            f"{row[2]} (limit {limit})"
+        )
+    return {
+        "from": _plain(row[0]),
+        "to": _plain(row[1]),
+        "first_session": row[2].isoformat(),
+        "days": days,
+        "dated": bool(when),
+    }, ""
+
+
 def classify(old: dict[str, Any], new: dict[str, Any]) -> tuple[str | None, list[str]]:
     """``(class, differing fields)`` of one filing's two readings (``None`` when they are the same)."""
     if "error" in old or "error" in new:
@@ -423,8 +507,13 @@ def replay(
     out: Path,
     all_readings: bool = False,
     progress: Any = None,
+    accept_listed: bool = False,
+    dated_days: int = DATED_DAYS,
+    undated_days: int = UNDATED_DAYS,
 ) -> dict[str, Any]:
-    """Read every item with both readers; write ``changes.jsonl`` (and ``readings.jsonl``); return the counts."""
+    """Read every item with both readers; write ``changes.jsonl`` (and ``readings.jsonl``); return the counts.
+    ``accept_listed``: an abstain->ratio equal to a listed split (``match_listed``) does not fail the run.
+    """
     out.mkdir(parents=True, exist_ok=True)
     counts: dict[str, Counter] = {
         "class": Counter(),
@@ -435,6 +524,10 @@ def replay(
     errors: list[str] = []
     guard_hits: list[str] = []
     guard_text: list[str] = []
+    accepted: list[str] = []
+    unlisted: list[str] = []
+    listed_guard = 0
+    ratio_date_changes = 0
     unindexed = 0
     read = 0
     changes_path = out / "changes.jsonl"
@@ -482,21 +575,58 @@ def replay(
                 continue
             is_guard = item.accession in guard
             hit = is_guard and cls not in _TEXT_CLASSES
+            extra: dict[str, Any] = {}
+            label = ""
+            if accept_listed:
+                listed = None
+                if cls == "abstain->ratio":
+                    listed, why = match_listed(
+                        item.cik,
+                        item.filed,
+                        rn,
+                        known,
+                        dated_days=dated_days,
+                        undated_days=undated_days,
+                    )
+                    if listed is None:
+                        unlisted.append(f"{item.key}: {why}")
+                    else:
+                        label = f"{listed['from']}->{listed['to']}, first session {listed['first_session']}"
+                        if hit:
+                            listed_guard += 1
+                        else:
+                            how = "dated" if listed["dated"] else "undated"
+                            accepted.append(
+                                f"{item.key}: = the listed split {label} ({how}, {listed['days']} days)"
+                            )
+                elif cls in _DATE_CLASSES and _ratio(rn) is not None:
+                    ratio_date_changes += 1
+                extra = {"listed": listed}
             if hit:
-                guard_hits.append(f"{item.key}: {cls}")
+                guard_hits.append(
+                    f"{item.key}: {cls}" + (f" (= the listed split {label})" if label else "")
+                )
             elif is_guard:
                 guard_text.append(f"{item.key}: {cls}")
             counts["class"][cls] += 1
             counts["class_screen"][f"{cls} | {screen}"] += 1
             fh.write(
                 json.dumps(
-                    {**head, "class": cls, "fields": fields, "guard": hit, "old": ro, "new": rn}
+                    {
+                        **head,
+                        "class": cls,
+                        "fields": fields,
+                        "guard": hit,
+                        **extra,
+                        "old": ro,
+                        "new": rn,
+                    }
                 )
                 + "\n"
             )
     if readings_fh is not None:
         readings_fh.close()
-    failing = sum(counts["class"][c] for c in FAIL_CLASSES) + len(guard_hits)
+    failing = sum(counts["class"][c] for c in FAIL_CLASSES) - len(accepted) + len(guard_hits)
     result = {
         "found": len(items),
         "read": read,
@@ -507,6 +637,12 @@ def replay(
         "guard_text": guard_text,
         "guard_size": len(guard),
         "failing": failing,
+        "accept_listed": accept_listed,
+        "windows": (dated_days, undated_days),
+        "accepted": accepted,
+        "unlisted": unlisted,
+        "listed_guard": listed_guard,
+        "ratio_date_changes": ratio_date_changes,
     }
     (out / "summary.txt").write_text(summary_text(result), encoding="utf-8")
     return result
@@ -528,15 +664,36 @@ def summary_text(r: dict[str, Any]) -> str:
                 for k, v in sorted(c["class_screen"].items())
                 if k.split(" | ")[0] == cls
             )
-            lines.append(f"  {cls}: {c['class'][cls]} ({per})")
+            more = ""
+            if r["accept_listed"] and cls == "abstain->ratio":
+                more = f", of which {len(r['accepted'])} equal a listed split (accepted)"
+                if r["listed_guard"]:
+                    more += (
+                        f"; {r['listed_guard']} more equal one but are guard hits (not accepted)"
+                    )
+            lines.append(f"  {cls}: {c['class'][cls]} ({per}){more}")
+    if r["accept_listed"]:
+        dated_days, undated_days = r["windows"]
+        lines.append(
+            f"--accept-listed: an abstain->ratio equal to a listed split passes (dated: within {dated_days} days "
+            f"of its first session; undated: filed within {undated_days} days of it)"
+        )
+        lines += [f"  accepted {a}" for a in r["accepted"]]
+        lines += [f"  NOT LISTED {u}" for u in r["unlisted"]]
+        lines.append(
+            f"ratio-bearing date changes (each needs a verdict): {r['ratio_date_changes']}"
+        )
     lines.append(f"guard accessions: {r['guard_size']}; guard hits: {len(r['guard_hits'])}")
     lines += [f"  HIT {h}" for h in r["guard_hits"]]
     lines += [f"  text only on a guard accession: {h}" for h in r["guard_text"]]
     lines.append(f"errors: {len(r['errors'])}")
     lines += [f"  {e}" for e in r["errors"][:50]]
     verdict = "FAIL" if r["failing"] else "PASS"
+    abstain = f"{c['class']['abstain->ratio']}"
+    if r["accept_listed"]:
+        abstain = f"{c['class']['abstain->ratio'] - len(r['accepted'])} (+{len(r['accepted'])} listed, accepted)"
     lines.append(
-        f"{verdict}: abstain->ratio {c['class']['abstain->ratio']}, ratio changed "
+        f"{verdict}: abstain->ratio {abstain}, ratio changed "
         f"{c['class']['ratio changed']}, error {c['class']['error']}, guard hits {len(r['guard_hits'])}"
     )
     return "\n".join(lines) + "\n"
@@ -552,7 +709,27 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--guard", type=Path, help="accessions behind confirmed splits, one per line")
     p.add_argument("--out", type=Path, required=True, help="output folder")
     p.add_argument("--all-readings", action="store_true", help="also write readings.jsonl")
+    p.add_argument(
+        "--accept-listed",
+        action="store_true",
+        help="an abstain->ratio equal to a split --known lists does not fail the run (needs --known)",
+    )
+    p.add_argument(
+        "--listed-date-days",
+        type=int,
+        help="a dated reading must be within N days of the listed first session "
+        "(default: the new reader's KNOWN_DATE_TOLERANCE_DAYS, else 10)",
+    )
+    p.add_argument(
+        "--listed-undated-days",
+        type=int,
+        default=UNDATED_DAYS,
+        help="an undated reading must be filed within N days of the listed first session (default 120)",
+    )
     a = p.parse_args(argv)
+    if a.accept_listed and a.known is None:
+        print("--accept-listed needs --known", file=sys.stderr)
+        return 2
     for f in (a.old, a.new, *a.forms):
         if not f.exists():
             print(f"not found: {f}", file=sys.stderr)
@@ -560,6 +737,9 @@ def main(argv: list[str] | None = None) -> int:
     old = load_reader(a.old, "split_reader_old")
     new = load_reader(a.new, "split_reader_new")
     items = discover(a.forms, load_index(a.index))
+    dated_days = a.listed_date_days
+    if dated_days is None:
+        dated_days = getattr(new, "KNOWN_DATE_TOLERANCE_DAYS", DATED_DAYS)
     result = replay(
         old,
         new,
@@ -569,6 +749,9 @@ def main(argv: list[str] | None = None) -> int:
         out=a.out,
         all_readings=a.all_readings,
         progress=sys.stderr,
+        accept_listed=a.accept_listed,
+        dated_days=dated_days,
+        undated_days=a.listed_undated_days,
     )
     print(summary_text(result), end="")
     return 1 if result["failing"] else 0
