@@ -805,6 +805,33 @@ def test_the_sec_restate_days_ship_off_and_compose_passes_0_to_both_services(mon
         Settings()
 
 
+def test_the_legal_date_next_session_setting_ships_off_and_compose_passes_false_to_both_services(
+    monkeypatch,
+):
+    """F3b (framework completion): an SEC-only split whose chosen filing states only a LEGAL date that is no session
+    (a weekend, an NYSE closure) is planned on the next session (``domain.splits.decide_sec_only``). It ships DARK:
+    False = the date as stated; turning it on is the operator's. The nightly detector (cron) and a check or pass run
+    by hand (backend: ``python -m pipeline.detect_splits``) each get it from compose, at the Settings default.
+    """
+    import re
+    from pathlib import Path
+
+    var = "ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION"
+    monkeypatch.delenv(var, raising=False)
+    assert Settings().split_legal_date_next_session is False
+    assert Settings.model_fields["split_legal_date_next_session"].default is False
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        m = re.search(rf"^\s+{var}: \$\{{{var}:-(\w+)\}}", block, re.M)
+        assert m is not None, f"{var} is not passed to the {service}"
+        assert m.group(1) == "false", f"{service}: compose fallback {m.group(1)} != false"
+    monkeypatch.setenv(var, "true")
+    assert Settings().split_legal_date_next_session is True
+
+
 _CROSS_CLASS_ENV = "ALPHADECK_PRICE_FEED_CROSS_CLASS_ADOPT"
 
 
