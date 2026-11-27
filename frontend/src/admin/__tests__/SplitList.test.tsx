@@ -841,6 +841,151 @@ describe("SplitList", () => {
   });
 });
 
+// F8-3 — APUS's shape as GET /admin/splits states it (backend/tests/app/test_admin_split_list_api.py): a needs-review
+// 1-for-10 on 2025-03-26 and a confirmed 1-for-10 on 2025-07-24 of the same company. An open split names the other
+// splits on the list of its exact ratio within 180 days (same_ratio_listed, nearest first, at most two); a settled one
+// carries none. Display only: nothing merges the two, the steward settles them (D-F8c).
+const APUS_SID = "a9050000-0000-4000-8000-0000000000a0";
+const APUS_MARCH_ID = "a9050000-0000-4000-8000-0000000000b1";
+const APUS_JULY_ID = "a9050000-0000-4000-8000-0000000000b2";
+const apusPolygon = (d: string) => ({
+  ...MI.polygon,
+  id: `E-apus-${d}`,
+  ticker: "APUS",
+  execution_date: d,
+  split_from: "10",
+  ratio_label: "1-for-10 reverse split",
+});
+const sameNear = (over: Record<string, unknown>) => ({
+  version_id: APUS_JULY_ID,
+  key_date: "2025-07-24",
+  effective_date: "2025-07-24",
+  label: "1-for-10 reverse split",
+  status: "confirmed",
+  same_ratio: true,
+  cites_filing: false,
+  days_from: 120,
+  ...over,
+});
+const APUS_MARCH = {
+  ...TREO,
+  version_id: APUS_MARCH_ID,
+  security_id: APUS_SID,
+  ticker: "APUS",
+  name: "Apus Corp",
+  key_date: "2025-03-26",
+  effective_date: "2025-03-26",
+  ratio_from: "10",
+  price_factor: "10",
+  label: "1-for-10 reverse split",
+  valid_from: "2025-03-26",
+  polygon: apusPolygon("2025-03-26"),
+  confirm_options: [
+    { source: "polygon", ratio_from: "10", ratio_to: "1", effective_date: "2025-03-26", label: "1-for-10 reverse split, first session 2025-03-26" },
+  ],
+  first_bar: null,
+  shares_rescaled: null,
+  same_ratio_listed: [sameNear({})],
+};
+const APUS_JULY = {
+  ...BTOC,
+  version_id: APUS_JULY_ID,
+  security_id: APUS_SID,
+  ticker: "APUS",
+  name: "Apus Corp",
+  key_date: "2025-07-24",
+  effective_date: "2025-07-24",
+  ratio_from: "10",
+  price_factor: "10",
+  label: "1-for-10 reverse split",
+  valid_from: "2025-07-24",
+  note: null,
+  sec: null,
+  polygon: apusPolygon("2025-07-24"),
+  same_ratio_listed: null,
+};
+
+describe("SplitList: a listed split of the same ratio nearby (F8-3)", () => {
+  const sameLine = (row: HTMLElement) => within(row).queryByTestId("adm-split-same-ratio");
+
+  it("names the confirmed split of its ratio 120 days later on the open APUS row, and nothing on the settled one", () => {
+    serve({ needs_review: [APUS_MARCH], announced: [], confirmed: [APUS_JULY], set_aside: [], total: 2 });
+    render(<SplitList />);
+    expect(sameLine(screen.getByTestId("adm-split-review-row"))).toHaveTextContent(
+      "The list also holds a confirmed 1-for-10 reverse split on 07-24, 120 days later: check this one went ahead.",
+    );
+    expect(sameLine(screen.getByTestId("adm-split-confirmed-row"))).toBeNull();
+    expect(screen.getAllByTestId("adm-split-same-ratio")).toHaveLength(1);
+    // display only: the decisions on the card are today's, and nothing is sent
+    expect(within(screen.getByTestId("adm-split-review-row")).getByRole("button", { name: "Confirm" })).toBeEnabled();
+    expect(fn(h.confirm)).not.toHaveBeenCalled();
+    expect(fn(h.reject)).not.toHaveBeenCalled();
+  });
+
+  it("words the other way round: the open July row names the confirmed March split, 120 days earlier", () => {
+    const july = {
+      ...APUS_MARCH,
+      version_id: APUS_JULY_ID,
+      key_date: "2025-07-24",
+      effective_date: "2025-07-24",
+      same_ratio_listed: [sameNear({ version_id: APUS_MARCH_ID, key_date: "2025-03-26", effective_date: "2025-03-26", days_from: -120 })],
+    };
+    const march = { ...APUS_JULY, version_id: APUS_MARCH_ID, key_date: "2025-03-26", effective_date: "2025-03-26" };
+    serve({ needs_review: [july], announced: [], confirmed: [march], set_aside: [], total: 2 });
+    render(<SplitList />);
+    expect(sameLine(screen.getByTestId("adm-split-review-row"))).toHaveTextContent(
+      "The list also holds a confirmed 1-for-10 reverse split on 03-26, 120 days earlier: check this one went ahead.",
+    );
+  });
+
+  it("names two in the server's order on an announced row: each status, one day, the same day, and a shared filing", () => {
+    const ahead = {
+      ...APUS_JULY,
+      status: "announced",
+      same_ratio_listed: [
+        sameNear({ status: "needs_review", effective_date: "2025-07-23", days_from: -1, cites_filing: true }),
+        sameNear({ status: "rejected", effective_date: "2025-03-26", days_from: -120 }),
+      ],
+    };
+    const sameDay = {
+      ...APUS_MARCH,
+      same_ratio_listed: [sameNear({ status: "announced", effective_date: "2025-03-26", days_from: 0 })],
+    };
+    serve({ needs_review: [sameDay], announced: [ahead], confirmed: [], set_aside: [], total: 2 });
+    render(<SplitList />);
+    expect(sameLine(screen.getByTestId("adm-splits-announced"))).toHaveTextContent(
+      "The list also holds a needs-review 1-for-10 reverse split on 07-23, 1 day earlier, citing the same SEC filing, and a rejected one on 03-26, 120 days earlier: check this one went ahead.",
+    );
+    expect(sameLine(screen.getByTestId("adm-split-review-row"))).toHaveTextContent(
+      "The list also holds an announced 1-for-10 reverse split on 03-26, the same day: check this one went ahead.",
+    );
+  });
+
+  it("says nothing for an empty list, and an older server's payload (no key) renders today's panel", () => {
+    const { same_ratio_listed: _drop, ...marchOld } = APUS_MARCH;
+    const { same_ratio_listed: _gone, ...julyOld } = APUS_JULY;
+    serve({ needs_review: [marchOld], announced: [], confirmed: [julyOld], set_aside: [], total: 2 });
+    const old = render(<SplitList />);
+    const html = old.container.innerHTML;
+    old.unmount();
+    serve({
+      needs_review: [{ ...marchOld, same_ratio_listed: null }],
+      announced: [],
+      confirmed: [{ ...julyOld, same_ratio_listed: null }],
+      set_aside: [],
+      total: 2,
+    });
+    const none = render(<SplitList />);
+    expect(none.container.innerHTML).toBe(html);
+    none.unmount();
+    serve({ needs_review: [{ ...marchOld, same_ratio_listed: [] }], announced: [], confirmed: [julyOld], set_aside: [], total: 2 });
+    const empty = render(<SplitList />);
+    expect(empty.container.innerHTML).toBe(html);
+    expect(html).not.toContain("adm-split-same-ratio");
+    expect(html).toContain("adm-split-review-row");
+  });
+});
+
 // F1-5 — the "Split filings not placed" section: SEC filings about a split the list could not place, as GET
 // /admin/splits carries them (unplaced, unplaced_dismissed, unplaced_runs, unplaced_error; backend F1-3). The
 // tickers and accessions of PBK, WLDS and META are the ones the framework-completion plan names from the

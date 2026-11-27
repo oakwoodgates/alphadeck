@@ -158,6 +158,24 @@ def _near(n: int, status: str, *, days_from: int, same_ratio: bool | None) -> di
     }
 
 
+def same_ratio_near(
+    n: int, status: str, *, effective_date: str, days_from: int, cites_filing: bool = False
+) -> dict[str, Any]:
+    """F8-3: one entry of an open row's ``same_ratio_listed`` as the API states it: another split of company ``n`` on
+    the list, of the same 1-for-10, its first session ``days_from`` days from the open row's (the version id is
+    ``_entry(n, status)``'s)."""
+    return {
+        "version_id": uid("split-version", n, status),
+        "key_date": effective_date,
+        "effective_date": effective_date,
+        "label": "1-for-10",
+        "status": status,
+        "same_ratio": True,
+        "cites_filing": cites_filing,
+        "days_from": days_from,
+    }
+
+
 def unplaced_row(
     n: int, filed: str, *, dismissed: bool = False, ratio: bool = True, **over: Any
 ) -> dict[str, Any]:
@@ -212,11 +230,15 @@ def unplaced(extra: int = 0) -> list[dict[str, Any]]:
     return rows
 
 
-def splits(extra_needs_review: int = 0, extra_unplaced: int = 0) -> dict[str, Any]:
+def splits(
+    extra_needs_review: int = 0, extra_unplaced: int = 0, extra_same_ratio: bool = False
+) -> dict[str, Any]:
     """The split list: 3 needs-review (TK01 two options; TK02 the extractor abstained; TK03 Massive.com only),
     1 announced (TK04), 3 confirmed (TK05, TK01 again, TK06), 1 set aside (TK07, with a long note and a restore
     target), 1 unlisted jump (TK08, three bars after) and 1 dismissed jump (TK06); F1-4: 2 unplaced filings
-    (``unplaced``) and 1 the steward dismissed (TK05's authorized range, near its confirmed split).
+    (``unplaced``) and 1 the steward dismissed (TK05's authorized range, near its confirmed split). F8-3: the open
+    TK01 names TK01's confirmed 1-for-10 of 06-01, 154 days before it (``same_ratio_listed``); with
+    ``extra_same_ratio`` every extra needs-review row names two (the most the API names).
     """
     needs = [
         needs_review_row(
@@ -227,6 +249,9 @@ def splits(extra_needs_review: int = 0, extra_unplaced: int = 0) -> dict[str, An
             ],
             actions=["confirm_sec", "confirm_polygon", "reject"],
             review_reason="sources_differ",
+            same_ratio_listed=[
+                same_ratio_near(1, "confirmed", effective_date="2026-06-01", days_from=-154)
+            ],
         ),
         needs_review_row(
             2,
@@ -236,7 +261,17 @@ def splits(extra_needs_review: int = 0, extra_unplaced: int = 0) -> dict[str, An
         ),
         needs_review_row(3, sec=None),
     ]
-    needs += [needs_review_row(20 + k) for k in range(extra_needs_review)]
+
+    def two(n: int) -> list[dict[str, Any]]:
+        return [
+            same_ratio_near(n, "confirmed", effective_date="2026-07-15", days_from=-110),
+            same_ratio_near(n, "rejected", effective_date="2026-12-20", days_from=48),
+        ]
+
+    needs += [
+        needs_review_row(20 + k, **({"same_ratio_listed": two(20 + k)} if extra_same_ratio else {}))
+        for k in range(extra_needs_review)
+    ]
     set_aside = _entry(
         7,
         "rejected",
@@ -250,7 +285,14 @@ def splits(extra_needs_review: int = 0, extra_unplaced: int = 0) -> dict[str, An
         "announced": [_entry(4, "announced", decided_by="auto: SEC + Massive.com", **HINTS)],
         "confirmed": [
             _entry(5, "confirmed", confirmed_via="auto"),
-            _entry(1, "confirmed", key_date="2026-06-01", confirmed_via="auto"),
+            _entry(
+                1,
+                "confirmed",
+                key_date="2026-06-01",
+                effective_date="2026-06-01",
+                valid_from="2026-06-01",
+                confirmed_via="auto",
+            ),
             _entry(6, "confirmed", confirmed_via="auto"),
         ],
         "set_aside": [set_aside],

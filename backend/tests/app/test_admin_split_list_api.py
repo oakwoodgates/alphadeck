@@ -1617,3 +1617,119 @@ def test_the_security_tape_step_is_the_version_tape_step_on_the_same_bars(client
     half = {"first_session": "2026-10-21", "ratio_from": "10"}
     assert client.get(f"{BASE}/securities/{sid}/tape-step", params=half).status_code == 422
     assert split_repo.count_rows(db) == n
+
+
+# --- F8-3: an open split names a listed split of its exact ratio near it (display only) -------------------------
+
+APUS_MARCH = date(2025, 3, 26)
+APUS_JULY = date(2025, 7, 24)  # 120 days on
+TRIO_8K = "0001104659-26-200001"
+
+
+def _same(e: dict) -> list[tuple] | None:
+    s = e["same_ratio_listed"]
+    if s is None:
+        return None
+    return [(n["version_id"], n["status"], n["days_from"]) for n in s]
+
+
+def test_apus_open_split_names_the_listed_split_of_its_ratio_120_days_away_either_way(client, db):
+    """APUS's shape: a needs-review 1-for-10 on 03-26 and a confirmed 1-for-10 on 07-24 of the same company. The open
+    March split names the July one, +120 days; the mirror (a confirmed March, a needs-review July) names March, -120.
+    A settled split carries none, and once the steward rejects March neither APUS row does. Display only: the read
+    writes nothing, and no rule merges the two (D-F8c: the steward's).
+    """
+    apus = _company(db, "APUS", None, "Apus Corp")
+    mirror = _company(db, "APUM", None, "Apus Mirror")
+    march = _listed(db, apus, APUS_MARCH, 10, 1, status="needs_review")
+    july = _listed(db, apus, APUS_JULY, 10, 1)
+    m_march = _listed(db, mirror, APUS_MARCH, 10, 1)
+    _listed(db, mirror, APUS_JULY, 10, 1, status="needs_review")
+    n = split_repo.count_rows(db)
+    body = client.get(BASE).json()
+    _, open_march = _find(body, "APUS", "2025-03-26")
+    assert open_march["same_ratio_listed"] == [
+        {
+            "version_id": july,
+            "key_date": "2025-07-24",
+            "effective_date": "2025-07-24",
+            "label": "1-for-10 reverse split",
+            "status": "confirmed",
+            "same_ratio": True,
+            "cites_filing": False,
+            "days_from": 120,
+        }
+    ]
+    _, open_july = _find(body, "APUM", "2025-07-24")
+    assert _same(open_july) == [(m_march, "confirmed", -120)]
+    for ticker, d in (("APUS", "2025-07-24"), ("APUM", "2025-03-26")):
+        bucket, settled = _find(body, ticker, d)
+        assert bucket == "confirmed" and settled["same_ratio_listed"] is None
+    assert split_repo.count_rows(db) == n  # a read
+    r = client.post(f"{BASE}/{march}/reject")
+    assert r.status_code == 200, r.text
+    assert r.json()["same_ratio_listed"] is None
+    body = client.get(BASE).json()
+    assert _find(body, "APUS", "2025-03-26")[0] == "set_aside"
+    rows = [_find(body, "APUS", d)[1] for d in ("2025-03-26", "2025-07-24")]
+    assert [e["same_ratio_listed"] for e in rows] == [None, None]
+    assert _same(_find(body, "APUM", "2025-07-24")[1]) == [(m_march, "confirmed", -120)]
+
+
+def test_the_hint_reaches_180_days_names_only_the_exact_ratio_and_at_most_the_two_nearest(
+    client, db, monkeypatch
+):
+    """An open split names another listed split of its exact ratio up to 180 days either side, of any status (a
+    rejected one too), never one 181 days away or of another ratio; at most two, nearest first, the earlier first
+    session on a tie. An announced split carries it like a needs-review one; one citing the same SEC filing says so.
+    It is read from the list's versions already read: one read of the list.
+    """
+    far = _company(db, "FARX", None, "Far Corp")
+    _listed(db, far, date(2025, 6, 2), 10, 1, status="needs_review")
+    _listed(db, far, date(2025, 11, 30), 10, 1)  # 181 days on: past the window
+    _listed(db, far, date(2025, 7, 1), 5, 1)  # another ratio, near
+    edge = _listed(db, far, date(2024, 12, 4), 10, 1, status="rejected")  # 180 days before
+    trio = _company(db, "TRIO", None, "Trio Corp")
+    _listed(db, trio, date(2026, 6, 2), 10, 1, status="announced", accession=TRIO_8K)
+    ten = _listed(db, trio, date(2026, 5, 23), 10, 1, accession=TRIO_8K)  # the same filing
+    thirty = _listed(db, trio, date(2026, 5, 3), 10, 1)
+    # +30 ties -30: the later first session of the two, third, left out
+    _listed(db, trio, date(2026, 7, 2), 10, 1)
+    body = client.get(BASE).json()
+    _, open_far = _find(body, "FARX", "2025-06-02")
+    assert _same(open_far) == [(edge, "rejected", -180)]
+    assert open_far["same_ratio_listed"][0]["label"] == "1-for-10 reverse split"
+    bucket, ahead = _find(body, "TRIO", "2026-06-02")
+    assert bucket == "announced"
+    assert _same(ahead) == [(ten, "confirmed", -10), (thirty, "confirmed", -30)]
+    assert [s["cites_filing"] for s in ahead["same_ratio_listed"]] == [True, False]
+    settled = [e for b in ("confirmed", "set_aside") for e in body[b]]
+    assert len(settled) == 6 and all(e["same_ratio_listed"] is None for e in settled)
+    reads: list[dict] = []
+    latest = split_repo.latest_versions
+
+    def spy(conn, **kw):
+        reads.append(kw)
+        return latest(conn, **kw)
+
+    monkeypatch.setattr(split_repo, "latest_versions", spy)
+    out = admin_splits.splits_out(db, tenant_id=DEFAULT_TENANT_ID, asof=TODAY)
+    assert len(reads) == 1
+    assert [len(e.same_ratio_listed or []) for e in (*out.needs_review, *out.announced)] == [1, 2]
+
+
+def test_the_real_backfills_lrhc_splits_of_one_ratio_84_days_apart_name_each_other(
+    client, db, tmp_path
+):
+    """On the real backfill Massive.com lists LRHC's 1-for-10 on 01-26 and again on 04-20, both waiting for review:
+    each names the other, signed. LRHC's 1-for-6 on 09-08 is another ratio; no other split shares a ratio nearby.
+    """
+    _fill(db, tmp_path)
+    body = client.get(BASE).json()
+    _, jan = _find(body, "LRHC", "2026-01-26")
+    _, apr = _find(body, "LRHC", "2026-04-20")
+    assert _same(jan) == [(apr["version_id"], "needs_review", 84)]
+    assert _same(apr) == [(jan["version_id"], "needs_review", -84)]
+    _, mi = _find(body, "MI", "2026-05-18")
+    assert mi["same_ratio_listed"] is None
+    assert all(e["same_ratio_listed"] is None for e in body["confirmed"])

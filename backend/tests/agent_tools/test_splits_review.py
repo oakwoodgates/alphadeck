@@ -61,6 +61,7 @@ def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characte
     assert "splits-review" in listed
     assert prompt.startswith("Splits review, starting with TK01: ") and "{{" not in prompt
     assert 'section="unplaced"' in prompt and "listed_near" in prompt
+    assert "same_ratio_listed" in prompt  # F8-3
     assert len(PROMPT_FILE.read_text(encoding="utf-8")) <= 2_000 and len(prompt) <= 2_000
     assert len(spent) <= MAX_CALLS, spent
     assert sum(chars for _, chars in spent) <= MAX_CHARS, spent
@@ -100,6 +101,8 @@ def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characte
     assert [r["ticker"] for r in unplaced["unplaced"]] == ["TK33", "TK34"]
     assert [r["ticker"] for r in unplaced["unplaced_dismissed"]] == ["TK05"]
     assert default["unplaced"][1]["listed_near"]["same_ratio"] is True
+    # F8-3: the open TK01 names the listed split of its ratio near it in the default reply already
+    assert default["needs_review"][0]["same_ratio_listed"][0]["days_from"] == -154
     assert [j["ticker"] for j in jumps["unlisted"]] == ["TK08"]
 
 

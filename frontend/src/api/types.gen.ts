@@ -2298,7 +2298,7 @@ export interface paths {
          *     needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — the split-shaped price jumps
          *     on basket names that no source listed, after the split-night hold released them (the operator's "is this
          *     real?"), and the SEC filings about a split the list could not place, each with the listed split nearest it.
-         *     Read-only.
+         *     Each split awaiting review or announced names the listed splits of its exact ratio near it. Read-only.
          */
         get: operations["list_splits_admin_splits_get"];
         put?: never;
@@ -6441,7 +6441,9 @@ export interface components {
          *     ``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on
          *     the list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before
          *     it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
-         *     none dated before the first session).
+         *     none dated before the first session). ``same_ratio_listed`` (F8-3; a needs-review or announced split on the list
+         *     read, ``null`` elsewhere and when none) = the other splits on the list of its exact ratio whose first session is
+         *     within 180 days of its own, nearest first, at most two; display only, nothing merges them.
          */
         AdminSplitListEntryOut: {
             /**
@@ -6519,6 +6521,8 @@ export interface components {
             /** First Bar */
             first_bar?: string | null;
             shares_rescaled?: components["schemas"]["AdminSplitSharesOut"] | null;
+            /** Same Ratio Listed */
+            same_ratio_listed?: components["schemas"]["AdminSplitListedNearOut"][] | null;
         };
         /**
          * AdminSplitListOptionOut
@@ -6641,9 +6645,10 @@ export interface components {
         /**
          * AdminSplitListedNearOut
          * @description The split on the list nearest a filing or a split (display only; no decision reads it): its NEWEST version,
-         *     any status. ``label`` = its ratio in words; ``same_ratio`` = it is the exact ratio the filing states (``null``
-         *     when the filing states none); ``cites_filing`` = its SEC filing IS this filing; ``days_from`` = its first
-         *     session minus the reference date (an unplaced filing's filing date), signed.
+         *     any status. ``label`` = its ratio in words; ``same_ratio`` = it is the exact ratio the filing (or the split)
+         *     states (``null`` when the filing states none); ``cites_filing`` = its SEC filing IS this filing (beside a split:
+         *     that split's own SEC filing); ``days_from`` = its first session minus the reference date (an unplaced filing's
+         *     filing date, or a split's first session), signed.
          */
         AdminSplitListedNearOut: {
             /**
