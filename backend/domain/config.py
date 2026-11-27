@@ -1036,6 +1036,14 @@ class ExtractorConfig(DomainModel):
         "one-time",
         "contribution",
     )
+    # F7 (R1): a quarter that GENERATED cash while its year-to-date pace BURNS (``burn <= 0 < ytd_quarterly_burn``) is
+    # ``possible-one-time`` too, its sentence naming both figures, the passage on the year to date's printed
+    # operating-cash-flow line. An inflow booked in net income moves no reconciliation line, so the line rule above
+    # cannot see it: XNCR's 25.0M milestone (revenue, a dimensioned fact only), LEXX's 2.46M R&D tax credit (other
+    # income, a custom tag). Ships OFF: on, an applied AUTO value of this shape becomes a queued FLAG, which reverses
+    # operator decision D3 for it (``domain/burn_pace.py``: the pace is a visible caveat, never a queued flag); turning
+    # it on is the user's decision. The pace caveat is the same either way.
+    one_time_cash_positive_quarter: bool = False
     # cash composition (V2 extractor correctness PR 1): when a filer also reports the combined
     # ``CashCashEquivalentsAndShortTermInvestments`` on the cash date, cash + the short-term investments read
     # must equal it within this fraction, else the value is flagged ``investments-unreconciled``. Two tags of
