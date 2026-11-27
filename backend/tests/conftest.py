@@ -43,6 +43,14 @@ def pytest_configure(config):
     from domain.settings import get_settings
 
     get_settings.cache_clear()  # nothing built before this hook keeps the key
+    # F5 — the suite-wide market-clock pin (``_market_clock_from_env``): a malformed, naive or past
+    # ALPHADECK_TEST_MARKET_NOW stops the run here, before any test, instead of erroring every one.
+    from tests.market_clock_probe import instant_from_env
+
+    try:
+        instant_from_env(os.environ)
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
     try:
         ensure_test_db(url)  # create the per-worktree DB if absent (idempotent, race-tolerant)
     except psycopg.OperationalError:
@@ -69,6 +77,25 @@ def _fast_argon2_for_tests():
     finally:
         auth._HASHER = orig_hasher
         auth._DUMMY_HASH = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _market_clock_from_env():
+    """F5: ``ALPHADECK_TEST_MARKET_NOW=<ISO instant with offset>`` runs the WHOLE suite at that market instant.
+
+    ``market_now`` starts there and ticks, and so do ``market_today`` / ``market_clock`` / ``current_night`` /
+    ``pinned_today`` and every route they serve; transaction time is not moved (``tests/market_clock_probe.py``).
+    ``scripts/closure_probe.py`` runs the suite this way at NYSE closures. Unset, as in CI, it patches nothing.
+    Set up at the first test, after collection imported every module, so the modules that imported
+    ``market_now`` BY NAME are pinned too.
+    """
+    from tests.market_clock_probe import pin_from_env
+
+    mp = pytest.MonkeyPatch()
+    try:
+        yield pin_from_env(os.environ, mp)
+    finally:
+        mp.undo()
 
 
 @pytest.fixture(scope="session")
