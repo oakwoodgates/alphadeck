@@ -135,7 +135,8 @@ ticker or a listing "at the opening of trading" dates nothing (CD's, EMAT's). A 
 weekend or an NYSE holiday, ``domain.trading_days``) is read as a legal one: "effective at 11:59 p.m., Eastern Time,
 on April 27, 2025 and began trading on a post-split basis" (SKYA's charter 8-K; a Sunday). Only when no trading
 sentence carries a date does a LEGAL sentence
-about the split ("effective as of", "Effective June 12, 2025", "will take effect on") supply one — kind
+about the split ("effective as of", "Effective June 12, 2025", "will take effect on" — and, since 2026-11-27, "will
+go into effect on" in any tense: BLRX's investor letter) supply one — kind
 ``legal``, which may be the session before the first one (a 5:00 p.m. effective time). Two different dates of
 the winning kind → no date (named in ``date_note``); the ratio still stands. A filing that states both reads
 its trading date: ENHA's 8.01 8-K says "effective at 12:01 a.m. Central Time on October 29, 2026" AND "expected
@@ -518,9 +519,12 @@ _TRADING_START = re.compile(r"\b(?:begin|commence|start)s?\s+(?:to\s+)?trad(?:e|
 # "effective as of 5:00 p.m. … on …", "will take effect on …", "Effective June 12, 2025, … filed …" (ERNA),
 # "… be consolidated into one (1) class A ordinary share …, with effect from 27 July 2026 (the “Effective Date”)"
 # (ZNB's 6-K of 2026-08-25 — the British phrasing; without it the first date after "Effective Date" was read, a
-# board resolution's 1 July 2026)
+# board resolution's 1 July 2026), "This is equivalent to a 1-for-40 reverse stock split, and will go into effect on
+# January 30, 2025." (BLRX's investor letter, 6-K of 2025-01-21; no date until 2026-11-27): the "go" family in every
+# tense (go / goes / going / went / gone into effect), as broad as "take(s) / took effect"
 _LEGAL_CUE = re.compile(
-    r"\beffective\b|takes?\s+effect|took\s+effect|with\s+effect\s+from|effected\b[^.;]{0,120}?\bon\b",
+    r"\beffective\b|takes?\s+effect|took\s+effect|with\s+effect\s+from|effected\b[^.;]{0,120}?\bon\b|"
+    r"\b(?:go|goes|going|went|gone)\s+into\s+effect\b",
     re.I,
 )
 

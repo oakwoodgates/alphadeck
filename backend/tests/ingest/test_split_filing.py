@@ -2591,14 +2591,19 @@ def test_a_sentence_equating_the_ads_change_to_a_split_reads_the_ads_split():
     Depositary Shares to ordinary shares, from 15 ordinary shares per ADS to 600 ordinary shares per ADS. This is
     equivalent to a 1-for-40 reverse stock split, and will go into effect on January 30, 2025." The second sentence
     is the ADS change itself, never a split of the shares beside it (prod lists 40:1, first session 2025-01-30).
-    Until this rule: ``ADS_RATIO_CHANGE``. Its date is not read here, on prod's code either ("will go into effect" is
-    no date cue); its sibling 6-K of 2025-01-17 dates it (``test_a_sentence_on_what_the_shares_trade_as_dates_...``).
+    Until this rule: ``ADS_RATIO_CHANGE``. Since 2026-11-27 its date is read too: "will go into effect on" is a legal
+    cue (until then no date cue, so no date; its sibling 6-K of 2025-01-17 dates it as a first session,
+    ``test_a_sentence_on_what_the_shares_trade_as_dates_the_split``).
     """
     screen, x = _as_prod_reads("0001178913-25-000177.txt", "6-K", None)
     assert screen == SCREEN_RESTATED
     assert x.abstain_reason is None, x.abstain_reason
     assert (x.ratio_from, x.ratio_to) == (Decimal(40), Decimal(1))
-    assert "This is equivalent to a 1-for-40 reverse stock split" in x.passage
+    assert (x.effective_date, x.date_kind) == (date(2025, 1, 30), "legal")
+    assert (
+        "This is equivalent to a 1-for-40 reverse stock split, and will go into effect on January 30, 2025"
+        in x.passage
+    )
 
 
 def test_an_ads_ratio_change_of_the_splits_own_factor_reads_the_split():
@@ -2691,3 +2696,92 @@ def test_an_ads_ratio_change_of_another_or_no_factor_still_abstains(text):
     x = _x(text)
     assert not x.has_ratio, (x.ratio_from, x.ratio_to)
     assert x.abstain_reason == split_filing.ADS_RATIO_CHANGE
+
+
+# --- 2026-11-27: "go into effect" is a legal cue (framework completion, F3a) ---------------------------------------
+#
+# BioLineRx's investor letter (above) dates its 1-for-40 only by "will go into effect on January 30, 2025", no date
+# cue until 2026-11-27. The "go" family (go / goes / going / went / gone into effect) is now a legal cue, as "take(s)
+# / took effect" is: like every legal cue it dates only a sentence about the split, a trading date still wins, and a
+# date it reaches long before the filing is a past split's.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The 1-for-10 reverse stock split will go into effect on March 2, 2026.",
+        "The 1-for-10 reverse stock split goes into effect at 12:01 a.m. Eastern Time on March 2, 2026.",
+        "The 1-for-10 reverse stock split is going into effect on March 2, 2026.",
+        "The 1-for-10 reverse stock split went into effect on March 2, 2026.",
+        "The 1-for-10 reverse stock split has gone into effect as of March 2, 2026.",
+    ],
+    ids=["will-go", "goes-at-a-time", "going", "went", "gone"],
+)
+def test_go_into_effect_dates_the_split_as_a_legal_date(text):
+    x = _x(text)
+    assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(10), Decimal(1), None)
+    assert (x.effective_date, x.date_kind) == (date(2026, 3, 2), "legal")
+    assert "into effect" in x.passage
+
+
+def test_a_split_that_went_into_effect_days_before_a_6k_is_dated_by_it():
+    """Read as the nightly reads a 6-K (the restatement screen): a date two days before the filing is current."""
+    ref = _ref("t", "6-K", "2026-03-04")
+    raw = "The 1-for-10 reverse share split went into effect on March 2, 2026."
+    x = extract_for([FilingDocument(type="6-K", filename="t.htm", raw=raw)], ref)
+    assert screen_of(ref) == SCREEN_RESTATED
+    assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(10), Decimal(1), None)
+    assert (x.effective_date, x.date_kind) == (date(2026, 3, 2), "legal")
+
+
+@pytest.mark.parametrize(
+    ("form", "items", "screen"),
+    [("8-K", ("8.01",), SCREEN_CATCH_ALL), ("6-K", None, SCREEN_RESTATED)],
+    ids=["catch-all-8k", "6k"],
+)
+def test_a_split_that_went_into_effect_long_before_the_filing_is_past(form, items, screen):
+    """A filing of 2026-06-01 restating "the 1-for-8 reverse stock split went into effect on May 2, 2025": a past
+    split's ratio either way, and since 2026-11-27 the past date is named (until then the sentence carried no date
+    cue: "no first-session or effective date stated")."""
+    ref = _ref("t", form, "2026-06-01", items)
+    raw = "As previously reported, the Company's 1-for-8 reverse stock split went into effect on May 2, 2025."
+    x = extract_for([FilingDocument(type=form, filename="t.htm", raw=raw)], ref)
+    assert screen_of(ref) == screen
+    assert not x.has_ratio and x.abstain_reason == split_filing.PAST_RATIO_ONLY
+    assert x.mentions == ("historical:1-for-8",)
+    assert (
+        x.date_note == "only a past date stated (2025-05-02), more than 90 days before the filing"
+    )
+
+
+def test_a_trading_sentence_still_wins_over_go_into_effect():
+    """The ENHA shape (``test_enha_reads_its_first_trading_session_not_its_legal_time``): the legal moment and the
+    first session at the market open; the trading date stands. PINNED (reads so before and after).
+    """
+    x = _x(
+        "The 1-for-10 reverse stock split will go into effect at 5:00 p.m. Eastern Time on February 27, 2026. "
+        "The Common Stock will begin trading on a split-adjusted basis at the market open on March 2, 2026."
+    )
+    assert (x.ratio_from, x.ratio_to) == (Decimal(10), Decimal(1))
+    assert (x.effective_date, x.date_kind) == (date(2026, 3, 2), "trading")
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        "The license agreement went into effect as of January 1, 2022.",
+        "The amended and restated bylaws will go into effect on March 2, 2026.",
+        "The 2026 Equity Incentive Plan went into effect on March 2, 2026.",
+    ],
+    ids=["agreement", "bylaws", "plan"],
+)
+def test_go_into_effect_in_a_sentence_about_something_else_dates_nothing(other):
+    """The cue dates only a sentence about the split, as every legal cue: a licence agreement, the bylaws or a
+    plan that goes into effect dates nothing. PINNED (reads so before and after). Galapagos' 6-K
+    0001193125-25-067161 (no ratio) shows the edge: its licence agreement "went into effect as of January 1,
+    2022" in a run-on sentence that also names an "equal cost split", so the date reaches its note as a past one.
+    """
+    x = _x("The Board approved a 1-for-10 reverse stock split. " + other)
+    assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(10), Decimal(1), None)
+    assert (x.effective_date, x.date_kind) == (None, None)
+    assert x.date_note == "no first-session or effective date stated"
