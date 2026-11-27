@@ -4214,6 +4214,46 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Add Split",
+        "description": "ADD a split NO source lists, with the steward's cited values (framework completion F2-1): ``ratio_from`` ->\n``ratio_to``, ``first_session`` and the ``cited_url`` of the document that states them become a new split on the\nlist (``action`` ``add``, ``value_source`` ``steward``; ``confirmed``, or ``announced`` while the first session is\nahead). It starts from exactly one signal: ``from_accession`` (a filing on the current unplaced list, its\nevidence copied by the server) or ``from_jump`` (a jump on the current \"is this real?\" list). The server reads the\nstored tape's step at ``first_session`` as first served and refuses a factor outside the tape tolerance, or a\nsession with no bar, unless ``override_tape`` (stored as ``tape_override``). Undo with ``POST\n/admin/splits/{version_id}/revoke`` (``/reject`` while announced). **404** unknown security, **409** the filing\nor jump is not listed or was dismissed / a split is already keyed or listed on that session / a live split of the\nsame ratio is listed within 45 days / the tape does not support the values, **422** not exactly one signal, a bad\nratio, date, URL or accession.",
+        "operationId": "add_split_admin_splits_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminSplitAddIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitListEntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/admin/splits/{version_id}/confirm": {
@@ -4287,6 +4327,100 @@
               "type": "string",
               "format": "uuid",
               "title": "Version Id"
+            }
+          },
+          {
+            "name": "first_session",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "the first session at the new price",
+              "title": "First Session"
+            },
+            "description": "the first session at the new price"
+          },
+          {
+            "name": "ratio_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,6}(\\.\\d{1,10})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "old shares (decimal text)",
+              "title": "Ratio From"
+            },
+            "description": "old shares (decimal text)"
+          },
+          {
+            "name": "ratio_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,6}(\\.\\d{1,10})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "new shares (decimal text)",
+              "title": "Ratio To"
+            },
+            "description": "new shares (decimal text)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitTapeStepOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/securities/{security_id}/tape-step": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Security Tape Step",
+        "description": "The stored tape's STEP at ``first_session`` for a security with no split listed there yet, each bar as first\nserved, beside the factor ``ratio_from`` -> ``ratio_to`` the steward entered (both or neither): what ``POST\n/admin/splits`` checks, the same reading as ``GET /admin/splits/{version_id}/tape-step``. **404** unknown\nsecurity, **422** one side of the ratio only. Read-only.",
+        "operationId": "security_tape_step_admin_splits_securities__security_id__tape_step_get",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
             }
           },
           {
@@ -12731,6 +12865,92 @@
         "title": "AdminRunsOut",
         "description": "The run history \u2014 parsed run-of-record artifacts, newest first. An unreadable artifact is\nSKIPPED fail-open (a corrupt night never blanks the history)."
       },
+      "AdminSplitAddIn": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ratio_from": {
+            "type": "string",
+            "pattern": "^\\d{1,6}(\\.\\d{1,10})?$",
+            "title": "Ratio From"
+          },
+          "ratio_to": {
+            "type": "string",
+            "pattern": "^\\d{1,6}(\\.\\d{1,10})?$",
+            "title": "Ratio To"
+          },
+          "first_session": {
+            "type": "string",
+            "format": "date",
+            "title": "First Session"
+          },
+          "cited_url": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Cited Url"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "override_tape": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Tape"
+          },
+          "from_accession": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{10}-\\d{2}-\\d{6}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Accession"
+          },
+          "from_jump": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Jump"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ratio_from",
+          "ratio_to",
+          "first_session",
+          "cited_url"
+        ],
+        "title": "AdminSplitAddIn",
+        "description": "A split NO source lists, added by the steward (framework completion F2-1) with cited values: ``security_id``,\n``ratio_from`` old shares -> ``ratio_to`` new shares (decimal text, above 0 and at most 100,000, never equal),\n``first_session`` = the first session at the new price, ``cited_url`` = the https URL of the document that\nstates them (required), ``note`` (optional). It starts from exactly one signal: ``from_accession`` = an SEC\nfiling on the current unplaced list (its evidence is read by the server, never sent), or ``from_jump`` = the\nstep date of a split-shaped jump on the current \"is this real?\" list. ``override_tape`` = add although the stored\ntape's step at that session sits outside the tolerance of the entered factor, or no bar can be read (the server\nchecks it either way: ``GET /admin/splits/securities/{security_id}/tape-step``)."
+      },
       "AdminSplitConfirmValuesIn": {
         "properties": {
           "ratio_from": {
@@ -13262,7 +13482,7 @@
           "valid_from"
         ],
         "title": "AdminSplitListEntryOut",
-        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the\ndocument that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both\n``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on\nthe list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before\nit adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or\nnone dated before the first session)."
+        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3; ``action`` ``add``: a\nsplit the steward added that no source lists): ``cited_url`` is the document that states them, ``tape_override``\nwhether the steward confirmed or added past the stored tape's step (both\n``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on\nthe list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before\nit adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or\nnone dated before the first session)."
       },
       "AdminSplitListOptionOut": {
         "properties": {
