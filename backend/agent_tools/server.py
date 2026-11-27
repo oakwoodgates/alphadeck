@@ -1138,22 +1138,26 @@ def build_server(
         "version with both sources' evidence side by side (the SEC filing's located passage and Massive.com's "
         "row), bucketed as the panel shows them: needs_review (one source could not settle it: the loud list), "
         "announced (both agree, the first session still ahead), confirmed, set_aside (rejected or revoked, "
-        "kept), plus the split-shaped price jumps no source listed. The default reply is the counts and the "
-        "needs-review rows; section=needs_review, announced, confirmed, set_aside or jumps pages one bucket; "
-        "section=one with t reads one ticker's every entry and jump in full, each needs-review or announced "
-        "entry with tape: the stored closes and volumes around its first session, each bar as first served "
-        "beside its newest close. Every needs-review row carries "
+        "kept), plus the split-shaped price jumps no source listed and the unplaced SEC filings about a split "
+        "the list could not place (newest filing first, each with listed_near: the split on the list it most "
+        "likely concerns, with cites_filing and same_ratio). The default reply is the counts (unplaced, "
+        "unplaced_dismissed and unplaced_on_list among them), the needs-review rows, the first jumps and the "
+        "first 5 unplaced filings (dropped first when the reply is too large); section=needs_review, announced, "
+        "confirmed, set_aside or jumps pages one bucket; section=unplaced pages the unplaced filings, then the "
+        "ones the steward dismissed; section=one with t reads one ticker's every entry, jump and unplaced "
+        "filing in full, each needs-review or announced entry with tape: the stored closes and volumes around "
+        "its first session, each bar as first served beside its newest close. Every needs-review row carries "
         "review_reason (sources_differ, extractor_abstained or one_source) and counts.needs_review_by_reason "
         "counts them; reason narrows section=needs_review to one. polygon.ticker is the vendor's symbol at the "
-        "split; ticker is the master's current one (they differ after a rename). Reads only: a split's values "
-        "change only on the panel. Steward scope.",
+        "split; ticker is the master's current one (they differ after a rename). Reads only: a split's values, "
+        "an added split and a dismissal change only on the panel. Steward scope.",
         scope=STEWARD,
     )
     async def get_splits(
         section: Annotated[
             str | None,
             Field(
-                description="needs_review, announced, confirmed, set_aside, jumps or one (needs t).",
+                description="needs_review, announced, confirmed, set_aside, jumps, unplaced or one (needs t).",
                 max_length=40,
             ),
         ] = None,
