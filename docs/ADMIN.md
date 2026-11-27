@@ -154,9 +154,9 @@ The split list, from Massive.com and each company's SEC filing
 
 - **Needs review** (loud, the only loud list): a split one source cannot settle, the SEC passage beside
   Massive.com's row: confirm a source's values, or reject. When neither is right (POM: 10 ADSs -> 3 shares),
-  confirm cited values: ratio, first session, required https URL, optional note. Unless overridden,
-  the server refuses a factor outside the tape tolerance of that session's stored step (first-served bars, never a
-  Massive.com fill), or a session with no bar; the version records the URL and any override.
+  confirm (or, for a jump or filing below, add) cited values: ratio, first session, required https URL, optional
+  note. Unless overridden, the server refuses a factor outside the tape tolerance of that session's stored step
+  (first-served, never a Massive.com fill), or no bar; the version records URL and override.
 - **Auto-confirmed, announced and set aside** (quiet; set-aside ones grayed). Revoke any confirmed split; Restore
   undoes a reject or revoke. An automatic set-aside (a distribution, [FILINGS](FILINGS.md)) restores to
   review; no run touches it after.
@@ -164,9 +164,9 @@ The split list, from Massive.com and each company's SEC filing
 - **Unplaced split filings** (quiet): the nightly's or long-window check's, each beside its nearest listed split.
   Dismiss a jump (a real move) or a filing (not a split): display only, undoable.
 
-Every action appends one version naming the steward and the version acted on; a stale card is refused (409).
+Every action appends one version naming the steward and the version acted on; stale cards get 409.
 A confirm lifts the split-night hold next night; the price leg and repair tool keep stored tapes on the list's
-scale. Nothing here sends a push.
+scale. Nothing here pushes.
 
 ### Data flags
 
@@ -232,7 +232,7 @@ list (`GET /admin/backups`) and the last snapshot's age are reads. Schedule, ret
 
 ## Contracts
 
-Wire shapes: `backend/openapi.json`. Every route below is steward-only; twelve sit under `/admin/splits` and twelve
+Wire shapes: `backend/openapi.json`. Every route below is steward-only; fourteen sit under `/admin/splits` and twelve
 under `/admin/platform-values`.
 
 | Route | Panel | What it does |
@@ -254,8 +254,8 @@ under `/admin/platform-values`.
 | `POST /admin/insider-holds/{hold_id}/approve`, `/dismiss`; `POST /admin/insider-holds/decisions/{decision_id}/revoke` | Held insider rows | date, dismiss, undo |
 | `GET /admin/splits` | Splits | the list, unlisted jumps, unplaced filings |
 | `POST /admin/splits/{version_id}/confirm`, `/reject`, `/revoke`, `/restore` | Splits | decide a split; undo |
-| `GET /admin/splits/{version_id}/tape-step`, `/tape` | Splits | a session's step, beside an entered ratio; the bars around it |
-| `POST /admin/splits/{version_id}/confirm-values` | Splits | confirm with cited values; undo is revoke |
+| `GET /admin/splits/{version_id}/tape-step`, `/tape`, `/securities/{security_id}/tape-step` | Splits | a session's step beside an entered ratio; nearby bars |
+| `POST /admin/splits/{version_id}/confirm-values`, `POST /admin/splits` | Splits | confirm or add with cited values; revoke undoes |
 | `POST /admin/splits/jumps/{security_id}/{step_date}/dismiss`, `/unplaced/{security_id}/{accession}/dismiss`, `/jumps/dismissals/{dismissal_id}/undo`, `/unplaced/dismissals/{dismissal_id}/undo` | Splits | dismiss; undo |
 | `GET /admin/onboarding`, `POST /admin/onboarding/{security_id}/retry` | Onboarding | the queue; retry a failed name |
 | `GET /admin/platform-values/queue` | Shared facts | the queue |

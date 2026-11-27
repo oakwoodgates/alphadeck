@@ -2302,7 +2302,21 @@ export interface paths {
          */
         get: operations["list_splits_admin_splits_get"];
         put?: never;
-        post?: never;
+        /**
+         * Add Split
+         * @description ADD a split NO source lists, with the steward's cited values (framework completion F2-1): ``ratio_from`` ->
+         *     ``ratio_to``, ``first_session`` and the ``cited_url`` of the document that states them become a new split on the
+         *     list (``action`` ``add``, ``value_source`` ``steward``; ``confirmed``, or ``announced`` while the first session is
+         *     ahead). It starts from exactly one signal: ``from_accession`` (a filing on the current unplaced list, its
+         *     evidence copied by the server) or ``from_jump`` (a jump on the current "is this real?" list). The server reads the
+         *     stored tape's step at ``first_session`` as first served and refuses a factor outside the tape tolerance, or a
+         *     session with no bar, unless ``override_tape`` (stored as ``tape_override``). Undo with ``POST
+         *     /admin/splits/{version_id}/revoke`` (``/reject`` while announced). **404** unknown security, **409** the filing
+         *     or jump is not listed or was dismissed / a split is already keyed or listed on that session / a live split of the
+         *     same ratio is listed within 45 days / the tape does not support the values, **422** not exactly one signal, a bad
+         *     ratio, date, URL or accession.
+         */
+        post: operations["add_split_admin_splits_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2347,6 +2361,29 @@ export interface paths {
          *     .../confirm-values`` checks. **404** unknown version, **422** one side of the ratio only. Read-only.
          */
         get: operations["split_tape_step_admin_splits__version_id__tape_step_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/securities/{security_id}/tape-step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Security Tape Step
+         * @description The stored tape's STEP at ``first_session`` for a security with no split listed there yet, each bar as first
+         *     served, beside the factor ``ratio_from`` -> ``ratio_to`` the steward entered (both or neither): what ``POST
+         *     /admin/splits`` checks, the same reading as ``GET /admin/splits/{version_id}/tape-step``. **404** unknown
+         *     security, **422** one side of the ratio only. Read-only.
+         */
+        get: operations["security_tape_step_admin_splits_securities__security_id__tape_step_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6205,6 +6242,43 @@ export interface components {
             runs: components["schemas"]["AdminRunOut"][];
         };
         /**
+         * AdminSplitAddIn
+         * @description A split NO source lists, added by the steward (framework completion F2-1) with cited values: ``security_id``,
+         *     ``ratio_from`` old shares -> ``ratio_to`` new shares (decimal text, above 0 and at most 100,000, never equal),
+         *     ``first_session`` = the first session at the new price, ``cited_url`` = the https URL of the document that
+         *     states them (required), ``note`` (optional). It starts from exactly one signal: ``from_accession`` = an SEC
+         *     filing on the current unplaced list (its evidence is read by the server, never sent), or ``from_jump`` = the
+         *     step date of a split-shaped jump on the current "is this real?" list. ``override_tape`` = add although the stored
+         *     tape's step at that session sits outside the tolerance of the entered factor, or no bar can be read (the server
+         *     checks it either way: ``GET /admin/splits/securities/{security_id}/tape-step``).
+         */
+        AdminSplitAddIn: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ratio From */
+            ratio_from: string;
+            /** Ratio To */
+            ratio_to: string;
+            /**
+             * First Session
+             * Format: date
+             */
+            first_session: string;
+            /** Cited Url */
+            cited_url: string;
+            /** Note */
+            note?: string | null;
+            /** Override Tape */
+            override_tape?: boolean | null;
+            /** From Accession */
+            from_accession?: string | null;
+            /** From Jump */
+            from_jump?: string | null;
+        };
+        /**
          * AdminSplitConfirmValuesIn
          * @description The steward's OWN values for a needs-review split (decision D3): ``ratio_from`` old shares -> ``ratio_to`` new
          *     shares (decimal text, above 0 and at most 100,000, never equal), ``first_session`` = the first session at the
@@ -6361,8 +6435,9 @@ export interface components {
          *     Massive.com", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
          *     ``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state
          *     different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
-         *     both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the
-         *     document that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both
+         *     both a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3; ``action`` ``add``: a
+         *     split the steward added that no source lists): ``cited_url`` is the document that states them, ``tape_override``
+         *     whether the steward confirmed or added past the stored tape's step (both
          *     ``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on
          *     the list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before
          *     it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
@@ -24836,6 +24911,39 @@ export interface operations {
             };
         };
     };
+    add_split_admin_splits_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSplitAddIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitListEntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     confirm_split_admin_splits__version_id__confirm_post: {
         parameters: {
             query?: never;
@@ -24884,6 +24992,44 @@ export interface operations {
             header?: never;
             path: {
                 version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitTapeStepOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    security_tape_step_admin_splits_securities__security_id__tape_step_get: {
+        parameters: {
+            query: {
+                /** @description the first session at the new price */
+                first_session: string;
+                /** @description old shares (decimal text) */
+                ratio_from?: string | null;
+                /** @description new shares (decimal text) */
+                ratio_to?: string | null;
+            };
+            header?: never;
+            path: {
+                security_id: string;
             };
             cookie?: never;
         };
