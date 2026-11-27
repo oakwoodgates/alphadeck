@@ -8,7 +8,11 @@ operator decide what the split list holds.
 split are read (``relevant_documents``): the form's own document (8-K / 6-K / 1-A — a 1-A's offering circular
 is typed ``PART II AND III``) and its press-release exhibits (``EX-99.x``). Charter exhibits (EX-3.x) and the
 graphics / XBRL blobs are skipped — a certificate of amendment restates the ratio at best, and at worst
-carries an EARLIER amendment's.
+carries an EARLIER amendment's. Since 2026-11-26 so is an exhibit the form's own document says is ANOTHER
+ISSUER's release — "<name> (<exchange>: <ticker>), a publicly traded / listed subsidiary / affiliate of" the filer —
+named by its exhibit number, else the exhibit whose lead names that ticker first: ANTA's 6-K of 2026-04-30 says
+"Aurelion, Inc. (Nasdaq: AURE), a publicly traded subsidiary of Antalpha Platform Holding Company, issued a press
+release …, incorporated by reference as Exhibit 99.1", and Aurelion's own 1-for-10 read as ANTA's.
 
 **Which filings** is the caller's (``pipeline/backfill_splits.py``): 8-Ks filed under Item 3.03 / 5.03 (the
 charter amendment) and — since 2026-10-23 — Item 8.01 / 7.01 (a split announced with no charter amendment: one
@@ -58,7 +62,11 @@ ratio change — each word in its share sense (``_SPLIT_CUE``, since 2026-11-26)
 "the combined company", "reverse osmosis" or "tectonic subdivisions"; a "business combination" is a merger, not
 shares combined. "1-for-1" (a share exchange) is not a split. An ADS RATIO CHANGE counts as a split of the ADS —
 "the same effect as a one-for-thirty reverse ADS split" (NIPG) — because it moves the ADS price exactly like one,
-and Massive.com lists it as one.
+and Massive.com lists it as one. Not BESIDE A SPLIT OF THE SHARES THEMSELVES (since 2026-11-26, ``ADS_RATIO_CHANGE``):
+the listed ADS then moves by its own factor, never the shares' ratio the filing states — OPRA's AGM notice
+consolidates "every two (2) … ordinary shares … into one (1)" and changes "the ADS ratio … from one (1) ADS
+representing two (2) ordinary shares to … one (1) ADS representing one (1) ordinary share" (the ADS's price does not
+move) — so the filing abstains.
 
 **What does NOT count as the split's ratio** — the refinement of "more than one distinct ratio abstains" that
 the real filings forced (named so the rule stays checkable):
@@ -104,7 +112,12 @@ only a range, only a past split, two different ratios, a word and its digit rest
 direction stated. It never picks between two values. A filing that ENDS its ADR program (``ADS_TERMINATION``)
 always abstains: the ADS's price moves by the exchange's factor, not the ordinary shares' ratio it states (POM:
 "every ten (10) ordinary shares … consolidated into one (1)", while "each holder of ten (10) ADSs will receive
-three (3)" shares).
+three (3)" shares) — and so, since 2026-11-26, does one that CHANGES ITS ADS RATIO beside a split of the shares
+(``ADS_RATIO_CHANGE``, above), and one whose every ratio is a split made FOR THE IPO (``PRE_LISTING``): a ratio
+sentence saying it was made "in connection with the IPO" / "initial public offering", or naming an "IPO
+Recapitalization" — FRVO's earnings 8-K restates "the 0.7194 -for-1 reverse stock split effected on May 14, 2026 in
+connection with the Company's IPO" (the day it listed), BETA's charter 8-K its "IPO Recapitalization"'s
+6.3811681-for-1. It came before any public price: no listed price moves by it.
 
 **The date** is the first session at the new price. A TRADING sentence (one about trading, carrying a cue
 such as "split-adjusted basis", "post-consolidation basis", "market open", "opening of trading",
@@ -656,6 +669,89 @@ _MANDATORY_EXCHANGE = re.compile(r"\bMandatory\s+Exchange\b")
 _ADS_MENTION = re.compile(r"\bADSs?\b|\bADRs?\b|\bAmerican\s+Depositary\b", re.I)
 _CONDITIONAL = re.compile(r"\b(?:if|may|might|could|whether|in\s+the\s+event)\b", re.I)
 
+# An ADS RATIO CHANGE BESIDE A SPLIT OF THE SHARES (2026-11-26): the ordinary shares are consolidated (or split) AND
+# the ADS-to-share ratio changes, so the listed ADS moves by its OWN factor (the old ADS's shares × the shares' ratio ÷
+# the new ADS's shares), never the shares' ratio the filing states: OPRA's AGM notice 6-K of 2024-11-04 ("every two
+# (2) … ordinary shares … consolidated into one (1)" beside "a change in the ADS ratio … from one (1) ADS representing
+# two (2) ordinary shares to … one (1) ADS representing one (1) ordinary share": the ADS keeps its price), MOB's of
+# 2025-09-17 (275 to 1, and "each ADS will represent one Share, instead of … (275) pre-Consolidation Shares"), AZUL's
+# of 2026-04-15 (150,000 to 1, the ADS from 500,000 old shares to two new: holders "receive 0.666666 of a new ADS for
+# every one (1) existing ADS", a 5-for-3 forward split of the ADS read as a reverse one). Such a filing abstains (D1;
+# the operator reads the ADS's factor from cited values). An ADS ratio change with NO split of the shares beside it is
+# the ADS's own split (NIPG, SCAG, NVA, EMBJ) and reads as before — so does a filing that keeps the ratio
+# ("unchanged", "will continue to represent") or says the change leaves the underlying shares untouched ("no impact on
+# … underlying ordinary shares", "no ordinary shares will be issued or cancelled"). Only a sentence that states the
+# change counts, never one that supposes it (``_CONDITIONAL``); "a split of the shares" is a sentence with no ADS in
+# it (and no ratio change) that names one in the share sense, or holds a ratio the filing reads.
+ADS_RATIO_CHANGE = (
+    "ADS ratio change beside a share split: the ADS's factor is not the shares' ratio"
+    " — confirm it with cited values"
+)
+_ADS_RATIO_WORDS = re.compile(
+    r"\b(?:ADSs?|ADRs?)[\s-]+(?:to[\s-]+(?:[\w-]+[\s-]+){0,2}?shares?[\s-]+)?ratio\b|"
+    rf"\bratio\s+(?:of|between)\s+(?:its\s+|the\s+|our\s+)?{_ADS_WORD}\s+(?:to|and)\b|"
+    rf"\bratio\s+between\s+(?:[\w-]+\s+)?shares\s+and\s+{_ADS_WORD}|"
+    rf"\bratio\s+change\s+to\s+(?:its|the|our)\s+(?:sponsored\s+)?{_ADS_WORD}|"
+    rf"\beach\s+(?:outstanding\s+)?{_ADS_WORD}\s+(?:will|shall|would)\s+(?:then\s+|thereafter\s+)?represent\b",
+    re.I,
+)
+# … with a change in the sentence ("ADS Ratio Change" counts: the defined term names one); the passage prefers a
+# sentence whose change is a verb (``_CHANGE_VERB``, never the defined term)
+_RATIO_CHANGED = re.compile(r"\bchang\w*|\badjust\w*|\binstead\s+of\b|\brather\s+than\b", re.I)
+_CHANGE_VERB = re.compile(
+    r"(?<!ratio\s)\bchang(?:e|es|ed|ing)\b|\badjust\w*|\binstead\s+of\b|\brather\s+than\b", re.I
+)
+_RATIO_KEPT = re.compile(
+    r"\bunchanged\b|\bremains?\s+(?:the\s+same|unchanged)\b|\bno\s+change\b|\bnot\s+(?:be\s+)?chang\w*|"
+    r"\bcontinue\s+to\s+represent\b",
+    re.I,
+)
+_SHARES_UNTOUCHED = re.compile(
+    r"\bno\s+(?:effect|impact|change)\s+(?:on|to)\s+(?:the\s+)?(?:number\s+of\s+)?(?:(?:[\w-]+\s+){0,2}?[\w-]+['’]s\s+)?"
+    r"(?:underlying|outstanding)\s+(?:ordinary\s+|common\s+)?shares\b|"
+    r"\bno\s+(?:ordinary|common)\s+shares\s+will\s+be\s+(?:issued|cancell?ed)\b",
+    re.I,
+)
+_RATIO_CHANGE_WORDS = re.compile(r"\bratio\s+change", re.I)
+_SHARE_SPLIT = re.compile(
+    r"\b(?:share|stock)\s+(?:split|consolidat\w*|combination|subdivi\w*)|"
+    rf"{_REVERSE_SENSE}|{_CONSOLIDATION_OF_SHARES}|{_CONSOLIDATION_OF_ISSUED_SHARES}|{_COMBINATION_OF_SHARES}|"
+    rf"{_SUBDIVISION_OF_SHARES}",
+    re.I,
+)
+
+# A split made FOR THE IPO (2026-11-26): a ratio whose sentence says it was made "in connection with the IPO" /
+# "initial public offering" ("… the 0.7194 -for-1 reverse stock split effected on May 14, 2026 in connection with the
+# Company's IPO", FRVO's earnings 8-K of 2026-06-22; it listed that day) or names an "IPO Recapitalization" (BETA's
+# charter 8-K of 2025-11-06: "On November 4, 2025, in connection with the IPO …, the following events occurred: … (iv)
+# a 6.3811681-for-1 forward split …") came before any public price: no listed price moves by it. When every ratio the
+# filing reads is one (the same numbers either way round), it abstains (D2: shown to the steward, not set aside as
+# no news); beside another ratio it reads as before ("more than one ratio"). "In connection with the Merger" is no
+# listing (ORKA's).
+PRE_LISTING = "a split made for the IPO: before any public price, no listed price moves by it"
+_FOR_THE_IPO = re.compile(
+    r"\bin\s+connection\s+with\s+(?:the\s+|its\s+|our\s+|their\s+)?"
+    r"(?:(?:closing|consummation|completion)\s+of\s+(?:the\s+|its\s+|our\s+)?)?(?:[\w-]+['’]s\s+)?"
+    r"(?:IPO|initial\s+public\s+offering)\b|\bIPO\s+Recapitali[sz]ation\b",
+    re.I,
+)
+
+# ANOTHER ISSUER'S RELEASE (2026-11-26): the form's own document says an exhibit is the release of a listed subsidiary
+# or affiliate — "On April 30, 2026, Aurelion, Inc. (Nasdaq: AURE), a publicly traded subsidiary of Antalpha Platform
+# Holding Company, issued a press release …, incorporated by reference as Exhibit 99.1" (ANTA's 6-K): that exhibit is
+# not read (``relevant_documents``). The exhibit is the one the sentence names by number right after it (within
+# ``_EXHIBIT_REACH`` characters: a run-on cover's exhibit index lists the filer's own releases too), else each whose
+# lead (``_LEAD_CHARS``) names that ticker before any other.
+_LISTED_AFFILIATE = re.compile(
+    r"\(\s*(?:[A-Z][A-Za-z]*\s*){1,3}:\s*(?P<ticker>[A-Z][A-Z0-9.-]{0,9})\s*\)\s*,\s*an?\s+"
+    r"(?i:publicly[\s-]+(?:traded|listed)|listed)\s+(?i:(?:majority|wholly)[\s-]+owned\s+)?"
+    r"(?i:subsidiary|affiliate)\s+of\b"
+)
+_EXHIBIT_REF = re.compile(r"\bExhibits?\s+99\.\d+(?:\s*(?:,|and|&)\s*(?:99\.)?\d+)*", re.I)
+_TICKER = re.compile(r"\(\s*(?:[A-Z][A-Za-z]*\s*){1,3}:\s*(?P<ticker>[A-Z][A-Z0-9.-]{0,9})\s*[),]")
+_LEAD_CHARS = 1500
+_EXHIBIT_REACH = 300
+
 # sentence ends that are NOT sentence ends: clock times, corporate suffixes, initials, the usual abbreviations
 _ABBREV = re.compile(
     r"(?:\b[ap]\.m|\bInc|\bCorp|\bLtd|\bCo|\bNo|\bNos|\bU\.S|\bU\.K|\bMr|\bMs|\bMrs|\bDr|\bSt|\bJr|\bSr|\bvs|"
@@ -785,7 +881,48 @@ def relevant_documents(docs: list[FilingDocument], *, wide: bool = False) -> lis
     """
     types = _KEEP_TYPES + WIDE_KEEP_TYPES if wide else _KEEP_TYPES
     keep = [d for d in docs if d.type.upper().startswith(types) or d.type == "HTML"]
-    return keep
+    other = _other_issuers_releases(keep)
+    return [d for i, d in enumerate(keep) if i not in other]
+
+
+def _exhibit_number(doc_type: str) -> int | None:
+    """``EX-99.1`` -> 1 (``EX-99`` alone -> 0); None for any other type."""
+    m = re.match(r"EX-99(?:\.(\d+))?\b", doc_type.strip().upper())
+    if m is None:
+        return None
+    return int(m.group(1) or 0)
+
+
+def _other_issuers_releases(docs: list[FilingDocument]) -> set[int]:
+    """The indexes of the ``EX-99`` exhibits the form's own document says are ANOTHER issuer's release (a listed
+    subsidiary's or affiliate's, ``_LISTED_AFFILIATE``): the exhibits its sentence names by number right after it,
+    else each whose lead names that ticker first."""
+    exhibits = {i: n for i, d in enumerate(docs) if (n := _exhibit_number(d.type)) is not None}
+    if not exhibits:
+        return set()
+    out: set[int] = set()
+    for d in docs:
+        if _exhibit_number(d.type) is not None:
+            continue  # only the form's own document speaks for the filer
+        text = document_text(d.raw).translate(_MATCH_MAP)
+        for s, e in _sentences(text):
+            sent = text[s:e]
+            for m in _LISTED_AFFILIATE.finditer(sent):
+                ref = _EXHIBIT_REF.search(sent, m.end(), m.end() + _EXHIBIT_REACH)
+                named = (
+                    {int(n) for n in re.findall(r"(?:99\.)?(\d+)", ref.group(0).split("99.", 1)[1])}
+                    if ref is not None
+                    else set()
+                )
+                for i, n in exhibits.items():
+                    if named:
+                        if n in named:
+                            out.add(i)
+                        continue
+                    lead = _TICKER.search(document_text(docs[i].raw)[:_LEAD_CHARS])
+                    if lead is not None and lead.group("ticker") == m.group("ticker"):
+                        out.add(i)
+    return out
 
 
 def document_text(raw: str) -> str:
@@ -1371,6 +1508,41 @@ def _ads_termination(docs: list[_Doc]) -> _Part | None:
     return first
 
 
+def _ads_ratio_change(docs: list[_Doc], current: list[_Mention]) -> _Part | None:
+    """Where a filing states an ADS RATIO CHANGE BESIDE A SPLIT OF THE SHARES (``ADS_RATIO_CHANGE``): its first
+    sentence stating the change with a verb, else its first stating it at all — when some sentence with no ADS in it
+    (and no ratio change) names a split of the shares (``_SHARE_SPLIT``) or holds a ratio read (``current``), and no
+    sentence says the underlying shares are untouched. None otherwise."""
+    stated: list[tuple[bool, _Part]] = []
+    shares = False
+    for di, d in enumerate(docs):
+        for s, e in d.spans:
+            sent = d.match[s:e]
+            if _SHARES_UNTOUCHED.search(sent):
+                return None
+            if _CONDITIONAL.search(sent):
+                continue
+            m = _ADS_RATIO_WORDS.search(sent)
+            if m and _RATIO_CHANGED.search(sent) and not _RATIO_KEPT.search(sent):
+                stated.append((bool(_CHANGE_VERB.search(sent)), (di, (s, e), s + m.start())))
+            elif (
+                not _ADS_MENTION.search(sent)
+                and not _RATIO_CHANGE_WORDS.search(sent)
+                and _SHARE_SPLIT.search(sent)
+            ):
+                shares = True
+    if not stated:
+        return None
+    if not shares:
+        shares = any(
+            not _ADS_MENTION.search(sent) and not _RATIO_CHANGE_WORDS.search(sent)
+            for sent in (docs[m.doc].match[m.sentence[0] : m.sentence[1]] for m in current)
+        )
+    if not shares:
+        return None
+    return next((p for verb, p in stated if verb), stated[0][1])
+
+
 def _states_done(clause: str) -> bool:
     """Does the clause state a split as DONE (``_DONE``; never "to be effected", ``_NOT_YET_BEFORE``, and never in
     a clause about what WILL happen, ``_FUTURE``)?"""
@@ -1553,6 +1725,16 @@ def _read(
     conflicts = [m for m in mentions if m.kind == "conflict"]
     operative = [m for m in mentions if m.kind == "operative"]
     undirected = [m for m in mentions if m.kind == "undirected"]
+    # a split made for the IPO (``PRE_LISTING``): only when EVERY ratio read is one (the same numbers either way round)
+    for_ipo = [
+        m
+        for m in (*operative, *undirected)
+        if _FOR_THE_IPO.search(docs[m.doc].match[m.sentence[0] : m.sentence[1]])
+    ]
+    ipo_pairs = {frozenset((m.old, m.new)) for m in for_ipo}
+    pre_listing = bool(for_ipo) and all(
+        frozenset((m.old, m.new)) in ipo_pairs for m in (*operative, *undirected)
+    )
     by_ratio: dict[Fraction, list[_Mention]] = {}
     for m in operative:
         k = m.key()
@@ -1589,11 +1771,20 @@ def _read(
     if ended is not None:
         # the ADS's price factor is the exchange's, never the ordinary shares' ratio read here (POM)
         return abstain(ADS_TERMINATION, [*distinct.values(), *conflicts, *undirected], first=ended)
+    current = [*operative, *undirected, *conflicts]
+    changed = _ads_ratio_change(docs, current) if current else None
+    if changed is not None:
+        # the ADS moves by its own factor, never the shares' ratio read here (OPRA, MOB, AZUL)
+        return abstain(
+            ADS_RATIO_CHANGE, [*distinct.values(), *conflicts, *undirected], first=changed
+        )
     if conflicts:
         return abstain(
             "a ratio's words and its digits disagree: " + "; ".join(m.raw for m in conflicts[:3]),
             conflicts,
         )
+    if pre_listing:
+        return abstain(PRE_LISTING, for_ipo)  # before any public price (BETA, FRVO)
     if len(distinct) > 1:
         return abstain(
             "more than one ratio stated: "

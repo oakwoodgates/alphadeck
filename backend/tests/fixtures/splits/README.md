@@ -194,3 +194,18 @@ pre-change extractor each reproduced the reading prod's 800-day check planned
 | 0001628280-26-048496 | CYCU | 8-K (3.01, 7.01, 9.01) | a delisting notice: "Because the Company effected a 1-for-30 reverse stock split on October 27, 2025, … trading … is expected to be suspended at the opening of business on July 21, 2026" (read: 1-for-30, first session 2026-07-21; since PR-B a past split's ratio only — its own clause dates it 262 days back — the trimmed file re-checked identical to the full submission on every reading path) |
 | 0001193125-25-000195 | VRM | 8-K (7.01) | a 1-for-5 effective at the end of a Chapter 11 case (no date) beside "trading of the Common Stock formally suspended at the opening of business on December 2, 2024" (read: first session 2024-12-02) |
 | 0001641172-25-007892 | SKYA | 8-K (5.03, 9.01) | a 1-for-300 "effective at 11:59 p.m., Eastern Time, on April 27, 2025 and began trading on a post-split basis" — a Sunday (read: first session 2025-04-27) |
+
+A stated ratio that is not the listed security's (2026-11-26, split-reader misreads PR-C) added six full submissions,
+copied from the same evidence folder and trimmed the same way (each kept document whole and byte-exact; every reading
+of each trimmed file — bare, catch-all, screened, `wide` both ways, with and without the company's confirmed splits —
+CHECKED identical to its full submission's, on the pre-change and the changed extractor). On the pre-change extractor
+each reproduced the reading prod's 800-day check planned (`classification.md`, R1 / R5 / R6):
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0000950170-24-120712 | OPRA | 6-K | an AGM notice: "every two (2) … ordinary shares … consolidated into one (1)" beside "a change in the ADS ratio … from one (1) ADS representing two (2) ordinary shares to … one (1) ADS representing one (1) ordinary share" — the ADS keeps its price (read: 2 -> 1, legal 2024-12-06; now abstains, ADS ratio change) |
+| 0001213900-25-088581 | MOB | 6-K | a meeting notice: the ordinary shares consolidated "on a 275 to 1 basis", and "each ADS will represent one Share, instead of … (275) pre-Consolidation Shares" (read: 275 -> 1, legal 2025-10-10; now abstains, ADS ratio change) |
+| 0001292814-26-002268 | AZUL | 6-K | a 150,000-to-1 reverse split of the B3 common shares; the ADS from 500,000 old shares to two new, holders "receive 0.666666 of a new ADS for every one (1) existing ADS" (read: 1 -> 0.666666, trading 2026-04-20; now abstains, ADS ratio change) |
+| 0001193125-25-269718 | BETA | 8-K (1.01, 3.02, 3.03, 5.02, 5.03, 8.01, 9.01) | "in connection with the IPO": "(iv) a 6.3811681-for-1 forward split of the Company's capital stock … the 'IPO Recapitalization'" (read: 1 -> 6.3811681, legal 2025-11-04; now abstains, pre-listing) |
+| 0001628280-26-044474 | FRVO | 8-K (2.02, 7.01, 9.01) | an earnings release: "the 0.7194 -for-1 reverse stock split effected on May 14, 2026 in connection with the Company's IPO" (read: 1 -> 0.7194, legal 2026-05-14; now abstains, pre-listing) |
+| 0001171843-26-002879 | ANTA | 6-K | "Aurelion, Inc. (Nasdaq: AURE), a publicly traded subsidiary of Antalpha …, issued a press release …, incorporated by reference as Exhibit 99.1" — Aurelion's "1-for-10 share consolidation effective February 19, 2026" (read: 10 -> 1, legal 2026-02-19; now no ratio, the exhibit unread) |

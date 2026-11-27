@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import pytest
 
+from ingest.edgar import split_filing
 from ingest.edgar.split_filing import (
     FilingDocument,
     KnownSplit,
@@ -2180,3 +2181,307 @@ def test_a_split_beside_the_new_ratio_rules_still_reads(
     assert x.abstain_reason is None, x.abstain_reason
     assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
     assert (x.effective_date, x.date_kind, x.date_note) == (date.fromisoformat(when), kind, None)
+
+
+# --- 2026-11-26: a stated ratio that is not the listed security's (split-reader misreads, PR-C) --------------------
+#
+# The same 800-day check planned rows from a ratio the filing states for something other than the listed security: the
+# ordinary shares' consolidation beside an ADS RATIO CHANGE (R1: the ADS moves by its own factor, and OPRA's and MOB's
+# not at all), a split made FOR THE IPO, before any public price (R6), and a listed subsidiary's earnings release filed
+# as an exhibit (R5). Each is a REAL full submission cut to the documents the reader reads (``tests/fixtures/splits/
+# README.md``), read the way the pipeline reads it (``screen_of`` / ``extract_for``: its form and the 8-K items of its
+# SGML header, its filing date; none of the six companies has a split on prod's list). Until 2026-11-26 each read as
+# its comment says (the reading after PR-B).
+
+ADS_SPLIT = [
+    # OPRA's AGM notice (6-K of 2024-11-04): "every two (2) issued and unissued ordinary shares … be consolidated into
+    # one (1)", and "a change in the ADS ratio … from one (1) ADS representing two (2) ordinary shares to … one (1) ADS
+    # representing one (1) ordinary share": the listed ADS keeps its price. Read 2 -> 1, legal 2024-12-06
+    ("0000950170-24-120712.txt", "the ratio between shares and ADSs can then be changed"),
+    # MOB's meeting notice (6-K of 2025-09-17): the unlisted ordinary shares consolidated "on a 275 to 1 basis", and
+    # "each ADS will represent one Share, instead of … (275) pre-Consolidation Shares". Read 275 -> 1, legal 2025-10-10
+    ("0001213900-25-088581.txt", "each ADS will represent one Share"),
+    # AZUL (6-K of 2026-04-15): a 150,000-to-1 reverse split of its B3 common shares, and the ADS from 500,000 old
+    # shares to two new ones, so holders "receive 0.666666 of a new ADS for every one (1) existing ADS" (the ADS's
+    # own 5-for-3 forward split, as an extra 0.666666 ADS). Read 1 -> 0.666666 (a reverse), trading 2026-04-20 (the B3
+    # ex-date)
+    ("0001292814-26-002268.txt", "will change the ADS-to-common share ratio"),
+]
+
+
+@pytest.mark.parametrize(("name", "phrase"), ADS_SPLIT, ids=["OPRA", "MOB", "AZUL"])
+def test_an_ads_ratio_change_beside_a_share_split_abstains(name, phrase):
+    """D1: the ordinary shares' ratio is not the listed ADS's when the ADS ratio changes too — abstain, shown to the
+    steward (an UNPLACED line), never a row."""
+    screen, x = _as_prod_reads(name, "6-K", None)
+    assert screen == SCREEN_RESTATED
+    assert not x.has_ratio, (x.ratio_from, x.ratio_to)
+    assert x.abstain_reason == split_filing.ADS_RATIO_CHANGE
+    assert x.about_a_split
+    assert phrase in x.passage
+
+
+PRE_LISTING_FILINGS = [
+    # BETA's charter 8-K of 2025-11-06: "On November 4, 2025, in connection with the IPO …, the following events
+    # occurred: … (iv) a 6.3811681-for-1 forward split of the Company's capital stock … (collectively with …, the “IPO
+    # Recapitalization”)". Read 1 -> 6.3811681, legal 2025-11-04
+    (
+        "0001193125-25-269718.txt",
+        ("1.01", "3.02", "3.03", "5.02", "5.03", "8.01", "9.01"),
+        SCREEN_RESTATED,
+        "6.3811681-for-1 forward split",
+    ),
+    # FRVO's earnings 8-K of 2026-06-22 (Items 2.02 / 7.01 / 9.01: a catch-all): "(1) Shares for periods presented have
+    # been retroactively adjusted to reflect the 0.7194 -for-1 reverse stock split effected on May 14, 2026 in
+    # connection with the Company's IPO" — the day it listed on Nasdaq. Read 1 -> 0.7194, legal 2026-05-14
+    (
+        "0001628280-26-044474.txt",
+        ("2.02", "7.01", "9.01"),
+        SCREEN_CATCH_ALL,
+        "0.7194 -for-1 reverse stock split effected on May 14, 2026 in connection with the Company",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "items", "want_screen", "phrase"), PRE_LISTING_FILINGS, ids=["BETA", "FRVO"]
+)
+def test_a_split_made_for_the_ipo_is_pre_listing(name, items, want_screen, phrase):
+    """D2: a split made for the IPO came before any public price — no listed price moves by it. An abstain, shown as
+    an UNPLACED line (not set aside as no news)."""
+    screen, x = _as_prod_reads(name, "8-K", items)
+    assert screen == want_screen
+    assert not x.has_ratio, (x.ratio_from, x.ratio_to)
+    assert x.abstain_reason == split_filing.PRE_LISTING
+    assert x.about_a_split
+    assert phrase in x.passage
+
+
+def test_a_listed_subsidiarys_release_filed_as_an_exhibit_is_not_read():
+    """ANTA's 6-K of 2026-04-30 says: "On April 30, 2026, Aurelion, Inc. (Nasdaq: AURE), a publicly traded subsidiary
+    of Antalpha Platform Holding Company, issued a press release …, incorporated by reference as Exhibit 99.1". The
+    exhibit is Aurelion's earnings release, and its "1-for-10 share consolidation effective February 19, 2026" is
+    Aurelion's: read as ANTA's 10 -> 1, legal 2026-02-19."""
+    name = "0001171843-26-002879.txt"
+    screen, x = _as_prod_reads(name, "6-K", None)
+    assert screen == SCREEN_RESTATED
+    assert (x.has_ratio, x.abstain_reason, x.mentions) == (False, "no split ratio found", ())
+    assert [d.type for d in relevant_documents(documents(name))] == ["6-K"]
+
+
+# --- the same rules on direct inputs -----------------------------------------------------------------------------
+
+
+def _doc6k(form: str, *exhibits: str) -> list[FilingDocument]:
+    return [FilingDocument(type="6-K", filename="f6k.htm", raw=form)] + [
+        FilingDocument(type=f"EX-99.{i}", filename=f"ex99-{i}.htm", raw=t)
+        for i, t in enumerate(exhibits, 1)
+    ]
+
+
+def test_a_share_consolidation_with_a_changed_ads_ratio_abstains():
+    x = _x(
+        "Every ten (10) ordinary shares will be consolidated into one (1) ordinary share, effective as of March 2, "
+        "2026. The Company will change the ADS ratio from one (1) ADS representing ten (10) ordinary shares to one "
+        "(1) ADS representing one (1) ordinary share."
+    )
+    assert not x.has_ratio, (x.ratio_from, x.ratio_to)
+    assert x.abstain_reason == split_filing.ADS_RATIO_CHANGE
+    assert (x.effective_date, x.date_kind) == (date(2026, 3, 2), "legal")
+
+
+@pytest.mark.parametrize(
+    ("text", "ratio"),
+    [
+        # the ADS ratio kept: the ADS moves with the shares
+        (
+            "Every ten (10) ordinary shares will be consolidated into one (1) ordinary share, effective as of March "
+            "2, 2026. The ADS ratio will remain unchanged, and each ADS will continue to represent two ordinary "
+            "shares.",
+            ("10", "1"),
+        ),
+        # an ADS ratio change alone is the ADS's own split (NIPG's, SCAG's)
+        (
+            "The Company will change the ADS ratio from one (1) ADS representing two (2) ordinary shares to one (1) "
+            "ADS representing sixty (60) ordinary shares, effective as of March 2, 2026. For ADS holders, the ADS "
+            "ratio change will have the same effect as a one-for-thirty reverse ADS split.",
+            ("30", "1"),
+        ),
+        # … and one that says the shares are untouched, beside a share split the filing restates
+        (
+            "The ADS ratio change will have the same effect as a one-for-thirty reverse ADS split, effective as of "
+            "March 2, 2026. The ADS ratio change will have no impact on the Company's underlying ordinary shares. "
+            "The ordinary shares were consolidated in 2009.",
+            ("30", "1"),
+        ),
+    ],
+    ids=["ads-ratio-kept", "ads-change-alone", "underlying-untouched"],
+)
+def test_an_ads_ratio_change_with_no_share_split_still_reads(text, ratio):
+    """PINNED (each reads so before and after)."""
+    x = _x(text)
+    assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (
+        Decimal(ratio[0]),
+        Decimal(ratio[1]),
+        None,
+    )
+
+
+def test_a_split_made_in_connection_with_the_ipo_abstains():
+    x = _x(
+        "In connection with its initial public offering, the Company effected a 10-for-1 forward stock split, "
+        "effective as of March 2, 2026."
+    )
+    assert not x.has_ratio, (x.ratio_from, x.ratio_to)
+    assert x.abstain_reason == split_filing.PRE_LISTING
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        # another split beside the IPO's: two ratios, as before
+        (
+            "In connection with the IPO, the Company effected a 10-for-1 forward stock split. On March 2, 2026, the "
+            "Company effected a 1-for-20 reverse stock split.",
+            "more than one ratio stated",
+        ),
+        # a merger is no listing (ORKA's)
+        (
+            "In connection with the Merger, the Company effected a 1-for-12 reverse stock split, which became "
+            "effective on March 2, 2026.",
+            None,
+        ),
+    ],
+    ids=["another-split", "merger"],
+)
+def test_a_split_not_made_for_the_ipo_reads_as_before(text, want):
+    """PINNED (each reads so before and after)."""
+    x = _x(text)
+    if want is None:
+        assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(12), Decimal(1), None)
+    else:
+        assert x.abstain_reason.startswith(want)
+
+
+ACME_RELEASE = (
+    "Acme Mining Corp. (NYSE American: ACM) today announced a 1-for-10 reverse stock split, effective as of March 4, "
+    "2026."
+)
+OWN_RELEASE = "The Company approved a 1-for-5 reverse stock split, effective as of March 4, 2026."
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        "On March 2, 2026, Acme Mining Corp. (NYSE American: ACM), a publicly listed affiliate of the Company, issued "
+        "a press release, furnished as Exhibit 99.1 hereto.",
+        # no exhibit number: the release whose lead names the subsidiary's ticker
+        "Acme Mining Corp. (NYSE American: ACM), a publicly traded subsidiary of the Company, issued the press "
+        "release attached to this report.",
+        # a run-on cover: only the exhibit named right after it, never the whole exhibit index
+        "On March 2, 2026, Acme Mining Corp. (NYSE American: ACM), a publicly listed affiliate of the Company, issued "
+        "a press release, furnished as Exhibit 99.1 hereto EXHIBIT INDEX Exhibit No. Description Exhibit 99.1 Press "
+        "release of Acme Mining Corp. Exhibit 99.2 Press release of the Company",
+    ],
+    ids=["exhibit-named", "ticker-named", "exhibit-index"],
+)
+def test_a_listed_affiliates_release_is_not_read_beside_the_filers_own(form):
+    docs = _doc6k(form, ACME_RELEASE, OWN_RELEASE)
+    assert [d.type for d in relevant_documents(docs)] == ["6-K", "EX-99.2"]
+    x = extract_split(docs)
+    assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(5), Decimal(1), None)
+
+
+# Each must still read exactly as it did (the whole filings are in the replay proof:
+# docs/temp/split-reader-misreads-evidence/pr-c/)
+ABTC_FORM = (
+    *STILL_READ[0][6],
+    "As a result of the Mergers, American Bitcoin Holdings LLC (“ABH”), a Delaware limited liability company and a "
+    "wholly owned subsidiary of Hut 8 Corp. (“Hut 8”), holds 585,779,924 shares of Combined Company Class B Common "
+    "Stock, representing approximately 80% of the voting power of the Combined Company’s capital stock.",
+)
+ABTC_RELEASE = (
+    "Abo ut American Bitcoin American Bitcoin Corp., a majority-owned subsidiary of Hut 8 Corp., is a Bitcoin "
+    "accumulation platform focused on building America’s Bitcoin infrastructure platform."
+)
+ORKA_FORM = (
+    "Following consummation of the Merger, the Company effected a 1-for-12 reverse stock split (the “Reverse Stock "
+    "Split”) of the common stock, par value $0.001 per share, of the Company (“Company Common Stock”), which became "
+    "effective on September 3, 2024."
+)
+ORKA_NOTE = (
+    "In connection with the Merger Agreement discussed above, the Company effected a one-for-twelve reverse stock "
+    "split of the Company’s issued and outstanding shares of common stock on September 3, 2024 without any change "
+    "in the par value per share."
+)
+
+STILL_READ_C = [
+    # ABTC: "a majority-owned subsidiary of Hut 8" in its OWN release (EX-99.1); its form names Hut 8's subsidiary
+    (
+        "0001213900-25-083726",
+        "8-K",
+        "2025-09-03",
+        STILL_READ[0][3],
+        [("8-K", "ea0255440-8k_american.htm", s) for s in ABTC_FORM]
+        + [("EX-99.1", "ea025544001ex99-1_american.htm", ABTC_RELEASE)],
+        ("5", "1"),
+        "2025-09-03",
+        "trading",
+    ),
+    # ORKA (8.01 catch-all, 72 days after): "in connection with the Merger" is no listing
+    (
+        "0001213900-24-098530",
+        "8-K",
+        "2024-11-14",
+        ("8.01", "9.01"),
+        [
+            ("8-K", "ea0221362-8k_oruka.htm", ORKA_FORM),
+            ("EX-99.1", "ea022136201ex99-1_oruka.htm", ORKA_NOTE),
+        ],
+        ("12", "1"),
+        "2024-09-03",
+        "legal",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("acc", "form", "filed", "items", "docs", "ratio", "when", "kind"),
+    STILL_READ_C,
+    ids=["ABTC", "ORKA"],
+)
+def test_a_split_beside_the_other_security_rules_still_reads(
+    acc, form, filed, items, docs, ratio, when, kind
+):
+    ref = _ref(acc, form, filed, items)
+    fds = [FilingDocument(type=t, filename=f, raw=r) for t, f, r in docs]
+    assert [d.type for d in relevant_documents(fds)] == [t for t, _, _ in docs]
+    x = extract_for(fds, ref)
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
+    assert (x.effective_date, x.date_kind, x.date_note) == (date.fromisoformat(when), kind, None)
+
+
+@pytest.mark.parametrize(
+    ("name", "ratio", "when", "kind"),
+    [
+        ("0001493152-26-031419.txt", ("30", "1"), "2026-07-06", "legal"),  # NIPG
+        ("0001292814-26-005066.txt", ("1", "4"), "2026-11-16", "trading"),  # EMBJ
+        ("0001493152-25-018165.txt", ("1", "5"), "2025-10-29", "trading"),  # NVA
+        ("0001213900-26-113338.txt", ("15", "1"), "2026-10-27", "legal"),  # SCAG
+        # LGHL: its 2023 ADS ratio change, a past split's
+        ("0001213900-24-111258.txt", None, None, None),
+    ],
+    ids=["NIPG", "EMBJ", "NVA", "SCAG", "LGHL"],
+)
+def test_an_ads_ratio_change_alone_still_reads_as_the_ads_split(name, ratio, when, kind):
+    """PINNED (each reads so before and after): an ADS ratio change with no split of the shares beside it — the
+    ADS's own split — read as prod reads the 6-K."""
+    screen, x = _as_prod_reads(name, "6-K", None)
+    assert screen == SCREEN_RESTATED
+    if ratio is None:
+        assert (x.has_ratio, x.abstain_reason) == (False, PAST_ONLY)
+        return
+    assert x.abstain_reason is None, x.abstain_reason
+    assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
+    assert (x.effective_date, x.date_kind) == (date.fromisoformat(when), kind)
