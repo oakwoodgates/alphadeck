@@ -2784,6 +2784,42 @@ def test_a_split_calloff_pages_ONCE_and_a_catch_up_is_never_its_baseline(db, mon
     ] == []
 
 
+def test_a_calloff_of_a_REVOKED_split_never_pages_even_on_the_first_night(
+    db, monkeypatch, tmp_path
+):
+    """The steward revoked AIRI's cancelled split. The next deploy's first nightly (no baseline yet) reads its
+    call-off again, with the REAL check on the test database: no page and no report line for it."""
+    from pipeline import detect_splits as ds
+    from tests.pipeline.test_detect_splits import _listed_company, _set_aside
+    from tests.pipeline.test_split_unplaced import _airi
+
+    _calloff_settings_default(monkeypatch)
+    sid = _listed_company(db, "AIRI")
+    _set_aside(db, sid, "revoke")
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)  # no artifact: no baseline
+    real_check = ds.check_called_off
+    monkeypatch.setattr(
+        daily,
+        "check_called_off",
+        lambda result, **kw: real_check(result, **{**kw, "connect": connect}),
+    )
+    monkeypatch.setattr(daily, "run_daily", _reads_calloff(_airi(security_id=sid)))
+    pages: list = []
+
+    class _Pager(_Silent):
+        def notify_health(self, event):
+            pages.append(event)
+
+    try:
+        out = daily.run_daily_pass(asof=date(2026, 11, 24), allow_live=True, notifier=_Pager())
+    finally:
+        get_settings.cache_clear()
+    assert out.split_detect.called_off_evaluated is True and out.split_detect.called_off == []
+    assert not any(p.split_called_off_new for p in pages)
+    assert not any("called off" in line for line in out.split_detect.report_lines())
+
+
 def test_a_calloff_check_whose_settings_read_fails_is_a_loud_line_never_a_failed_pass(monkeypatch):
     """The check's settings are read inside its leg's fail-open try (the daily tests stub the settings
     partially): a read that raises is the check's recorded fault and one loud report line, never a failed pass,

@@ -698,6 +698,14 @@ def _listed_company(db, ticker: str, *, status: str = STATUS_CONFIRMED) -> uuid.
     return sid
 
 
+def _set_aside(db, sid: uuid.UUID, how: str) -> None:
+    """The steward's ``revoke`` (a confirmed split) or ``reject`` (an open one) of the company's one listed split, as
+    the Splits panel writes it."""
+    (v,) = split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID, security_ids=[sid])
+    getattr(split_repo, how)(db, v.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+
+
 def _version(
     sid: uuid.UUID, *, ticker: str = "AIRI", sec_filed: date | None = AIRI_ANNOUNCED
 ) -> split_repo.SplitVersion:
@@ -773,6 +781,38 @@ def test_the_nightly_names_the_listed_split_a_filing_calls_off_and_a_second_nigh
     assert quiet == (
         f"1 listed split(s) still called off by a filing, already told (Admin Splits panel): {AIRI_PAGE}"
     )
+
+
+def test_a_calloff_of_a_split_the_steward_revoked_or_rejected_is_settled_no_line_no_page(
+    db, calloff_defaults
+):
+    """Only a live or open split (confirmed, announced, needs review) is reported and paged. One the steward revoked
+    (AIRI's cancelled split) or rejected is settled, so a call-off of it is no line and no page, even with no
+    baseline yet (the first nightly after a deploy). An announced and a needs-review split are named. The panel's
+    ``called_off`` still names a set-aside split (display, any status: the API tests)."""
+    revoked = _listed_company(db, "AIRI")
+    _set_aside(db, revoked, "revoke")
+    rejected = _listed_company(db, "RJCT", status=STATUS_NEEDS_REVIEW)
+    _set_aside(db, rejected, "reject")
+    settled = _det(_airi(security_id=revoked), _airi(security_id=rejected, ticker="RJCT"))
+    _check(settled)
+    assert settled.called_off_evaluated is True and settled.called_off_error is None
+    assert settled.called_off == [] and settled.called_off_new_labels == ()
+    assert len(settled.report_lines()) == 1  # the summary line alone
+
+    announced = _listed_company(db, "ANNC", status=STATUS_ANNOUNCED)
+    review = _listed_company(db, "RVW", status=STATUS_NEEDS_REVIEW)
+    det = _det(
+        _airi(security_id=announced, ticker="ANNC"),
+        _airi(security_id=review, ticker="RVW"),
+        _airi(security_id=revoked),
+    )
+    _check(det)
+    assert [(c.ticker, c.status) for c in det.called_off_new] == [
+        ("ANNC", STATUS_ANNOUNCED),
+        ("RVW", STATUS_NEEDS_REVIEW),
+    ]
+    assert not any(line.startswith("  AIRI") for line in det.report_lines())
 
 
 def test_the_match_is_the_one_matcher_under_the_rule_the_settings_set(calloff_defaults):

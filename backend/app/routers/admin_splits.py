@@ -94,7 +94,7 @@ from app.deps import get_conn
 from domain.links import HttpUrlOut, filing_index_url, safe_http_url
 from domain.market_time import market_today, market_tz
 from domain.scopes import DATA_TENANT_ID
-from domain.split_calloffs import CalloffRule, called_off
+from domain.split_calloffs import CalloffRule
 from domain.splits import (
     AUTO_VIA_LABELS,
     SET_ASIDE,
@@ -119,6 +119,7 @@ from pipeline.detect_splits import (
     TAPE_PRIOR_MAX_DAYS,
     calloff_rule,
     calloff_warn,
+    listed_calloffs,
     tape_at,
     tape_window,
 )
@@ -1029,22 +1030,15 @@ def called_off_for(
     v: SplitVersion, rows: Iterable[Mapping[str, Any]], *, rule: CalloffRule
 ) -> list[AdminSplitCalledOffOut] | None:
     """The filings that call the listed split ``v`` (any status) off, from the call-off rows ``rows``
-    (``read_unplaced().calloffs``) of ``v``'s own security: THE one matcher (``domain.split_calloffs.called_off``)
-    under ``rule`` (``pipeline.detect_splits.calloff_rule``), against ``v``'s ratio and first session, announced on
-    its SEC filing's date, else the day it was listed (a Massive.com-only split). Those stating its ratio first,
-    then by filing date. ``None`` when none does. PURE; display only.
+    (``read_unplaced().calloffs``) of ``v``'s own security: THE one matcher under ``rule``
+    (``pipeline.detect_splits.calloff_rule``), through the one mapping of a listed split onto it
+    (``pipeline.detect_splits.listed_calloffs``, the nightly's too). Those stating its ratio first, then by filing
+    date. ``None`` when none does. PURE; display only.
     """
     own = {r["accession"]: r for r in rows if r["security_id"] == str(v.security_id)}
     if not own:
         return None
-    hits = called_off(
-        [calloff_evidence(r) for r in own.values()],
-        ratio_from=v.ratio_from,
-        ratio_to=v.ratio_to,
-        first_session=v.effective_date,
-        announced_on=v.sec_filed or v.valid_from,
-        rule=rule,
-    )
+    hits = listed_calloffs(v, [calloff_evidence(r) for r in own.values()], rule=rule)
     return [calloff_out(own[s.accession], s, v) for s in hits] or None
 
 

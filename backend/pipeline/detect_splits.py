@@ -97,6 +97,7 @@ from domain.split_calloffs import CalloffRule, called_off
 from domain.splits import (
     AUTO_VIA_LABELS,
     PAST_RATIO_ONLY,
+    SET_ASIDE,
     SOURCE_POLYGON,
     SOURCE_SEC,
     STATUS_ANNOUNCED,
@@ -808,9 +809,9 @@ def calloffs_read(m: Member, reader: SecReader) -> list[CallOffFiling]:
 
 @dataclass(frozen=True)
 class CalledOffSplit:
-    """F10: a listed split (the list's newest version, any status) that a filing the nightly read calls off, by the
-    one matcher (``called_off_splits``): one row of the run artifact's ``split_detect.called_off``, one report line,
-    and the page while it is new. ``ratio``, ``status`` and ``first_session`` are the LISTED split's; ``accession``,
+    """F10: a listed split (the list's newest version, live or open) that a filing the nightly read calls off, by
+    the one matcher (``called_off_splits``): one row of the run artifact's ``split_detect.called_off``, one report
+    line, and the page while it is new. ``ratio``, ``status`` and ``first_session`` are the LISTED split's; ``accession``,
     ``form`` and ``filed`` the filing's. Display only: nothing is decided on it."""
 
     security_id: UUID
@@ -859,8 +860,10 @@ class CalledOffSplit:
 def listed_calloffs(
     v: SplitVersion, filings: Sequence[SecEvidence], *, rule: CalloffRule
 ) -> list[SecEvidence]:
-    """THE one matcher (``domain.split_calloffs.called_off``) against the listed split ``v``: its ratio and first
-    session, announced on its SEC filing's date, else the day it was listed (a Massive.com-only split). PURE.
+    """THE one matcher (``domain.split_calloffs.called_off``) against the listed split ``v`` (any status): its ratio
+    and first session, announced on its SEC filing's date, else the day it was listed (a Massive.com-only split).
+    The one mapping of a listed split onto the matcher: the nightly (``called_off_splits``) and ``GET
+    /admin/splits`` (``app/routers/admin_splits.called_off_for``) both call it. PURE.
     """
     return called_off(
         filings,
@@ -875,7 +878,9 @@ def listed_calloffs(
 def called_off_splits(
     calloffs: Iterable[CallOffFiling], versions: Iterable[SplitVersion], *, rule: CalloffRule
 ) -> list[CalledOffSplit]:
-    """The listed splits (``versions``, any status) that the call-off rows ``calloffs`` call off under ``rule``: one
+    """The listed splits still live or open among ``versions`` (confirmed, announced, needs review) that the
+    call-off rows ``calloffs`` call off under ``rule``. A split the steward rejected or revoked
+    (``domain.splits.SET_ASIDE``) is settled: never reported or paged (the panel still names it, any status). One
     row per (split, filing), each split matched against its own company's rows only, each row read back through the
     artifact row (``CallOffFiling.to_json``, ``split_unplaced.calloff_evidence``) exactly as ``GET /admin/splits``
     reads it, so the page and the panel agree. By ticker, then the split's key date; one split's filings in the
@@ -889,7 +894,7 @@ def called_off_splits(
     out: list[CalledOffSplit] = []
     for v in versions:
         own = by_security.get(v.security_id)
-        if not own:
+        if not own or v.status in SET_ASIDE:
             continue
         evidence = [calloff_evidence(c.to_json()) for c in own.values()]
         for s in listed_calloffs(v, evidence, rule=rule):
