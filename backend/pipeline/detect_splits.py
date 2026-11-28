@@ -58,7 +58,8 @@ THE CALL-OFFS (F10): every filing a company's check read (any window, placed or 
 (``SecEvidence.calloff``, the split reader's) is listed on the run artifact (``calloffs``, ``CallOffFiling``) and on
 a ``--record``; the one reader (``pipeline/split_unplaced.py``) serves them for the warning, which matches them
 against the list when it is read (``domain.split_calloffs``, under ``calloff_rule``: the ``split_calloff_*``
-settings). Nothing here decides on them.
+settings). After the per-company checks the nightly matches tonight's rows the same way (``check_called_off``):
+each listed split a filing calls off is one report line, and a new one pages once. Nothing here decides on them.
 
 WHERE IT RUNS (``pipeline/ingest_thesis._ingest_one``): per company, right after its 8-K and 13D legs and
 BEFORE its price leg — so a split filed today, with a second source, is on the list before that company's
@@ -79,7 +80,7 @@ import argparse
 import logging
 import sys
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -92,7 +93,7 @@ import psycopg
 
 from domain.market_time import market_today, market_tz
 from domain.settings import get_settings
-from domain.split_calloffs import CalloffRule
+from domain.split_calloffs import CalloffRule, called_off
 from domain.splits import (
     AUTO_VIA_LABELS,
     PAST_RATIO_ONLY,
@@ -359,7 +360,7 @@ def calloff_rule() -> CalloffRule:
     """F10: THE one builder of the call-off rule (``domain.split_calloffs.CalloffRule``): which filings call off a
     listed split, from the settings ``split_calloff_forms``, ``split_calloff_after_days`` and
     ``split_calloff_ratio``. Each caller reads it once (``GET /admin/splits`` once a read; the nightly once a pass,
-    beside ``sec_restate_days``) and passes it down: the one matcher reads no settings."""
+    in ``check_called_off``) and passes it down: the one matcher reads no settings."""
     s = get_settings()
     return CalloffRule(
         forms=tuple(s.split_calloff_forms.split(",")),
@@ -805,6 +806,111 @@ def calloffs_read(m: Member, reader: SecReader) -> list[CallOffFiling]:
     return list(out.values())
 
 
+@dataclass(frozen=True)
+class CalledOffSplit:
+    """F10: a listed split (the list's newest version, any status) that a filing the nightly read calls off, by the
+    one matcher (``called_off_splits``): one row of the run artifact's ``split_detect.called_off``, one report line,
+    and the page while it is new. ``ratio``, ``status`` and ``first_session`` are the LISTED split's; ``accession``,
+    ``form`` and ``filed`` the filing's. Display only: nothing is decided on it."""
+
+    security_id: UUID
+    ticker: str | None
+    key_date: date
+    first_session: date
+    ratio: str
+    status: str
+    accession: str
+    form: str
+    filed: date
+
+    @property
+    def key(self) -> str:
+        """The page-once key (``cron_run_log.previous_called_off``): the listed split and the filing, never its
+        status, so a later decision on the split (a revoke, a demote) is no new page."""
+        return f"{self.security_id}:{self.key_date.isoformat()}:{self.accession}"
+
+    @property
+    def label(self) -> str:
+        """THE words: the report line's, the page's and the Admin run row's (they cannot drift)."""
+        who = self.ticker or str(self.security_id)
+        return (
+            f"{who} {self.ratio} ({self.status.replace('_', ' ')}, first session "
+            f"{self.first_session.isoformat()}): called off by {self.form} {self.accession} "
+            f"(filed {self.filed.isoformat()})"
+        )
+
+    def to_json(self) -> dict:
+        """The artifact row (``called_off_keys_of`` / ``called_off_new_labels_of`` read it back)."""
+        return {
+            "key": self.key,
+            "security_id": str(self.security_id),
+            "ticker": self.ticker,
+            "key_date": self.key_date.isoformat(),
+            "first_session": self.first_session.isoformat(),
+            "ratio": self.ratio,
+            "status": self.status,
+            "accession": self.accession,
+            "form": self.form,
+            "filed": self.filed.isoformat(),
+            "label": self.label,
+        }
+
+
+def listed_calloffs(
+    v: SplitVersion, filings: Sequence[SecEvidence], *, rule: CalloffRule
+) -> list[SecEvidence]:
+    """THE one matcher (``domain.split_calloffs.called_off``) against the listed split ``v``: its ratio and first
+    session, announced on its SEC filing's date, else the day it was listed (a Massive.com-only split). PURE.
+    """
+    return called_off(
+        filings,
+        ratio_from=v.ratio_from,
+        ratio_to=v.ratio_to,
+        first_session=v.effective_date,
+        announced_on=v.sec_filed or v.valid_from,
+        rule=rule,
+    )
+
+
+def called_off_splits(
+    calloffs: Iterable[CallOffFiling], versions: Iterable[SplitVersion], *, rule: CalloffRule
+) -> list[CalledOffSplit]:
+    """The listed splits (``versions``, any status) that the call-off rows ``calloffs`` call off under ``rule``: one
+    row per (split, filing), each split matched against its own company's rows only, each row read back through the
+    artifact row (``CallOffFiling.to_json``, ``split_unplaced.calloff_evidence``) exactly as ``GET /admin/splits``
+    reads it, so the page and the panel agree. By ticker, then the split's key date; one split's filings in the
+    matcher's order (its ratio stated first). PURE."""
+    # lazy: split_unplaced reads the run artifacts
+    from pipeline.split_unplaced import calloff_evidence
+
+    by_security: dict[UUID, dict[str, CallOffFiling]] = defaultdict(dict)
+    for c in calloffs:
+        by_security[c.security_id].setdefault(c.accession, c)
+    out: list[CalledOffSplit] = []
+    for v in versions:
+        own = by_security.get(v.security_id)
+        if not own:
+            continue
+        evidence = [calloff_evidence(c.to_json()) for c in own.values()]
+        for s in listed_calloffs(v, evidence, rule=rule):
+            c = own[s.accession]
+            out.append(
+                CalledOffSplit(
+                    security_id=v.security_id,
+                    ticker=v.ticker or c.ticker,
+                    key_date=v.key_date,
+                    first_session=v.effective_date,
+                    ratio=ratio_label(v.ratio_from, v.ratio_to),
+                    status=v.status,
+                    accession=c.accession,
+                    form=c.form,
+                    filed=c.filed,
+                )
+            )
+    # stable: a split's filings keep the matcher's order
+    return sorted(out, key=lambda x: (x.ticker or "", str(x.security_id), x.key_date))
+
+
 @dataclass
 class SplitDetection:
     """One pass's detection outcome — what rides the run artifact (``payload``) and the report (one line)."""
@@ -825,6 +931,12 @@ class SplitDetection:
     kept: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     duration_s: float = 0.0
+    # F10: the nightly's call-off check (``check_called_off``): did it run (a live pass, the warning on), the listed
+    # splits tonight's rows call off, those absent from the last checked pass (what pages, once), and why it failed
+    called_off_evaluated: bool = False
+    called_off: list[CalledOffSplit] = field(default_factory=list)
+    called_off_new: list[CalledOffSplit] = field(default_factory=list)
+    called_off_error: str | None = None
 
     def payload(self) -> dict:
         """The run artifact's ``split_detect`` block (readers use ``.get``: an older artifact lacks it)."""
@@ -841,6 +953,7 @@ class SplitDetection:
                 "appended": [a.to_json() for a in self.appended],
                 "unplaced": [u.to_json() for u in self.unplaced],
                 **self.calloffs_payload(),
+                **self.called_off_payload(),
                 "kept": list(self.kept),
                 "errors": list(self.errors),
                 "duration_s": round(self.duration_s, 3),
@@ -853,10 +966,56 @@ class SplitDetection:
         uses ``.get``: absent reads as none)."""
         return {"calloffs": [c.to_json() for c in self.calloffs]} if self.calloffs else {}
 
+    def called_off_payload(self) -> dict:
+        """F10: the call-off check's keys, beside ``calloffs``, or ``{}`` when it did not run (a ``--no-live`` pass,
+        the warning off): the block is then what the detection wrote, and a reader (``.get``) reads it unchecked —
+        never a baseline. A failed check writes its error with ``called_off_evaluated`` false."""
+        if not self.called_off_evaluated and self.called_off_error is None:
+            return {}
+        return {
+            "called_off_evaluated": self.called_off_evaluated,
+            "called_off_error": self.called_off_error,
+            "called_off": [c.to_json() for c in self.called_off],
+            "called_off_new": [c.to_json() for c in self.called_off_new],
+        }
+
+    @property
+    def called_off_new_labels(self) -> tuple[str, ...]:
+        """What pages (``HealthEvent.split_called_off_new``): the new call-offs' labels."""
+        return tuple(c.label for c in self.called_off_new)
+
+    def called_off_lines(self) -> list[str]:
+        """F10: the call-off check's report lines: each NEW one LOUD (an uppercase header, one line each), the
+        known ones ONE quiet line, a failed check LOUD; nothing when none is called off or it did not run.
+        """
+        if self.called_off_error:
+            return [
+                f"SPLIT CALL-OFF CHECK FAILED — {self.called_off_error} (tonight's call-off filings were not "
+                "matched to the list)"
+            ]
+        if not self.called_off_evaluated or not self.called_off:
+            return []
+        lines: list[str] = []
+        if self.called_off_new:
+            lines.append(
+                "SPLITS CALLED OFF — NEW: a filing read tonight calls off a listed split (nothing was decided "
+                "on it; Admin Splits panel):"
+            )
+            lines.extend(f"  {c.label}" for c in self.called_off_new)
+        fresh = {c.key for c in self.called_off_new}
+        known = [c for c in self.called_off if c.key not in fresh]
+        if known:
+            lines.append(
+                f"{len(known)} listed split(s) still called off by a filing, already told (Admin Splits "
+                f"panel): {'; '.join(c.label for c in known)}"
+            )
+        return lines
+
     def report_lines(self) -> list[str]:
         """ONE quiet line on a normal night (nothing at all when nothing ran and nothing is off): the new
         list rows, the review count, the unplaced count; a separate line when Massive.com is off or failed, and
-        one per fault. Never a page (#7) — a needs-review split shows on the Admin "Splits" panel.
+        one per fault. Never a page (#7) — a needs-review split shows on the Admin "Splits" panel. F10: then the
+        call-off check's lines (``called_off_lines``), the one part that pages, once, through the health page.
         """
         if not self.evaluated:
             return []
@@ -883,6 +1042,7 @@ class SplitDetection:
             + (f", {self.filings_unread} unread" if self.filings_unread else "")
         )
         lines.extend(f"  splits ERROR: {e}" for e in self.errors)
+        lines.extend(self.called_off_lines())
         return lines
 
 
@@ -1077,6 +1237,87 @@ class SplitDetector:
             f"{getattr(sec, 'ticker', None) or getattr(sec, 'id', '?')}: {type(exc).__name__}: {msg}"
         )
         _log.warning("split detection failed for %s: %s", getattr(sec, "ticker", None), msg)
+
+
+# --- F10: the nightly's call-off check, after the per-company checks ------------------------------------------
+
+
+def check_called_off(
+    result: SplitDetection,
+    *,
+    allow_live: bool,
+    tenant_id: UUID,
+    connect: Callable[[], psycopg.Connection],
+    previous: Callable[[], set[str] | None],
+) -> SplitDetection:
+    """F10: tonight's call-off rows (``result.calloffs``) against the list's newest versions of their companies, by
+    the one matcher under the rule the settings set (``called_off_splits``, ``calloff_rule``), and the matches whose
+    key is absent from the last checked pass (``previous``: ``cron_run_log.previous_called_off``; ``None`` = none
+    checked yet, so every match is new) — what pages, once. Sets the ``called_off*`` fields on ``result``, returns
+    it.
+
+    Nothing runs (no line, no page, nothing on the artifact) on a ``--no-live`` pass, on a detection that did not
+    run, or with the warning off (``split_calloff_warn``). A night that read no call-off opens no connection.
+    FAIL-OPEN for the pass, LOUD for the operator: the settings read, the read-only connection and the baseline
+    read sit in ONE try, so any fault (a partial settings stub, the database) is ``called_off_error``, one loud
+    report line, never an exception into the cron. Display only: nothing is decided on a match.
+    """
+    if not allow_live or not result.evaluated:
+        return result
+    try:
+        if not calloff_warn():
+            return result
+        rule = calloff_rule()
+        found: list[CalledOffSplit] = []
+        if result.calloffs:
+            conn = connect()
+            try:
+                conn.read_only = True  # the check reads; structurally it cannot write a row
+                versions = split_repo.latest_versions(
+                    conn,
+                    tenant_id=tenant_id,
+                    security_ids=sorted({c.security_id for c in result.calloffs}),
+                )
+                conn.rollback()  # end the read-only transaction; nothing to keep
+            finally:
+                conn.close()
+            found = called_off_splits(result.calloffs, versions, rule=rule)
+        prior = previous() if found else set()
+    except Exception as e:  # noqa: BLE001 — a check fault is reported, never a failed pass
+        msg = " ".join(str(e).split())[:200]
+        result.called_off_error = f"{type(e).__name__}: {msg}" if msg else type(e).__name__
+        return result
+    result.called_off_evaluated = True
+    result.called_off = found
+    result.called_off_new = [c for c in found if prior is None or c.key not in prior]
+    return result
+
+
+def called_off_keys_of(doc: Mapping) -> set[str]:
+    """The keys of every listed split one artifact's check found called off (``split_detect.called_off``): what the
+    next pass diffs against. WHICH artifact is the baseline is ``cron_run_log.previous_called_off``'s rule.
+    Fail-open: a malformed row is skipped."""
+    block = doc.get("split_detect")
+    if not isinstance(block, Mapping):
+        return set()
+    return {
+        str(r["key"])
+        for r in block.get("called_off") or []
+        if isinstance(r, Mapping) and r.get("key")
+    }
+
+
+def called_off_new_labels_of(doc: Mapping) -> tuple[str, ...]:
+    """The labels one artifact's check paged (``split_detect.called_off_new``): the Admin history re-derives the
+    run's page from these. ``()`` for an artifact without them; a malformed row is skipped."""
+    block = doc.get("split_detect")
+    if not isinstance(block, Mapping):
+        return ()
+    return tuple(
+        str(r["label"])
+        for r in block.get("called_off_new") or []
+        if isinstance(r, Mapping) and r.get("label")
+    )
 
 
 def former_tickers(conn: psycopg.Connection) -> dict[UUID, tuple[str, ...]]:

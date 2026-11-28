@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from db.session import DEFAULT_TENANT_ID
+from db.session import DEFAULT_TENANT_ID, connect
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.enums import Grade, Kind, State, Verdict
@@ -2636,6 +2636,175 @@ def test_pass_threads_the_SPLIT_scan_to_the_artifact_the_audit_and_the_page(monk
     assert seen["scan"]["connect"] is daily._pass_connect
     assert out.split is scan and seen["audit_split"] is scan and seen["log_split"] is scan
     assert seen["page"] == ("VWAV island x18 (2026-09-15)",)
+
+
+# --- F10 P8: a listed split a filing calls off: one report line, paged once, the verdict benign ----------------
+# The check itself (the one matcher, the settings, the baseline rule) is proved in test_detect_splits.py and
+# test_cron_run_log.py; these prove the pass's wiring and the page across nights.
+
+_CALLOFF_PAGE_BIT = (
+    "1 listed split(s) NEWLY called off by a filing: AIRI 1-for-5 reverse split (confirmed, first session "
+    "2026-11-20): called off by 8-K 0001213900-26-122096 (filed 2026-11-19) — nothing was decided on it; "
+    "settle it on the Admin Splits panel, not a cron error"
+)
+
+
+def _calloff_settings_default(monkeypatch):
+    for var in (
+        "ALPHADECK_SPLIT_CALLOFF_WARN",
+        "ALPHADECK_SPLIT_CALLOFF_FORMS",
+        "ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS",
+        "ALPHADECK_SPLIT_CALLOFF_RATIO",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+
+
+def _reads_calloff(row):
+    """A ``run_daily`` stand-in whose per-company checks read ``row`` (a call-off filing) into the pass's detector
+    (``None``: they read none)."""
+
+    def _run_daily(conn, **k):
+        if row is not None:
+            k["split_detector"].result.calloffs.append(row)
+        return _thesis_result_with([])
+
+    return _run_daily
+
+
+def test_assess_health_PAGES_a_new_split_calloff_as_a_benign_note():
+    from tests.pipeline.test_detect_splits import AIRI_PAGE
+
+    h = daily.assess_health(
+        [], asof=date(2026, 11, 24), allow_live=True, split_called_off_new=(AIRI_PAGE,)
+    )
+    assert h is not None and h.split_called_off_new == (AIRI_PAGE,)
+    assert h.label == f"cron 2026-11-24: {_CALLOFF_PAGE_BIT}"
+    assert daily.assess_health([], asof=date(2026, 11, 24), allow_live=True) is None
+
+
+def test_pass_checks_the_split_CALLOFFS_after_the_loop_and_threads_them_to_the_artifact_and_the_page(
+    monkeypatch,
+):
+    """The pass runs the call-off check AFTER ``run_daily`` (the list as tonight's detection left it) on the
+    detector's own result, through ``_pass_connect`` (the C2 ceiling) on the DATA tenant, against
+    ``cron_run_log.previous_called_off``; the artifact and the R4 assessor get the SAME result (the new labels
+    page)."""
+    from domain.scopes import DATA_TENANT_ID
+    from tests.pipeline.test_cron_run_log import _called_off
+
+    order, _, _ = _prime_pass(monkeypatch)
+    c = _called_off()
+    seen: dict = {}
+
+    def _check(result, **kw):
+        order.append("split_calloffs")
+        seen["check"] = (result, kw)
+        result.called_off_evaluated = True
+        result.called_off, result.called_off_new = [c], [c]
+        return result
+
+    def _log(results, **kw):
+        seen["log"] = kw.get("split_detect")
+
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen["page"] = kw.get("split_called_off_new")
+        return real_assess(results, **kw)
+
+    monkeypatch.setattr(daily, "check_called_off", _check)
+    monkeypatch.setattr(daily, "write_cron_run_log", _log)
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    result, kw = seen["check"]
+    assert result is out.split_detect and seen["log"] is result
+    assert kw == {
+        "allow_live": True,
+        "tenant_id": DATA_TENANT_ID,
+        "connect": daily._pass_connect,
+        "previous": daily.previous_called_off,
+    }
+    assert order.index("run_daily") < order.index("split_calloffs")
+    assert seen["page"] == (c.label,)
+
+
+def test_a_split_calloff_pages_ONCE_and_a_catch_up_is_never_its_baseline(db, monkeypatch, tmp_path):
+    """Across passes with the REAL check against the test database, the REAL artifact writer and the REAL
+    baseline reader: AIRI's call-off pages the first night; a --catch-up whose checks read none (it skipped AIRI's
+    thesis) pages nothing and is not the baseline, so the next full pass is silent; the newest artifact still
+    lists the known call-off."""
+    from pipeline import detect_splits as ds
+    from tests.pipeline.catchup_pass_stubs import next_second
+    from tests.pipeline.test_detect_splits import AIRI_PAGE, _listed_company
+    from tests.pipeline.test_split_unplaced import _airi
+
+    _calloff_settings_default(monkeypatch)
+    sid = _listed_company(db, "AIRI")
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+    real_check = ds.check_called_off
+    # the REAL check, on the test database in place of the pass's stubbed connection
+    monkeypatch.setattr(
+        daily,
+        "check_called_off",
+        lambda result, **kw: real_check(result, **{**kw, "connect": connect}),
+    )
+    pages: list = []
+
+    class _Pager(_Silent):
+        def notify_health(self, event):
+            pages.append(event)
+
+    def _night(row, *, catch_up=False):
+        monkeypatch.setattr(daily, "run_daily", _reads_calloff(row))
+        next_second()
+        before = len(pages)
+        out = daily.run_daily_pass(
+            asof=date(2026, 11, 24), allow_live=True, notifier=_Pager(), catch_up=catch_up
+        )
+        return out, [p.split_called_off_new for p in pages[before:] if p.split_called_off_new]
+
+    try:
+        _, paged = _night(_airi(security_id=sid))
+        assert paged == [(AIRI_PAGE,)]
+        assert _CALLOFF_PAGE_BIT in pages[-1].label
+        assert _night(None, catch_up=True)[1] == []
+        out, paged = _night(_airi(security_id=sid))
+        assert paged == []  # NOT paged again: the catch-up was never the baseline
+    finally:
+        get_settings.cache_clear()
+    assert [x.label for x in out.split_detect.called_off] == [AIRI_PAGE]
+    newest = cron_run_log.list_run_logs(base_dir=tmp_path)[0]["split_detect"]
+    assert [r["label"] for r in newest["called_off"]] == [AIRI_PAGE] and newest[
+        "called_off_new"
+    ] == []
+
+
+def test_a_calloff_check_whose_settings_read_fails_is_a_loud_line_never_a_failed_pass(monkeypatch):
+    """The check's settings are read inside its leg's fail-open try (the daily tests stub the settings
+    partially): a read that raises is the check's recorded fault and one loud report line, never a failed pass,
+    and nothing pages for it."""
+    from pipeline import detect_splits as ds
+    from tests.pipeline.test_split_unplaced import _airi
+
+    _prime_pass(monkeypatch)
+    pages: list = []
+
+    class _Pager(_Silent):
+        def notify_health(self, event):
+            pages.append(event)
+
+    # the shape a partial settings stub raises
+    monkeypatch.setattr(ds, "calloff_warn", lambda: SimpleNamespace().split_calloff_warn)
+    monkeypatch.setattr(daily, "run_daily", _reads_calloff(_airi()))
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Pager())
+    assert out.split_detect.called_off_error.startswith("AttributeError")
+    assert out.split_detect.report_lines()[-1].startswith("SPLIT CALL-OFF CHECK FAILED")
+    assert not any(p.split_called_off_new for p in pages)
 
 
 def test_pass_sweeps_form4a_BEFORE_the_loop_and_threads_it_to_the_scan(monkeypatch):

@@ -260,6 +260,17 @@ class SpacStatusEvent:
         return f"{who} → announced (matches {', '.join(self.thesis_names)})"
 
 
+def split_called_off_bit(labels: Sequence[str]) -> str:
+    """F10 — the words for the listed splits a filing NEWLY calls off, each label
+    ``pipeline.detect_splits.CalledOffSplit.label``: the page's (``HealthEvent.label``) and the Admin run row's
+    (``app/routers/admin.py::_problems``), each adding its own benign marker, so the two cannot drift.
+    """
+    return (
+        f"{len(labels)} listed split(s) NEWLY called off by a filing: {'; '.join(labels)} — nothing was "
+        "decided on it; settle it on the Admin Splits panel"
+    )
+
+
 @dataclass(frozen=True)
 class HealthEvent:
     """The cron's RUN-LEVEL health, emitted once per run — but ONLY when something is notable (R4). A silent
@@ -333,6 +344,11 @@ class HealthEvent:
     # unchanged — so it is benign-class like a stale feed: it pages once, never re-pages a known defect,
     # and never makes the Admin verdict unhealthy.
     split_defects_new: tuple[str, ...] = ()
+    # F10 — listed splits a filing read tonight NEWLY calls off (``pipeline/detect_splits.check_called_off``, the one
+    # matcher), each a ``"<ticker> <ratio> (<status>, first session <date>): called off by <form> <accession> (filed
+    # <date>)"`` label. Display only (nothing was decided on it; the steward settles it), so benign-class like a
+    # split-basis defect: it pages once, never re-pages a known one, and never makes the Admin verdict unhealthy.
+    split_called_off_new: tuple[str, ...] = ()
     # T7 — members whose company now files under a NEW CIK (``pipeline/successor_cik.py``), NEW since the
     # previous evaluated pass, each a ``"<ticker> -> CIK <successor> (<8-K12B date>)"`` label. A data gap,
     # not a cron fault (the filing legs read the dead CIK; the operator's Adopt repairs it), so it is
@@ -442,6 +458,9 @@ class HealthEvent:
                 f"{len(self.split_defects_new)} NEW split-basis defect(s) on price tapes: "
                 f"{', '.join(self.split_defects_new)} — flag only (the call is unchanged), not a cron error"
             )
+        # F10 — a filing calls off a listed split (the steward settles it): told once
+        if self.split_called_off_new:
+            bits.append(f"{split_called_off_bit(self.split_called_off_new)}, not a cron error")
         # T7 — the filing legs read a dead CIK for these names (Form 4 / 8-K / 13D/G missed until adopted)
         if self.successor_cik_new:
             bits.append(
