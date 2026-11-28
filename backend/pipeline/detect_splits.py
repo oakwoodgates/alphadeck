@@ -54,6 +54,11 @@ tonight about a split an earlier one claimed is no news when it states the same 
 others is another filing's, never dropped silently: listed on ``kept`` and, on a split new tonight, named on its
 note. It decides nothing.
 
+THE CALL-OFFS (F10): every filing a company's check read (any window, placed or not) whose text calls a split off
+(``SecEvidence.calloff``, the split reader's) is listed on the run artifact (``calloffs``, ``CallOffFiling``) and on
+a ``--record``; the one reader (``pipeline/split_unplaced.py``) serves them for the warning, which matches them
+against the list when it is read (``domain.split_calloffs``). Nothing here decides on them.
+
 WHERE IT RUNS (``pipeline/ingest_thesis._ingest_one``): per company, right after its 8-K and 13D legs and
 BEFORE its price leg — so a split filed today, with a second source, is on the list before that company's
 price leg (S2 applies it on its first night) and before tonight's call. A company held in several theses is
@@ -709,6 +714,76 @@ class Detected:
         return f"{who} {self.label} {what} ({self.sources}{again})"
 
 
+@dataclass(frozen=True)
+class CallOffFiling:
+    """F10: a filing read tonight whose text calls a split off (``SecEvidence.calloff``), placed or not: one row of
+    the run artifact's ``calloffs`` (and of a check's record). Evidence only: the warning matches it against the list
+    when the list is read (``pipeline.split_unplaced``, the one reader; ``domain.split_calloffs``, the one matcher).
+    ``kind``, the ratio, ``document`` and ``passage`` are the call-off's own (``domain.splits.CallOff``: the one
+    ratio its call-off sentences state, else none), never the filing's reading."""
+
+    security_id: UUID
+    ticker: str | None
+    accession: str
+    form: str
+    filed: date
+    kind: str
+    url: str | None = None
+    ratio_from: Decimal | None = None
+    ratio_to: Decimal | None = None
+    document: str | None = None
+    passage: str | None = None
+
+    @classmethod
+    def of(cls, m: Member, s: SecEvidence) -> CallOffFiling:
+        """The row of filing ``s``, read for company ``m``; ``s`` carries a call-off."""
+        c = s.calloff
+        if c is None:
+            raise ValueError(f"{s.accession} carries no call-off")
+        return cls(
+            security_id=m.security_id,
+            ticker=m.ticker,
+            accession=s.accession,
+            form=s.form,
+            filed=s.filed,
+            kind=c.kind,
+            url=s.url or None,
+            ratio_from=c.ratio_from,
+            ratio_to=c.ratio_to,
+            document=c.document,
+            passage=c.passage or None,
+        )
+
+    def to_json(self) -> dict:
+        """The artifact row (``pipeline.split_unplaced.CALLOFF_KEYS``; the passage cut like an unplaced one's)."""
+        return {
+            "security_id": str(self.security_id),
+            "ticker": self.ticker,
+            "accession": self.accession,
+            "form": self.form,
+            "filed": self.filed.isoformat(),
+            "url": self.url,
+            "kind": self.kind,
+            "ratio_from": _decimal_text(self.ratio_from),
+            "ratio_to": _decimal_text(self.ratio_to),
+            "document": self.document,
+            "passage": (self.passage or "")[:UNPLACED_PASSAGE_MAX] or None,
+        }
+
+
+def calloffs_read(m: Member, reader: SecReader) -> list[CallOffFiling]:
+    """The call-off rows of one company's check: each filing ``reader`` read for it (``read_here``: the Massive.com
+    rows' windows, the wide forms and the SEC lookback alike) whose reading carries a call-off, placed, absorbed or
+    unplaced; each accession once (a second reading, knowing a confirmed split, is the same filing), in accession
+    order. A read, nothing else."""
+    out: dict[str, CallOffFiling] = {}
+    for key in sorted(reader.read_here):
+        s = reader.evidence.get(key)
+        if s is not None and s.calloff is not None and s.accession not in out:
+            out[s.accession] = CallOffFiling.of(m, s)
+    return list(out.values())
+
+
 @dataclass
 class SplitDetection:
     """One pass's detection outcome — what rides the run artifact (``payload``) and the report (one line)."""
@@ -724,6 +799,8 @@ class SplitDetection:
     filings_unread: int = 0
     appended: list[Detected] = field(default_factory=list)
     unplaced: list[Unplaced] = field(default_factory=list)
+    # F10: the filings read with call-off wording, placed or not (``calloffs_read``)
+    calloffs: list[CallOffFiling] = field(default_factory=list)
     kept: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     duration_s: float = 0.0
@@ -742,11 +819,18 @@ class SplitDetection:
                 "filings_unread": self.filings_unread,
                 "appended": [a.to_json() for a in self.appended],
                 "unplaced": [u.to_json() for u in self.unplaced],
+                **self.calloffs_payload(),
                 "kept": list(self.kept),
                 "errors": list(self.errors),
                 "duration_s": round(self.duration_s, 3),
             }
         }
+
+    def calloffs_payload(self) -> dict:
+        """F10: ``{"calloffs": [rows]}``, beside ``unplaced`` on the run artifact and on a check's record, or
+        ``{}`` when no filing read carried a call-off: the block is then byte for byte what it was before (a reader
+        uses ``.get``: absent reads as none)."""
+        return {"calloffs": [c.to_json() for c in self.calloffs]} if self.calloffs else {}
 
     def report_lines(self) -> list[str]:
         """ONE quiet line on a normal night (nothing at all when nothing ran and nothing is off): the new
@@ -904,6 +988,7 @@ class SplitDetector:
             self.result.filings_read += det.filings_read
             self.result.filings_unread += det.filings_unread
             self.result.unplaced.extend(det.unplaced)
+            self.result.calloffs.extend(calloffs_read(m, reader))
             plan = plan_against(
                 det,
                 stored,

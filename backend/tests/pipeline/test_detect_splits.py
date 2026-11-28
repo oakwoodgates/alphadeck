@@ -25,6 +25,7 @@ from domain.splits import (
     VIA_AUTO,
     VIA_OPERATOR,
     VIA_SEC_TAPE,
+    CallOff,
     PolygonEvidence,
     SecEvidence,
     TapeEvidence,
@@ -350,9 +351,11 @@ class _Conn:
         pass
 
 
-def _cli(monkeypatch, tmp_path, rows: list[ds.Unplaced]) -> list[_Conn]:
-    """``detect_splits.main`` with Massive.com off, no DB and a run that lists ``rows`` as unplaced; the record
-    home is a tmp dir. Returns the connections the CLI opened."""
+def _cli(
+    monkeypatch, tmp_path, rows: list[ds.Unplaced], calloffs: list[ds.CallOffFiling] = ()
+) -> list[_Conn]:
+    """``detect_splits.main`` with Massive.com off, no DB and a run that lists ``rows`` as unplaced (and
+    ``calloffs``); the record home is a tmp dir. Returns the connections the CLI opened."""
     opened: list[_Conn] = []
 
     def connect() -> _Conn:
@@ -363,6 +366,7 @@ def _cli(monkeypatch, tmp_path, rows: list[ds.Unplaced]) -> list[_Conn]:
         assert conn.read_only  # a dry run
         detector.result.checked += 1
         detector.result.unplaced.extend(rows)
+        detector.result.calloffs.extend(calloffs)
         return []
 
     monkeypatch.setattr(ds, "default_split_source", lambda: None)
@@ -421,6 +425,190 @@ def test_without_record_a_dry_run_writes_nothing(monkeypatch, tmp_path):
     opened = _cli(monkeypatch, tmp_path, [_meta_unplaced()])
     ds.main(["--asof", "2026-11-25"])
     assert len(opened) == 1 and not (tmp_path / "split_unplaced").exists()
+
+
+# --- F10 P3: a filing read with call-off wording is one ``calloffs`` row on the artifact -----------------------
+
+GAME_8K = "0001493152-26-039213"
+# the run artifact's block as the nightly wrote it before call-offs: a night that reads none writes exactly this
+BLOCK_KEYS = [
+    "evaluated",
+    "polygon",
+    "polygon_rows",
+    "polygon_live_pages",
+    "polygon_unlabeled",
+    "checked",
+    "filings_read",
+    "filings_unread",
+    "appended",
+    "unplaced",
+    "kept",
+    "errors",
+    "duration_s",
+]
+CALLOFF_KEYS = [
+    "security_id",
+    "ticker",
+    "accession",
+    "form",
+    "filed",
+    "url",
+    "kind",
+    "ratio_from",
+    "ratio_to",
+    "document",
+    "passage",
+]
+# a stand-in (GAME never called its split off): P4's reader sets the real ones
+GAME_CALLOFF = CallOff(
+    "decision",
+    Decimal(8),
+    Decimal(1),
+    passage="stand-in call-off sentence.",
+    document="stand-in.htm",
+)
+
+
+def _game(sid: uuid.UUID) -> bf.Member:
+    return bf.Member(
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        ticker="GAME",
+        price_symbol=None,
+        cik=CIKS["GAME"],
+    )
+
+
+def _game_8k(accession: str = GAME_8K, *, calloff: CallOff | None = GAME_CALLOFF) -> SecEvidence:
+    return SecEvidence(
+        accession=accession,
+        form="8-K",
+        filed=date(2026, 8, 19),
+        url=filing_index_url(CIKS["GAME"], accession),
+        ratio_from=Decimal(8),
+        ratio_to=Decimal(1),
+        effective_date=date(2026, 8, 24),
+        date_kind="trading",
+        passage="the filing's own passage, the one its reading rests on",
+        document="game-8k.htm",
+        about_a_split=True,
+        calloff=calloff,
+    )
+
+
+def _game_row(sid: uuid.UUID) -> dict:
+    return {
+        "security_id": str(sid),
+        "ticker": "GAME",
+        "accession": GAME_8K,
+        "form": "8-K",
+        "filed": "2026-08-19",
+        "url": filing_index_url(CIKS["GAME"], GAME_8K),
+        "kind": "decision",
+        "ratio_from": "8",
+        "ratio_to": "1",
+        # the call-off's own document and passage, not the reading's
+        "document": "stand-in.htm",
+        "passage": "stand-in call-off sentence.",
+    }
+
+
+def test_a_calloff_row_is_the_filing_and_its_calloff_wording_the_passage_cut_at_600():
+    sid = uuid.UUID(int=3)
+    row = ds.CallOffFiling.of(_game(sid), _game_8k()).to_json()
+    assert list(row) == CALLOFF_KEYS and row == _game_row(sid)
+    vote = CallOff("failed_vote", passage="x" * 700)
+    bare = ds.CallOffFiling.of(_game(sid), _game_8k(calloff=vote)).to_json()
+    assert bare["passage"] == "x" * ds.UNPLACED_PASSAGE_MAX
+    assert (bare["kind"], bare["ratio_from"], bare["ratio_to"], bare["document"]) == (
+        "failed_vote",
+        None,
+        None,
+        None,
+    )
+    empty = ds.CallOffFiling.of(_game(sid), _game_8k(calloff=CallOff("decision"))).to_json()
+    assert empty["passage"] is None
+
+
+def test_every_filing_the_company_read_with_a_calloff_is_listed_once():
+    """Placed or not, absorbed or not, whichever window read it: each accession once (a second reading of it,
+    knowing a confirmed split, is the same filing). A filing in the pass's shared memo this company did not read
+    is another company's."""
+    m = _game(uuid.UUID(int=3))
+    reader = bf.SecReader(object())  # never fetches here: the reads are set below
+    plain = _game_8k("0001493152-26-000001", calloff=None)
+    later = _game_8k("0001493152-26-000002")
+    elsewhere = _game_8k("0001493152-26-000003")
+    knowing = GAME_8K + ".known-0123456789"  # ``backfill_splits._known_tag``'s shape
+    reader.evidence = {
+        GAME_8K: _game_8k(),
+        knowing: _game_8k(calloff=CallOff("failed_vote")),
+        plain.accession: plain,
+        later.accession: later,
+        "0001493152-26-000004": None,  # unread
+        elsewhere.accession: elsewhere,
+    }
+    reader.read_here = {GAME_8K, knowing, plain.accession, later.accession, "0001493152-26-000004"}
+    got = ds.calloffs_read(m, reader)
+    assert [(c.accession, c.kind) for c in got] == [
+        ("0001493152-26-000002", "decision"),
+        (GAME_8K, "decision"),
+    ]
+    assert ds.calloffs_read(m, bf.SecReader(object())) == []
+
+
+def _dry(db, tmp_path, *, asof: date, night: str) -> ds.SplitDetector:
+    """A dry-run night (nothing written), so two nights over one database decide alike; each pulls Massive.com
+    into its own cache (``night``), so each makes the same one request."""
+    source = _polygon(tmp_path / night, today=asof)
+    det = ds.SplitDetector.start(asof=asof, allow_live=True, source=source, apply=False)
+    ds.run_over_union(db, det, EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False))
+    return det
+
+
+def _block(det: ds.SplitDetector) -> dict:
+    block = json.loads(json.dumps(det.result.payload()))["split_detect"]
+    block["duration_s"] = 0.0  # the one value two runs never share
+    return block
+
+
+def test_a_detection_whose_filing_carries_a_calloff_writes_one_calloffs_row_and_nothing_else_moves(
+    db, tmp_path, monkeypatch
+):
+    ids = _seed(db, ["GAME"])
+    plain = _dry(db, tmp_path, asof=date(2026, 8, 25), night="plain")
+    # no call-off read: the block the nightly always wrote, key for key
+    assert list(_block(plain)) == BLOCK_KEYS and plain.result.calloffs == []
+    assert plain.planned and plain.result.filings_read == 1
+    real = bf.read_filing
+
+    def read_with_calloff(client, cik, ref, **kw):
+        s = real(client, cik, ref, **kw)
+        return replace(s, calloff=GAME_CALLOFF) if ref.accession == GAME_8K else s
+
+    monkeypatch.setattr(bf, "read_filing", read_with_calloff)
+    det = _dry(db, tmp_path, asof=date(2026, 8, 25), night="calloff")
+    block = _block(det)
+    assert list(block) == BLOCK_KEYS[:10] + ["calloffs"] + BLOCK_KEYS[10:]
+    assert block.pop("calloffs") == [_game_row(ids["GAME"])]
+    # the call-off is no input to a decision yet: the plan, the report and the rest of the block are as they were
+    assert block == _block(plain)
+    assert [(p.action, p.reason, p.values) for p in det.planned] == [
+        (p.action, p.reason, p.values) for p in plain.planned
+    ]
+    assert det.result.report_lines() == plain.result.report_lines()
+
+
+def test_record_keeps_the_runs_calloffs_and_the_one_reader_reads_them(monkeypatch, tmp_path):
+    sid = uuid.UUID(int=3)
+    calloff = ds.CallOffFiling.of(_game(sid), _game_8k())
+    _cli(monkeypatch, tmp_path, [_meta_unplaced()], [calloff])
+    ds.main(["--asof", "2026-11-25", "--sec-days", "800", "--polygon-days", "800", "--record"])
+    (path,) = (tmp_path / "split_unplaced").iterdir()
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    assert doc["calloffs"] == [_game_row(sid)] and len(doc["unplaced"]) == 1
+    got = su.read_unplaced(runs_dir=tmp_path / "no_runs", records_dir=tmp_path / "split_unplaced")
+    assert got.calloffs == [{**_game_row(sid), "source": "check", "seen_on": "2026-11-25"}]
 
 
 def test_the_public_clock_reads_a_detected_split_from_its_own_publication(db, tmp_path):
