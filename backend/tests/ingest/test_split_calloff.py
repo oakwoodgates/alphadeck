@@ -52,6 +52,21 @@ ELBM = (
 )
 # ATCH's 8-K 0001104659-25-001831: a failed vote (on a new 1-for-3; its listed 1-for-60 went ahead)
 ATCH = "The Reverse Stock Split Proposal was not approved."
+# SENS's 8-K 0001104659-25-002855: a meeting cancelled for a split it then did not do (a call-off)
+SENS = (
+    "On January 8, 2025, the Company announced its decision to cancel the Special Meeting "
+    "of Stockholders, which had been scheduled for January 10, 2025, for the purpose of "
+    "seeking stockholder approval of a proposed reverse stock split within the range of "
+    "25:1 to 50:1."
+)
+# KNWN's 8-K 0001654954-25-001790 (EX-99.1): the same “decision to cancel the Special Meeting”, for a split
+# that had already taken effect (the 1-for-40 listed on prod): no call-off
+KNWN = (
+    "The Company’s decision to cancel the Special Meeting comes after the Company "
+    "announced a 1 for 40 reverse stock split of its authorized and issued and "
+    "outstanding shares of common stock on February 18, 2025, which became effective "
+    "February 19, 2025, and did not require the approval of stockholders."
+)
 
 # modal boilerplate (``c2_sample.md``): 6-K 0001213900-26-057079 (EX-99.1), "may … abandon"
 MAY_ABANDON = (
@@ -175,13 +190,108 @@ def _without_guard(guard: str) -> split_calloff.CalloffWording:
         (IF_NOT_APPROVED, "modal_before", "neg_passive"),
         (EFFECTED_UNLESS, "condition_after", "neg_passive"),
         (EFFECTIVE_UNTIL, "condition_after", "neg_passive"),
+        (KNWN, "completed_split", "decided_to_abandon"),
     ],
-    ids=["modal-before", "condition-unless", "condition-until"],
+    ids=["modal-before", "condition-unless", "condition-until", "completed-KNWN"],
 )
 def test_the_guard_is_what_sets_the_sentence_aside(text: str, guard: str, pattern: str) -> None:
     assert read_sentence(text) is None
     cue = read_sentence(text, _without_guard(guard))
     assert cue is not None and (cue.kind, cue.pattern) == ("decision", pattern)
+
+
+def test_a_meeting_cancelled_for_a_split_already_done_calls_nothing_off() -> None:
+    """SENS and KNWN say “decision to cancel the Special Meeting” alike: SENS's split was then not done (a
+    call-off), KNWN's had become effective the day before (none)."""
+    cue = read_sentence(SENS)
+    assert cue is not None
+    assert (cue.kind, cue.pattern, SENS[cue.span[0] : cue.span[1]]) == (
+        "decision",
+        "decided_to_abandon",
+        "decision to cancel",
+    )
+    assert read_sentence(KNWN) is None
+
+
+# constructed: one per completion phrase and pattern the guard reaches, each read as a call-off without it
+COMPLETED = (
+    (
+        "perfect_passive",
+        "The Special Meeting has been cancelled, as the reverse stock split took effect on "
+        "March 3, 2025 without a stockholder vote.",
+    ),
+    (
+        "active_past",
+        "The Board cancelled the special meeting, since the 1-for-20 reverse stock split was "
+        "effected on May 1, 2026 by the Board alone.",
+    ),
+    (
+        "decided_not",
+        "The Company determined not to proceed with the Special Meeting, as its share "
+        "consolidation has been effected without a shareholder vote.",
+    ),
+    (
+        "noun",
+        "The withdrawal of the Reverse Stock Split Proposal follows the reverse stock split, "
+        "which became effective on June 2, 2026.",
+    ),
+)
+
+
+@pytest.mark.parametrize(("pattern", "text"), COMPLETED, ids=[c[0] for c in COMPLETED])
+def test_a_split_stated_as_done_is_not_called_off(pattern: str, text: str) -> None:
+    assert read_sentence(text) is None
+    cue = read_sentence(text, _without_guard("completed_split"))
+    assert cue is not None and (cue.kind, cue.pattern) == ("decision", pattern)
+
+
+# constructed: a cue whose object is the split itself, or a failed vote, beside a split already done is about
+# another split, and stays read
+ANOTHER_SPLIT = (
+    (
+        "decision",
+        "neg_active",
+        "Although its 1-for-10 reverse split became effective in 2024, the Company will not "
+        "effect the reverse split approved at the 2026 meeting.",
+    ),
+    (
+        "failed_vote",
+        "not_approved",
+        "The Reverse Stock Split Proposal was not approved, and the 1-for-60 reverse split, which "
+        "became effective on December 31, 2024, stands.",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("kind", "pattern", "text"), ANOTHER_SPLIT, ids=[c[1] for c in ANOTHER_SPLIT]
+)
+def test_a_done_split_beside_a_direct_cue_or_a_failed_vote_sets_nothing_aside(
+    kind: str, pattern: str, text: str
+) -> None:
+    cue = read_sentence(text)
+    assert cue is not None and (cue.kind, cue.pattern) == (kind, pattern)
+
+
+def test_the_completed_split_guard_reaches_the_patterns_with_no_split_object() -> None:
+    """The guard rides on the decision patterns whose words do not make the split the cue's object (a meeting, a
+    proposal, an amendment, an authorization, or no object): there the sentence's split may be only the one
+    already done."""
+    carried = [
+        name
+        for _, patterns in WORDING.kinds
+        for name, _, guards in patterns
+        if "completed_split" in guards
+    ]
+    assert carried == [
+        "decided_not",
+        "decided_to_abandon",
+        "perfect_passive",
+        "active_past",
+        "no_longer",
+        "noun",
+        "expired",
+    ]
 
 
 def test_a_replaced_wording_changes_airis_reading() -> None:
@@ -308,9 +418,11 @@ def test_the_logic_holds_no_pattern_of_its_own() -> None:
         ), ast.unparse(call)
 
 
-# Every C1 / C3 sentence of ``hits_table.md`` (30, 28 distinct), with the kind and pattern the measurement's
-# ``classify.py`` read (C1 = decision, C3 = failed_vote; its first cue of the strongest class). Real call-offs and
-# noise alike: which filings count is the caller's (forms, documents, the window), not the sentence reader's.
+# Every C1 / C3 sentence of ``hits_table.md`` (30, 28 distinct) but KNWN's, with the kind and pattern the
+# measurement's ``classify.py`` read (C1 = decision, C3 = failed_vote; its first cue of the strongest class). Real
+# call-offs and noise alike: which filings count is the caller's (forms, documents, the window), not the sentence
+# reader's. KNWN's (0001654954-25-001790 EX-99.1 #1, noise: a meeting cancelled for a split already effective) is
+# the one the module reads otherwise, under ``completed_split``: ``KNWN`` above.
 MEASURED = (
     (
         "0001104659-25-001831 8-K #30 / 0001104659-25-009894 424B3 #2790",
@@ -581,17 +693,6 @@ MEASURED = (
         ),
     ),
     (
-        "0001654954-25-001790 EX-99.1 #1",
-        "decision",
-        "decided_to_abandon",
-        (
-            "The Company’s decision to cancel the Special Meeting comes after the Company "
-            "announced a 1 for 40 reverse stock split of its authorized and issued and "
-            "outstanding shares of common stock on February 18, 2025, which became effective "
-            "February 19, 2025, and did not require the approval of stockholders."
-        ),
-    ),
-    (
         "0001801169-25-000069 8-K #7",
         "decision",
         "decided_to_abandon",
@@ -624,3 +725,9 @@ def test_every_measured_definite_sentence_reads_as_measured(
 ) -> None:
     cue = read_sentence(text)
     assert cue is not None and (cue.kind, cue.pattern) == (kind, pattern)
+
+
+def test_the_measured_rows_and_knwn_are_the_whole_table() -> None:
+    labels = [part for m in MEASURED for part in m[0].split(" / ")]
+    assert len(labels) + 1 == 30 and len(MEASURED) + 1 == 28
+    assert not any(label.startswith("0001654954-25-001790") for label in labels)
