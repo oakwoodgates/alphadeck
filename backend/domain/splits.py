@@ -112,9 +112,31 @@ class PolygonEvidence:
 
 
 @dataclass(frozen=True)
+class CallOff:
+    """F10: wording in one filing that calls a split off (``ingest/edgar/split_calloff`` reads it): ``kind`` is
+    the reader's (``decision`` = the company will not effect it, ``failed_vote`` = the holders did not approve
+    it); ``ratio_from``/``ratio_to`` = the ONE distinct ratio its call-off sentences state, else ``None``; the
+    passage and the document it was read in. Evidence beside the filing's reading, never a reading: no rule in
+    this module reads it, and ``domain.split_calloffs`` matches it against a listed split.
+    """
+
+    kind: str
+    ratio_from: Decimal | None = None
+    ratio_to: Decimal | None = None
+    passage: str = ""
+    document: str | None = None
+
+    @property
+    def has_ratio(self) -> bool:
+        return self.ratio_from is not None and self.ratio_to is not None
+
+
+@dataclass(frozen=True)
 class SecEvidence:
     """One SEC filing and what the extractor read from it. ``ratio_from``/``ratio_to`` are ``None`` when it
-    abstained (``abstain_reason``); ``about_a_split`` = it mentioned a split ratio at all."""
+    abstained (``abstain_reason``); ``about_a_split`` = it mentioned a split ratio at all. ``calloff`` (F10) =
+    the call-off wording it carries, ``None`` = none (and then the filing is exactly what it was before F10).
+    """
 
     accession: str
     form: str
@@ -129,6 +151,7 @@ class SecEvidence:
     abstain_reason: str | None = None
     date_note: str | None = None
     about_a_split: bool = False
+    calloff: CallOff | None = None
 
     @property
     def has_ratio(self) -> bool:
