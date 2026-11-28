@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from domain.splits import PolygonEvidence, SecEvidence, TapeEvidence
 from ingest.edgar.split_filing import extract_split
 from ingest.polygon_splits import parse_splits_page
+from pipeline.backfill_splits import FilingRef, evidence_of
 from tests.split_fixtures import FX, documents
 
 ROWS = FX / "polygon" / "rows_2026-10-22.json"
@@ -50,23 +51,10 @@ def polygon_row(ticker: str) -> PolygonEvidence:
 
 
 def sec(accession: str) -> SecEvidence:
-    _, form, filed, _ = FILINGS[accession]
+    _, form, filed, items = FILINGS[accession]
     x = extract_split(documents(f"{accession}.txt"))
-    return SecEvidence(
-        accession=accession,
-        form=form,
-        filed=date.fromisoformat(filed),
-        url="https://www.sec.gov/",
-        ratio_from=x.ratio_from,
-        ratio_to=x.ratio_to,
-        effective_date=x.effective_date,
-        date_kind=x.date_kind,
-        passage=x.passage,
-        document=x.document,
-        abstain_reason=x.abstain_reason,
-        date_note=x.date_note,
-        about_a_split=x.about_a_split,
-    )
+    ref = FilingRef(accession, form, date.fromisoformat(filed), tuple(items) if items else None)
+    return evidence_of(x, ref, url="https://www.sec.gov/")
 
 
 def tape_rows(ticker: str) -> list[dict]:

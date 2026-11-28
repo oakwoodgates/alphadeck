@@ -234,3 +234,13 @@ extractor). Each is a split prod lists, abstained by PR-C's ADS rule:
 |---|---|---|---|
 | 0001178913-25-000177 | BLRX | 6-K | an investor letter: "change the ratio of our American Depositary Shares to ordinary shares, from 15 ordinary shares per ADS to 600 ordinary shares per ADS. This is equivalent to a 1-for-40 reverse stock split" — the equating sentence is the ADS change itself (read: ADS ratio change abstain; now 40 -> 1, legal 2025-01-30: "will go into effect on" is a legal cue since 2026-11-27) |
 | 0001213900-26-051029 | TDTH | 6-K | the ADS ratio "from … one (1) ADS to eight (8) Class B ordinary shares to … one (1) ADS to two hundred and forty (240)" beside "Effective April 24, 2026, the Company effected a 1-for-30 reverse share split" — the ADS change's own factor (30) is the split's (read: ADS ratio change abstain; now 30 -> 1, legal 2026-04-24) |
+
+The call-off reader (2026-11-28, framework completion F10 P4) added one full submission, copied from prod's EDGAR cache
+(`docs/temp/framework-completion-evidence/f10-measure/forms/`; no SEC fetch) and trimmed the same way (the SGML header
+plus the 8-K and its EX-99.1, each kept whole and byte-exact; every reading of the trimmed file, bare, catch-all and
+screened, `wide` both ways, CHECKED identical to the full submission's on the pre-change and the changed reader). On
+the pre-change reader it reproduced the reading prod's split list met (`f10-measure/report.md`):
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001213900-26-122096 | AIRI | 8-K (8.01, 9.01) | "announced that it would not be effecting the reverse stock split … at a ratio of 1-for-5" (8-K and EX-99.1), the day before the listed 1-for-5's first session (read: 5 -> 1, no date; now a call-off: abstains, `called off: decision (5->1 stated)`) |

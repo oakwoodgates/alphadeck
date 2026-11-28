@@ -7,14 +7,19 @@ nightly stores) and MI (a 6-K filer, read from its submissions index)."""
 
 from __future__ import annotations
 
+import ast
+import importlib.util
 import io
 import json
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
+from domain import trading_days
 from domain.settings import get_settings
 from domain.splits import (
     STATUS_ANNOUNCED,
@@ -22,11 +27,13 @@ from domain.splits import (
     STATUS_NEEDS_REVIEW,
     STATUS_REJECTED,
     VIA_AUTO,
+    CallOff,
     PolygonEvidence,
     SecEvidence,
     decide,
     is_applicable,
 )
+from ingest.edgar import split_calloff, split_filing
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.split_filing import KnownSplit
 from ingest.edgar.submissions import parse_item_codes
@@ -45,6 +52,7 @@ from tests.split_801_fixtures import (
 from tests.split_801_fixtures import SINCE as SINCE_8_01
 from tests.split_fixtures import (
     FX,
+    documents,
     edgar_cache,
     list_polygon_rows,
     list_polygon_source,
@@ -996,3 +1004,98 @@ def test_a_backfill_rerun_sets_gpus_aside_once_and_never_touches_an_operator_rej
     bf.plan_against_stored([kept], {cycu: [rejected]})
     assert (kept.action, kept.stored.id) == (bf.OPERATOR_KEPT, rejected.id)
     assert split_repo.count_rows(db) == 4
+
+
+# --- F10 (framework completion P4): the call-off on the evidence, in the memo, and the memo's key -----------------
+
+AIRI_CIK = "0001009891"
+# AIRI's 8-K of 2026-11-19 (Items 8.01 / 9.01): “would not be effecting the reverse stock split … at a ratio of 1-for-5”
+AIRI_8K = bf.FilingRef("0001213900-26-122096", "8-K", date(2026, 11, 19), ("8.01", "9.01"))
+
+
+def test_read_filing_carries_the_calloff_and_its_memo_serves_it_back(tmp_path):
+    edgar = EdgarClient(cache_dir=edgar_cache(tmp_path, only={AIRI_8K.accession}), allow_live=False)
+    memo = tmp_path / "memo"
+    s = bf.read_filing(edgar, AIRI_CIK, AIRI_8K, memo_dir=memo)
+    assert not s.has_ratio and s.about_a_split
+    assert s.abstain_reason == "called off: decision (5->1 stated)"
+    c = s.calloff
+    assert isinstance(c, CallOff)
+    assert (c.kind, c.ratio_from, c.ratio_to, c.document) == (
+        "decision",
+        Decimal(5),
+        Decimal(1),
+        "8-K ea0312829-8k_airindustries.htm",
+    )
+    assert "would not be effecting the reverse stock split" in c.passage
+    (path,) = memo.iterdir()
+    assert json.loads(path.read_text(encoding="utf-8"))["calloff"]["kind"] == "decision"
+    # served from the memo, with no filing to read: the same evidence
+    nothing = EdgarClient(cache_dir=tmp_path / "empty", allow_live=False)
+    assert bf.read_filing(nothing, AIRI_CIK, AIRI_8K, memo_dir=memo) == s
+
+
+def test_the_memo_round_trips_a_calloff_and_reads_one_written_without_it(tmp_path):
+    x = bf.extract_for(documents("0001213900-26-122096.txt"), AIRI_8K)
+    assert x.calloff is not None
+    path = tmp_path / "m.json"
+    bf._memo_save(path, x)
+    assert bf._memo_load(path) == x
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["calloff"]  # a memo written before the call-off was (its key never matches today's)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert bf._memo_load(path) == replace(x, calloff=None)
+
+
+def test_the_memo_key_moves_when_any_reader_module_moves():
+    """``EXTRACTOR_VERSION`` hashes the reader, the call-off reader and the session calendar the reader dates by."""
+    assert bf.READER_MODULES == (split_filing, split_calloff, trading_days)
+    sources = [Path(m.__file__).read_bytes() for m in bf.READER_MODULES]
+    assert bf.EXTRACTOR_VERSION == bf.reader_version(sources)
+    assert len(bf.EXTRACTOR_VERSION) == 12
+    for i in range(len(sources)):
+        moved = [s + b"\n" if j == i else s for j, s in enumerate(sources)]
+        assert bf.reader_version(moved) != bf.EXTRACTOR_VERSION, bf.READER_MODULES[i].__name__
+
+
+def _imports(path: Path) -> list[tuple[str, str | None, int]]:
+    """``(module, name, line)`` for every import in the file: ``name`` None for ``import m`` and for ``from p import
+    m`` where ``p.m`` is a module."""
+    out: list[tuple[str, str | None, int]] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            out.extend((a.name, None, node.lineno) for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            assert node.level == 0 and node.module, f"{path.name}:{node.lineno}: a relative import"
+            for a in node.names:
+                try:
+                    sub = importlib.util.find_spec(f"{node.module}.{a.name}")
+                except (ImportError, AttributeError, ValueError):
+                    sub = None
+                if sub is not None:
+                    out.append((f"{node.module}.{a.name}", None, node.lineno))
+                else:
+                    out.append((node.module, a.name, node.lineno))
+    return out
+
+
+def test_the_reader_reads_no_first_party_code_the_memo_key_does_not_hash():
+    """Every first-party import of every reader module is a reader module (hashed into ``EXTRACTOR_VERSION``) or a
+    constant from ``READER_CONSTANTS_ONLY`` (``domain.splits``' ``PAST_RATIO_ONLY``): a memo can never outlive a change
+    to code the reading ran."""
+    backend = Path(bf.__file__).resolve().parents[1]
+    hashed = {m.__name__ for m in bf.READER_MODULES}
+    assert bf.READER_CONSTANTS_ONLY == ("domain.splits",)
+    for mod in bf.READER_MODULES:
+        path = Path(mod.__file__)
+        for module, name, line in _imports(path):
+            top = module.split(".")[0]
+            if not ((backend / top).is_dir() or (backend / f"{top}.py").exists()):
+                continue  # the standard library
+            where = f"{path.name}:{line}: {module}" + (f".{name}" if name else "")
+            if module in hashed:
+                continue
+            assert module in bf.READER_CONSTANTS_ONLY, f"{where} is not hashed into the memo key"
+            assert (
+                name is not None and name.isupper()
+            ), f"{where}: only a constant may come from {module}"
