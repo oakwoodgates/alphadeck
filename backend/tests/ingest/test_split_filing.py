@@ -8,12 +8,14 @@ different first sessions give no date."""
 from __future__ import annotations
 
 import re
+import types
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
 import pytest
 
-from ingest.edgar import split_filing
+from ingest.edgar import split_calloff, split_filing
 from ingest.edgar.split_filing import (
     FilingDocument,
     KnownSplit,
@@ -1339,8 +1341,8 @@ SUSPENDED = [
 def test_a_trading_suspension_never_dates_a_split(name, items, known, ratio, suspended):
     screen, x = _as_prod_reads(name, "8-K", items, known)
     assert screen == SCREEN_CATCH_ALL
-    if ratio is None:  # a past split's ratio only
-        assert (x.has_ratio, x.abstain_reason) == (False, PAST_ONLY)
+    if ratio is None:  # a past split's ratio only (CYCU's reason, since F10: its call-off)
+        assert not x.has_ratio and "historical:1-for-30" in x.mentions
     else:
         assert (x.ratio_from, x.ratio_to) == (Decimal(ratio[0]), Decimal(ratio[1]))
     assert (x.effective_date, x.date_kind) == (None, None)
@@ -1822,14 +1824,18 @@ def test_a_split_its_own_clause_dates_long_ago_is_past_whatever_else_the_sentenc
     effected a 1-for-30 reverse stock split on October 27, 2025, … trading … is expected to be suspended at the
     opening of business on July 21, 2026". The ratio's own clause states it DONE and dates it 262 days back; the
     later suspension date kept the sentence from the past test, and "expected to" kept it from the known-split
-    one: read as 30 -> 1 with no date, knowing its listed 1-for-30 or not. A past split's either way now.
+    one: read as 30 -> 1 with no date, knowing its listed 1-for-30 or not. A past split's either way now. Since F10
+    (P4) the filing's reason is the call-off its EX-99.1 states ("… determined not to pursue a reverse stock split at
+    this time"), as nothing operative is left; until then "only a past split's ratio is stated".
     """
     name = "0001628280-26-048496.txt"
     for known in ((), CYCU_KNOWN):
         screen, x = _as_prod_reads(name, "8-K", ("3.01", "7.01", "9.01"), known)
         assert screen == SCREEN_CATCH_ALL
-        assert (x.has_ratio, x.abstain_reason, x.effective_date) == (False, PAST_ONLY, None)
-        assert "effected a 1-for-30 reverse stock split on October 27, 2025" in x.passage
+        assert (x.has_ratio, x.effective_date) == (False, None)
+        assert x.mentions == ("historical:1-for-30",)
+        assert x.abstain_reason == "called off: decision (no ratio stated)"
+        assert "determined not to pursue a reverse stock split at this time" in x.passage
 
 
 def test_a_split_that_occurred_long_ago_is_past_beside_current_dates():
@@ -2785,3 +2791,141 @@ def test_go_into_effect_in_a_sentence_about_something_else_dates_nothing(other):
     assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(10), Decimal(1), None)
     assert (x.effective_date, x.date_kind) == (None, None)
     assert x.date_note == "no first-session or effective date stated"
+
+
+# --- F10 (framework completion P4): call-off sentences -----------------------------------------------------------
+#
+# A sentence the call-off reader (``ingest/edgar/split_calloff.py``) reads as calling a split OFF states no split: its
+# ratios are kind ``called_off`` and its dates date nothing. With nothing operative left the filing abstains
+# (``CALLED_OFF``); the call-off rides on the reading whatever the reading is (``SplitExtraction.calloff``).
+
+AIRI_8K = "0001213900-26-122096.txt"
+
+
+def test_airi_calls_off_its_1_for_5_and_abstains_as_called_off():
+    """AIRI's 8-K of 2026-11-19 (Items 8.01 / 9.01: a catch-all), read as prod reads it: it "announced that it would
+    not be effecting the reverse stock split … at a ratio of 1-for-5" (its 8-K and its EX-99.1). Until now a 1-for-5
+    with no date (prod lists AIRI's 1-for-5 confirmed, first session 2026-11-20)."""
+    screen, x = _as_prod_reads(AIRI_8K, "8-K", ("8.01", "9.01"))
+    assert screen == SCREEN_CATCH_ALL
+    assert not x.has_ratio and x.about_a_split
+    assert x.abstain_reason == f"{split_filing.CALLED_OFF}: decision (5->1 stated)"
+    assert x.mentions == ("called_off:1-for-5",)
+    assert (x.effective_date, x.date_note) == (None, "no first-session or effective date stated")
+    c = x.calloff
+    assert (c.kind, c.ratio_from, c.ratio_to) == ("decision", Decimal(5), Decimal(1))
+    assert c.passage.startswith(
+        "On November 19, 2026, Air Industries Group, announced that it would not be"
+    )
+    assert c.document == "8-K ea0312829-8k_airindustries.htm"
+    assert "would not be effecting the reverse stock split" in x.passage
+
+
+def test_pbm_postpones_its_split_and_reads_as_before():
+    """PBM's 6-K of 2026-01-29 "elected to delay the effectiveness of the reverse stock split" (a postponement, never
+    a call-off), read as prod reads it (the restatement screen): 1-for-6.25 from 2026-02-02, no call-off.
+    """
+    screen, x = _as_prod_reads("0001213900-26-009093.txt", "6-K", None)
+    assert screen == SCREEN_RESTATED
+    assert (x.ratio_from, x.ratio_to, x.effective_date, x.date_kind) == (
+        Decimal("6.25"),
+        Decimal(1),
+        date(2026, 2, 2),
+        "trading",
+    )
+    assert x.calloff is None
+
+
+def test_a_board_that_may_call_its_split_off_still_states_it():
+    """A modal sentence ("may, in its discretion") never calls a split off: its ratio stays operative."""
+    x = _x(
+        "The Board may, in its discretion, determine that the 1-for-10 reverse stock split will not be effected."
+    )
+    assert (x.ratio_from, x.ratio_to, x.abstain_reason) == (Decimal(10), Decimal(1), None)
+    assert x.mentions == ("operative:1-for-10",)
+    assert x.calloff is None
+
+
+def test_a_calloff_that_states_no_ratio_is_about_a_split_with_no_ratio():
+    """IPSC's 8-K 0001104659-26-006236 states no ratio: the filing is about a split (it was "no split ratio found",
+    not about one), with no ratio."""
+    x = _x(
+        "As a result, the Company does not intend to effect the reverse stock split as approved by the stockholders "
+        "at the Special Meeting."
+    )
+    assert not x.has_ratio and x.about_a_split
+    assert x.abstain_reason == f"{split_filing.CALLED_OFF}: decision (no ratio stated)"
+    assert (x.calloff.kind, x.calloff.ratio_from, x.calloff.ratio_to) == ("decision", None, None)
+    assert x.mentions == ()
+
+
+# constructed in ATCH's shape (its 8-K 0001104659-25-001831: a failed vote on a NEW proposal, filed after its listed
+# 1-for-60 took effect)
+ATCH_VOTE = "The Reverse Stock Split Proposal was not approved."
+ATCH_SPLIT = (
+    "The Company's 1-for-60 reverse stock split became effective at 12:01 a.m. Eastern Time on January 6, 2025, "
+    "and the common stock began trading on a split-adjusted basis at the market open on January 6, 2025."
+)
+
+
+def test_a_failed_vote_beside_an_operative_split_reads_the_split_and_carries_the_calloff():
+    x = _x(f"{ATCH_VOTE} {ATCH_SPLIT}")
+    assert (x.ratio_from, x.ratio_to, x.effective_date, x.date_kind) == (
+        Decimal(60),
+        Decimal(1),
+        date(2025, 1, 6),
+        "trading",
+    )
+    assert replace(x, calloff=None) == _x(ATCH_SPLIT)
+    assert (x.calloff.kind, x.calloff.ratio_from, x.calloff.passage) == (
+        "failed_vote",
+        None,
+        ATCH_VOTE,
+    )
+    # the restatement screen leaves a current reading as it is, call-off and all
+    doc = [FilingDocument(type="6-K", filename="t.htm", raw=f"{ATCH_VOTE} {ATCH_SPLIT}")]
+    assert extract_split_screened(doc, filed=date(2025, 1, 8)) == extract_split(doc)
+
+
+def test_two_ratios_one_in_a_calloff_sentence_still_abstain_as_two():
+    """Setting the call-off sentence aside would leave the 1-for-10: an abstain stays an abstain."""
+    x = _x(
+        "The Company will not effect the 1-for-5 reverse stock split. The Board approved a 1-for-10 reverse stock "
+        "split, and the common stock will begin trading on a split-adjusted basis on March 2, 2026."
+    )
+    assert not x.has_ratio
+    assert x.abstain_reason == "more than one ratio stated: 5->1, 10->1"
+    assert (x.calloff.ratio_from, x.calloff.ratio_to) == (Decimal(5), Decimal(1))
+
+
+def test_a_calloff_sentences_date_dates_nothing():
+    """Read as a 1-for-5 first trading 2026-03-02 until now."""
+    x = _x(
+        "The 1-for-5 reverse stock split, which was expected to begin trading on a split-adjusted basis on March 2, "
+        "2026, will not be effected."
+    )
+    assert not x.has_ratio
+    assert x.abstain_reason == f"{split_filing.CALLED_OFF}: decision (5->1 stated)"
+    assert (x.effective_date, x.date_kind) == (None, None)
+    assert x.date_note == "no first-session or effective date stated"
+
+
+def test_the_restatement_screen_keeps_the_calloff():
+    """A 6-K or a charter 8-K (``extract_split_screened``): the reading it rebuilds carries the call-off."""
+    docs = documents(AIRI_8K)
+    filed = filed_of(AIRI_8K)
+    catch_all = extract_split(docs, filed=filed)
+    screened = extract_split_screened(docs, filed=filed)
+    assert screened.calloff is not None and screened.calloff == catch_all.calloff
+    assert screened.abstain_reason == catch_all.abstain_reason
+
+
+def test_the_reader_asks_the_calloff_module_through_its_attribute(monkeypatch):
+    """``split_filing.split_calloff`` is looked up at each read, so the replay gate's ``--old-calloff`` swaps it."""
+    none = types.SimpleNamespace(
+        WORDING=split_calloff.WORDING, read_sentence=lambda text, wording=None: None
+    )
+    monkeypatch.setattr(split_filing, "split_calloff", none)
+    x = extract_split(documents(AIRI_8K), filed=filed_of(AIRI_8K))
+    assert (x.ratio_from, x.ratio_to, x.calloff) == (Decimal(5), Decimal(1), None)
+    assert x.mentions == ("operative:1-for-5",)

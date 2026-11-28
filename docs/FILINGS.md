@@ -217,15 +217,15 @@ read: 8-Ks under items 3.03 and 5.03 (a charter amendment) and 7.01 and 8.01 (wi
 one), 6-Ks and Reg A forms (`backfill_splits.SPLIT_8K_ITEMS`, `SEC_FORMS`). Each is read once, as its full
 submission, by the deterministic extractor `ingest/edgar/split_filing.py`, keeping the located passage verbatim.
 
-- **Screens.** A date more than `HISTORICAL_GAP_DAYS` before the filing is a past split's, never this
-  filing's. A 6-K or charter 8-K goes through the restatement screen (`extract_split_screened`), which only
-  removes readings: a report restating an old split never lists it as new. Each filing is read knowing the
-  company's confirmed splits (`backfill_splits.known_for`): a ratio equal to one, stated as done, is that past
-  split's whatever its age.
+- **Screens.** A date more than `HISTORICAL_GAP_DAYS` before the filing is a past split's. A 6-K or charter
+  8-K goes through the restatement screen (`extract_split_screened`), which only removes readings. Each filing is
+  read knowing the company's confirmed splits (`backfill_splits.known_for`): a ratio equal to one, stated as done,
+  is that past split's.
+- **Call-offs.** A call-off sentence (`ingest/edgar/split_calloff.py`) states no split: with nothing else, its
+  filing abstains (`CALLED_OFF`); the tape never confirms a split its window calls off.
 - **The wide-form reader.** A Massive.com split with no agreeing filing in its window gets one more look at the
   company's periodic reports, ADR registrations, prospectuses and information statements around its first
-  session (`WIDE_FORMS`; a periodic report's primary document only): a confirmation search, never nightly for
-  every company.
+  session (`WIDE_FORMS`; a periodic report's primary document only), never nightly.
 - **Distributions.** A forward split under x1.5 that only Massive.com lists, with no filing in its window
   stating it or mentioning a split, is set aside as a distribution (`distribution_reason`; settings
   `split_distribution_auto_set_aside`, `split_distribution_max_factor`). A wide form can still confirm it. So
@@ -237,8 +237,8 @@ submission, by the deterministic extractor `ingest/edgar/split_filing.py`, keepi
   stored tape confirms a split only beside one documentary source. Unplaced filings go on the run artifact with
   link, passage and ratio (`--record` keeps a long-window run's), as does one contradicting that night's plan
   (and a new row's note). `pipeline/split_history.py` backfills an onboarding company's splits;
-  `pipeline.backfill_splits` is the operator's CLI. Nothing a steward decided is overwritten; the steward reviews
-  the list on Admin ("Splits").
+  `pipeline.backfill_splits` is the operator's CLI. Nothing a steward decided is overwritten; stewards review
+  it on Admin ("Splits").
 
 ## The filing index
 

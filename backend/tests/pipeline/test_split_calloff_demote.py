@@ -27,7 +27,6 @@ from domain.splits import (
     STATUS_CONFIRMED,
     STATUS_NEEDS_REVIEW,
     VIA_AUTO,
-    VIA_POLYGON_TAPE,
     VIA_SEC_TAPE,
     CallOff,
     SecEvidence,
@@ -231,17 +230,24 @@ def test_on_the_atch_shape_is_not_demoted(monkeypatch):
     ]
 
 
-def test_on_the_with_tape_routes_are_refused(monkeypatch):
-    """Massive.com + tape (the call-off the row's only filing) and SEC + tape (the announcing 8-K, no Massive.com
-    row): each confirmed by the tape off, each sent to review on."""
+def test_a_massive_row_its_only_filing_calls_off_never_reaches_the_tape_off_or_on(monkeypatch):
+    """Massive.com + tape, the call-off the row's only filing: P4's tape guard (``detect_security``: a filing in the
+    row's window calls off its exact ratio) keeps it from the tape, so it waits for review off; on, the demote has
+    nothing to refuse (``refuse_called_off`` returns a needs-review decision as it is)."""
     m = _member()
     off = _detect(monkeypatch, m, [AIRI_ROW], [airi_8k()], tape=STEP_TAPE)
     (d,) = off.decisions
-    assert (d.status, d.confirmed_via) == (STATUS_CONFIRMED, VIA_POLYGON_TAPE)
+    assert (d.status, d.confirmed_via) == (STATUS_NEEDS_REVIEW, None)
     on = _detect(monkeypatch, m, [AIRI_ROW], [airi_8k()], tape=STEP_TAPE, demote_forms=FORMS)
-    assert on.decisions == [refuse_called_off(d, [airi_8k()], FORMS)]
-    assert on.decisions[0].status == STATUS_NEEDS_REVIEW
-    assert on.decisions[0].note.endswith(AIRI_CALLED_OFF)
+    assert on.decisions == off.decisions == [refuse_called_off(d, [airi_8k()], FORMS)]
+    assert not on.decisions[0].note.endswith(AIRI_CALLED_OFF)
+
+
+def test_on_the_with_tape_routes_are_refused(monkeypatch):
+    """SEC + tape (the announcing 8-K, no Massive.com row): confirmed by the tape off, sent to review on. (The
+    Massive.com + tape route with its call-off in the window never reaches the tape: the test above.)
+    """
+    m = _member()
     filings = [airi_announcing(), airi_8k()]
     off = _detect(monkeypatch, m, [], filings, tape=STEP_TAPE)
     (d,) = off.decisions

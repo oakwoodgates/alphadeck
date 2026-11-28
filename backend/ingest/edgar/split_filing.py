@@ -124,6 +124,16 @@ Recapitalization" — FRVO's earnings 8-K restates "the 0.7194 -for-1 reverse st
 connection with the Company's IPO" (the day it listed), BETA's charter 8-K its "IPO Recapitalization"'s
 6.3811681-for-1. It came before any public price: no listed price moves by it.
 
+**A CALL-OFF states no split** (F10, 2026-11-28). A sentence the call-off reader (``ingest/edgar/split_calloff.py``,
+asked through this module's ``split_calloff`` attribute, which a replay can swap) reads as calling a split off is found
+first: its ratios are kind ``called_off`` and its dates date nothing. AIRI's 8-K of 2026-11-19 "announced that it would
+not be effecting the reverse stock split … at a ratio of 1-for-5" and read as a 1-for-5 until then (prod's list held it
+confirmed). With no operative ratio left the filing abstains, ``CALLED_OFF`` ("called off: decision (5->1 stated)",
+"… (no ratio stated)"); one that stated two ratios, one of them in a call-off sentence, still abstains on the two (an
+abstain never resolves into a reading); one whose own split stands beside a call-off (ATCH's failed vote on a new
+proposal) reads as before. The call-off rides on every reading (``SplitExtraction.calloff``: its kind, the ONE ratio
+its call-off sentences state, else none, its passage); what it does to a listed split is ``domain.split_calloffs``'.
+
 **The date** is the first session at the new price. A TRADING sentence (one about trading, carrying a cue
 such as "split-adjusted basis", "post-consolidation basis", "market open", "opening of trading",
 "commencement of trading" — or "will begin trading" in a sentence about the split, "the first date when the
@@ -181,7 +191,7 @@ from __future__ import annotations
 import calendar
 import html
 import re
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -189,6 +199,7 @@ from fractions import Fraction
 
 from domain.splits import PAST_RATIO_ONLY
 from domain.trading_days import is_scheduled_day
+from ingest.edgar import split_calloff
 
 # what makes a sentence ABOUT a split (``_SPLIT_CUE``) and its DIRECTION cues (``_REVERSE_CUE``, ``_FORWARD_CUE``,
 # ``_FORWARD_SENTENCE_CUE``) follow the number words
@@ -861,6 +872,21 @@ class FilingDocument:
 
 
 @dataclass(frozen=True)
+class CallOffReading:
+    """The call-off a filing states (F10; the module docstring): ``kind`` is the call-off reader's
+    (``split_calloff``: ``decision``, ``failed_vote``), ``ratio_from`` -> ``ratio_to`` the ONE distinct ratio its
+    call-off sentences state (old -> new shares), else ``None``; ``passage`` is its strongest call-off sentence,
+    verbatim, and ``document`` names the document it came from. ``domain.splits.CallOff`` carries it on the evidence.
+    """
+
+    kind: str
+    ratio_from: Decimal | None = None
+    ratio_to: Decimal | None = None
+    passage: str = ""
+    document: str | None = None
+
+
+@dataclass(frozen=True)
 class SplitExtraction:
     """What one filing states about a split.
 
@@ -868,7 +894,8 @@ class SplitExtraction:
     for a 2-for-1). ``None`` with ``abstain_reason`` when no single ratio is stated. ``effective_date`` is the
     first session at the new price (``date_kind`` = ``trading``) or a legal effective date (``legal``);
     ``None`` with ``date_note`` when none, or more than one, is stated. ``passage`` is verbatim; ``document``
-    names the document it came from."""
+    names the document it came from. ``calloff``: the call-off it states, whatever the reading (``None`` = none).
+    """
 
     ratio_from: Decimal | None = None
     ratio_to: Decimal | None = None
@@ -879,6 +906,7 @@ class SplitExtraction:
     abstain_reason: str | None = None
     date_note: str | None = None
     mentions: tuple[str, ...] = field(default_factory=tuple)
+    calloff: CallOffReading | None = None
 
     @property
     def has_ratio(self) -> bool:
@@ -886,8 +914,8 @@ class SplitExtraction:
 
     @property
     def about_a_split(self) -> bool:
-        """Did the filing talk about a split at all (any ratio mention, operative or not)?"""
-        return bool(self.mentions) or self.has_ratio
+        """Did the filing talk about a split at all (any ratio mention, operative or not, or a call-off)?"""
+        return bool(self.mentions) or self.has_ratio or self.calloff is not None
 
 
 @dataclass(frozen=True)
@@ -1179,7 +1207,7 @@ def _sentences(text: str) -> list[tuple[int, int]]:
 class _Mention:
     old: Decimal | None
     new: Decimal | None
-    kind: str  # operative | range | historical | conflict | undirected | superseded
+    kind: str  # operative | range | historical | conflict | undirected | superseded | called_off
     doc: int
     sentence: tuple[int, int]
     raw: str
@@ -1375,17 +1403,24 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
 
 
 def _cued_dates(
-    docs: list[_Doc], cue: re.Pattern, *, need_trading: bool
+    docs: list[_Doc],
+    cue: re.Pattern,
+    *,
+    need_trading: bool,
+    skip: Collection[tuple[int, tuple[int, int]]] = (),
 ) -> list[tuple[date, int, tuple[int, int], int]]:
     """``(date, doc, sentence, where)`` for every sentence carrying ``cue`` (and, for a trading sentence, a word
     about trading — or, in a sentence about the split, a SESSION cue): its only date, or the first date after the
     cue when it has several. A trading sentence is one about the split, or one carrying a cue only a split has
     (``_SPLIT_TRADING_CUE``). A date that names something else is none (``_dates(dating=True)``); a sentence about
-    an accounting standard not yet effective gives no date, one naming the LAST session no trading date.
+    an accounting standard not yet effective gives no date, one naming the LAST session no trading date. The
+    sentences in ``skip`` (``(doc, sentence)``: the call-off sentences) date nothing.
     """
     out = []
     for di, d in enumerate(docs):
         for s, e in d.spans:
+            if (di, (s, e)) in skip:
+                continue
             sent = d.match[s:e]
             about = _SPLIT_CUE.search(sent) is not None
             cm = cue.search(sent)
@@ -1475,6 +1510,9 @@ def _passage(
 # evidence (``domain.splits.decide``).
 # the start of the abstain reason for a filing that states only an authorized range
 RANGE_ONLY = "only an authorized range of ratios"
+# the start of the abstain reason for a filing whose every ratio is in a sentence calling a split off, or that states
+# a call-off and no ratio (F10, the module docstring): "called off: <kind> (<old->new> stated | no ratio stated)"
+CALLED_OFF = "called off"
 
 _Part = tuple[
     int, tuple[int, int], int
@@ -1704,6 +1742,53 @@ def _set_known_aside(
                 mt.kind = "historical"
 
 
+_Sentence = tuple[int, tuple[int, int]]  # (document, sentence span)
+
+
+def _calloff_sentences(docs: list[_Doc]) -> dict[_Sentence, split_calloff.CallOffCue]:
+    """The sentences that call a split off, each with its cue: the call-off reader's (``split_calloff.read_sentence``,
+    looked up on this module at each read, so a replay can swap it), never wording kept here."""
+    out: dict[_Sentence, split_calloff.CallOffCue] = {}
+    for di, d in enumerate(docs):
+        for s, e in d.spans:
+            cue = split_calloff.read_sentence(d.match[s:e])
+            if cue is not None:
+                out[(di, (s, e))] = cue
+    return out
+
+
+def _calloff_of(
+    docs: list[_Doc], called: dict[_Sentence, split_calloff.CallOffCue], stated: list[_Mention]
+) -> tuple[CallOffReading, _Part] | None:
+    """The filing's call-off and its passage part, from its call-off sentences (``called``) and the ratios they state
+    (``stated``: each read as a directed ratio, no range): the ONE distinct ratio, else none; the passage is a
+    sentence of the strongest kind (the call-off reader's order), one stating that ratio first, then the first.
+    """
+    if not called:
+        return None
+    by_ratio = {k: m for m in stated if (k := m.key()) is not None}
+    one = next(iter(by_ratio.values())) if len(by_ratio) == 1 else None
+    order = [kind for kind, _ in split_calloff.WORDING.kinds]
+    with_ratio = {(m.doc, m.sentence) for m in stated}
+
+    def rank(item: tuple[_Sentence, split_calloff.CallOffCue]) -> tuple[int, bool, _Sentence]:
+        at, cue = item
+        strength = order.index(cue.kind) if cue.kind in order else len(order)
+        return strength, one is not None and at not in with_ratio, at
+
+    (di, span), cue = min(called.items(), key=rank)
+    part = (di, span, span[0] + cue.span[0])
+    passage, label = _passage(docs, [part])
+    reading = CallOffReading(
+        kind=cue.kind,
+        ratio_from=one.old if one is not None else None,
+        ratio_to=one.new if one is not None else None,
+        passage=passage,
+        document=label,
+    )
+    return reading, part
+
+
 def _read(
     documents: list[FilingDocument],
     *,
@@ -1720,9 +1805,11 @@ def _read(
     if not docs:
         return _Read(SplitExtraction(abstain_reason="no readable document"), [], [], None, 0)
 
+    # the call-off sentences first (F10): they state no split, and their dates date nothing
+    called = _calloff_sentences(docs)
     # the date first — the past-split screen measures against it
-    trading = _cued_dates(docs, _TRADING_CUE, need_trading=True)
-    legal = _cued_dates(docs, _LEGAL_CUE, need_trading=False)
+    trading = _cued_dates(docs, _TRADING_CUE, need_trading=True, skip=called)
+    legal = _cued_dates(docs, _LEGAL_CUE, need_trading=False, skip=called)
     # a trading date that is no session (a weekend, an NYSE holiday: ``domain.trading_days``) is no first session —
     # "The Reverse Stock Split was effective at 11:59 p.m., Eastern Time, on April 27, 2025 and began trading on a
     # post-split basis" (SKYA's charter 8-K: a Sunday) dates the split's legal effect, and is read with those
@@ -1764,6 +1851,8 @@ def _read(
 
     direction = _doc_direction([d.match for d in docs])
     mentions = _mentions(docs, direction)
+    # the ratios the call-off sentences state (directed, no range): the call-off's own (``_calloff_of``)
+    called_stated = [m for m in mentions if m.kind == "operative" and (m.doc, m.sentence) in called]
     anchors = [a for a in (effective, filed) if a is not None]
     index = {(di, sp): i for di, d in enumerate(docs) for i, sp in enumerate(d.spans)}
     ratios_at: dict[tuple[int, tuple[int, int]], list[tuple[int, int]]] = {}
@@ -1834,9 +1923,13 @@ def _read(
             elif mt.kind == "undirected" and frozenset((mt.old, mt.new)) in past_pairs:
                 mt.kind = "historical"
 
-    conflicts = [m for m in mentions if m.kind == "conflict"]
-    operative = [m for m in mentions if m.kind == "operative"]
-    undirected = [m for m in mentions if m.kind == "undirected"]
+    def called_off(m: _Mention) -> bool:
+        return (m.doc, m.sentence) in called
+
+    # a ratio in a call-off sentence is the called-off split's, never the filing's, whatever it was read as
+    conflicts = [m for m in mentions if m.kind == "conflict" and not called_off(m)]
+    operative = [m for m in mentions if m.kind == "operative" and not called_off(m)]
+    undirected = [m for m in mentions if m.kind == "undirected" and not called_off(m)]
     # a split made for the IPO (``PRE_LISTING``): only when EVERY ratio read is one (the same numbers either way round)
     for_ipo = [
         m
@@ -1847,9 +1940,11 @@ def _read(
     pre_listing = bool(for_ipo) and all(
         frozenset((m.old, m.new)) in ipo_pairs for m in (*operative, *undirected)
     )
+    # the distinct ratios the filing states BEFORE its call-off sentences are set aside (``stated``): two of them still
+    # abstain, as an abstain is never resolved into a reading; ``distinct``: those left after
     by_ratio: dict[Fraction, list[_Mention]] = {}
-    for m in operative:
-        k = m.key()
+    for m in mentions:
+        k = m.key() if m.kind == "operative" else None
         if k is not None:
             by_ratio.setdefault(k, []).append(m)
     if len(by_ratio) > 1:
@@ -1860,7 +1955,16 @@ def _read(
                     for m in ms:
                         m.kind = "superseded"
             by_ratio = {keep: by_ratio[keep]}
-    distinct: dict[Fraction, _Mention] = {k: ms[0] for k, ms in by_ratio.items()}
+    stated: dict[Fraction, _Mention] = {k: ms[0] for k, ms in by_ratio.items()}
+    distinct: dict[Fraction, _Mention] = {}
+    for k, ms in by_ratio.items():
+        left = [m for m in ms if not called_off(m)]
+        if left:
+            distinct[k] = left[0]
+    for m in mentions:
+        if called_off(m):
+            m.kind = "called_off"
+    calloff = _calloff_of(docs, called, called_stated)
 
     seen_labels = tuple(dict.fromkeys(f"{m.kind}:{m.raw}" for m in mentions))
     base = {
@@ -1868,6 +1972,7 @@ def _read(
         "date_kind": kind,
         "date_note": date_note,
         "mentions": seen_labels,
+        "calloff": calloff[0] if calloff is not None else None,
     }
 
     def abstain(reason: str, at: list[_Mention], first: _Part | None = None) -> _Read:
@@ -1903,17 +2008,24 @@ def _read(
         )
     if pre_listing:
         return abstain(PRE_LISTING, for_ipo)  # before any public price (BETA, FRVO)
-    if len(distinct) > 1:
+    if len(stated) > 1:
         return abstain(
             "more than one ratio stated: "
-            + ", ".join(_label(m.old, m.new) for m in distinct.values()),  # type: ignore[arg-type]
-            list(distinct.values()),
+            + ", ".join(_label(m.old, m.new) for m in stated.values()),  # type: ignore[arg-type]
+            list(stated.values()),
         )
     if not distinct:
         if undirected:
             return abstain(
                 "a ratio is stated but not whether the split is reverse or forward", undirected
             )
+        if calloff is not None:
+            # every ratio left was called off (or none was stated): no split, and no past split's either
+            c, at = calloff
+            said = "no ratio stated"
+            if c.ratio_from is not None and c.ratio_to is not None:
+                said = f"{_label(c.ratio_from, c.ratio_to)} stated"
+            return abstain(f"{CALLED_OFF}: {c.kind} ({said})", [], first=at)
         ranged = [m for m in mentions if m.kind == "range"]
         if ranged:
             return abstain(
@@ -2040,6 +2152,7 @@ def extract_split_screened(
             abstain_reason=None if ratio else (reason or src.x.abstain_reason),
             date_note=date_note,
             mentions=s.mentions,
+            calloff=src.x.calloff,
         )
 
     if b.has_ratio and s.has_ratio:

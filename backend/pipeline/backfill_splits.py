@@ -76,6 +76,7 @@ from uuid import UUID
 
 import psycopg
 
+from domain import trading_days
 from domain.market_time import market_today
 from domain.settings import get_settings
 from domain.split_calloffs import refuse_called_off
@@ -86,6 +87,7 @@ from domain.splits import (
     STATUS_NEEDS_REVIEW,
     STATUS_REJECTED,
     STATUSES,
+    CallOff,
     PolygonEvidence,
     SecEvidence,
     SplitDecision,
@@ -95,10 +97,11 @@ from domain.splits import (
     same_ratio,
 )
 from ingest import CacheMiss
-from ingest.edgar import split_filing
+from ingest.edgar import split_calloff, split_filing
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form8k import filing_index_url
 from ingest.edgar.split_filing import (
+    CallOffReading,
     FilingDocument,
     KnownSplit,
     SplitExtraction,
@@ -525,9 +528,29 @@ def _document_url(cik: str, accession: str, filename: str) -> str:
     return f"{get_settings().sec_archives_base}/{int(cik)}/{nodash}/{filename}"
 
 
-# The extractor's identity for the extraction MEMO (``read_filing(memo_dir=...)``): a hash of its source, so any
-# change to the patterns re-reads every filing instead of serving a stale reading.
-EXTRACTOR_VERSION = hashlib.sha1(Path(split_filing.__file__).read_bytes()).hexdigest()[:12]
+# The reader's identity for the extraction MEMO (``read_filing(memo_dir=...)``): a hash of the source of every module
+# a reading runs (``READER_MODULES``: the reader, the call-off reader it asks, and the session calendar it dates by),
+# so any change to them re-reads every filing instead of serving a stale reading. ``READER_CONSTANTS_ONLY``: the one
+# other first-party module the reader imports from, for a constant only (``domain.splits.PAST_RATIO_ONLY``, an abstain
+# reason); ``tests/pipeline/test_backfill_splits.py`` holds the reader to the two lists.
+READER_MODULES = (split_filing, split_calloff, trading_days)
+READER_CONSTANTS_ONLY = ("domain.splits",)
+
+
+def reader_version(sources: Iterable[bytes]) -> str:
+    """The memo key's version: the first 12 hex digits of the sha1 of the reader modules' bytes, concatenated."""
+    return hashlib.sha1(b"".join(sources)).hexdigest()[:12]
+
+
+EXTRACTOR_VERSION = reader_version(Path(m.__file__).read_bytes() for m in READER_MODULES)
+
+
+def _dec(v: Any) -> Decimal | None:
+    return None if v is None else Decimal(v)
+
+
+def _text(v: Decimal | None) -> str | None:
+    return None if v is None else str(v)
 
 
 def _memo_load(path: Path) -> SplitExtraction | None:
@@ -535,13 +558,10 @@ def _memo_load(path: Path) -> SplitExtraction | None:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-
-    def dec(v: Any) -> Decimal | None:
-        return None if v is None else Decimal(v)
-
+    c = raw.get("calloff")
     return SplitExtraction(
-        ratio_from=dec(raw["ratio_from"]),
-        ratio_to=dec(raw["ratio_to"]),
+        ratio_from=_dec(raw["ratio_from"]),
+        ratio_to=_dec(raw["ratio_to"]),
         effective_date=date.fromisoformat(raw["effective_date"]) if raw["effective_date"] else None,
         date_kind=raw["date_kind"],
         passage=raw["passage"],
@@ -549,18 +569,30 @@ def _memo_load(path: Path) -> SplitExtraction | None:
         abstain_reason=raw["abstain_reason"],
         date_note=raw["date_note"],
         mentions=tuple(raw["mentions"]),
+        calloff=(
+            None
+            if c is None
+            else CallOffReading(
+                kind=c["kind"],
+                ratio_from=_dec(c["ratio_from"]),
+                ratio_to=_dec(c["ratio_to"]),
+                passage=c["passage"],
+                document=c["document"],
+            )
+        ),
     )
 
 
 def _memo_save(path: Path, x: SplitExtraction) -> None:
+    c = x.calloff
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         tmp.write_text(
             json.dumps(
                 {
-                    "ratio_from": None if x.ratio_from is None else str(x.ratio_from),
-                    "ratio_to": None if x.ratio_to is None else str(x.ratio_to),
+                    "ratio_from": _text(x.ratio_from),
+                    "ratio_to": _text(x.ratio_to),
                     "effective_date": x.effective_date.isoformat() if x.effective_date else None,
                     "date_kind": x.date_kind,
                     "passage": x.passage,
@@ -568,6 +600,17 @@ def _memo_save(path: Path, x: SplitExtraction) -> None:
                     "abstain_reason": x.abstain_reason,
                     "date_note": x.date_note,
                     "mentions": list(x.mentions),
+                    "calloff": (
+                        None
+                        if c is None
+                        else {
+                            "kind": c.kind,
+                            "ratio_from": _text(c.ratio_from),
+                            "ratio_to": _text(c.ratio_to),
+                            "passage": c.passage,
+                            "document": c.document,
+                        }
+                    ),
                 }
             ),
             encoding="utf-8",
@@ -681,11 +724,18 @@ def read_filing(
         x = extract_for(docs, ref, known=known)
         if memo is not None:
             _memo_save(memo, x)
+    return evidence_of(x, ref, url=filing_index_url(cik, ref.accession))
+
+
+def evidence_of(x: SplitExtraction, ref: FilingRef, *, url: str) -> SecEvidence:
+    """THE evidence one filing's reading gives the split list (``read_filing``; the tests' fixtures build theirs here
+    too): what the extractor read, the call-off with it (``domain.splits.CallOff``)."""
+    c = x.calloff
     return SecEvidence(
         accession=ref.accession,
         form=ref.form,
         filed=ref.filed,
-        url=filing_index_url(cik, ref.accession),
+        url=url,
         ratio_from=x.ratio_from,
         ratio_to=x.ratio_to,
         effective_date=x.effective_date,
@@ -695,6 +745,17 @@ def read_filing(
         abstain_reason=x.abstain_reason,
         date_note=x.date_note,
         about_a_split=x.about_a_split,
+        calloff=(
+            None
+            if c is None
+            else CallOff(
+                kind=c.kind,
+                ratio_from=c.ratio_from,
+                ratio_to=c.ratio_to,
+                passage=c.passage,
+                document=c.document,
+            )
+        ),
     )
 
 

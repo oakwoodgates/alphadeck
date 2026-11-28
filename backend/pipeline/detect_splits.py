@@ -98,7 +98,13 @@ import psycopg
 
 from domain.market_time import market_today, market_tz
 from domain.settings import get_settings
-from domain.split_calloffs import CalloffRule, called_off, demoting, refuse_called_off
+from domain.split_calloffs import (
+    CalloffRule,
+    called_off,
+    demoting,
+    refuse_called_off,
+    states_ratio,
+)
 from domain.splits import (
     AUTO_VIA_LABELS,
     LIVE_STATUSES,
@@ -434,11 +440,16 @@ def detect_security(
         # the tape settles a Massive.com-only row only when nothing else could disagree: no conflicting Massive.com
         # rows, every SEC filing in its window read, and the company's index readable (the targeted reader's
         # wide forms are a confirmation search: one that agrees has already settled the row, one unread is no
-        # disagreement)
+        # disagreement) — and no filing in its window calling off a split of its ratio (F10, ``states_ratio``: until
+        # the reader read call-offs, that filing read as the row's ratio and kept it from the tape; ratio-less, it
+        # never did)
         settled_alone = (
             not (len(group) > 1 and _conflicting(group))
             and g.unread == 0
             and (not m.cik or reader.submissions.get(m.cik) is not None)
+            and not any(
+                states_ratio(s.calloff, group[0].split_from, group[0].split_to) for s in g.read
+            )
         )
         if d.status == STATUS_NEEDS_REVIEW and settled_alone:
             d = with_tape(
