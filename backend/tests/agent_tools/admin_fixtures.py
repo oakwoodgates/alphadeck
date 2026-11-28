@@ -20,10 +20,16 @@ from tests.agent_tools.fixtures import text, uid
 ASOF = "2026-11-06"
 PASSAGE_CHARS = 700  # over the brief row's 300-character cut and under the full row's 1,500
 UNPLACED_PASSAGE_CHARS = 500  # F1-4: an unplaced filing's passage (the run cuts it at 600)
+CALLOFF_PASSAGE_CHARS = 450  # F10: a call-off's passage (the run cuts it at 600)
 
 
 def _dump(model: Any, payload: Any) -> Any:
     return model.model_validate(payload).model_dump(mode="json")
+
+
+def split_list(body: dict[str, Any]) -> dict[str, Any]:
+    """A changed split-list body validated again through the API's wire model (``AdminSplitListOut``)."""
+    return _dump(AdminSplitListOut, body)
 
 
 def _sec(n: int, *, abstain: str | None = None) -> dict[str, Any]:
@@ -176,6 +182,38 @@ def same_ratio_near(
     }
 
 
+def called_off_row(
+    n: int,
+    filed: str,
+    *,
+    days_from: int,
+    seq: int = 0,
+    kind: str = "decision",
+    ratio_label: str | None = "1-for-10",
+    same_ratio: bool | None = True,
+    source: str = "nightly",
+    seen_on: str = "2026-11-05",
+) -> dict[str, Any]:
+    """F10: one filing that calls company ``n``'s listed split off (``AdminSplitCalledOffOut``) as the API states
+    it: filed ``days_from`` days from the split's first session, stating ``ratio_label`` (``None``: no ratio, so
+    ``same_ratio`` is null too), a 450-character passage (over the brief's 300-character cut)."""
+    ref = f"0003{n:06d}-26-{40 + seq:06d}"
+    return {
+        "accession": ref,
+        "form": "8-K",
+        "filed": filed,
+        "url": f"https://www.sec.gov/Archives/edgar/data/{n + 1000}/{ref.replace('-', '')}/{ref}-index.htm",
+        "kind": kind,
+        "ratio_label": ratio_label,
+        "same_ratio": None if ratio_label is None else same_ratio,
+        "days_from": days_from,
+        "document": f"{ref}.txt",
+        "passage": text(CALLOFF_PASSAGE_CHARS, n + seq),
+        "source": source,
+        "seen_on": seen_on,
+    }
+
+
 def unplaced_row(
     n: int, filed: str, *, dismissed: bool = False, ratio: bool = True, **over: Any
 ) -> dict[str, Any]:
@@ -231,14 +269,20 @@ def unplaced(extra: int = 0) -> list[dict[str, Any]]:
 
 
 def splits(
-    extra_needs_review: int = 0, extra_unplaced: int = 0, extra_same_ratio: bool = False
+    extra_needs_review: int = 0,
+    extra_unplaced: int = 0,
+    extra_same_ratio: bool = False,
+    called_off: bool = False,
 ) -> dict[str, Any]:
     """The split list: 3 needs-review (TK01 two options; TK02 the extractor abstained; TK03 Massive.com only),
     1 announced (TK04), 3 confirmed (TK05, TK01 again, TK06), 1 set aside (TK07, with a long note and a restore
     target), 1 unlisted jump (TK08, three bars after) and 1 dismissed jump (TK06); F1-4: 2 unplaced filings
     (``unplaced``) and 1 the steward dismissed (TK05's authorized range, near its confirmed split). F8-3: the open
     TK01 names TK01's confirmed 1-for-10 of 06-01, 154 days before it (``same_ratio_listed``); with
-    ``extra_same_ratio`` every extra needs-review row names two (the most the API names).
+    ``extra_same_ratio`` every extra needs-review row names two (the most the API names). F10: with ``called_off``
+    filings call off the needs-review TK02 (a failed vote stating no ratio, from the long-window check), the confirmed
+    TK05 (an 8-K stating its 1-for-10 the day before its first session, then one stating 1-for-20), the rejected TK07
+    (a 1-for-20) and the last extra needs-review row, when any (its 1-for-10); the announced TK04 has none.
     """
     needs = [
         needs_review_row(
@@ -272,6 +316,21 @@ def splits(
         needs_review_row(20 + k, **({"same_ratio_listed": two(20 + k)} if extra_same_ratio else {}))
         for k in range(extra_needs_review)
     ]
+    if called_off:
+        needs[1]["called_off"] = [
+            called_off_row(
+                2,
+                "2026-10-30",
+                days_from=-3,
+                kind="failed_vote",
+                ratio_label=None,
+                source="check",
+                seen_on="2026-11-01",
+            )
+        ]
+        if extra_needs_review:
+            last = 20 + extra_needs_review - 1
+            needs[-1]["called_off"] = [called_off_row(last, "2026-10-31", days_from=-2)]
     set_aside = _entry(
         7,
         "rejected",
@@ -327,6 +386,16 @@ def splits(
         ],
         "unplaced_error": None,
     }
+    if called_off:
+        body["confirmed"][0]["called_off"] = [  # its ratio first, as the API orders them
+            called_off_row(5, "2026-11-01", days_from=-1),
+            called_off_row(
+                5, "2026-10-29", days_from=-4, seq=1, ratio_label="1-for-20", same_ratio=False
+            ),
+        ]
+        set_aside["called_off"] = [
+            called_off_row(7, "2026-10-28", days_from=-5, ratio_label="1-for-20", same_ratio=False)
+        ]
     body["total"] = sum(
         len(body[b]) for b in ("needs_review", "announced", "confirmed", "set_aside")
     )

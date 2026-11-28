@@ -95,6 +95,7 @@ from pipeline.cron_run_log import (
     amend_run_timings,
     list_run_logs,
     mark_run_crashed,
+    previous_called_off,
     previous_ingest_skips,
     previous_name_errors,
     previous_settle_audit_end,
@@ -104,7 +105,7 @@ from pipeline.cron_run_log import (
     write_cron_run_log,
     write_run_start,
 )
-from pipeline.detect_splits import SplitDetection, SplitDetector
+from pipeline.detect_splits import SplitDetection, SplitDetector, check_called_off
 from pipeline.edgar_coverage import EdgarCoverage, company_sets, coverage_of
 from pipeline.ingest_fundamentals import NameResult as FundamentalsResult
 from pipeline.ingest_fundamentals import PassMemo
@@ -946,6 +947,7 @@ def assess_health(
     insider_holds_new: tuple[str, ...] = (),
     insider_holds_more: int = 0,
     edgar_coverage: EdgarCoverage | None = None,
+    split_called_off_new: tuple[str, ...] = (),
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run during which no EDGAR fetch COMPLETED across the theses it processed — the R1
@@ -1024,6 +1026,10 @@ def assess_health(
     the previous evaluated pass. Benign-class like a stale feed: a vendor TAPE defect, flag only — the call
     is unchanged and the run did its job — so it pages once and never makes the Admin verdict unhealthy.
 
+    F10 — ``split_called_off_new`` are the labels of listed splits a filing read tonight NEWLY calls off
+    (``pipeline/detect_splits.check_called_off``, against ``cron_run_log.previous_called_off``). Benign-class the
+    same way: display only, nothing was decided on it (the steward settles it) — it pages once.
+
     T7 — ``successor_cik_new`` are the labels of members whose company now files under a NEW CIK
     (``pipeline/successor_cik.py``), NEW since the previous evaluated pass. Benign-class the same way: a
     data gap the operator's Adopt repairs, not a cron fault — it pages once.
@@ -1071,6 +1077,7 @@ def assess_health(
         or name_errors_new
         or audit_failed
         or split_defects_new
+        or split_called_off_new
         or successor_cik_new
         or insider_amendments_new
         or insider_amendments_more
@@ -1097,6 +1104,7 @@ def assess_health(
         name_errors_new=tuple(name_errors_new),
         audit_failed=tuple(audit_failed),
         split_defects_new=tuple(split_defects_new),
+        split_called_off_new=tuple(split_called_off_new),
         successor_cik_new=tuple(successor_cik_new),
         insider_amendments_new=tuple(insider_amendments_new),
         insider_amendments_more=insider_amendments_more,
@@ -1671,6 +1679,19 @@ def _run_daily_pass_locked(
         previous=previous_split_defects,
         clock=perf_counter,
     )
+    # F10 — THE SPLIT CALL-OFFS (`pipeline/detect_splits.check_called_off`): the filings tonight's split detection
+    # read with call-off wording, matched against the list's newest versions by the one matcher under the
+    # `split_calloff_*` settings. Each match is one report line; a NEW one (absent from `previous_called_off`, which
+    # never reads a catch-up) pages once, benign-class (display only: nothing decides on it). AFTER `run_daily`
+    # (the list as tonight's detection left it), BEFORE this run's artifact (else it would be its own baseline).
+    # Its settings read, its read-only connection and its baseline read sit in its own fail-open try.
+    timed("split_calloffs")(check_called_off)(
+        split_detector.result,
+        allow_live=allow_live,
+        tenant_id=DATA_TENANT_ID,  # the split list is DATA (domain.scopes)
+        connect=_pass_connect,
+        previous=previous_called_off,
+    )
     # MISSING CLOSES (`pipeline/missing_closes.py`, operator decision 2026-10-23): every live basket company
     # with no close for tonight's session after its price leg (judged only when SPY or IWM has one — else a
     # holiday or an unsettled session), and the previous pass's missing closes re-checked against the stored
@@ -1891,6 +1912,8 @@ def _run_daily_pass_locked(
         audit_failed=failed_labels(audit),
         # T4 — the NEW split-basis defects page once (benign-class: a vendor tape defect, flag only)
         split_defects_new=split.new_labels,
+        # F10 — the listed splits a filing NEWLY calls off page once (benign-class: display only)
+        split_called_off_new=split_detector.result.called_off_new_labels,
         # T7 — the NEW successor-CIK rows page once (benign-class: a data gap the operator's Adopt repairs)
         successor_cik_new=successor.new_labels,
         # R8-A — the NEW Form 4/A amendments owed a decision page once (benign-class)
@@ -2540,7 +2563,8 @@ def main(argv: list[str] | None = None) -> None:
         split_reads_prev=outcome.split_reads_prev,
         holds=outcome.holds,
     )  # the per-thesis summary + the errored count, printed either way
-    # S4 — one quiet line (+ Massive.com off / faults)
+    # S4 — one quiet line (+ Massive.com off / faults); F10 — each listed split a filing calls off: NEW loud, the
+    # known ones one quiet line
     for line in outcome.split_detect.report_lines():
         print(line)
     for line in jump_report_lines(

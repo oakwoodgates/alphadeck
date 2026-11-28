@@ -695,6 +695,35 @@ class Settings(BaseSettings):
     # DARK: False = the date as stated; turning it on is the operator's. ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION,
     # injected into both services like the four above.
     split_legal_date_next_session: bool = False
+    # F10 (framework completion 2026-11-28): a filing that CALLS OFF a listed split ("would not be effecting the
+    # reverse stock split", a failed vote) is named beside it on the Admin list (``GET /admin/splits``'s
+    # ``called_off``), matched when the list is read by the one matcher (``domain.split_calloffs``) under the rule
+    # ``pipeline.detect_splits.calloff_rule`` builds from these (the pure matcher reads none). It counts when filed
+    # on one of ``split_calloff_forms`` (comma-separated, exact form names) from the split's announcement to its
+    # first session + ``split_calloff_after_days``, stating any ratio or none (``split_calloff_ratio`` ``any``, R1)
+    # or exactly the listed one (``same``, R2). MEASURED over 37,812 cached split filings (2024-26): R1 on 8-K / 6-K
+    # within 30 days flags AIRI's 1-for-5 (called off the day before its first session) and one false warning;
+    # 10 of the 12 other real call-offs state no ratio. Display only. Ships ON; ``split_calloff_warn=false`` turns
+    # it off. ALPHADECK_SPLIT_CALLOFF_WARN / _FORMS / _AFTER_DAYS / _RATIO, injected into both services like the
+    # five above.
+    split_calloff_warn: bool = True
+    split_calloff_forms: str = "8-K,8-K/A,6-K,6-K/A"
+    split_calloff_after_days: int = Field(default=30, ge=0)
+    split_calloff_ratio: Literal["any", "same"] = "any"
+
+    @field_validator("split_calloff_forms", mode="before")
+    @classmethod
+    def _calloff_forms_are_named(cls, v: object) -> object:
+        """Each form trimmed and upper-cased (EDGAR's names: ``8-K``, ``6-K/A``), blanks dropped; none at all fails at
+        load (``split_calloff_warn=false`` is the off switch), never a silent default."""
+        if not isinstance(v, str):
+            return v
+        forms = [f.strip().upper() for f in v.split(",") if f.strip()]
+        if not forms:
+            raise ValueError(
+                "name at least one form (split_calloff_warn=false turns the warning off)"
+            )
+        return ",".join(forms)
 
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These two are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL; an LLM

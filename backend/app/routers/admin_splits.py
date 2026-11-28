@@ -66,6 +66,14 @@ the other splits on the list of its exact ratio whose first session is within ``
 (``same_ratio_listed``, from the versions already read): APUS's needs-review 1-for-10 in March beside its confirmed
 1-for-10 in July. Display only: serial reverse splits of one ratio exist, so no rule merges two splits; the steward
 settles them.
+
+**A filing that calls a listed split off (framework completion F10)** — each split on the list, any status, names
+the filings that call it off (``called_off``: "would not be effecting the reverse stock split", a failed vote),
+matched when the list is read: the call-off rows of the nightly's newest run and the long-window check's newest
+record (``pipeline.split_unplaced``, the same read as the unplaced list), each against its company's splits by the
+one matcher (``domain.split_calloffs``) under the rule the settings set (``pipeline.detect_splits.calloff_rule``;
+``split_calloff_warn`` false: none named). AIRI's confirmed 1-for-5 names the 8-K filed the day before its first
+session. Display only: nothing decides on it; the steward settles it.
 """
 
 from __future__ import annotations
@@ -86,6 +94,7 @@ from app.deps import get_conn
 from domain.links import HttpUrlOut, filing_index_url, safe_http_url
 from domain.market_time import market_today, market_tz
 from domain.scopes import DATA_TENANT_ID
+from domain.split_calloffs import CalloffRule
 from domain.splits import (
     AUTO_VIA_LABELS,
     SET_ASIDE,
@@ -96,6 +105,7 @@ from domain.splits import (
     STATUS_NEEDS_REVIEW,
     TAPE_TOLERANCE,
     ListedSplit,
+    SecEvidence,
     TapeEvidence,
     direction,
     price_factor,
@@ -105,9 +115,16 @@ from domain.splits import (
 )
 from domain.text_types import Prose, RequestDate, UrlText
 from pipeline.backfill_splits import MATCH_WINDOW_DAYS
-from pipeline.detect_splits import TAPE_PRIOR_MAX_DAYS, tape_at, tape_window
+from pipeline.detect_splits import (
+    TAPE_PRIOR_MAX_DAYS,
+    calloff_rule,
+    calloff_warn,
+    listed_calloffs,
+    tape_at,
+    tape_window,
+)
 from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps, split_dismissed
-from pipeline.split_unplaced import read_unplaced
+from pipeline.split_unplaced import UnplacedRead, calloff_evidence, read_unplaced
 from platform_values.state import read_states
 from repositories import split_filing_dismissal_repo, split_jump_repo, split_repo
 from repositories.split_filing_dismissal_repo import FilingDismissalConflict
@@ -201,6 +218,32 @@ class AdminSplitListedNearOut(BaseModel):
     days_from: int
 
 
+class AdminSplitCalledOffOut(BaseModel):
+    """A filing that CALLS OFF a listed split (framework completion F10): it says the split will not go ahead ("would
+    not be effecting the reverse stock split") or that its vote failed, as the nightly's newest run (``source``
+    ``nightly``) or the long-window check's newest record (``check``) read it; ``seen_on`` = the day that run read.
+    Matched when the list is read, by the one matcher (``domain.split_calloffs``) under the ``split_calloff_*``
+    settings: filed on one of their forms, from the split's announcement to its first session plus their days, any
+    ratio or only the same one. ``kind`` = ``decision`` (the company says it will not effect it) or ``failed_vote``;
+    ``ratio_label`` = the ratio the call-off states (``null``: none); ``same_ratio`` = it is the split's exact ratio
+    (``null`` when none is stated); ``days_from`` = its filing date minus the split's first session, signed; ``url``
+    = the filing index; ``document`` / ``passage`` = the located call-off passage, verbatim. Display only.
+    """
+
+    accession: str
+    form: str
+    filed: date
+    url: HttpUrlOut = None
+    kind: str
+    ratio_label: str | None
+    same_ratio: bool | None
+    days_from: int
+    document: str | None
+    passage: str | None
+    source: Literal["nightly", "check"]
+    seen_on: date
+
+
 class AdminSplitListEntryOut(BaseModel):
     """One split on the list (its NEWEST version). ``version_id`` names that version — every action posts it,
     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
@@ -216,7 +259,9 @@ class AdminSplitListEntryOut(BaseModel):
     it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
     none dated before the first session). ``same_ratio_listed`` (F8-3; a needs-review or announced split on the list
     read, ``null`` elsewhere and when none) = the other splits on the list of its exact ratio whose first session is
-    within 180 days of its own, nearest first, at most two; display only, nothing merges them.
+    within 180 days of its own, nearest first, at most two; display only, nothing merges them. ``called_off`` (F10;
+    any status, ``null`` when none, or with the warning off) = the filings that call it off, those stating its ratio
+    first; display only.
     """
 
     version_id: UUID
@@ -250,6 +295,7 @@ class AdminSplitListEntryOut(BaseModel):
     first_bar: date | None = None
     shares_rescaled: AdminSplitSharesOut | None = None
     same_ratio_listed: list[AdminSplitListedNearOut] | None = None
+    called_off: list[AdminSplitCalledOffOut] | None = None
 
 
 class AdminSplitJumpBarOut(BaseModel):
@@ -331,7 +377,8 @@ class AdminSplitUnplacedOut(BaseModel):
 class AdminSplitUnplacedRunOut(BaseModel):
     """A run the unplaced filings were read from: the nightly's newest (``source`` ``nightly``; ``sec_days``
     ``null``: the nightly's own window) or the long-window check's newest record (``check``). ``asof`` = the night
-    or day it read; ``rows`` = how many filings it listed, dismissed ones included.
+    or day it read; ``rows`` = how many filings it listed, dismissed ones included; ``calloffs`` = how many filings it
+    read with call-off wording (F10).
     """
 
     source: Literal["nightly", "check"]
@@ -339,6 +386,7 @@ class AdminSplitUnplacedRunOut(BaseModel):
     started_at: datetime
     sec_days: int | None
     rows: int
+    calloffs: int = 0
 
 
 class AdminSplitListOut(BaseModel):
@@ -351,7 +399,7 @@ class AdminSplitListOut(BaseModel):
     "dismissed" filter; each undoable). ``unplaced`` — SEC filings about a split the list could not place, newest
     filing first; ``unplaced_dismissed`` — the ones the steward dismissed (each undoable); ``unplaced_runs`` — the
     runs they were read from; ``unplaced_error`` when that read failed or passed over an unreadable file (shown,
-    never hidden).
+    never hidden; a failed read names no call-off).
     """
 
     needs_review: list[AdminSplitListEntryOut] = Field(default_factory=list)
@@ -912,6 +960,7 @@ def _unplaced(
     *,
     tenant_id: UUID,
     only: tuple[UUID, str] | None = None,
+    read: UnplacedRead | None = None,
 ) -> tuple[
     list[AdminSplitUnplacedOut],
     list[AdminSplitUnplacedOut],
@@ -919,10 +968,11 @@ def _unplaced(
     str | None,
 ]:
     """``(the unplaced filings still listed, the ones the steward dismissed, the runs read, the read's error)``:
-    one read of the unplaced list (files), one of the master, one of the standing dismissals; ``listed_near`` from
-    ``versions`` (the list's newest versions). ``only`` = one filing ``(security_id, accession)``.
+    one read of the unplaced list (files; ``read`` = one already made), one of the master, one of the standing
+    dismissals; ``listed_near`` from ``versions`` (the list's newest versions). ``only`` = one filing
+    ``(security_id, accession)``.
     """
-    read = read_unplaced()
+    read = read if read is not None else read_unplaced()
     rows = [
         r
         for r in read.rows
@@ -948,6 +998,69 @@ def _unplaced(
         )
         (keep if dismissal is None else gone).append(o)
     return keep, gone, runs, read.error
+
+
+# --- a filing that calls a listed split off (F10): matched on read by the one matcher; display only --------------
+
+
+def calloff_out(row: Mapping[str, Any], s: SecEvidence, v: SplitVersion) -> AdminSplitCalledOffOut:
+    """One call-off row of ``pipeline.split_unplaced.read_unplaced`` (``s``: the filing the matcher read from it,
+    ``calloff_evidence``) beside the listed split ``v`` it calls off."""
+    c = s.calloff
+    assert c is not None
+    rf, rt = c.ratio_from, c.ratio_to
+    stated = rf is not None and rt is not None  # ``c.has_ratio``
+    return AdminSplitCalledOffOut(
+        accession=s.accession,
+        form=s.form,
+        filed=s.filed,
+        url=safe_http_url(row.get("url")),
+        kind=c.kind,
+        ratio_label=ratio_label(rf, rt) if stated else None,
+        same_ratio=same_ratio(v.ratio_from, v.ratio_to, rf, rt) if stated else None,
+        days_from=(s.filed - v.effective_date).days,
+        document=_text(c.document),
+        passage=_text(c.passage),
+        source=row["source"],
+        seen_on=date.fromisoformat(row["seen_on"]),
+    )
+
+
+def called_off_for(
+    v: SplitVersion, rows: Iterable[Mapping[str, Any]], *, rule: CalloffRule
+) -> list[AdminSplitCalledOffOut] | None:
+    """The filings that call the listed split ``v`` (any status) off, from the call-off rows ``rows``
+    (``read_unplaced().calloffs``) of ``v``'s own security: THE one matcher under ``rule``
+    (``pipeline.detect_splits.calloff_rule``), through the one mapping of a listed split onto it
+    (``pipeline.detect_splits.listed_calloffs``, the nightly's too). Those stating its ratio first, then by filing
+    date. ``None`` when none does. PURE; display only.
+    """
+    own = {r["accession"]: r for r in rows if r["security_id"] == str(v.security_id)}
+    if not own:
+        return None
+    hits = listed_calloffs(v, [calloff_evidence(r) for r in own.values()], rule=rule)
+    return [calloff_out(own[s.accession], s, v) for s in hits] or None
+
+
+def _called_off(
+    entries: Iterable[AdminSplitListEntryOut],
+    versions: Iterable[SplitVersion],
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    rule: CalloffRule,
+) -> None:
+    """``called_off`` on every entry (any status) whose company has a call-off row, from the versions already read
+    and the one read of the rows: no query."""
+    by_security: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for r in rows:
+        by_security[r["security_id"]].append(r)
+    if not by_security:
+        return
+    by_version = {e.version_id: e for e in entries}
+    for v in versions:
+        own = by_security.get(str(v.security_id))
+        if own and v.id in by_version:
+            by_version[v.id].called_off = called_off_for(v, own, rule=rule)
 
 
 # --- what a confirm would touch (W2-8): read for the whole list at once; no decision reads it -------------------
@@ -1015,7 +1128,8 @@ def splits_out(
     """The panel, read live from the list's newest versions — plus the released, unlisted split-shaped jumps
     as of ``asof`` (default: today's market day; ``pipeline.split_jumps``), each open split's hints (W2-8) and the
     listed splits of its exact ratio near it (F8-3, from the same versions), and the split filings the list could
-    not place (F1-3; ``pipeline.split_unplaced``, files). SELECTs only.
+    not place (F1-3; ``pipeline.split_unplaced``, files) and, from the same read, the filings that call each split
+    off (F10, when ``split_calloff_warn`` is on). SELECTs only.
     """
     versions = split_repo.latest_versions(conn, tenant_id=tenant_id)
     out = AdminSplitListOut(total=len(versions))
@@ -1053,9 +1167,13 @@ def splits_out(
     out.announced.sort(key=newest_first)
     _hints(conn, out, tenant_id=tenant_id, asof=asof or market_today())
     try:
+        read = read_unplaced()
         out.unplaced, out.unplaced_dismissed, out.unplaced_runs, out.unplaced_error = _unplaced(
-            conn, versions, tenant_id=tenant_id
+            conn, versions, tenant_id=tenant_id, read=read
         )
+        if calloff_warn():
+            entries = (*out.needs_review, *out.announced, *out.confirmed, *out.set_aside)
+            _called_off(entries, versions, read.calloffs, rule=calloff_rule())
     except (
         Exception
     ) as e:  # noqa: BLE001 — a failed unplaced read is shown on the panel, never a failed panel
@@ -1110,7 +1228,8 @@ def list_splits(
     needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — the split-shaped price jumps
     on basket names that no source listed, after the split-night hold released them (the operator's "is this
     real?"), and the SEC filings about a split the list could not place, each with the listed split nearest it.
-    Each split awaiting review or announced names the listed splits of its exact ratio near it. Read-only.
+    Each split awaiting review or announced names the listed splits of its exact ratio near it; any split names the
+    filings that call it off. Read-only.
     """
     try:
         return splits_out(conn, tenant_id=DATA_TENANT_ID)

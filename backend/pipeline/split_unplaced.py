@@ -83,10 +83,11 @@ CALLOFF_KEYS = (
 @dataclass(frozen=True)
 class UnplacedRead:
     """The merged list (``rows``: newest filing first, each with ``source`` and ``seen_on``), the runs it came
-    from (``runs``: ``source``, ``asof``, ``started_at``, ``sec_days``, ``rows`` = the run's own count; the
-    nightly's ``sec_days`` is not on its artifact: null), and ``error``: the unreadable files passed over,
-    ``None`` when every file read was fine. ``calloffs`` (F10): the same runs' call-off rows, merged and ordered
-    the same way (``CALLOFF_KEYS`` plus ``source`` and ``seen_on``)."""
+    from (``runs``: ``source``, ``asof``, ``started_at``, ``sec_days``, ``rows`` = the run's own count, ``calloffs``
+    = its own count of call-off rows; the nightly's ``sec_days`` is not on its artifact: null), and ``error``: the
+    unreadable files passed over, ``None`` when every file read was fine. ``calloffs`` (F10): the same runs'
+    call-off rows, merged and ordered the same way (``CALLOFF_KEYS`` plus ``source`` and ``seen_on``).
+    """
 
     rows: list[dict] = field(default_factory=list)
     runs: list[dict] = field(default_factory=list)
@@ -286,6 +287,7 @@ def read_unplaced(*, runs_dir: Path | None = None, records_dir: Path | None = No
                 "started_at": doc.get("started_at"),
                 "sec_days": doc.get("sec_days") if source == SOURCE_CHECK else None,
                 "rows": len(raw_rows),
+                "calloffs": len(raw_calloffs),
             }
         )
         for raw in raw_rows:

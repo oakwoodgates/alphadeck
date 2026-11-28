@@ -589,7 +589,8 @@ def build_run_payload(
         # 0082 — the held insider rows (a filing's impossible transaction date): the count + the NEW ones
         **(holds or HoldScan()).payload(),
         # S4 — the nightly split detection (``pipeline/detect_splits.SplitDetection``): the new split-list rows,
-        # the filings it could not place, the Massive.com source's status; absent = not run (readers use ``.get``)
+        # the filings it could not place, the Massive.com source's status; absent = not run (readers use ``.get``).
+        # F10 — its call-off check rides the same block (``called_off*``; absent = not checked, never a baseline)
         **(split_detect.payload() if split_detect is not None else {}),
         # MISSING CLOSES (``pipeline/missing_closes.MissingCloses.payload``) — one block: ``evaluated``,
         # ``error``, ``session``, ``is_session``, ``benchmarks``, ``judged``, ``excluded``, ``missing`` (the
@@ -1353,6 +1354,37 @@ def previous_split_defects(*, base_dir: Path | None = None) -> set[str] | None:
         ):
             continue
         return defect_keys_of(doc)
+    return None
+
+
+def previous_called_off(*, base_dir: Path | None = None) -> set[str] | None:
+    """F10 — the ``"<security_id>:<key_date>:<accession>"`` keys of every listed split a filing called off
+    (``pipeline.detect_splits.check_called_off``) on the most recent pass that CHECKED — the baseline the current
+    pass diffs against so a call-off pages ONCE, the twin of ``previous_split_defects``: a LIVE, FINISHED (M1) pass
+    whose check ran (``split_detect.called_off_evaluated``). A pass with the warning off, a failed check or one
+    written before F10 carries no inventory: read as "nothing called off" it would re-page every known one.
+
+    A ``--catch-up`` is NEVER the baseline (unlike the split-basis scan, which reads the whole basket union): its
+    detector checks only the companies of the theses it processed, so a skipped thesis's call-offs are absent from
+    it and the next full pass would page them again. The cost is a repeat at most: a call-off first paged by a
+    catch-up pages once more at the next full pass, never a muted one.
+
+    ``None`` (distinct from an empty set) = no qualifying artifact yet — the first pass after F10 deploys — which
+    the caller treats as "everything called off is news", so the inventory pages ONCE. Newest-first, first match
+    wins; fail-open per artifact. Pure file read."""
+    from pipeline.detect_splits import called_off_keys_of  # lazy: keep the import graph one-way
+
+    for doc in list_run_logs(base_dir=base_dir):
+        block = doc.get("split_detect")
+        if (
+            doc.get("mode") != "live"
+            or doc.get("catch_up")
+            or not isinstance(block, dict)
+            or block.get("called_off_evaluated") is not True
+            or not is_finished(doc)
+        ):
+            continue
+        return called_off_keys_of(doc)
     return None
 
 

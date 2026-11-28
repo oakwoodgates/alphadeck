@@ -419,3 +419,74 @@ export function sameRatioLine(s: Split): string | null {
   });
   return `The list also holds ${parts.join(", and ")}: check this one went ahead.`;
 }
+
+// --- F10: a filing that may call a listed split off (the API's called_off, any status) ---
+
+type CalledOff = NonNullable<Split["called_off"]>[number];
+
+/** The longest a quoted passage runs, in characters, before it is cut. */
+export const PASSAGE_MAX = 280;
+
+/** A passage for one line: runs of whitespace as one space; whole when it fits, else cut where a clause ends (a comma,
+ *  semicolon, colon or closing parenthesis past the halfway), else at the last whole word, else at the limit, with the
+ *  mark or dash the cut leaves dropped and an ellipsis. The start is kept: the reader hands over the one sentence that
+ *  holds the cue, and the cut cannot aim at the cue (its patterns are the backend's). */
+export function cutPassage(text: string, max = PASSAGE_MAX): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const clause = Math.max(...[",", ";", ":", ")"].map((c) => t.lastIndexOf(c, max - 1)));
+  const space = t.lastIndexOf(" ", max);
+  const end = clause >= max / 2 ? (t[clause] === ")" ? clause + 1 : clause) : space > 0 ? space : max;
+  return `${t.slice(0, end).replace(/[\s,;:\u2013\u2014-]+$/, "")}\u2026`;
+}
+
+/** "1 day before the first session" / "the day of the first session" / "30 days after the first session". */
+function sessionDistance(days: number): string {
+  if (days === 0) return "the day of the first session";
+  const k = Math.abs(days);
+  return `${k} day${k === 1 ? "" : "s"} ${days < 0 ? "before" : "after"} the first session`;
+}
+
+/** Which ratio the filing states, against this split's: the server's `same_ratio` (null: it states none). */
+function statesRatio(c: CalledOff): string {
+  if (c.same_ratio === true) return "states this split's ratio";
+  if (c.same_ratio === false) return `states a different ratio${c.ratio_label ? `, ${c.ratio_label}` : ""}`;
+  return "states no ratio";
+}
+
+// what the filing says, by its kind, for a call-off the reader kept no passage of
+const CALLED_OFF_SAYS: Record<string, string> = {
+  decision: "the filing says the split will not go ahead",
+  failed_vote: "the filing says the vote on the split failed",
+};
+
+/** The warning line on a listed split a filing may call off, in the parts the panel sets (the filing is the link):
+ *  "Called off? 8-K filed 2026-11-19 (1 day before the first session; states this split's ratio): “On November 19,
+ *  2026, Air Industries Group, announced that it would not be effecting the reverse stock split …”". Each fact once:
+ *  the ratio is named only when it is not this split's (the entry's own label says that one), the sentence is the
+ *  filing's own (cut sensibly), and a call-off with no passage says what its kind means instead. */
+export function calledOffWords(c: CalledOff): { head: string; filing: string; when: string; says: string | null } {
+  const passage = c.passage ? cutPassage(c.passage) : "";
+  const kind = CALLED_OFF_SAYS[c.kind];
+  return {
+    head: "Called off?",
+    filing: `${c.form} filed ${c.filed}`,
+    when: `(${sessionDistance(c.days_from)}; ${statesRatio(c)})`,
+    says: passage ? `\u201c${passage}\u201d` : kind ? `${kind}.` : null,
+  };
+}
+
+const COUNT_NAMES = 6;
+
+/** The count at the top of the panel, over the splits still standing (needs review, announced, confirmed): "1 listed
+ *  split has a filing that may call it off: AIRI." It counts splits, not filings, and names the first six: the
+ *  confirmed and announced lists are folded. Null when no split has one. A rejected or revoked split is not counted
+ *  (its line stays on its row), so acting on the warning clears it. */
+export function calledOffCountLine(splits: Split[]): string | null {
+  const hit = splits.filter((s) => (s.called_off?.length ?? 0) > 0);
+  if (!hit.length) return null;
+  const one = hit.length === 1;
+  const names = [...new Set(hit.map((s) => s.ticker ?? s.name ?? s.security_id))];
+  const more = names.length > COUNT_NAMES ? ` and ${names.length - COUNT_NAMES} more` : "";
+  return `${hit.length} listed split${one ? " has" : "s have"} a filing that may call ${one ? "it" : "them"} off: ${names.slice(0, COUNT_NAMES).join(", ")}${more}.`;
+}

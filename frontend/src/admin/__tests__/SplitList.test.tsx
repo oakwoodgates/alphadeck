@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -983,6 +983,301 @@ describe("SplitList: a listed split of the same ratio nearby (F8-3)", () => {
     expect(empty.container.innerHTML).toBe(html);
     expect(html).not.toContain("adm-split-same-ratio");
     expect(html).toContain("adm-split-review-row");
+  });
+});
+
+// F10 P6 — a filing that may call a listed split off, as GET /admin/splits carries it (called_off, any status; backend
+// tests/app/test_admin_split_list_api.py): AIRI's confirmed 1-for-5, first session 2026-11-20, and the 8-K it filed the
+// day before ("would not be effecting the reverse stock split"; the passage is the 8-K's own sentence, copied from the
+// backend fixture). ATCH's failed vote and the other shapes are SYNTHETIC. Display only: the one control is the
+// existing Revoke (or Reject, while announced); nothing here sends.
+const AIRI_PASSAGE =
+  "On November 19, 2026, Air Industries Group, announced that it would not be effecting the reverse stock " +
+  "split (the \u201cReverse Stock Split\u201d) of its authorized, issued and outstanding shares of common stock, " +
+  "par value $0.001 per share, at a ratio of 1-for-5 (the \u201cReverse Stock Split\u201d) in connection with the " +
+  "Company\u2019s proposed merger with Tenax Aerospace Acquisition, LLC (\u201cTenax\u201d) that had been announced " +
+  "on November 10, 2026.";
+// the passage cut at the closing parenthesis after the ratio (a clause end past the halfway), not mid-clause
+const AIRI_CUT =
+  "On November 19, 2026, Air Industries Group, announced that it would not be effecting the reverse stock " +
+  "split (the \u201cReverse Stock Split\u201d) of its authorized, issued and outstanding shares of common stock, " +
+  "par value $0.001 per share, at a ratio of 1-for-5 (the \u201cReverse Stock Split\u201d)\u2026";
+const AIRI_8K = "0001213900-26-122096";
+const AIRI_URL = `https://www.sec.gov/Archives/edgar/data/1009891/000121390026122096/${AIRI_8K}-index.htm`;
+const calledOff = (over: Record<string, unknown> = {}) => ({
+  accession: AIRI_8K,
+  form: "8-K",
+  filed: "2026-11-19",
+  url: AIRI_URL,
+  kind: "decision",
+  ratio_label: "1-for-5 reverse split",
+  same_ratio: true,
+  days_from: -1,
+  document: "ea0312829-8k_airindustries.htm",
+  passage: AIRI_PASSAGE,
+  source: "nightly",
+  seen_on: "2026-11-25",
+  ...over,
+});
+const AIRI = {
+  ...BTOC,
+  version_id: "a1210000-0000-4000-8000-0000000000a1",
+  security_id: "a1210000-0000-4000-8000-0000000000a2",
+  ticker: "AIRI",
+  name: "Air Industries Group",
+  key_date: "2026-11-20",
+  effective_date: "2026-11-20",
+  ratio_from: "5",
+  price_factor: "5",
+  label: "1-for-5 reverse split",
+  valid_from: "2026-11-10",
+  note: null,
+  sec: null,
+  polygon: { ...BTOC.polygon, id: "E-airi", ticker: "AIRI", execution_date: "2026-11-20", split_from: "5", ratio_label: "1-for-5 reverse split" },
+  called_off: [calledOff()],
+};
+const ATCH = {
+  ...AIRI,
+  version_id: "a7c40000-0000-4000-8000-0000000000a1",
+  security_id: "a7c40000-0000-4000-8000-0000000000a2",
+  ticker: "ATCH",
+  name: null,
+  effective_date: "2026-11-12",
+  key_date: "2026-11-12",
+  polygon: { ...AIRI.polygon, id: "E-atch", ticker: "ATCH", execution_date: "2026-11-12" },
+  called_off: [
+    calledOff({
+      accession: "0000000000-26-000011",
+      form: "6-K",
+      filed: "2026-11-12",
+      kind: "failed_vote",
+      ratio_label: null,
+      same_ratio: null,
+      days_from: 0,
+      passage: "The Reverse Stock Split Proposal was not approved.",
+    }),
+  ],
+};
+
+describe("SplitList: a filing that may call a listed split off (F10)", () => {
+  const lines = (row: HTMLElement) => within(row).queryAllByTestId("adm-split-called-off");
+  const open = (ui: Record<string, unknown>) => {
+    serve({ needs_review: [], announced: [], confirmed: [], set_aside: [], total: 1, ...ui });
+    return render(<SplitList />);
+  };
+
+  it("names the 8-K that called AIRI's confirmed split off, the day before its first session, with its link", () => {
+    open({ confirmed: [AIRI] });
+    const row = screen.getByTestId("adm-split-confirmed-row");
+    expect(lines(row)).toHaveLength(1);
+    expect(lines(row)[0]).toHaveTextContent(
+      `Called off? 8-K filed 2026-11-19 (1 day before the first session; states this split's ratio): \u201c${AIRI_CUT}\u201d`,
+    );
+    const link = within(lines(row)[0]).getByRole("link", { name: "8-K filed 2026-11-19" });
+    expect(link).toHaveAttribute("href", AIRI_URL);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    // display only: the one control is the existing Revoke, enabled, and nothing was sent
+    expect(within(row).getByRole("button", { name: "Revoke" })).toBeEnabled();
+    for (const mm of [h.confirm, h.reject, h.revoke, h.restore]) expect(fn(mm)).not.toHaveBeenCalled();
+  });
+
+  it("says each fact once: the filing, its date, the distance and the sentence appear once in the entry", () => {
+    open({ confirmed: [AIRI] });
+    const text = screen.getByTestId("adm-split-confirmed-row").textContent ?? "";
+    for (const once of ["2026-11-19", "8-K", "1 day before", "would not be effecting", "1-for-5 reverse split"]) {
+      expect(text.split(once).length - 1, once).toBe(1);
+    }
+  });
+
+  it("shows it on an announced entry, and on a needs-review one, in the same words", () => {
+    const other = calledOff({ days_from: -3, same_ratio: false, ratio_label: "1-for-3 reverse split" });
+    open({
+      announced: [{ ...AIRI, status: "announced", decided_by: "auto: SEC + Massive.com" }],
+      needs_review: [{ ...MI, called_off: [other] }],
+      total: 2,
+    });
+    expect(lines(screen.getByTestId("adm-splits-announced"))[0]).toHaveTextContent(
+      `Called off? 8-K filed 2026-11-19 (1 day before the first session; states this split's ratio): \u201c${AIRI_CUT}\u201d`,
+    );
+    expect(lines(screen.getByTestId("adm-split-review-row"))[0]).toHaveTextContent(
+      "Called off? 8-K filed 2026-11-19 (3 days before the first session; states a different ratio, 1-for-3 reverse split): \u201cOn November 19",
+    );
+    // the announced entry keeps its own control, Reject, and the call-off adds none
+    expect(within(screen.getByTestId("adm-splits-announced")).getByRole("button", { name: "Reject" })).toBeEnabled();
+  });
+
+  it("shows it on a rejected or revoked entry too, grayed with its row: Restore reads it before bringing it back", () => {
+    open({ set_aside: [{ ...LRHC_REJECTED, called_off: [calledOff()] }] });
+    const row = screen.getByTestId("adm-split-set-aside-row");
+    expect(row).toHaveClass("adm-grayed");
+    expect(lines(row)).toHaveLength(1);
+    expect(within(row).getByRole("button", { name: "Restore" })).toBeEnabled();
+  });
+
+  it("is absent when called_off is null or empty, and an older server's payload (no key) renders today's panel", () => {
+    const { called_off: _drop, ...airiOld } = AIRI;
+    serve({ needs_review: [MI], announced: [], confirmed: [airiOld], set_aside: [], total: 2 });
+    const old = render(<SplitList />);
+    const html = old.container.innerHTML;
+    old.unmount();
+    for (const none of [null, []]) {
+      serve({ needs_review: [MI], announced: [], confirmed: [{ ...airiOld, called_off: none }], set_aside: [], total: 2 });
+      const r = render(<SplitList />);
+      expect(r.container.innerHTML).toBe(html);
+      r.unmount();
+    }
+    expect(html).not.toContain("adm-split-called-off");
+    expect(html).not.toContain("Called off");
+    expect(html).not.toContain("may call");
+    expect(html).toContain("adm-split-confirmed-row");
+  });
+
+  describe("the count at the top", () => {
+    const count = () => screen.queryByTestId("adm-splits-called-off-count");
+
+    it("counts the listed splits with a filing that may call them off, naming them: one", () => {
+      open({ confirmed: [AIRI, { ...BTOC, called_off: null }], total: 2 });
+      expect(count()).toHaveTextContent("1 listed split has a filing that may call it off: AIRI.");
+      expect(count()).toHaveClass("adm-loud");
+    });
+
+    it("counts two across the lists, and counts splits, not filings", () => {
+      const twice = { ...ATCH, called_off: [...ATCH.called_off, calledOff({ accession: "0000000000-26-000099" })] };
+      open({ confirmed: [AIRI], announced: [{ ...twice, status: "announced" }], needs_review: [{ ...MI, called_off: [] }], total: 3 });
+      expect(count()).toHaveTextContent("2 listed splits have a filing that may call them off: ATCH, AIRI.");
+      expect(within(screen.getByTestId("adm-splits-announced")).getAllByTestId("adm-split-called-off")).toHaveLength(2);
+    });
+
+    it("does not count a rejected or revoked split: revoking clears it from the count, its line stays", () => {
+      open({ confirmed: [], set_aside: [{ ...AIRI, status: "revoked", author: "operator" }], total: 1 });
+      expect(count()).toBeNull();
+      expect(screen.getByTestId("adm-splits-set-aside")).toHaveTextContent("1 rejected or revoked");
+      expect(screen.getAllByTestId("adm-split-called-off")).toHaveLength(1);
+    });
+
+    it("sits at the top of the panel, above every list, and names at most six", () => {
+      const many = Array.from({ length: 8 }, (_, i) => ({
+        ...AIRI,
+        version_id: `a1210000-0000-4000-8000-00000000010${i}`,
+        security_id: `a1210000-0000-4000-8000-00000000020${i}`,
+        ticker: `TK${i}`,
+      }));
+      open({ confirmed: many, needs_review: [MI], total: 9 });
+      expect(count()).toHaveTextContent(
+        "8 listed splits have a filing that may call them off: TK0, TK1, TK2, TK3, TK4, TK5 and 2 more.",
+      );
+      const panel = screen.getByTestId("adm-splits");
+      for (const below of ["adm-splits-review", "adm-splits-confirmed"]) {
+        expect(count()!.compareDocumentPosition(screen.getByTestId(below)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      }
+      expect(panel.firstElementChild).toHaveTextContent("Splits");
+      expect(panel.children[1]).toBe(count());
+    });
+
+    it("falls back to the name, then the id, for a split with no ticker", () => {
+      open({ confirmed: [{ ...AIRI, ticker: null }, { ...ATCH, ticker: null, name: null }], total: 2 });
+      expect(count()).toHaveTextContent(`Air Industries Group, ${ATCH.security_id}.`);
+    });
+  });
+
+  describe("the words", () => {
+    const line = (c: Record<string, unknown>) => {
+      open({ confirmed: [{ ...AIRI, called_off: [calledOff(c)] }] });
+      return screen.getByTestId("adm-split-called-off");
+    };
+
+    it("says how far from the first session the filing came: before, the day, after, one day and many", () => {
+      expect(line({ days_from: -1 })).toHaveTextContent("(1 day before the first session;");
+      cleanup();
+      expect(line({ days_from: -12 })).toHaveTextContent("(12 days before the first session;");
+      cleanup();
+      expect(line({ days_from: 0 })).toHaveTextContent("(the day of the first session;");
+      cleanup();
+      expect(line({ days_from: 1 })).toHaveTextContent("(1 day after the first session;");
+      cleanup();
+      expect(line({ days_from: 30 })).toHaveTextContent("(30 days after the first session;");
+    });
+
+    it("says which ratio the filing states: this split's, another one, or none", () => {
+      expect(line({ same_ratio: true })).toHaveTextContent("; states this split's ratio)");
+      cleanup();
+      expect(line({ same_ratio: false, ratio_label: "1-for-3 reverse split" })).toHaveTextContent(
+        "; states a different ratio, 1-for-3 reverse split)",
+      );
+      cleanup();
+      expect(line({ same_ratio: null, ratio_label: null })).toHaveTextContent("; states no ratio)");
+      cleanup();
+      // a different ratio with no label to name (not a shape the server sends): still said, never blank
+      expect(line({ same_ratio: false, ratio_label: null })).toHaveTextContent("; states a different ratio)");
+    });
+
+    it("words ATCH's failed vote with no ratio on the day of its first session", () => {
+      open({ confirmed: [ATCH] });
+      expect(screen.getByTestId("adm-split-called-off")).toHaveTextContent(
+        "Called off? 6-K filed 2026-11-12 (the day of the first session; states no ratio): \u201cThe Reverse Stock Split Proposal was not approved.\u201d",
+      );
+    });
+
+    it("says what the filing says when it carries no passage, by its kind, and nothing more for a kind it does not know", () => {
+      expect(line({ passage: null })).toHaveTextContent(
+        "states this split's ratio): the filing says the split will not go ahead.",
+      );
+      cleanup();
+      expect(line({ passage: null, kind: "failed_vote" })).toHaveTextContent(
+        "states this split's ratio): the filing says the vote on the split failed.",
+      );
+      cleanup();
+      const bare = line({ passage: null, kind: "something_new" });
+      expect(bare).toHaveTextContent("Called off? 8-K filed 2026-11-19 (1 day before the first session; states this split's ratio)");
+      expect(bare.textContent).not.toContain(":");
+    });
+
+    it("leaves the filing as plain text when it has no safe link, and says the form when it is the only thing known", () => {
+      expect(within(line({ url: null })).queryByRole("link")).toBeNull();
+      cleanup();
+      const plain = line({ url: "javascript:alert(1)" });
+      expect(within(plain).queryByRole("link")).toBeNull();
+      expect(plain).toHaveTextContent("Called off? 8-K filed 2026-11-19 (1 day before");
+    });
+  });
+
+  describe("a long passage", () => {
+    const quoted = (passage: string) => {
+      open({ confirmed: [{ ...AIRI, called_off: [calledOff({ passage })] }] });
+      const text = screen.getByTestId("adm-split-called-off").textContent ?? "";
+      return text.slice(text.indexOf("\u201c") + 1, text.lastIndexOf("\u201d"));
+    };
+
+    it("is shown whole when it is short", () => {
+      expect(quoted("It would not effect the split.")).toBe("It would not effect the split.");
+      cleanup();
+      expect(quoted("w".repeat(280))).toBe("w".repeat(280));
+    });
+
+    it("is cut where a clause ends, with an ellipsis, so the sentence shows the call-off and the ratio", () => {
+      expect(quoted(AIRI_PASSAGE)).toBe(AIRI_CUT);
+    });
+
+    it("is cut at a whole word when no clause ends past the halfway, and never ends on a dangling mark", () => {
+      const words = Array.from({ length: 80 }, (_, i) => `word${i}`).join(" ");
+      const got = quoted(words);
+      expect(got.endsWith("\u2026")).toBe(true);
+      const body = got.slice(0, -1);
+      expect(body.length).toBeLessThanOrEqual(280);
+      expect(words.startsWith(body)).toBe(true);
+      expect(words[body.length]).toBe(" ");
+      cleanup();
+      // the word cut lands after a dash: the dash is dropped, the ellipsis follows the last word
+      const dashes = Array.from({ length: 60 }, () => "alpha \u2013").join(" ");
+      expect(quoted(dashes)).toMatch(/alpha\u2026$/);
+    });
+
+    it("is cut hard at the limit when it has no space to cut at, and its line breaks and runs of spaces read as one space", () => {
+      expect(quoted("x".repeat(400))).toBe(`${"x".repeat(280)}\u2026`);
+      cleanup();
+      expect(quoted("It would not\n  effect\tthe split.")).toBe("It would not effect the split.");
+    });
   });
 });
 

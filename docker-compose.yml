@@ -125,6 +125,13 @@ services:
       ALPHADECK_SPLIT_SEC_RESTATE_DAYS: ${ALPHADECK_SPLIT_SEC_RESTATE_DAYS:-0}
       # F3b — an SEC-only split's legal date that is no session is planned on the next session (false = off, shipped).
       ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION: ${ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION:-false}
+      # F10 — a filing that calls off a listed split is named beside it on GET /admin/splits (read here): the switch
+      # (false = off), the forms, the days past the first session and the ratio rule (any | same). Fallbacks equal to
+      # the Settings defaults (pinned by test).
+      ALPHADECK_SPLIT_CALLOFF_WARN: ${ALPHADECK_SPLIT_CALLOFF_WARN:-true}
+      ALPHADECK_SPLIT_CALLOFF_FORMS: ${ALPHADECK_SPLIT_CALLOFF_FORMS:-8-K,8-K/A,6-K,6-K/A}
+      ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS: ${ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS:-30}
+      ALPHADECK_SPLIT_CALLOFF_RATIO: ${ALPHADECK_SPLIT_CALLOFF_RATIO:-any}
       # The run-loader off-switch (a dev/test cost-saver: load a saved draft run instead of paying for a fresh
       # one). Unset -> False (the Settings default; the feature + its /runs endpoints are absent). Set
       # ALPHADECK_RUN_LOADER_ENABLED=true in `.env` to turn it on for the operator; the FE picker follows.
@@ -316,6 +323,11 @@ services:
       ALPHADECK_SPLIT_SEC_RESTATE_DAYS: ${ALPHADECK_SPLIT_SEC_RESTATE_DAYS:-0}
       # F3b — the SAME next-session switch as the backend's.
       ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION: ${ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION:-false}
+      # F10 — the SAME four call-off settings as the backend's (the nightly will read them here).
+      ALPHADECK_SPLIT_CALLOFF_WARN: ${ALPHADECK_SPLIT_CALLOFF_WARN:-true}
+      ALPHADECK_SPLIT_CALLOFF_FORMS: ${ALPHADECK_SPLIT_CALLOFF_FORMS:-8-K,8-K/A,6-K,6-K/A}
+      ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS: ${ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS:-30}
+      ALPHADECK_SPLIT_CALLOFF_RATIO: ${ALPHADECK_SPLIT_CALLOFF_RATIO:-any}
       # The nightly fund-shares sample rides this ingest — the cron needs the SAME Massive.com key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}

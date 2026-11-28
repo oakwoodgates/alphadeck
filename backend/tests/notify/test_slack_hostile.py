@@ -191,6 +191,7 @@ def test_the_health_page_is_inert(posted):
             name_errors_new=(f"{COMPANY} (prices)",),
             audit_failed=(THESIS,),
             split_defects_new=(COMPANY,),
+            split_called_off_new=(COMPANY,),
             successor_cik_new=(COMPANY,),
             tape_stale_new=(StaleFeedLabel(kind="price", label=COMPANY),),
             insider_amendments_new=(COMPANY,),

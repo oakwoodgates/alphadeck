@@ -157,7 +157,7 @@ sends nothing. It goes to the env notifier, never a workspace's webhook. Two cla
 | Class | What | Admin verdict |
 |---|---|---|
 | Alarm | The pass crashed; SEC data froze (zero completed EDGAR fetches, or below the ratio floor); a total ingest failure withheld a call; a thesis errored; the benchmark refresh failed; a self-audit check failed | `unhealthy` |
-| Benign | A `--no-live` withhold; newly failing names; newly stale feeds; new split-basis defects; new successor CIKs; new owed Form 4/As; new held insider rows | Unchanged: the run did its job and a feed needs a repair |
+| Benign | A `--no-live` withhold; newly failing names; newly stale feeds; new split-basis defects; new split call-offs; new successor CIKs; new owed Form 4/As; new held insider rows | Unchanged: the run did its job and a feed needs a repair |
 
 Alarms come first on the page. The freeze verdict reads completed fetches (a 2xx body,
 `EdgarClient.live_completed`) per company across the pass, because each thesis has its own client and a
