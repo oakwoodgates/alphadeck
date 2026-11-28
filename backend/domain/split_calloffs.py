@@ -10,7 +10,7 @@ since ``announced_on``) under ``rule`` when all of these hold:
 3. it was filed in ``[announced_on, first_session + rule.after_days]``, both ends in: a call-off filed before the
    split was announced is about an earlier plan, one filed well after its first session about a later one;
 4. the ratio rule passes: ``any`` (R1: a call-off that states no ratio counts too) or ``same`` (R2: the call-off
-   states a ratio, exactly equal to the listed one as fractions, ``domain.splits.same_ratio``).
+   states a ratio, exactly equal to the listed one as fractions: ``states_ratio``, the one exact-ratio test).
 
 ``announced_on`` is the caller's: the listed row's ``sec_filed``, else its ``valid_from`` (a Massive.com-only row).
 
@@ -21,17 +21,27 @@ NEW proposal, filed after its listed 1-for-60 took effect); R2 flags AIRI only. 
 state no ratio, which is why the warning's default is ``any``. One positive case: precision is anecdotal.
 
 THE DEMOTE (``demote_rule``) is the same function with a fixed rule: the same stated ratio, filed on or before the
-first session (``after_days`` 0; the report's R2 + R6). AIRI's call-off passes it; ATCH's never can.
+first session (``after_days`` 0; the report's R2 + R6). AIRI's call-off passes it; ATCH's never can. Applied at
+decision time by ``refuse_called_off`` (the caller's switch, ``split_calloff_demote``, shipped off): a decision that
+would be announced or confirmed goes to review, its note naming the filing (``demoting`` maps the decision onto the
+matcher as its listed row will be: ``pipeline.detect_splits.listed_calloffs``).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 
-from domain.splits import SecEvidence, same_ratio
+from domain.splits import (
+    LIVE_STATUSES,
+    STATUS_NEEDS_REVIEW,
+    CallOff,
+    SecEvidence,
+    SplitDecision,
+    same_ratio,
+)
 
 RATIO_ANY = "any"
 RATIO_SAME = "same"
@@ -40,6 +50,8 @@ RATIO_RULES = (RATIO_ANY, RATIO_SAME)
 # the demote's fixed rule (``demote_rule``): a same-ratio call-off filed on or before the first session
 DEMOTE_RATIO = RATIO_SAME
 DEMOTE_AFTER_DAYS = 0
+# a demoted decision's note quotes the call-off's passage to this many characters (``refuse_called_off``)
+CALLED_OFF_PASSAGE_MAX = 200
 
 
 @dataclass(frozen=True)
@@ -67,8 +79,11 @@ def demote_rule(forms: Iterable[str]) -> CalloffRule:
     return CalloffRule(forms=tuple(forms), after_days=DEMOTE_AFTER_DAYS, ratio=DEMOTE_RATIO)
 
 
-def _states_ratio(s: SecEvidence, ratio_from: Decimal, ratio_to: Decimal) -> bool:
-    c = s.calloff
+def states_ratio(c: CallOff | None, ratio_from: Decimal, ratio_to: Decimal) -> bool:
+    """THE exact-ratio test on a call-off: does call-off ``c`` (a filing's ``SecEvidence.calloff``; ``None`` = none)
+    state the ratio ``ratio_from`` -> ``ratio_to``, both sides, exactly as fractions (``domain.splits.same_ratio``)?
+    The matcher's ``same`` rule and its order ask it; any other reader of a call-off's ratio asks it too.
+    """
     return (
         c is not None
         and c.has_ratio
@@ -90,7 +105,7 @@ def calls_off(
         return False
     if not announced_on <= s.filed <= first_session + timedelta(days=rule.after_days):
         return False
-    return rule.ratio == RATIO_ANY or _states_ratio(s, ratio_from, ratio_to)
+    return rule.ratio == RATIO_ANY or states_ratio(s.calloff, ratio_from, ratio_to)
 
 
 def called_off(
@@ -117,5 +132,53 @@ def called_off(
         )
     ]
     return sorted(
-        hits, key=lambda s: (not _states_ratio(s, ratio_from, ratio_to), s.filed, s.accession)
+        hits,
+        key=lambda s: (not states_ratio(s.calloff, ratio_from, ratio_to), s.filed, s.accession),
+    )
+
+
+def demoting(
+    d: SplitDecision, filings: Sequence[SecEvidence], forms: Iterable[str]
+) -> list[SecEvidence]:
+    """The filings among ``filings`` that call off decision ``d`` under the demote's rule (``demote_rule(forms)``):
+    its ratio and first session, announced on its SEC filing's date, else its ``valid_from`` (what its listed row's
+    ``sec_filed`` / ``valid_from`` hold, so a decision and its row map onto the matcher alike). Matcher order.
+    """
+    return called_off(
+        filings,
+        ratio_from=d.ratio_from,
+        ratio_to=d.ratio_to,
+        first_session=d.effective_date,
+        announced_on=d.sec.filed if d.sec is not None else d.valid_from,
+        rule=demote_rule(forms),
+    )
+
+
+def _called_off_said(s: SecEvidence) -> str:
+    """The demoted decision's note: the filing, and its call-off passage (whitespace collapsed, cut to
+    ``CALLED_OFF_PASSAGE_MAX`` characters)."""
+    passage = " ".join((s.calloff.passage if s.calloff is not None else "").split())
+    if len(passage) > CALLED_OFF_PASSAGE_MAX:
+        passage = passage[: CALLED_OFF_PASSAGE_MAX - 1].rstrip() + "\u2026"
+    head = f"Called off: {s.form} {s.accession} (filed {s.filed.isoformat()})"
+    return f"{head} \u2014 {passage}" if passage else f"{head}."
+
+
+def refuse_called_off(
+    d: SplitDecision, read: Sequence[SecEvidence], forms: Iterable[str]
+) -> SplitDecision:
+    """THE DEMOTE at decision time: an announced or confirmed decision that a filing in ``read`` calls off under the
+    demote's rule (``demoting``) comes back ``needs_review``, unconfirmed, its note naming the earliest such filing
+    and its passage; nothing else in it moves. Any other decision is returned as it is. The caller holds the switch
+    (``split_calloff_demote``) and the forms (``split_calloff_forms``)."""
+    if d.status not in LIVE_STATUSES:
+        return d
+    hits = demoting(d, read, forms)
+    if not hits:
+        return d
+    return replace(
+        d,
+        status=STATUS_NEEDS_REVIEW,
+        confirmed_via=None,
+        note=f"{d.note} {_called_off_said(hits[0])}",
     )

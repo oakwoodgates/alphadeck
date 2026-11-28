@@ -31,7 +31,8 @@ every non-archived thesis):
    mentioning a split, is SET ASIDE as a distribution (D2, ``distribution_cap``: the settings
    ``split_distribution_*``) — after the wide forms had their look, which can still confirm it. So is one
    Massive.com labels a stock dividend whose filing mentions a split without a ratio (W6-2,
-   ``distribution_label_overrides_abstain``).
+   ``distribution_label_overrides_abstain``). F10 (off: ``calloff_demote_forms``): a split a filing read for it
+   calls off (``domain.split_calloffs.refuse_called_off``) is ``needs_review``, never announced or confirmed.
 4. **Plan** against the stored list: a split not on it yet is APPENDED; one whose newest version the
    backfill wrote and whose content is unchanged is left alone (``unchanged``); one whose evidence changed
    gets a new backfill version; one whose newest version the OPERATOR wrote is never touched
@@ -77,6 +78,7 @@ import psycopg
 
 from domain.market_time import market_today
 from domain.settings import get_settings
+from domain.split_calloffs import refuse_called_off
 from domain.splits import (
     AUTO_VIA_LABELS,
     SOURCE_POLYGON,
@@ -191,6 +193,15 @@ def distribution_label_overrides_abstain() -> bool:
     mentions a split but states no ratio (the setting ``split_distribution_label_overrides_abstain``). Read beside
     ``distribution_cap`` by the same three edges and passed down with it."""
     return get_settings().split_distribution_label_overrides_abstain
+
+
+def calloff_demote_forms() -> tuple[str, ...] | None:
+    """F10 (shipped off): the forms whose call-off demotes a split (``domain.split_calloffs.refuse_called_off``: the
+    same stated ratio, filed from its announcement to its first session; the forms are the warning's,
+    ``split_calloff_forms``), or ``None`` while the switch ``split_calloff_demote`` is off. Read beside
+    ``distribution_cap`` by the same three edges and passed down with it."""
+    s = get_settings()
+    return tuple(s.split_calloff_forms.split(",")) if s.split_calloff_demote else None
 
 
 # How each filing is read (``screen_of``): the catch-all 8-K screen (8.01 / 7.01 only, 2026-10-23), the
@@ -860,6 +871,7 @@ def decide_polygon_group(
     distribution_max_factor: Decimal | None,
     label_overrides_abstain: bool,
     confirmed: tuple[ConfirmedSplit, ...] = (),
+    demote_forms: tuple[str, ...] | None = None,
 ) -> GroupDecision:
     """S1's verdict for one member's Massive.com rows on one date: every SEC filing in the row's window read
     (knowing the member's ``confirmed`` splits: ``known_for``), ``domain.splits.decide`` (with D2's
@@ -867,7 +879,8 @@ def decide_polygon_group(
     a missing index / CIK and for Massive.com listing different ratios on the date. When the window holds no
     agreeing filing, the TARGETED WIDE-FORM READER looks once more (``WIDE_FORMS`` filed in ``wide_window``): a
     wide form that agrees exactly settles it by the same rule; otherwise the decision stands and its note names
-    what the wide forms said (``with_wide``)."""
+    what the wide forms said (``with_wide``). ``demote_forms`` (F10, ``calloff_demote_forms``; ``None`` = off): the
+    verdict last goes through ``refuse_called_off`` over every filing read for it."""
     poly = group[0]
     lo, hi = _window(poly.execution_date)
     read, unread = reader.read(m, reader.refs(conn, m, lo, hi), confirmed=confirmed)
@@ -900,6 +913,8 @@ def decide_polygon_group(
             note=d.note
             + f" Massive.com lists {len(group)} different ratios on this date ({listed}).",
         )
+    if demote_forms is not None:
+        d = refuse_called_off(d, [*read, *wide_read], demote_forms)
     return GroupDecision(d, read, unread, wide_read, wide_unread)
 
 
@@ -963,10 +978,12 @@ def plan_members(
     asof: date,
     distribution_max_factor: Decimal | None,
     label_overrides_abstain: bool,
+    demote_forms: tuple[str, ...] | None = None,
 ) -> list[PlannedSplit]:
     """S1's decision for every Massive.com date of every member in ``matched`` (``decide_polygon_group``, each
-    member's filings read knowing its splits confirmed on the list: ``confirmed_splits``), each a ``PlannedSplit``
-    still to be planned against the stored list (``plan_against_stored``). Reads only.
+    member's filings read knowing its splits confirmed on the list: ``confirmed_splits``; F10's ``demote_forms``
+    passed to it), each a ``PlannedSplit`` still to be planned against the stored list (``plan_against_stored``).
+    Reads only.
     """
     planned: list[PlannedSplit] = []
     for m in sorted(matched, key=lambda m: ((m.ticker or ""), str(m.security_id))):
@@ -983,6 +1000,7 @@ def plan_members(
                 distribution_max_factor=distribution_max_factor,
                 label_overrides_abstain=label_overrides_abstain,
                 confirmed=confirmed,
+                demote_forms=demote_forms,
             )
             planned.append(
                 PlannedSplit(
@@ -1102,6 +1120,7 @@ def backfill_splits(
         asof=asof,
         distribution_max_factor=distribution_cap(),
         label_overrides_abstain=distribution_label_overrides_abstain(),
+        demote_forms=calloff_demote_forms(),
     )
     result.submissions_failed = dict(reader.submissions_failed)
     result.sec_live_fetches = edgar.live_fetches - fetches_before

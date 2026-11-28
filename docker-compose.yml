@@ -132,6 +132,9 @@ services:
       ALPHADECK_SPLIT_CALLOFF_FORMS: ${ALPHADECK_SPLIT_CALLOFF_FORMS:-8-K,8-K/A,6-K,6-K/A}
       ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS: ${ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS:-30}
       ALPHADECK_SPLIT_CALLOFF_RATIO: ${ALPHADECK_SPLIT_CALLOFF_RATIO:-any}
+      # F10 P9 — the demote: a split a filing calls off (the same ratio, filed by its first session) goes to review
+      # (false = off, shipped). Read here by the backfill and a check run by hand; on the cron by the nightly.
+      ALPHADECK_SPLIT_CALLOFF_DEMOTE: ${ALPHADECK_SPLIT_CALLOFF_DEMOTE:-false}
       # The run-loader off-switch (a dev/test cost-saver: load a saved draft run instead of paying for a fresh
       # one). Unset -> False (the Settings default; the feature + its /runs endpoints are absent). Set
       # ALPHADECK_RUN_LOADER_ENABLED=true in `.env` to turn it on for the operator; the FE picker follows.
@@ -328,6 +331,8 @@ services:
       ALPHADECK_SPLIT_CALLOFF_FORMS: ${ALPHADECK_SPLIT_CALLOFF_FORMS:-8-K,8-K/A,6-K,6-K/A}
       ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS: ${ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS:-30}
       ALPHADECK_SPLIT_CALLOFF_RATIO: ${ALPHADECK_SPLIT_CALLOFF_RATIO:-any}
+      # F10 P9 — the SAME demote switch as the backend's (the nightly detector and the newcomer fill read it here).
+      ALPHADECK_SPLIT_CALLOFF_DEMOTE: ${ALPHADECK_SPLIT_CALLOFF_DEMOTE:-false}
       # The nightly fund-shares sample rides this ingest — the cron needs the SAME Massive.com key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}

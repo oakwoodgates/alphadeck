@@ -901,6 +901,34 @@ def test_the_calloff_warning_settings_ship_on_and_compose_passes_their_defaults_
         monkeypatch.delenv(var)
 
 
+def test_the_calloff_demote_switch_ships_off_and_compose_passes_false_to_both_services(monkeypatch):
+    """F10 P9: with ``split_calloff_demote`` on, an announced or confirmed split a filing calls off (the same stated
+    ratio, filed on or before its first session: ``domain.split_calloffs.demote_rule``, on the forms
+    ``split_calloff_forms`` names) goes to review, and one needs-review version is appended over a live split the
+    system wrote. It ships OFF: turning it on is the operator's (HELD). The nightly detector and the newcomer fill
+    (cron) and the backfill or a check run by hand (backend) each get it from compose, at the Settings default.
+    """
+    import re
+    from pathlib import Path
+
+    var = "ALPHADECK_SPLIT_CALLOFF_DEMOTE"
+    monkeypatch.delenv(var, raising=False)
+    assert Settings().split_calloff_demote is False
+    assert Settings.model_fields["split_calloff_demote"].default is False
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        m = re.search(rf"^\s+{var}: \$\{{{var}:-(\w+)\}}", block, re.M)
+        assert m is not None, f"{var} is not passed to the {service}"
+        assert m.group(1) == "false", f"{service}: compose fallback {m.group(1)} != false"
+        # beside the warning's four (the forms it reads are theirs)
+        assert block.index("ALPHADECK_SPLIT_CALLOFF_RATIO") < block.index(var), service
+    monkeypatch.setenv(var, "true")
+    assert Settings().split_calloff_demote is True
+
+
 _CROSS_CLASS_ENV = "ALPHADECK_PRICE_FEED_CROSS_CLASS_ADOPT"
 
 
