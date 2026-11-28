@@ -1,6 +1,6 @@
 """F10 P2: the ONE call-off matcher (``domain/split_calloffs``) and the evidence it reads (``domain.splits.CallOff``
 on ``SecEvidence.calloff``). Pure, so every input is stated here. The two shapes are the listed splits the measure's
-R1 flagged over 37,812 cached split filings (``docs/temp/framework-completion-evidence/f10-measure/report.md``):
+R1 flagged over 37,812 cached split filings (``docs/temp/framework-completion-evidence/f10-measure``):
 AIRI (right: the company called its 1-for-5 off the day before its first session) and ATCH (wrong: a failed vote on
 a NEW proposal, filed days after its listed 1-for-60 took effect).
 
