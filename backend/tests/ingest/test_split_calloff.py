@@ -662,7 +662,7 @@ def test_every_measured_definite_sentence_reads_as_measured(
 
 
 # The ``hits_table.md`` rows (all noise) that F10 P4's prod-cache replay found read as call-offs
-# (``docs/temp/split-reader-misreads-evidence/f10p4/summary.md``), with the guard that now sets each aside and the
+# (``docs/temp/split-reader-misreads-evidence/f10p4``), with the guard that now sets each aside and the
 # kind and pattern the measurement read: a STATUS of a split not yet done (``not_yet_done``: "had not been effected",
 # "has not yet been implemented as of the date", "had not become effective as of the date", "have not implemented",
 # "was not implemented to date") and a proxy table's conditional ASSUMPTION ("assuming Proposal Five, Six and Seven
