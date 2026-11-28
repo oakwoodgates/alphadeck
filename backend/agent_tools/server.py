@@ -1150,7 +1150,9 @@ def build_server(
         "review_reason (sources_differ, extractor_abstained or one_source) and counts.needs_review_by_reason "
         "counts them; reason narrows section=needs_review to one. A needs-review or announced row carries "
         "same_ratio_listed when the list holds another split of its exact ratio within 180 days (nearest first, "
-        "days_from signed): display only, which went ahead is the steward's. polygon.ticker is the vendor's symbol "
+        "days_from signed), and a row of any status carries called_off, the filings that call its split off (the "
+        "default reply lists these rows, cut last, and counts.called_off counts them): display only, which stands "
+        "is the steward's. polygon.ticker is the vendor's symbol "
         "at the split; ticker is the master's current one (they differ after a rename). Reads only: a split's "
         "values, an added split and a dismissal change only on the panel. Steward scope.",
         scope=STEWARD,
