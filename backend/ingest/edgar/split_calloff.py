@@ -33,7 +33,11 @@ which read 26 decision and 4 failed-vote sentences in 23 accessions (13 real cal
 history, status lines and contract terms); of 50 random sentences it read as boilerplate, none was a call-off.
 One guard came after it (F10 P1b), ``completed_split``: of those 30 it sets aside KNWN's alone (noise), and of the
 measurement's 9,317 candidate and 7,977 sweep sentences nothing else
-(``docs/temp/framework-completion-evidence/f10-p1b``).
+(``docs/temp/framework-completion-evidence/f10-p1b``). Two more after P4's prod-cache replay (F10 P1c):
+``not_yet_done``, a STATUS of a split not yet done ("had not been effected", "was not implemented to date"), on
+the two negation patterns, and ``assumption``, a conditional ("assuming Proposal Five ... are not approved"), on
+the failed votes. Of those 30 they set aside 8 status and table lines (noise), and of the measured sentences
+nothing else (``docs/temp/framework-completion-evidence/f10-p1c``).
 
 **All the wording is in ``WORDING``**, data only (str, int and tuples); the logic below it reads nothing else,
 and ``read_sentence`` takes the wording as a parameter. Changing what is read is an edit to the block, never to
@@ -72,6 +76,10 @@ class CalloffWording:
     split_object: str
     split_object_reach: int
     completed_split: str
+    not_yet_done: str
+    not_yet_reach: int
+    assumption: str
+    assumption_reach: int
 
 
 # ======================================== WORDING (data only) ========================================
@@ -103,7 +111,7 @@ WORDING = CalloffWording(
                     "neg_active",
                     r"\b(?:will|would|did|does|do|is|are|was|were|has|have|had)\s+not\s+"
                     r"(?:be\s+|been\s+|now\s+)?{execute}\b{same_clause}\b{split_word}",
-                    ("modal_before", "condition_after", "generic_object"),
+                    ("modal_before", "condition_after", "generic_object", "not_yet_done"),
                 ),
                 (
                     "wont",
@@ -117,7 +125,7 @@ WORDING = CalloffWording(
                     r"(?:be\s+|been\s+|yet\s+been\s+)?(?:effected|implemented|completed|consummated|"
                     r"undertaken|carried\s+out|pursued|proceed(?:ing)?|occur(?:ring)?|go(?:ing)?\s+forward|"
                     r"tak(?:e|ing)\s+effect|becom(?:e|ing)\s+effective|happen(?:ing)?)\b",
-                    ("modal_before", "condition_after", "generic_object"),
+                    ("modal_before", "condition_after", "generic_object", "not_yet_done"),
                 ),
                 (
                     "decided_not",
@@ -186,14 +194,14 @@ WORDING = CalloffWording(
                     r"\b(?:split|consolidation|proposal|amendment)\b[^.;]{0,200}?"
                     r"\b(?:was|were|has|have|had|is|are)\s+not\s+(?:been\s+)?"
                     r"(?:approved|adopted|passed|ratified|obtained)",
-                    ("modal_before", "condition_after"),
+                    ("modal_before", "condition_after", "assumption"),
                 ),
                 (
                     "did_not_receive",
                     r"\b(?:did|does|do)\s+not\s+(?:receive|obtain|achieve|garner|get|pass|secure|attain|meet)\s+"
                     r"(?:the\s+|a\s+)?(?:requisite|required|sufficient|necessary|majority|enough|affirmative|"
                     r"vote|approval|threshold)",
-                    ("modal_before",),
+                    ("modal_before", "assumption"),
                 ),
                 (
                     "failed",
@@ -201,7 +209,7 @@ WORDING = CalloffWording(
                     r"get|win)\b|\b(?:was|were)\s+(?:defeated|rejected|voted\s+down)\b|\binsufficient\s+votes\b|"
                     r"\bdid\s+not\s+pass\b|\bproposal\s+failed\b|"
                     r"\bnot\s+(?:been\s+)?approved\s+by\s+(?:the\s+)?(?:requisite|stockholders|shareholders|members)",
-                    ("modal_before",),
+                    ("modal_before", "assumption"),
                 ),
             ),
         ),
@@ -245,6 +253,23 @@ WORDING = CalloffWording(
         r"\b(?:split|consolidation)\b[^;]{0,150}?\b(?:became\s+effective|(?:has|had)\s+become\s+effective|"
         r"took\s+effect|(?:was|were)\s+(?:effected|effective|completed)|(?:has|had)\s+been\s+(?:effected|completed))\b"
     ),
+    # guard not_yet_done: a STATUS of a split not yet done, which decides nothing, read over the cue and the
+    # not_yet_reach characters after it: a perfect-tense negation of the execution verb ("had not been effected",
+    # "had not become effective", "have not implemented"), "not yet" before it, or a past or present negation
+    # followed in its clause by "to date", "as of the date" or "as of [a date]". A future one ("will not be
+    # effected", "would not be effecting") is a decision, and a past one with no time words ("which was not
+    # implemented") stays read; only on the two negation patterns (a decision's other forms state no status)
+    not_yet_done=(
+        r"\b(?:(?:has|have|had)\s+not\s+(?:yet\s+)?|not\s+yet\s+)(?:been\s+|become\s+|taken\s+)?"
+        r"(?:effect|implement|complet|consummat|undertak|carri|pursu|proceed|occurr|happen|fil)\w*|"
+        r"\b(?:was|were|is|are|did)\s+not\s+[^.;]{0,60}?(?:\bto\s+date\b|"
+        r"\bas\s+(?:of|at)\s+(?:the\s+date|this|today|\w+\.?\s+\d|\d))"
+    ),
+    not_yet_reach=60,
+    # guard assumption: a conditional assumption in the cue or the assumption_reach characters before it (a proxy
+    # table "assuming the proposal is not approved" reports no vote); only on the failed votes. "assumed" is none
+    assumption=r"\b(?:assuming|assumes?)\b",
+    assumption_reach=100,
 )
 # ===================================== end of WORDING; logic below =====================================
 
@@ -266,6 +291,8 @@ _GUARDS = (
     "shares_object",
     "split_object",
     "completed_split",
+    "not_yet_done",
+    "assumption",
 )
 
 
@@ -288,6 +315,8 @@ class _Reader:
     shares_object: re.Pattern[str]
     split_object: re.Pattern[str]
     completed_split: re.Pattern[str]
+    not_yet_done: re.Pattern[str]
+    assumption: re.Pattern[str]
 
 
 def _rx(source: str) -> re.Pattern[str]:
@@ -327,6 +356,8 @@ def _reader(wording: CalloffWording) -> _Reader:
         shares_object=_rx(wording.shares_object),
         split_object=_rx(wording.split_object),
         completed_split=_rx(wording.completed_split),
+        not_yet_done=_rx(wording.not_yet_done),
+        assumption=_rx(wording.assumption),
     )
 
 
@@ -355,6 +386,10 @@ def _set_aside(r: _Reader, w: CalloffWording, cue: _Cue, text: str, m: re.Match[
         if r.shares_object.search(text[max(0, a - w.shares_back) : z][-w.shares_reach :]):
             return True
     if "completed_split" in cue.guards and r.completed_split.search(text):
+        return True
+    if "not_yet_done" in cue.guards and r.not_yet_done.search(text[a : z + w.not_yet_reach]):
+        return True
+    if "assumption" in cue.guards and r.assumption.search(text[max(0, a - w.assumption_reach) : z]):
         return True
     return "split_object" in cue.guards and not r.split_object.search(
         text[z : z + w.split_object_reach]
