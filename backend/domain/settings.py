@@ -710,6 +710,14 @@ class Settings(BaseSettings):
     split_calloff_forms: str = "8-K,8-K/A,6-K,6-K/A"
     split_calloff_after_days: int = Field(default=30, ge=0)
     split_calloff_ratio: Literal["any", "same"] = "any"
+    # F10 P9: THE DEMOTE. On, an announced or confirmed split a filing calls off by the demote's fixed rule (the same
+    # stated ratio, filed from its announcement to its first session, on ``split_calloff_forms``:
+    # ``domain.split_calloffs.demote_rule``) is decided ``needs_review`` instead, the note naming the filing, and one
+    # needs-review version is appended over such a split the system listed live (never the steward's): the backfill,
+    # the newcomer fill and the nightly detector read it once a run (``backfill_splits.calloff_demote_forms``). Ships
+    # OFF; turning it on is the operator's. Turned off again, open system rows are re-decided (and re-confirm): settle
+    # the demoted ones first. ALPHADECK_SPLIT_CALLOFF_DEMOTE, injected into both services beside the four above.
+    split_calloff_demote: bool = False
 
     @field_validator("split_calloff_forms", mode="before")
     @classmethod
