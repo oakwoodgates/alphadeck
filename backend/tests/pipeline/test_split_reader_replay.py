@@ -468,3 +468,239 @@ def test_the_nearest_of_two_listed_splits_of_one_ratio_is_the_match(replay):
     got, _ = replay.match_listed("7", date(2025, 7, 1), undated, known)
     assert (got["first_session"], got["days"], got["dated"]) == ("2025-07-14", 13, False)
     assert replay.match_listed("7", None, undated, known)[0] is None  # no filing date, no window
+
+
+# --- call-offs: the reader's ``calloff`` and ``--old-calloff`` (framework-completion F10 P0) -----------------------
+
+_CALLOFF = {
+    "kind": "decision",
+    "ratio_from": "5",
+    "ratio_to": "1",
+    "passage": "would not be effecting the reverse stock split",
+    "document": "8-K",
+}
+_OLD_CALLOFF = """
+def read_sentence(text):
+    return "failed_vote"
+"""
+
+
+def _calls_off(today=None, ratio=("9", "1"), reason=None):
+    """A reader module that reads ``ratio`` (or abstains with ``reason``) out of any filing, and attaches a call-off
+    when its ``split_calloff.read_sentence`` returns a kind (``today``: what that call-off reader returns). It
+    reads call-offs through that module attribute, as ``split_filing`` reads ``ingest.edgar.split_calloff`` (the
+    F10 plan, 2(c)), so ``--old-calloff`` can swap it."""
+    if ratio:
+        read = f"ratio_from=Decimal({ratio[0]!r}), ratio_to=Decimal({ratio[1]!r})"
+    else:
+        read = f"abstain_reason={reason!r}"
+    passage = _CALLOFF["passage"]
+    return f"""
+import types
+from dataclasses import dataclass
+from decimal import Decimal
+
+from ingest.edgar.split_filing import (
+    FilingDocument,
+    KnownSplit,
+    SplitExtraction,
+    submission_documents,
+)
+
+split_calloff = types.SimpleNamespace(read_sentence=lambda text: {today!r})
+
+
+@dataclass(frozen=True)
+class CallOff:
+    kind: str
+    ratio_from: Decimal | None
+    ratio_to: Decimal | None
+    passage: str
+    document: str | None
+
+
+@dataclass(frozen=True)
+class Reading(SplitExtraction):
+    calloff: CallOff | None = None
+
+
+def extract_split(documents, *, filed=None, wide=False, known=()):
+    kind = split_calloff.read_sentence(documents[0].raw)
+    calloff = None
+    if kind is not None:
+        calloff = CallOff(kind, Decimal(5), Decimal(1), {passage!r}, "8-K")
+    return Reading({read}, calloff=calloff)
+
+
+extract_split_screened = extract_split
+"""
+
+
+def test_a_call_off_the_new_reader_carries_is_written_and_classed_call_off_only(replay, tmp_path):
+    """Both sides read 9 -> 1; the new one carries a call-off. ``changes.jsonl`` carries it, classed ``call-off
+    only``: report only, never a failure, and no guard hit on a guard accession."""
+    code, changes, summary = _gate(
+        replay,
+        tmp_path,
+        _calls_off("decision"),
+        old=_reads(("9", "1")),
+        accessions=(_ARTL, _NFT),
+        guard=[_ARTL],
+    )
+    assert code == 0
+    assert [(c["key"], c["class"], c["fields"], c["guard"]) for c in changes] == [
+        (_NFT, "call-off only", ["calloff"], False),
+        (_ARTL, "call-off only", ["calloff"], False),
+    ]
+    for change in changes:
+        assert "calloff" not in change["old"] and change["new"]["calloff"] == _CALLOFF
+    assert "  call-off only: 2 (restated 2)" in summary
+    assert "call-off moved (any class; report only): 2" in summary
+    assert f"text only on a guard accession: {_ARTL}: call-off only" in summary
+    assert (
+        summary.splitlines()[-1] == "PASS: abstain->ratio 0, ratio changed 0, error 0, guard hits 0"
+    )
+    assert "call-off only" not in replay.FAIL_CLASSES
+
+
+def test_a_reading_set_aside_for_its_call_off_keeps_the_more_material_class(replay, tmp_path):
+    """AIRI's shape: the old reader reads 5 -> 1, the new one abstains on the call-off it carries. The class is
+    ``ratio->abstain`` (not a failure); the summary still counts the call-off."""
+    new = _calls_off("decision", ratio=None, reason="called off: decision (5->1 stated)")
+    code, changes, summary = _gate(replay, tmp_path, new, old=_reads(("5", "1")))
+    assert code == 0
+    (change,) = changes
+    assert change["class"] == "ratio->abstain" and "calloff" in change["fields"]
+    assert change["new"]["calloff"] == _CALLOFF
+    assert "call-off moved (any class; report only): 1" in summary
+
+
+def test_old_calloff_swaps_the_old_readers_call_off_reader(replay, tmp_path):
+    """A wording-only change: one reader file on both sides, the OLD side reading call-offs through the old
+    ``split_calloff.py``. Without the flag the two sides are one."""
+    forms = _forms(tmp_path, _NFT)
+    reader = tmp_path / "reader.py"
+    reader.write_text(_calls_off(), encoding="utf-8")
+    old_calloff = tmp_path / "old_calloff.py"
+    old_calloff.write_text(_OLD_CALLOFF, encoding="utf-8")
+    argv = ["--old", str(reader), "--new", str(reader), "--forms", str(forms)]
+
+    def run(*flags, where):
+        out = tmp_path / where
+        code = replay.main([*argv, *flags, "--out", str(out)])
+        lines = (out / "changes.jsonl").read_text(encoding="utf-8").splitlines()
+        return (
+            code,
+            [json.loads(c) for c in lines],
+            (out / "summary.txt").read_text(encoding="utf-8"),
+        )
+
+    code, changes, summary = run("--old-calloff", str(old_calloff), where="swapped")
+    assert code == 0
+    (change,) = changes
+    assert (change["class"], change["fields"]) == ("call-off only", ["calloff"])
+    assert change["old"]["calloff"]["kind"] == "failed_vote" and "calloff" not in change["new"]
+    assert f"--old-calloff: the old reader reads call-offs through {old_calloff}" in summary
+
+    code, changes, summary = run(where="plain")
+    assert (code, changes) == (0, []) and "--old-calloff" not in summary
+
+
+def test_old_calloff_is_a_no_op_on_a_reader_with_no_call_off_reader(replay, tmp_path):
+    old_calloff = tmp_path / "old_calloff.py"
+    old_calloff.write_text(_OLD_CALLOFF, encoding="utf-8")
+    flags = ("--old-calloff", str(old_calloff))
+    code, changes, summary = _gate(replay, tmp_path, _reads(), *flags, old=_reads())
+    assert (code, changes) == (0, [])
+    assert (
+        f"--old-calloff: the old reader has no split_calloff; nothing swapped ({old_calloff})"
+        in summary
+    )
+    argv = ["--old", str(_READER), "--new", str(_READER), "--forms", str(tmp_path)]
+    missing = ("--old-calloff", str(tmp_path / "missing.py"))
+    assert replay.main([*argv, *missing, "--out", str(tmp_path / "out")]) == 2
+
+
+def test_a_call_off_is_classed_below_a_reason_and_above_text(replay):
+    calloff = {
+        "kind": "failed_vote",
+        "ratio_from": None,
+        "ratio_to": None,
+        "passage": "p",
+        "document": None,
+    }
+    carried = {**_reading(), "calloff": calloff}
+    assert replay.classify(_reading(), carried) == ("call-off only", ["calloff"])  # gained
+    assert replay.classify(carried, _reading()) == ("call-off only", ["calloff"])  # dropped
+    other = {**carried, "calloff": {**calloff, "kind": "decision"}}
+    assert replay.classify(carried, other) == ("call-off only", ["calloff"])
+    assert replay.classify(_reading(), {**carried, "passage": "q"})[0] == "call-off only"
+    assert replay.classify(_reading(), {**carried, "date_note": "a note"})[0] == "reason only"
+    abstain = _reading(ratio=None, when=None, kind=None, reason="called off")
+    assert replay.classify(_reading(), {**abstain, "calloff": calloff})[0] == "ratio->abstain"
+
+
+def _todays(ratio):
+    return {
+        "ratio_from": ratio,
+        "ratio_to": "1",
+        "effective_date": "2026-05-12",
+        "date_kind": "trading",
+        "abstain_reason": None,
+        "date_note": None,
+        "document": None,
+        "passage": "",
+        "mentions": [],
+    }
+
+
+def test_with_no_call_off_and_no_swap_the_output_is_todays(replay, tmp_path):
+    """Neither side carries a call-off and ``--old-calloff`` is not given: ``changes.jsonl``, ``readings.jsonl``
+    and ``summary.txt`` are what the gate wrote before it read call-offs (key order included)."""
+    code, _, summary = _gate(
+        replay,
+        tmp_path,
+        _reads(("21", "1"), when="2026-05-12"),
+        "--all-readings",
+        old=_reads(when="2026-05-12"),
+        accessions=(_ARTL, _NFT),
+        guard=[_ARTL],
+    )
+    assert code == 1
+    filings = [
+        (_NFT, "6-K", "2026-05-08", None, False),
+        (_ARTL, "8-K", "2026-08-27", ["3.03", "5.03", "7.01", "9.01"], True),
+    ]
+    want_changes, want_readings = [], []
+    for acc, form, filed, items, guard in filings:
+        head = {
+            "key": acc,
+            "path": "-",
+            "accession": acc,
+            "form": form,
+            "filed": filed,
+            "items": items,
+        }
+        head = {**head, "screen": "restated", "known": 0, "class": "ratio changed"}
+        both = {"old": _todays("40"), "new": _todays("21")}
+        want_changes.append({**head, "fields": ["ratio_from"], "guard": guard, **both})
+        want_readings.append({**head, **both})
+    out = tmp_path / "run" / "out"
+    for name, want in (("changes.jsonl", want_changes), ("readings.jsonl", want_readings)):
+        got = []
+        for line in (out / name).read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            assert json.dumps(row) == line
+            got.append(json.dumps({**row, "path": "-"}))
+        assert got == [json.dumps(w) for w in want], name
+    assert summary == (
+        "files found: 2; read: 2 (unindexed, read bare: 0)\n"
+        "read per screen: restated 2\n"
+        "skipped: none\n"
+        "changed readings: 2\n"
+        "  ratio changed: 2 (restated 2)\n"
+        "guard accessions: 1; guard hits: 1\n"
+        f"  HIT {_ARTL}: ratio changed\n"
+        "errors: 0\n"
+        "FAIL: abstain->ratio 0, ratio changed 2, error 0, guard hits 1\n"
+    )

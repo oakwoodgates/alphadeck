@@ -8,7 +8,7 @@ network, no clock, no settings.
     cd /app && PYTHONPATH=/app python scripts/split_reader_replay.py \\
         --old /tmp/old_split_filing.py --new /app/ingest/edgar/split_filing.py \\
         --forms /data/edgar_cache/forms [--forms DIR ...] [--index FILE.csv] [--known FILE.json] \\
-        [--guard FILE.txt] --out /tmp/replay
+        [--guard FILE.txt] [--old-calloff /tmp/old_split_calloff.py] --out /tmp/replay
 
 **Inputs.** ``--old`` / ``--new``: the two reader modules, each loaded by ``importlib`` under its own name and
 registered in ``sys.modules`` (its dataclasses need it). ``--forms DIR`` (repeatable): every ``*.txt``,
@@ -20,7 +20,10 @@ accession (the header's, else the parent folder's or the file's name when it is 
 without its extensions. ``--known`` (``{cik: [[from, to, first_session(, accession)], ...]}``): the confirmed splits
 prod's list holds, passed to each filing of that CIK (the header's filer, or the index's) as
 ``pipeline.backfill_splits.known_for`` does (in effect by the filing date, never the split whose own evidence the
-filing is). ``--guard`` (one accession per line): the filings behind confirmed splits.
+filing is). ``--guard`` (one accession per line): the filings behind confirmed splits. ``--old-calloff``: an old
+``ingest/edgar/split_calloff.py``, loaded under its own name and set as the OLD reader's ``split_calloff`` (the
+call-off reader it calls through that module attribute), so a wording-only change replays with one reader file on
+both sides; a no-op, said so in the summary, when the old reader has no ``split_calloff``.
 
 **Reading** (``pipeline.backfill_splits.screen_of`` / ``extract_for``): a catch-all 8-K (items 7.01 / 8.01, no
 3.03 / 5.03) with its filing date; a 6-K, a charter 8-K or an 8-K with no items through the restatement screen; a
@@ -34,9 +37,12 @@ is not UTF-8 is skipped (the client cannot read it either).
 the fields that differ, ``class`` and ``guard``), and ``summary.txt`` (counts per class and per screen, skips,
 errors). ``--all-readings`` also writes ``readings.jsonl`` (every filing, both readings). The class is the
 reading's most material change: ``abstain->ratio``, ``ratio changed``, ``ratio->abstain``, ``date added``,
-``date changed``, ``date dropped``, ``kind changed``, ``reason only`` (abstain reason or date note), ``text only``
-(passage, document, mentions), ``error`` (one side raised). A GUARD HIT is a guard accession whose ratio, date or
-date kind changed (or one side raised).
+``date changed``, ``date dropped``, ``kind changed``, ``reason only`` (abstain reason or date note),
+``call-off only`` (the reading's ``calloff``), ``text only`` (passage, document, mentions), ``error`` (one side
+raised). A reading carries ``calloff`` (as JSON) only when its reader sets one, so a reader without call-offs writes
+what it always did; the fields are compared over both sides' keys, and a summary line counts the readings whose
+call-off moved, whatever their class. A GUARD HIT is a guard accession whose ratio, date or date kind changed (or
+one side raised): ``call-off only`` is report only, never a failure or a hit.
 
 **Listed readings** (``--accept-listed``; off by default = the gate above; needs ``--known``). An ``abstain->ratio``
 then passes when the new ratio equals a split ``--known`` lists for the filing's CIK (the header's, else
@@ -59,6 +65,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
 import gzip
 import importlib.util
 import json
@@ -124,7 +131,7 @@ _ITEM_NAMES = (
 
 FAIL_CLASSES = frozenset({"abstain->ratio", "ratio changed", "error"})
 # the classes a guard accession may show without being a hit (no ratio, date or kind moved)
-_TEXT_CLASSES = frozenset({"reason only", "text only"})
+_TEXT_CLASSES = frozenset({"reason only", "call-off only", "text only"})
 # the changes that keep a ratio and move its date: each needs a human verdict (``--accept-listed``'s report line)
 _DATE_CLASSES = frozenset({"date added", "date changed", "date dropped", "kind changed"})
 # ``--accept-listed``'s windows: days from a listed split's first session (the new reader's own tolerance, when it
@@ -140,6 +147,7 @@ CLASS_ORDER = (
     "date dropped",
     "kind changed",
     "reason only",
+    "call-off only",
     "text only",
     "error",
 )
@@ -171,6 +179,16 @@ def load_reader(path: Path, name: str) -> ModuleType:
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+def swap_calloff(reader: ModuleType, path: Path) -> str:
+    """``--old-calloff``: set ``reader``'s ``split_calloff`` (the call-off reader it calls through that module
+    attribute) to the module in ``path``; the other reader keeps the one it imported. A reader with no
+    ``split_calloff`` is left as it is. Returns the summary's line."""
+    if not hasattr(reader, "split_calloff"):
+        return f"--old-calloff: the old reader has no split_calloff; nothing swapped ({path})"
+    reader.split_calloff = load_reader(path, "split_calloff_old")
+    return f"--old-calloff: the old reader reads call-offs through {path}"
 
 
 def read_text(path: Path) -> str:
@@ -378,7 +396,7 @@ def extract(mod: ModuleType, docs: list, item: Item, screen: str, known: tuple) 
 
 
 def as_dict(x: Any) -> dict[str, Any]:
-    return {
+    out = {
         "ratio_from": None if x.ratio_from is None else str(x.ratio_from),
         "ratio_to": None if x.ratio_to is None else str(x.ratio_to),
         "effective_date": x.effective_date.isoformat() if x.effective_date else None,
@@ -389,6 +407,24 @@ def as_dict(x: Any) -> dict[str, Any]:
         "passage": x.passage,
         "mentions": list(x.mentions),
     }
+    calloff = getattr(x, "calloff", None)  # only a reader that reads call-offs sets one
+    if calloff is not None:
+        out["calloff"] = _jsonable(calloff)
+    return out
+
+
+def _jsonable(v: Any) -> Any:
+    """``v`` (a dataclass, mapping or sequence of them) as JSON values: dates in ISO form, decimals and any
+    other scalar as their text."""
+    if dataclasses.is_dataclass(v) and not isinstance(v, type):
+        return {f.name: _jsonable(getattr(v, f.name)) for f in dataclasses.fields(v)}
+    if isinstance(v, dict):
+        return {str(k): _jsonable(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_jsonable(x) for x in v]
+    if v is None or isinstance(v, (str, int, float)):
+        return v
+    return v.isoformat() if isinstance(v, date) else str(v)
 
 
 def _ratio(r: dict[str, Any]) -> tuple[Decimal, Decimal] | None:
@@ -466,7 +502,7 @@ def classify(old: dict[str, Any], new: dict[str, Any]) -> tuple[str | None, list
     if "error" in old or "error" in new:
         same = old.get("error") == new.get("error")
         return (None, []) if same else ("error", ["error"])
-    fields = [k for k in old if old[k] != new.get(k)]
+    fields = [k for k in {**old, **new} if old.get(k) != new.get(k)]
     if not fields:
         return None, []
     ro, rn = _ratio(old), _ratio(new)
@@ -487,6 +523,8 @@ def classify(old: dict[str, Any], new: dict[str, Any]) -> tuple[str | None, list
         return "kind changed", fields
     if {"abstain_reason", "date_note"} & set(fields):
         return "reason only", fields
+    if "calloff" in fields:
+        return "call-off only", fields
     return "text only", fields
 
 
@@ -510,9 +548,11 @@ def replay(
     accept_listed: bool = False,
     dated_days: int = DATED_DAYS,
     undated_days: int = UNDATED_DAYS,
+    old_calloff: str | None = None,
 ) -> dict[str, Any]:
     """Read every item with both readers; write ``changes.jsonl`` (and ``readings.jsonl``); return the counts.
     ``accept_listed``: an abstain->ratio equal to a listed split (``match_listed``) does not fail the run.
+    ``old_calloff``: ``swap_calloff``'s line, for the summary.
     """
     out.mkdir(parents=True, exist_ok=True)
     counts: dict[str, Counter] = {
@@ -528,6 +568,7 @@ def replay(
     unlisted: list[str] = []
     listed_guard = 0
     ratio_date_changes = 0
+    calloff_moved = 0
     unindexed = 0
     read = 0
     changes_path = out / "changes.jsonl"
@@ -610,6 +651,8 @@ def replay(
                 guard_text.append(f"{item.key}: {cls}")
             counts["class"][cls] += 1
             counts["class_screen"][f"{cls} | {screen}"] += 1
+            if "calloff" in fields:
+                calloff_moved += 1
             fh.write(
                 json.dumps(
                     {
@@ -643,6 +686,8 @@ def replay(
         "unlisted": unlisted,
         "listed_guard": listed_guard,
         "ratio_date_changes": ratio_date_changes,
+        "calloff_moved": calloff_moved,
+        "old_calloff": old_calloff,
     }
     (out / "summary.txt").write_text(summary_text(result), encoding="utf-8")
     return result
@@ -655,8 +700,10 @@ def summary_text(r: dict[str, Any]) -> str:
         "read per screen: "
         + (", ".join(f"{k} {v}" for k, v in sorted(c["screen"].items())) or "none"),
         "skipped: " + (", ".join(f"{k} {v}" for k, v in sorted(c["skipped"].items())) or "none"),
-        f"changed readings: {sum(c['class'].values())}",
     ]
+    if r.get("old_calloff"):
+        lines.append(r["old_calloff"])
+    lines.append(f"changed readings: {sum(c['class'].values())}")
     for cls in CLASS_ORDER:
         if c["class"][cls]:
             per = ", ".join(
@@ -672,6 +719,8 @@ def summary_text(r: dict[str, Any]) -> str:
                         f"; {r['listed_guard']} more equal one but are guard hits (not accepted)"
                     )
             lines.append(f"  {cls}: {c['class'][cls]} ({per}){more}")
+    if r.get("calloff_moved"):
+        lines.append(f"call-off moved (any class; report only): {r['calloff_moved']}")
     if r["accept_listed"]:
         dated_days, undated_days = r["windows"]
         lines.append(
@@ -707,6 +756,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--index", type=Path, help="CSV accession,form,filed,items")
     p.add_argument("--known", type=Path, help="JSON {cik: [[from, to, first_session], ...]}")
     p.add_argument("--guard", type=Path, help="accessions behind confirmed splits, one per line")
+    p.add_argument(
+        "--old-calloff",
+        type=Path,
+        help="an old split_calloff.py for the OLD reader (a no-op when it has no split_calloff)",
+    )
     p.add_argument("--out", type=Path, required=True, help="output folder")
     p.add_argument("--all-readings", action="store_true", help="also write readings.jsonl")
     p.add_argument(
@@ -730,12 +784,13 @@ def main(argv: list[str] | None = None) -> int:
     if a.accept_listed and a.known is None:
         print("--accept-listed needs --known", file=sys.stderr)
         return 2
-    for f in (a.old, a.new, *a.forms):
+    for f in (a.old, a.new, *a.forms, *([a.old_calloff] if a.old_calloff else [])):
         if not f.exists():
             print(f"not found: {f}", file=sys.stderr)
             return 2
     old = load_reader(a.old, "split_reader_old")
     new = load_reader(a.new, "split_reader_new")
+    swapped = None if a.old_calloff is None else swap_calloff(old, a.old_calloff)
     items = discover(a.forms, load_index(a.index))
     dated_days = a.listed_date_days
     if dated_days is None:
@@ -752,6 +807,7 @@ def main(argv: list[str] | None = None) -> int:
         accept_listed=a.accept_listed,
         dated_days=dated_days,
         undated_days=a.listed_undated_days,
+        old_calloff=swapped,
     )
     print(summary_text(result), end="")
     return 1 if result["failing"] else 0
