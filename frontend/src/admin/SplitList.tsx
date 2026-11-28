@@ -31,6 +31,8 @@ import {
   addFilingIntro,
   addJumpIntro,
   addedLine,
+  calledOffCountLine,
+  calledOffWords,
   confirmLine,
   confirmValuesLine,
   hintLine,
@@ -62,6 +64,7 @@ import { ExternalLink } from "../components/ExternalLink";
 import { LIMITS } from "../api/limits";
 
 type Split = AdminSplitListEntryOut;
+type CalledOff = NonNullable<Split["called_off"]>[number];
 type Unplaced = AdminSplitUnplacedOut;
 type ConfirmValuesMutation = ReturnType<typeof useConfirmSplitValues>;
 type AddSplitMutation = ReturnType<typeof useAddSplit>;
@@ -72,15 +75,40 @@ type UndoUnplacedMutation = ReturnType<typeof useUndoUnplacedDismissal>;
 const bucket = (d: AdminSplitListOut, k: "needs_review" | "announced" | "confirmed" | "set_aside"): Split[] =>
   d[k] ?? [];
 
+/** F10 — a filing that may call a listed split off: loud, the filing linked, its own sentence quoted (cut sensibly).
+ *  Display only: the split's own control (Revoke, Reject, Restore) is the one way to act on it. */
+function CalledOffLine({ c }: { c: CalledOff }) {
+  const w = calledOffWords(c);
+  return (
+    <div className="adm-line" data-testid="adm-split-called-off">
+      <span className="adm-loud">
+        {w.head}{" "}
+        <ExternalLink
+          className="adm-link"
+          href={c.url}
+          title={c.document ? `${c.accession} — ${c.document}` : c.accession}
+        >
+          {w.filing}
+        </ExternalLink>{" "}
+        {w.when}
+      </span>
+      {w.says ? <span className="adm-plain">: {w.says}</span> : null}
+    </div>
+  );
+}
+
 /** "BTOC — 1-for-16 reverse split · first session 2026-10-15", and on an open split what a confirm would touch
  *  (W2-8: a first session on its first stored bar, the share count it rescales) and the other listed splits of its
- *  exact ratio near it (F8-3). */
+ *  exact ratio near it (F8-3). Any split a filing may call off says so first (F10). */
 function Header({ s }: { s: Split }) {
   const same = sameRatioLine(s);
   return (
     <div>
       <b>{s.ticker ?? s.security_id}</b> — {s.label} · first session {s.effective_date}
       {s.name ? <span className="adm-sub"> ({s.name})</span> : null}
+      {(s.called_off ?? []).map((c) => (
+        <CalledOffLine key={c.accession} c={c} />
+      ))}
       {hintLine(s) ? <div className="adm-sub" data-testid="adm-split-hint">{hintLine(s)}</div> : null}
       {same ? (
         <div className="adm-sub" data-testid="adm-split-same-ratio">
@@ -728,7 +756,9 @@ function JumpActions({
  *  whose inverse is Undo under a "dismissed" filter; a failed read of them is shown beside the panel, never hidden.
  *  F2-2 adds "Add this split..." to each of those filings and to each undismissed jump: the steward lists a real split no
  *  source lists, with the ratio, the first session and the https document that states them, beside the stored tape's
- *  step at that session (Revoke undoes it). Renders nothing when the list and those questions are all empty. */
+ *  step at that session (Revoke undoes it). F10 adds a loud line on a split a filing may call off (the 8-K that says it
+ *  will not be effected, linked and quoted) and a count of them at the top; display only. Renders nothing when the
+ *  list and those questions are all empty. */
 export function SplitList() {
   const q = useSplitList();
   const confirm = useConfirmSplit();
@@ -790,6 +820,8 @@ export function SplitList() {
   const announced = bucket(q.data, "announced");
   const confirmed = bucket(q.data, "confirmed");
   const setAside = bucket(q.data, "set_aside");
+  // F10: the splits still standing that a filing may call off (a set-aside one keeps its line, but is not counted)
+  const calledOffCount = calledOffCountLine([...review, ...announced, ...confirmed]);
   const id = (s: Split) => ({ versionId: s.version_id });
   const covered = unplaced.filter(unplacedCovered).length;
   const runsLine = unplacedRunsLine(unplacedRuns);
@@ -799,6 +831,12 @@ export function SplitList() {
   return (
     <section className="adm-card" data-testid="adm-splits">
       <div className="adm-h">Splits</div>
+
+      {calledOffCount && (
+        <div className="adm-line adm-loud" data-testid="adm-splits-called-off-count">
+          {calledOffCount}
+        </div>
+      )}
 
       {added && (
         <div className="adm-plain" data-testid="adm-split-added">
