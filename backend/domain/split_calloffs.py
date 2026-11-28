@@ -14,7 +14,7 @@ since ``announced_on``) under ``rule`` when all of these hold:
 
 ``announced_on`` is the caller's: the listed row's ``sec_filed``, else its ``valid_from`` (a Massive.com-only row).
 
-MEASURED (``docs/temp/framework-completion-evidence/f10-measure/report.md``, 37,812 cached split filings, 2024-26):
+MEASURED (``docs/temp/framework-completion-evidence/f10-measure``, 37,812 cached split filings, 2024-26):
 R1 on 8-K/6-K with first session + 30 days flags two listed splits, one right (AIRI: "would not be effecting the
 reverse stock split ... 1-for-5", filed the day before its first session) and one wrong (ATCH: a failed vote on a
 NEW proposal, filed after its listed 1-for-60 took effect); R2 flags AIRI only. 10 of the 12 other real call-offs
