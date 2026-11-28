@@ -57,7 +57,8 @@ note. It decides nothing.
 THE CALL-OFFS (F10): every filing a company's check read (any window, placed or not) whose text calls a split off
 (``SecEvidence.calloff``, the split reader's) is listed on the run artifact (``calloffs``, ``CallOffFiling``) and on
 a ``--record``; the one reader (``pipeline/split_unplaced.py``) serves them for the warning, which matches them
-against the list when it is read (``domain.split_calloffs``). Nothing here decides on them.
+against the list when it is read (``domain.split_calloffs``, under ``calloff_rule``: the ``split_calloff_*``
+settings). Nothing here decides on them.
 
 WHERE IT RUNS (``pipeline/ingest_thesis._ingest_one``): per company, right after its 8-K and 13D legs and
 BEFORE its price leg — so a split filed today, with a second source, is on the list before that company's
@@ -91,6 +92,7 @@ import psycopg
 
 from domain.market_time import market_today, market_tz
 from domain.settings import get_settings
+from domain.split_calloffs import CalloffRule
 from domain.splits import (
     AUTO_VIA_LABELS,
     PAST_RATIO_ONLY,
@@ -351,6 +353,25 @@ def legal_date_next_session() -> bool:
     (``domain.splits.decide_sec_only``; the setting ``split_legal_date_next_session``, False = off)? Read once a
     pass beside ``sec_restate_days`` and passed down: the pure rule reads no settings."""
     return get_settings().split_legal_date_next_session
+
+
+def calloff_rule() -> CalloffRule:
+    """F10: THE one builder of the call-off rule (``domain.split_calloffs.CalloffRule``): which filings call off a
+    listed split, from the settings ``split_calloff_forms``, ``split_calloff_after_days`` and
+    ``split_calloff_ratio``. Each caller reads it once (``GET /admin/splits`` once a read; the nightly once a pass,
+    beside ``sec_restate_days``) and passes it down: the one matcher reads no settings."""
+    s = get_settings()
+    return CalloffRule(
+        forms=tuple(s.split_calloff_forms.split(",")),
+        after_days=s.split_calloff_after_days,
+        ratio=s.split_calloff_ratio,
+    )
+
+
+def calloff_warn() -> bool:
+    """F10: is the call-off warning on (the setting ``split_calloff_warn``; True = on, the shipped default)? Read
+    beside ``calloff_rule``."""
+    return get_settings().split_calloff_warn
 
 
 def detect_security(

@@ -4200,7 +4200,7 @@
           "admin"
         ],
         "summary": "List Splits",
-        "description": "Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:\nneeds review (loud), announced / confirmed / rejected-or-revoked (quiet) \u2014 the split-shaped price jumps\non basket names that no source listed, after the split-night hold released them (the operator's \"is this\nreal?\"), and the SEC filings about a split the list could not place, each with the listed split nearest it.\nEach split awaiting review or announced names the listed splits of its exact ratio near it. Read-only.",
+        "description": "Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:\nneeds review (loud), announced / confirmed / rejected-or-revoked (quiet) \u2014 the split-shaped price jumps\non basket names that no source listed, after the split-night hold released them (the operator's \"is this\nreal?\"), and the SEC filings about a split the list could not place, each with the listed split nearest it.\nEach split awaiting review or announced names the listed splits of its exact ratio near it; any split names the\nfilings that call it off. Read-only.",
         "operationId": "list_splits_admin_splits_get",
         "responses": {
           "200": {
@@ -12951,6 +12951,115 @@
         "title": "AdminSplitAddIn",
         "description": "A split NO source lists, added by the steward (framework completion F2-1) with cited values: ``security_id``,\n``ratio_from`` old shares -> ``ratio_to`` new shares (decimal text, above 0 and at most 100,000, never equal),\n``first_session`` = the first session at the new price, ``cited_url`` = the https URL of the document that\nstates them (required), ``note`` (optional). It starts from exactly one signal: ``from_accession`` = an SEC\nfiling on the current unplaced list (its evidence is read by the server, never sent), or ``from_jump`` = the\nstep date of a split-shaped jump on the current \"is this real?\" list. ``override_tape`` = add although the stored\ntape's step at that session sits outside the tolerance of the entered factor, or no bar can be read (the server\nchecks it either way: ``GET /admin/splits/securities/{security_id}/tape-step``)."
       },
+      "AdminSplitCalledOffOut": {
+        "properties": {
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "ratio_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio Label"
+          },
+          "same_ratio": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same Ratio"
+          },
+          "days_from": {
+            "type": "integer",
+            "title": "Days From"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document"
+          },
+          "passage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passage"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "nightly",
+              "check"
+            ],
+            "title": "Source"
+          },
+          "seen_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Seen On"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accession",
+          "form",
+          "filed",
+          "kind",
+          "ratio_label",
+          "same_ratio",
+          "days_from",
+          "document",
+          "passage",
+          "source",
+          "seen_on"
+        ],
+        "title": "AdminSplitCalledOffOut",
+        "description": "A filing that CALLS OFF a listed split (framework completion F10): it says the split will not go ahead (\"would\nnot be effecting the reverse stock split\") or that its vote failed, as the nightly's newest run (``source``\n``nightly``) or the long-window check's newest record (``check``) read it; ``seen_on`` = the day that run read.\nMatched when the list is read, by the one matcher (``domain.split_calloffs``) under the ``split_calloff_*``\nsettings: filed on one of their forms, from the split's announcement to its first session plus their days, any\nratio or only the same one. ``kind`` = ``decision`` (the company says it will not effect it) or ``failed_vote``;\n``ratio_label`` = the ratio the call-off states (``null``: none); ``same_ratio`` = it is the split's exact ratio\n(``null`` when none is stated); ``days_from`` = its filing date minus the split's first session, signed; ``url``\n= the filing index; ``document`` / ``passage`` = the located call-off passage, verbatim. Display only."
+      },
       "AdminSplitConfirmValuesIn": {
         "properties": {
           "ratio_from": {
@@ -13474,6 +13583,20 @@
               }
             ],
             "title": "Same Ratio Listed"
+          },
+          "called_off": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AdminSplitCalledOffOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called Off"
           }
         },
         "type": "object",
@@ -13496,7 +13619,7 @@
           "valid_from"
         ],
         "title": "AdminSplitListEntryOut",
-        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3; ``action`` ``add``: a\nsplit the steward added that no source lists): ``cited_url`` is the document that states them, ``tape_override``\nwhether the steward confirmed or added past the stored tape's step (both\n``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on\nthe list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before\nit adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or\nnone dated before the first session). ``same_ratio_listed`` (F8-3; a needs-review or announced split on the list\nread, ``null`` elsewhere and when none) = the other splits on the list of its exact ratio whose first session is\nwithin 180 days of its own, nearest first, at most two; display only, nothing merges them."
+        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3; ``action`` ``add``: a\nsplit the steward added that no source lists): ``cited_url`` is the document that states them, ``tape_override``\nwhether the steward confirmed or added past the stored tape's step (both\n``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on\nthe list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before\nit adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or\nnone dated before the first session). ``same_ratio_listed`` (F8-3; a needs-review or announced split on the list\nread, ``null`` elsewhere and when none) = the other splits on the list of its exact ratio whose first session is\nwithin 180 days of its own, nearest first, at most two; display only, nothing merges them. ``called_off`` (F10;\nany status, ``null`` when none, or with the warning off) = the filings that call it off, those stating its ratio\nfirst; display only."
       },
       "AdminSplitListOptionOut": {
         "properties": {
@@ -13632,7 +13755,7 @@
         },
         "type": "object",
         "title": "AdminSplitListOut",
-        "description": "The \"Splits\" panel. ``needs_review`` is the one LOUD list (one source could not settle it);\n``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``\n(rejected / revoked \u2014 kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.\n``unlisted_jumps`` (S5) \u2014 split-shaped jumps on basket names that the split-night hold has released and no\nsource ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).\n``dismissed_jumps`` \u2014 the ones the operator dismissed as a real move (still listed, behind the panel's\n\"dismissed\" filter; each undoable). ``unplaced`` \u2014 SEC filings about a split the list could not place, newest\nfiling first; ``unplaced_dismissed`` \u2014 the ones the steward dismissed (each undoable); ``unplaced_runs`` \u2014 the\nruns they were read from; ``unplaced_error`` when that read failed or passed over an unreadable file (shown,\nnever hidden)."
+        "description": "The \"Splits\" panel. ``needs_review`` is the one LOUD list (one source could not settle it);\n``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``\n(rejected / revoked \u2014 kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.\n``unlisted_jumps`` (S5) \u2014 split-shaped jumps on basket names that the split-night hold has released and no\nsource ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).\n``dismissed_jumps`` \u2014 the ones the operator dismissed as a real move (still listed, behind the panel's\n\"dismissed\" filter; each undoable). ``unplaced`` \u2014 SEC filings about a split the list could not place, newest\nfiling first; ``unplaced_dismissed`` \u2014 the ones the steward dismissed (each undoable); ``unplaced_runs`` \u2014 the\nruns they were read from; ``unplaced_error`` when that read failed or passed over an unreadable file (shown,\nnever hidden; a failed read names no call-off)."
       },
       "AdminSplitListPolygonOut": {
         "properties": {
@@ -14574,6 +14697,11 @@
           "rows": {
             "type": "integer",
             "title": "Rows"
+          },
+          "calloffs": {
+            "type": "integer",
+            "title": "Calloffs",
+            "default": 0
           }
         },
         "type": "object",
@@ -14585,7 +14713,7 @@
           "rows"
         ],
         "title": "AdminSplitUnplacedRunOut",
-        "description": "A run the unplaced filings were read from: the nightly's newest (``source`` ``nightly``; ``sec_days``\n``null``: the nightly's own window) or the long-window check's newest record (``check``). ``asof`` = the night\nor day it read; ``rows`` = how many filings it listed, dismissed ones included."
+        "description": "A run the unplaced filings were read from: the nightly's newest (``source`` ``nightly``; ``sec_days``\n``null``: the nightly's own window) or the long-window check's newest record (``check``). ``asof`` = the night\nor day it read; ``rows`` = how many filings it listed, dismissed ones included; ``calloffs`` = how many filings it\nread with call-off wording (F10)."
       },
       "AdminStaleTapeOut": {
         "properties": {
