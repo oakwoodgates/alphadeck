@@ -2298,7 +2298,8 @@ export interface paths {
          *     needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — the split-shaped price jumps
          *     on basket names that no source listed, after the split-night hold released them (the operator's "is this
          *     real?"), and the SEC filings about a split the list could not place, each with the listed split nearest it.
-         *     Each split awaiting review or announced names the listed splits of its exact ratio near it. Read-only.
+         *     Each split awaiting review or announced names the listed splits of its exact ratio near it; any split names the
+         *     filings that call it off. Read-only.
          */
         get: operations["list_splits_admin_splits_get"];
         put?: never;
@@ -6279,6 +6280,53 @@ export interface components {
             from_jump?: string | null;
         };
         /**
+         * AdminSplitCalledOffOut
+         * @description A filing that CALLS OFF a listed split (framework completion F10): it says the split will not go ahead ("would
+         *     not be effecting the reverse stock split") or that its vote failed, as the nightly's newest run (``source``
+         *     ``nightly``) or the long-window check's newest record (``check``) read it; ``seen_on`` = the day that run read.
+         *     Matched when the list is read, by the one matcher (``domain.split_calloffs``) under the ``split_calloff_*``
+         *     settings: filed on one of their forms, from the split's announcement to its first session plus their days, any
+         *     ratio or only the same one. ``kind`` = ``decision`` (the company says it will not effect it) or ``failed_vote``;
+         *     ``ratio_label`` = the ratio the call-off states (``null``: none); ``same_ratio`` = it is the split's exact ratio
+         *     (``null`` when none is stated); ``days_from`` = its filing date minus the split's first session, signed; ``url``
+         *     = the filing index; ``document`` / ``passage`` = the located call-off passage, verbatim. Display only.
+         */
+        AdminSplitCalledOffOut: {
+            /** Accession */
+            accession: string;
+            /** Form */
+            form: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Url */
+            url?: string | null;
+            /** Kind */
+            kind: string;
+            /** Ratio Label */
+            ratio_label: string | null;
+            /** Same Ratio */
+            same_ratio: boolean | null;
+            /** Days From */
+            days_from: number;
+            /** Document */
+            document: string | null;
+            /** Passage */
+            passage: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "nightly" | "check";
+            /**
+             * Seen On
+             * Format: date
+             */
+            seen_on: string;
+        };
+        /**
          * AdminSplitConfirmValuesIn
          * @description The steward's OWN values for a needs-review split (decision D3): ``ratio_from`` old shares -> ``ratio_to`` new
          *     shares (decimal text, above 0 and at most 100,000, never equal), ``first_session`` = the first session at the
@@ -6443,7 +6491,9 @@ export interface components {
          *     it adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or
          *     none dated before the first session). ``same_ratio_listed`` (F8-3; a needs-review or announced split on the list
          *     read, ``null`` elsewhere and when none) = the other splits on the list of its exact ratio whose first session is
-         *     within 180 days of its own, nearest first, at most two; display only, nothing merges them.
+         *     within 180 days of its own, nearest first, at most two; display only, nothing merges them. ``called_off`` (F10;
+         *     any status, ``null`` when none, or with the warning off) = the filings that call it off, those stating its ratio
+         *     first; display only.
          */
         AdminSplitListEntryOut: {
             /**
@@ -6523,6 +6573,8 @@ export interface components {
             shares_rescaled?: components["schemas"]["AdminSplitSharesOut"] | null;
             /** Same Ratio Listed */
             same_ratio_listed?: components["schemas"]["AdminSplitListedNearOut"][] | null;
+            /** Called Off */
+            called_off?: components["schemas"]["AdminSplitCalledOffOut"][] | null;
         };
         /**
          * AdminSplitListOptionOut
@@ -6557,7 +6609,7 @@ export interface components {
          *     "dismissed" filter; each undoable). ``unplaced`` — SEC filings about a split the list could not place, newest
          *     filing first; ``unplaced_dismissed`` — the ones the steward dismissed (each undoable); ``unplaced_runs`` — the
          *     runs they were read from; ``unplaced_error`` when that read failed or passed over an unreadable file (shown,
-         *     never hidden).
+         *     never hidden; a failed read names no call-off).
          */
         AdminSplitListOut: {
             /** Needs Review */
@@ -6949,7 +7001,8 @@ export interface components {
          * AdminSplitUnplacedRunOut
          * @description A run the unplaced filings were read from: the nightly's newest (``source`` ``nightly``; ``sec_days``
          *     ``null``: the nightly's own window) or the long-window check's newest record (``check``). ``asof`` = the night
-         *     or day it read; ``rows`` = how many filings it listed, dismissed ones included.
+         *     or day it read; ``rows`` = how many filings it listed, dismissed ones included; ``calloffs`` = how many filings it
+         *     read with call-off wording (F10).
          */
         AdminSplitUnplacedRunOut: {
             /**
@@ -6971,6 +7024,11 @@ export interface components {
             sec_days: number | null;
             /** Rows */
             rows: number;
+            /**
+             * Calloffs
+             * @default 0
+             */
+            calloffs: number;
         };
         /**
          * AdminStaleTapeOut

@@ -17,6 +17,7 @@ import pytest
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.settings import get_settings
+from domain.split_calloffs import CalloffRule
 from domain.splits import (
     STATUS_ANNOUNCED,
     STATUS_CONFIRMED,
@@ -609,6 +610,37 @@ def test_record_keeps_the_runs_calloffs_and_the_one_reader_reads_them(monkeypatc
     assert doc["calloffs"] == [_game_row(sid)] and len(doc["unplaced"]) == 1
     got = su.read_unplaced(runs_dir=tmp_path / "no_runs", records_dir=tmp_path / "split_unplaced")
     assert got.calloffs == [{**_game_row(sid), "source": "check", "seen_on": "2026-11-25"}]
+
+
+_CALLOFF_VARS = (
+    "ALPHADECK_SPLIT_CALLOFF_WARN",
+    "ALPHADECK_SPLIT_CALLOFF_FORMS",
+    "ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS",
+    "ALPHADECK_SPLIT_CALLOFF_RATIO",
+)
+
+
+def test_the_calloff_rule_and_the_warning_switch_are_read_from_the_settings(monkeypatch):
+    """F10: ``calloff_rule`` is the ONE builder of the call-off rule (``domain.split_calloffs.CalloffRule``, the one
+    matcher's) from the settings, and ``calloff_warn`` the warning's switch beside it; each reads the settings when
+    called (once a pass, once a read of the list) and the pure matcher reads none."""
+    for var in _CALLOFF_VARS:
+        monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+    try:
+        assert ds.calloff_rule() == CalloffRule(
+            forms=("8-K", "8-K/A", "6-K", "6-K/A"), after_days=30, ratio="any"
+        )
+        assert ds.calloff_warn() is True
+        monkeypatch.setenv("ALPHADECK_SPLIT_CALLOFF_WARN", "false")
+        monkeypatch.setenv("ALPHADECK_SPLIT_CALLOFF_FORMS", "6-K")
+        monkeypatch.setenv("ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS", "0")
+        monkeypatch.setenv("ALPHADECK_SPLIT_CALLOFF_RATIO", "same")
+        get_settings.cache_clear()
+        assert ds.calloff_rule() == CalloffRule(forms=("6-K",), after_days=0, ratio="same")
+        assert ds.calloff_warn() is False
+    finally:
+        get_settings.cache_clear()
 
 
 def test_the_public_clock_reads_a_detected_split_from_its_own_publication(db, tmp_path):

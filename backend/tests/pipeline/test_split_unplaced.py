@@ -203,6 +203,7 @@ def test_the_nightly_and_the_check_merge_newest_filing_first_and_the_nightly_row
             "started_at": "2026-11-26T03:30:01.884083+00:00",
             "sec_days": None,
             "rows": 5,
+            "calloffs": 0,  # F10: none on prod's 2026-11-25 artifact
         },
         {
             "source": "check",
@@ -210,6 +211,7 @@ def test_the_nightly_and_the_check_merge_newest_filing_first_and_the_nightly_row
             "started_at": "2026-11-27T15:00:00+00:00",
             "sec_days": 800,
             "rows": 4,
+            "calloffs": 0,
         },
     ]
 
@@ -453,9 +455,13 @@ def test_calloffs_merge_newest_filing_first_and_the_nightly_side_wins(tmp_path):
     airi = got.calloffs[0]
     assert airi == {**_airi().to_json(), "source": "nightly", "seen_on": "2026-11-25"}
     assert (airi["ratio_from"], airi["ratio_to"], airi["passage"]) == ("5", "1", AIRI_PASSAGE)
-    # the unplaced list and the runs read are what they were: the call-offs ride the same two files
+    # the unplaced list and the runs read are what they were: the call-offs ride the same two files, and each run
+    # counts its own (F10 P5: as ``rows`` counts its unplaced filings)
     assert len(got.rows) == 8
-    assert [(r["source"], r["rows"]) for r in got.runs] == [("nightly", 5), ("check", 4)]
+    assert [(r["source"], r["rows"], r["calloffs"]) for r in got.runs] == [
+        ("nightly", 5, 2),
+        ("check", 4, 2),
+    ]
 
 
 def test_a_calloffs_row_naming_no_filing_or_no_kind_is_dropped(tmp_path):

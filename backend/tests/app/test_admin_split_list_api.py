@@ -19,11 +19,13 @@ import pytest
 from app.routers import admin_splits
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.settings import get_settings
 from ingest.edgar.client import EdgarClient
 from pipeline import backfill_splits as bf
 from pipeline import cron_run_log, split_unplaced
 from pipeline.detect_splits import SplitDetection, Unplaced
 from repositories import split_repo
+from tests.pipeline.test_split_unplaced import AIRI_8K, AIRI_DOC, AIRI_PASSAGE, _airi
 from tests.split_801_fixtures import ENHA_8K, OLD_ITEMS, enha_polygon, seed_enha
 from tests.split_801_fixtures import SINCE as SINCE_8_01
 from tests.split_fixtures import edgar_cache, polygon_source, seed_union, v1_source
@@ -1023,8 +1025,10 @@ def _listed(
     *,
     status: str = "confirmed",
     accession: str | None = None,
+    sec_filed: date | None = None,
 ) -> str:
-    """One split on the list (a nightly decision); returns its version id. Commits."""
+    """One split on the list (a nightly decision; listed on its first session, its SEC filing filed on ``sec_filed``);
+    returns its version id. Commits."""
     v = split_repo.append_version(
         db,
         tenant_id=DEFAULT_TENANT_ID,
@@ -1038,6 +1042,7 @@ def _listed(
             "confirmed_via": "auto:sec+polygon" if status == "confirmed" else None,
             "value_source": "sec",
             "sec_accession": accession,
+            "sec_filed": sec_filed,
             "valid_from": first_session,
         },
         action=split_repo.ACTION_DETECT,
@@ -1063,9 +1068,16 @@ def _row(
 
 
 def _nightly(
-    runs: Path, rows: list[dict], *, name: str = NIGHTLY_NAME, asof: str = "2026-11-25"
+    runs: Path,
+    rows: list[dict],
+    *,
+    name: str = NIGHTLY_NAME,
+    asof: str = "2026-11-25",
+    calloffs: list[dict] | None = None,
 ) -> None:
-    """A finished live nightly artifact whose split detection ran, listing ``rows`` as unplaced."""
+    """A finished live nightly artifact whose split detection ran, listing ``rows`` as unplaced (and ``calloffs``
+    as the filings it read with call-off wording, F10; no key when ``None``, as written before them).
+    """
     runs.mkdir(parents=True, exist_ok=True)
     doc = {
         "status": "finished",
@@ -1074,6 +1086,8 @@ def _nightly(
         "started_at": NIGHTLY_STARTED,
         "split_detect": {"evaluated": True, "unplaced": rows},
     }
+    if calloffs is not None:
+        doc["split_detect"]["calloffs"] = calloffs
     (runs / name).write_text(json.dumps(doc), encoding="utf-8")
 
 
@@ -1360,6 +1374,7 @@ def test_an_unreadable_unplaced_read_is_shown_and_the_panel_still_renders(
     assert (body["total"], len(body["needs_review"])) == (1, 1)
     assert (body["unplaced"], body["unplaced_runs"]) == ([], [])
     assert NIGHTLY_NAME in body["unplaced_error"]
+    assert body["needs_review"][0]["called_off"] is None  # F10: nothing read, nothing named
 
     def boom(**_kw):
         raise OSError("the data volume is gone")
@@ -1733,3 +1748,256 @@ def test_the_real_backfills_lrhc_splits_of_one_ratio_84_days_apart_name_each_oth
     _, mi = _find(body, "MI", "2026-05-18")
     assert mi["same_ratio_listed"] is None
     assert all(e["same_ratio_listed"] is None for e in body["confirmed"])
+
+
+# --- F10: a filing that calls off a listed split, named on its entry (display only) ---------------------------
+
+AIRI_CIK = "1009891"
+AIRI_ANNOUNCED = date(2026, 11, 10)  # the 8-K that stated the 1-for-5 (its merger announcement)
+AIRI_FIRST = date(2026, 11, 20)
+AIRI_LISTED_8K = "0000000000-26-000010"  # a stand-in for the filing the listed split cites
+VOTE_PASSAGE = "The Reverse Stock Split Proposal was not approved."
+CALLOFF_VARS = (
+    "ALPHADECK_SPLIT_CALLOFF_WARN",
+    "ALPHADECK_SPLIT_CALLOFF_FORMS",
+    "ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS",
+    "ALPHADECK_SPLIT_CALLOFF_RATIO",
+)
+
+
+@pytest.fixture
+def calloff_env(monkeypatch):
+    """The call-off settings at their shipped defaults, re-read by the app on the next request (``get_settings`` is
+    cached); ``calloff_env(var, value)`` sets one."""
+    for var in CALLOFF_VARS:
+        monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+
+    def put(var: str, value: str) -> None:
+        monkeypatch.setenv(var, value)
+        get_settings.cache_clear()
+
+    yield put
+    get_settings.cache_clear()
+
+
+def _airi_listed(db, *, status: str = "confirmed") -> tuple[uuid.UUID, str]:
+    """AIRI's listed 1-for-5: announced 11-10, first session 11-20. Returns ``(security id, version id)``."""
+    sid = _company(db, "AIRI", AIRI_CIK, "Air Industries Group")
+    vid = _listed(
+        db,
+        sid,
+        AIRI_FIRST,
+        5,
+        1,
+        status=status,
+        accession=AIRI_LISTED_8K,
+        sec_filed=AIRI_ANNOUNCED,
+    )
+    return sid, vid
+
+
+def _calloffs(e: dict) -> list[tuple] | None:
+    c = e["called_off"]
+    if c is None:
+        return None
+    return [(x["accession"], x["source"], x["days_from"]) for x in c]
+
+
+def test_airis_listed_split_names_the_8k_that_called_it_off_the_day_before_its_first_session(
+    client, db, unplaced_home, calloff_env, monkeypatch
+):
+    """AIRI's shape: a confirmed 1-for-5 (announced 11-10, first session 11-20) and the nightly's call-off row for
+    its 8-K 0001213900-26-122096 (filed 11-19: "would not be effecting the reverse stock split ... 1-for-5"). The
+    entry names it: the same ratio, one day before the first session, with its link, passage and the run that read
+    it. Any status: revoked by the steward, it still says why. Another company's split of the same ratio and
+    session names nothing. The run counts the call-offs it read; a call-off is no unplaced filing. A read: nothing
+    written, the files read once.
+    """
+    runs, _ = unplaced_home
+    sid, vid = _airi_listed(db)
+    other = _company(db, "PBK", "1915657", "PBK Holdings")
+    _listed(db, other, AIRI_FIRST, 5, 1, sec_filed=AIRI_ANNOUNCED)
+    _nightly(runs, [], calloffs=[_airi(security_id=sid).to_json()])
+    n = split_repo.count_rows(db)
+    body = client.get(BASE).json()
+    bucket, airi = _find(body, "AIRI", "2026-11-20")
+    assert bucket == "confirmed"
+    assert airi["called_off"] == [
+        {
+            "accession": AIRI_8K,
+            "form": "8-K",
+            "filed": "2026-11-19",
+            "url": _airi().url,
+            "kind": "decision",
+            "ratio_label": "1-for-5 reverse split",
+            "same_ratio": True,
+            "days_from": -1,
+            "document": AIRI_DOC,
+            "passage": AIRI_PASSAGE,
+            "source": "nightly",
+            "seen_on": "2026-11-25",
+        }
+    ]
+    assert _find(body, "PBK", "2026-11-20")[1]["called_off"] is None
+    assert [(x["source"], x["rows"], x["calloffs"]) for x in body["unplaced_runs"]] == [
+        ("nightly", 0, 1)
+    ]
+    assert body["unplaced"] == [] and body["unplaced_error"] is None
+    assert split_repo.count_rows(db) == n  # a read
+    reads: list[dict] = []
+    real = admin_splits.read_unplaced
+
+    def spy(**kw):
+        reads.append(kw)
+        return real(**kw)
+
+    monkeypatch.setattr(admin_splits, "read_unplaced", spy)
+    out = admin_splits.splits_out(db, tenant_id=DEFAULT_TENANT_ID, asof=TODAY)
+    assert len(reads) == 1  # one read serves the unplaced list and the call-offs
+    assert {e.ticker: len(e.called_off or []) for e in out.confirmed} == {"AIRI": 1, "PBK": 0}
+    r = client.post(f"{BASE}/{vid}/revoke")
+    assert r.status_code == 200, r.text
+    bucket, revoked = _find(client.get(BASE).json(), "AIRI", "2026-11-20")
+    assert bucket == "set_aside" and _calloffs(revoked) == [(AIRI_8K, "nightly", -1)]
+
+
+def test_the_warning_switched_off_names_nothing(client, db, unplaced_home, calloff_env):
+    """``ALPHADECK_SPLIT_CALLOFF_WARN=false``: no entry names a call-off; the run still counts what it read."""
+    runs, _ = unplaced_home
+    sid, _ = _airi_listed(db)
+    _nightly(runs, [], calloffs=[_airi(security_id=sid).to_json()])
+    assert _calloffs(_find(client.get(BASE).json(), "AIRI", "2026-11-20")[1]) == [
+        (AIRI_8K, "nightly", -1)
+    ]
+    calloff_env("ALPHADECK_SPLIT_CALLOFF_WARN", "false")
+    body = client.get(BASE).json()
+    assert _find(body, "AIRI", "2026-11-20")[1]["called_off"] is None
+    assert body["unplaced_runs"][0]["calloffs"] == 1
+
+
+def test_a_calloff_counts_from_the_announcement_to_30_days_past_the_first_session_on_the_forms_set(
+    client, db, unplaced_home, calloff_env
+):
+    """The rule is the settings' (``detect_splits.calloff_rule``), matched by the one matcher against each listed
+    split: filed from its announcement (its SEC filing's date, else the day it was listed: a Massive.com-only split)
+    to its first session + ``split_calloff_after_days`` (30), both ends in, on a ``split_calloff_forms`` form. Each
+    split here is a 1-for-5 announced 10-10, first session 10-20. A call-off the long-window check read is named
+    with that run. Outside the window, or on another form, the entry names nothing until the settings reach it.
+    """
+    runs, _ = unplaced_home
+    first, announced = date(2026, 10, 20), date(2026, 10, 10)
+    edge = _company(db, "EDGE", None, "Edge Corp")  # filed +30: in (read by the check)
+    past = _company(db, "PAST", None, "Past Corp")  # filed +31: out
+    early = _company(db, "ERLY", None, "Early Corp")  # filed the day before the announcement: out
+    tenq = _company(db, "TENQ", None, "Tenq Corp")  # a 10-Q: not a form that counts
+    poly = _company(db, "POLY", None, "Poly Corp")  # Massive.com only: announced = listed, 10-20
+    for sid in (edge, past, early, tenq):
+        _listed(db, sid, first, 5, 1, sec_filed=announced)
+    _listed(db, poly, first, 5, 1)
+
+    def row(sid, ticker, n, filed, form="8-K"):
+        return _airi(
+            security_id=sid,
+            ticker=ticker,
+            accession=f"0000000000-26-0000{n}",
+            filed=filed,
+            form=form,
+        )
+
+    _nightly(
+        runs,
+        [],
+        calloffs=[
+            row(past, "PAST", 31, date(2026, 11, 20)).to_json(),
+            row(early, "ERLY", 32, date(2026, 10, 9)).to_json(),
+            row(tenq, "TENQ", 33, date(2026, 10, 30), form="10-Q").to_json(),
+            row(poly, "POLY", 34, date(2026, 10, 19)).to_json(),
+            row(poly, "POLY", 35, date(2026, 10, 20)).to_json(),
+        ],
+    )
+    split_unplaced.record_check(
+        SplitDetection(evaluated=True, calloffs=[row(edge, "EDGE", 30, date(2026, 11, 19))]),
+        started_at=CHECK_STARTED,
+        finished_at=CHECK_STARTED.replace(minute=40),
+        asof=date(2026, 11, 27),
+        sec_days=800,
+        polygon_days=800,
+    )
+
+    def named(body: dict) -> dict[str, list[tuple] | None]:
+        return {
+            t: _calloffs(_find(body, t, "2026-10-20")[1])
+            for t in ("EDGE", "PAST", "ERLY", "TENQ", "POLY")
+        }
+
+    assert named(client.get(BASE).json()) == {
+        "EDGE": [("0000000000-26-000030", "check", 30)],
+        "PAST": None,
+        "ERLY": None,
+        "TENQ": None,
+        "POLY": [("0000000000-26-000035", "nightly", 0)],
+    }
+    calloff_env("ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS", "31")
+    calloff_env("ALPHADECK_SPLIT_CALLOFF_FORMS", "8-K,10-Q")
+    got = named(client.get(BASE).json())
+    assert got["PAST"] == [("0000000000-26-000031", "nightly", 31)]
+    assert got["TENQ"] == [("0000000000-26-000033", "nightly", 10)]
+    assert (got["ERLY"], got["POLY"]) == (None, [("0000000000-26-000035", "nightly", 0)])
+
+
+def test_a_calloff_stating_another_ratio_is_named_under_any_and_not_under_same(
+    client, db, unplaced_home, calloff_env
+):
+    """``split_calloff_ratio``: ``any`` (R1, the default) names a call-off whatever ratio it states, or none, the
+    one stating the listed ratio first (``same_ratio`` false for another ratio, null for none); ``same`` (R2) names
+    only one stating the listed ratio."""
+    runs, _ = unplaced_home
+    sid, _ = _airi_listed(db)
+    tenx = _company(db, "TENX", None, "Tenx Corp")
+    _listed(db, tenx, AIRI_FIRST, 5, 1, sec_filed=AIRI_ANNOUNCED)
+    vote = _airi(
+        security_id=sid,
+        accession="0000000000-26-000021",
+        filed=date(2026, 11, 12),
+        kind="failed_vote",
+        ratio_from=None,
+        ratio_to=None,
+        document=None,
+        passage=VOTE_PASSAGE,
+    )
+    ten = _airi(
+        security_id=tenx, ticker="TENX", accession="0000000000-26-000022", ratio_from=Decimal(10)
+    )
+    _nightly(runs, [], calloffs=[vote.to_json(), _airi(security_id=sid).to_json(), ten.to_json()])
+    body = client.get(BASE).json()
+    airi = _find(body, "AIRI", "2026-11-20")[1]["called_off"]
+    assert [
+        (c["accession"], c["kind"], c["ratio_label"], c["same_ratio"], c["days_from"]) for c in airi
+    ] == [
+        (AIRI_8K, "decision", "1-for-5 reverse split", True, -1),  # the listed ratio first
+        ("0000000000-26-000021", "failed_vote", None, None, -8),  # states none
+    ]
+    assert (airi[1]["passage"], airi[1]["document"]) == (VOTE_PASSAGE, None)
+    (other,) = _find(body, "TENX", "2026-11-20")[1]["called_off"]
+    assert (other["ratio_label"], other["same_ratio"]) == ("1-for-10 reverse split", False)
+    calloff_env("ALPHADECK_SPLIT_CALLOFF_RATIO", "same")
+    body = client.get(BASE).json()
+    assert _calloffs(_find(body, "AIRI", "2026-11-20")[1]) == [(AIRI_8K, "nightly", -1)]
+    assert _find(body, "TENX", "2026-11-20")[1]["called_off"] is None
+
+
+def test_runs_written_before_calloffs_name_none_and_the_unplaced_list_is_unchanged(
+    client, db, unplaced_home, calloff_env
+):
+    """A nightly artifact and a check record written before call-off rows existed (no ``calloffs`` key): every
+    entry names none, each run counts 0, and the unplaced list reads as it did."""
+    _seed_unplaced(db, unplaced_home)
+    body = client.get(BASE).json()
+    entries = [e for b in ("needs_review", "announced", "confirmed", "set_aside") for e in body[b]]
+    assert len(entries) == 9 and all(e["called_off"] is None for e in entries)
+    assert [(x["source"], x["rows"], x["calloffs"]) for x in body["unplaced_runs"]] == [
+        ("nightly", 4, 0),
+        ("check", 1, 0),
+    ]
+    assert len(body["unplaced"]) == 5 and body["unplaced_error"] is None

@@ -149,20 +149,20 @@ row to the state before. A decision counts from when it was made, on the public 
 
 ### Splits
 
-The split list, from Massive.com and each company's SEC filing
-(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings"). Massive.com's label is evidence only.
+The split list, from Massive.com and SEC filings (`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings").
+Massive.com's label is evidence only. Any split names filings calling it off (settings `split_calloff_*`).
 
-- **Needs review** (loud, the only loud list): a split one source cannot settle, the SEC passage beside
+- **Needs review** (the only loud list): a split one source cannot settle, the SEC passage beside
   Massive.com's row: confirm a source's values, or reject. When neither is right (POM: 10 ADSs -> 3 shares),
   confirm (or, for a jump or filing below, add) cited values: ratio, first session, required https URL, optional
-  note. Unless overridden, the server refuses a factor outside the tape tolerance of that session's stored step
-  (first-served, never a Massive.com fill), or no bar; the version records URL and override.
+  note. Unless overridden, the server refuses a factor outside the tape tolerance of the session's first-served step
+  (never a Massive.com fill), or no bar; the version records URL and override.
 - **Auto-confirmed, announced and set aside** (quiet; set-aside ones grayed). Revoke any confirmed split; Restore
   undoes a reject or revoke. An automatic set-aside (a distribution, [FILINGS](FILINGS.md)) restores to
   review; no run touches it after.
-- **Split-shaped jumps with no split listed** (quiet): jumps the split-night hold released that no source lists.
+- **Split-shaped jumps with no split listed** (quiet): jumps the split-night hold released.
 - **Unplaced split filings** (quiet): the nightly's or long-window check's, each beside its nearest listed split.
-  Dismiss a jump (a real move) or a filing (not a split): display only, undoable.
+  Dismiss a jump (a real move) or filing (not a split): display only, undoable.
 
 Every action appends one version naming the steward and the version acted on; stale cards get 409.
 A confirm lifts the split-night hold next night; the price leg and repair tool keep stored tapes on the list's
