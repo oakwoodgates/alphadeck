@@ -239,7 +239,7 @@ The call-off reader (2026-11-28, framework completion F10 P4) added one full sub
 (`docs/temp/framework-completion-evidence/f10-measure/forms/`; no SEC fetch) and trimmed the same way (the SGML header
 plus the 8-K and its EX-99.1, each kept whole and byte-exact; every reading of the trimmed file, bare, catch-all and
 screened, `wide` both ways, CHECKED identical to the full submission's on the pre-change and the changed reader). On
-the pre-change reader it reproduced the reading prod's split list met (`f10-measure/report.md`):
+the pre-change reader it reproduced the reading prod's split list met (the same folder's report):
 
 | accession | filer | form | what it states / why it is here |
 |---|---|---|---|
