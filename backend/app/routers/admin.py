@@ -75,7 +75,7 @@ from domain.insider_holds import page_bit as insider_holds_bit
 from domain.market_time import market_now, market_tz
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
-from notify import HealthEvent
+from notify import HealthEvent, split_called_off_bit
 from pipeline import edition_run_log, extraction_run_log
 from pipeline.backup import BackupInfo, list_backups, run_backup
 from pipeline.backup_job import BackupRunInFlight, start_backup_job
@@ -92,6 +92,7 @@ from pipeline.cron_run_log import (
 )
 from pipeline.daily import ThesisRunResult, assess_health
 from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
+from pipeline.detect_splits import called_off_new_labels_of as split_called_off_new_labels
 from pipeline.edgar_coverage import EdgarCoverage
 from pipeline.insider_amendment_scan import new_labels_of as amendment_new_labels
 from pipeline.insider_amendment_scan import new_more_of as amendment_new_more
@@ -190,6 +191,12 @@ def _problems(health: HealthEvent | None) -> list[str]:
             f"{len(health.split_defects_new)} NEW split-basis defect(s): "
             f"{', '.join(health.split_defects_new)} — a vendor tape defect, flag only, {_BENIGN_MARK} "
             "in this run"
+        )
+    # F10 — a filing NEWLY calls off a listed split: display only (the steward settles it on the Splits panel), so
+    # benign-marked like a split-basis defect; the page's own words (`split_called_off_bit`)
+    if health.split_called_off_new:
+        out.append(
+            f"{split_called_off_bit(health.split_called_off_new)}, {_BENIGN_MARK} in this run"
         )
     # T7 — a member NEWLY found filing under a successor CIK: a data gap the operator's Adopt repairs, so
     # benign-marked like a stale feed (it paged; the standing list lives on the Price feed repairs panel)
@@ -303,6 +310,8 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
     audit_failed = tuple(f"{a.check}: {a.detail}" for a in audit if a.ok is False)
     # T4 — the night's NEW split-basis defects, re-read so the history shows the same page this run emitted
     split_defects_new = split_new_labels(payload)
+    # F10 — and the listed splits a filing NEWLY called off (the labels as that night paged them)
+    split_called_off_new = split_called_off_new_labels(payload)
     env_raw = payload.get("env")
     env = AdminRunEnvOut.model_validate(env_raw) if isinstance(env_raw, dict) else None
     results = [
@@ -331,6 +340,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         name_errors_new=name_errors_new,
         audit_failed=audit_failed,
         split_defects_new=split_defects_new,
+        split_called_off_new=split_called_off_new,
         # T7 — re-derive the successor-CIK page, so the history shows the same page the run emitted
         successor_cik_new=successor_new_labels(payload),
         # R8-A — re-derive the Form 4/A page, so the history shows the same page the run emitted
@@ -374,6 +384,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         name_errors_new=list(name_errors_new),
         name_errors_known=int(payload.get("name_errors_known") or 0),
         split_defects_new=list(split_defects_new),
+        split_called_off_new=list(split_called_off_new),
         pass_total_s=pass_total_s,
         top_leg=top_leg,
         top_leg_s=top_leg_s,

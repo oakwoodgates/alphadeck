@@ -774,6 +774,161 @@ def test_compose_injects_the_split_distribution_dials_into_BOTH_services_at_the_
         ), f"{var}: {found}"
 
 
+def test_the_sec_restate_days_ship_off_and_compose_passes_0_to_both_services(monkeypatch):
+    """F8-2 (decision D-F8b): a later SEC filing restating a split's ratio within this many days joins its candidate
+    (``domain.splits.cluster_sec``), and the latest filing's date supersedes. It ships DARK: 0 = off, S4's clustering
+    exactly; turning it on (30) is the operator's. The nightly detector (cron) and a check or pass run by hand
+    (backend: ``python -m pipeline.detect_splits``) each get it from compose, at the Settings default (compose always
+    injects, so a drifted fallback would win). A negative value fails at load, never a silent default.
+    """
+    import re
+    from pathlib import Path
+
+    from pydantic import ValidationError
+
+    var = "ALPHADECK_SPLIT_SEC_RESTATE_DAYS"
+    monkeypatch.delenv(var, raising=False)
+    assert Settings().split_sec_restate_days == 0
+    assert Settings.model_fields["split_sec_restate_days"].default == 0
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        m = re.search(rf"^\s+{var}: \$\{{{var}:-(\d+)\}}", block, re.M)
+        assert m is not None, f"{var} is not passed to the {service}"
+        assert int(m.group(1)) == 0, f"{service}: compose fallback {m.group(1)} != 0"
+    monkeypatch.setenv(var, "30")
+    assert Settings().split_sec_restate_days == 30
+    monkeypatch.setenv(var, "-1")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_the_legal_date_next_session_setting_ships_off_and_compose_passes_false_to_both_services(
+    monkeypatch,
+):
+    """F3b (framework completion): an SEC-only split whose chosen filing states only a LEGAL date that is no session
+    (a weekend, an NYSE closure) is planned on the next session (``domain.splits.decide_sec_only``). It ships DARK:
+    False = the date as stated; turning it on is the operator's. The nightly detector (cron) and a check or pass run
+    by hand (backend: ``python -m pipeline.detect_splits``) each get it from compose, at the Settings default.
+    """
+    import re
+    from pathlib import Path
+
+    var = "ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION"
+    monkeypatch.delenv(var, raising=False)
+    assert Settings().split_legal_date_next_session is False
+    assert Settings.model_fields["split_legal_date_next_session"].default is False
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        m = re.search(rf"^\s+{var}: \$\{{{var}:-(\w+)\}}", block, re.M)
+        assert m is not None, f"{var} is not passed to the {service}"
+        assert m.group(1) == "false", f"{service}: compose fallback {m.group(1)} != false"
+    monkeypatch.setenv(var, "true")
+    assert Settings().split_legal_date_next_session is True
+
+
+# F10 (framework completion): the call-off warning's four settings -> (field, Settings default, compose fallback)
+_SPLIT_CALLOFF_DIALS = {
+    "ALPHADECK_SPLIT_CALLOFF_WARN": ("split_calloff_warn", True, "true"),
+    "ALPHADECK_SPLIT_CALLOFF_FORMS": (
+        "split_calloff_forms",
+        "8-K,8-K/A,6-K,6-K/A",
+        "8-K,8-K/A,6-K,6-K/A",
+    ),
+    "ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS": ("split_calloff_after_days", 30, "30"),
+    "ALPHADECK_SPLIT_CALLOFF_RATIO": ("split_calloff_ratio", "any", "any"),
+}
+
+
+def test_the_calloff_warning_settings_ship_on_and_compose_passes_their_defaults_to_both_services(
+    monkeypatch,
+):
+    """F10: a filing that calls off a listed split is named beside it (``GET /admin/splits``'s ``called_off``). It
+    ships ON at R1 as measured: an 8-K or 6-K (or its amendment) filed from the split's announcement to 30 days past
+    its first session, any ratio (10 of the 12 real call-offs state none). ``split_calloff_warn=false`` turns it
+    off; ``split_calloff_ratio=same`` (R2) keeps only a call-off stating the listed ratio. The backend (the API) and
+    the cron (the nightly) each get them from compose at the Settings defaults (compose always injects, so a
+    drifted fallback would win). A bad value fails at load, never a silent default.
+    """
+    import re
+    from pathlib import Path
+    from typing import get_args
+
+    from pydantic import ValidationError
+
+    from domain.split_calloffs import RATIO_RULES
+
+    for var in _SPLIT_CALLOFF_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for var, (field, default, fallback) in _SPLIT_CALLOFF_DIALS.items():
+        assert getattr(s, field) == default and Settings.model_fields[field].default == default
+        for service in ("backend", "cron"):
+            block = _compose_service_block(compose, service)
+            m = re.search(rf"^\s+{var}: \$\{{{var}:-([^}}]*)\}}", block, re.M)
+            assert m is not None, f"{var} is not passed to the {service}"
+            assert m.group(1) == fallback, f"{service}: compose fallback {m.group(1)} != {fallback}"
+    # the ratio rules are the one matcher's own
+    assert get_args(Settings.model_fields["split_calloff_ratio"].annotation) == RATIO_RULES
+    # the operator's values; the forms are trimmed, upper-cased, blanks dropped
+    monkeypatch.setenv("ALPHADECK_SPLIT_CALLOFF_WARN", "false")
+    monkeypatch.setenv("ALPHADECK_SPLIT_CALLOFF_FORMS", " 8-k , 6-K,,")
+    monkeypatch.setenv("ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS", "0")
+    monkeypatch.setenv("ALPHADECK_SPLIT_CALLOFF_RATIO", "same")
+    s = Settings()
+    assert (
+        s.split_calloff_warn,
+        s.split_calloff_forms,
+        s.split_calloff_after_days,
+        s.split_calloff_ratio,
+    ) == (False, "8-K,6-K", 0, "same")
+    for var, bad in (
+        ("ALPHADECK_SPLIT_CALLOFF_AFTER_DAYS", "-1"),
+        ("ALPHADECK_SPLIT_CALLOFF_RATIO", "either"),
+        ("ALPHADECK_SPLIT_CALLOFF_FORMS", " , "),
+    ):
+        monkeypatch.setenv(var, bad)
+        with pytest.raises(ValidationError):
+            Settings()
+        monkeypatch.delenv(var)
+
+
+def test_the_calloff_demote_switch_ships_off_and_compose_passes_false_to_both_services(monkeypatch):
+    """F10 P9: with ``split_calloff_demote`` on, an announced or confirmed split a filing calls off (the same stated
+    ratio, filed on or before its first session: ``domain.split_calloffs.demote_rule``, on the forms
+    ``split_calloff_forms`` names) goes to review, and one needs-review version is appended over a live split the
+    system wrote. It ships OFF: turning it on is the operator's (HELD). The nightly detector and the newcomer fill
+    (cron) and the backfill or a check run by hand (backend) each get it from compose, at the Settings default.
+    """
+    import re
+    from pathlib import Path
+
+    var = "ALPHADECK_SPLIT_CALLOFF_DEMOTE"
+    monkeypatch.delenv(var, raising=False)
+    assert Settings().split_calloff_demote is False
+    assert Settings.model_fields["split_calloff_demote"].default is False
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for service in ("backend", "cron"):
+        block = _compose_service_block(compose, service)
+        m = re.search(rf"^\s+{var}: \$\{{{var}:-(\w+)\}}", block, re.M)
+        assert m is not None, f"{var} is not passed to the {service}"
+        assert m.group(1) == "false", f"{service}: compose fallback {m.group(1)} != false"
+        # beside the warning's four (the forms it reads are theirs)
+        assert block.index("ALPHADECK_SPLIT_CALLOFF_RATIO") < block.index(var), service
+    monkeypatch.setenv(var, "true")
+    assert Settings().split_calloff_demote is True
+
+
 _CROSS_CLASS_ENV = "ALPHADECK_PRICE_FEED_CROSS_CLASS_ADOPT"
 
 

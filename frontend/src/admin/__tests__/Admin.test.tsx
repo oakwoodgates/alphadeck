@@ -370,6 +370,11 @@ vi.mock("../../api/hooks", () => ({
   useRestoreSplit: () => h.repair,
   useDismissJump: () => h.repair,
   useUndoJumpDismissal: () => h.repair,
+  // F1-5 — the unplaced filings' Dismiss and Undo (their behavior is in SplitList.test.tsx)
+  useDismissUnplaced: () => h.repair,
+  useUndoUnplacedDismissal: () => h.repair,
+  // F2-2 — the Splits panel's "Add this split..." (its behavior is in SplitList.test.tsx)
+  useAddSplit: () => h.repair,
   // X1 — the Onboarding panel (its own behavior is in Onboarding.test.tsx): an empty queue here
   useOnboarding: () => ({
     data: {

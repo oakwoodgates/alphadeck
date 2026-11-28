@@ -91,18 +91,19 @@ view on every read, so a review reads it once. `get_discovery`, `get_extract` an
 and answer `asof: null`.
 
 **Admin reads.** The steward's five tools read one Admin panel each, live and undated, over the panel's own GET
-(`views/admin/`): `get_splits`, `get_admin_status`, `get_shared_facts` (Admin > Shared facts: the queue, and
-`section=company` with `t` for the company page, `fact` narrowing it to one value), `get_insider_holds` (Admin >
-Held insider rows, bucketed as the panel is; `section=one` with `t` reads a ticker's rows in full) and
-`get_admin_onboarding` (Admin > Onboarding: the shared queue, failed names first; the same view as
-`get_onboarding`, for the whole queue). Each view copies the API's values and its order, cuts a long string
-with its full length beside it and pages by `cursor`. The queue is paged by the API, so its `cursor` is the API's
-`offset` and `pen` (`after`, `only`, `exclude`) is passed through; a company page steps down to shorter lists and
-excerpts until it fits, and answers `output_too_large` naming `fact` when even the smallest does not. A user's
-email is never shown (the company page carries it for the steward; the tool drops it). A tool reads only: an
-approval, a correction, a dismissal, a held row's date and an onboarding Retry stay on the panel. The Insider
-amendments panel has no tool: its GET returns every Form 4/A with its evidence (measured on dev: 18.8 to 38 s and
-29 MB), so the owed amendments are read on the panel.
+(`views/admin/`): `get_splits` (Admin > Splits; `section=unplaced` pages the split filings the list could not place,
+each with the listed split it most likely concerns; `called_off` names the filings that call a listed split off),
+`get_admin_status`, `get_shared_facts` (Admin > Shared facts:
+the queue, and `section=company` with `t` for the company page, `fact` narrowing it to one value),
+`get_insider_holds` (Admin > Held insider rows, bucketed as the panel is; `section=one` with `t` reads a ticker's
+rows in full) and `get_admin_onboarding` (Admin > Onboarding, failed names first: `get_onboarding`'s view of the
+whole queue). Each view copies the API's values and its order, cuts a long string with its full length beside it and
+pages by `cursor`. The queue is paged by the API, so its `cursor` is the API's `offset` and `pen` (`after`, `only`,
+`exclude`) is passed through; a company page steps down to shorter lists and excerpts until it fits, else answers
+`output_too_large` naming `fact`. A user's email is never shown. A tool reads only: an approval, a correction, a
+dismissal, an added split, a held row's date and an onboarding Retry stay on the panel. The Insider amendments panel
+has no tool: its GET returns every Form 4/A with its evidence (measured on dev: 18.8 to 38 s and 29 MB), so the owed
+amendments are read on the panel.
 
 ## Scopes
 

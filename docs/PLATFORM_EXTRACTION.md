@@ -146,6 +146,13 @@ Two guards keep a cash-like tag on a line that is not cash out of any cash value
   prints them inside a broader line. A deferred-tax row is never a balance.
 - **It cannot run** when no table holds the cash fact (statements laid out without tables): the value is as before.
 
+One more cash dial ships **off**: `one_time_cash_positive_quarter` (`tests/ingest/test_extract_burn_flags.py`). On,
+a quarter that generated cash while its year-to-date pace burns is `possible-one-time` too, the passage on the printed
+year-to-date operating cash flow. An inflow booked in net income (XNCR's milestone revenue, LEXX's tax credit) moves no
+reconciliation line, so the line check cannot see it. On, an applied AUTO value of that shape becomes a queued FLAG,
+which reverses the operator's ruling that the pace is a visible caveat, never a queued flag: turning it on is the
+user's call. The pace caveat is the same either way.
+
 ## The nightly step
 
 `pipeline/nightly_extraction.run_nightly_extraction` is the last thing in the nightly pass

@@ -1,12 +1,12 @@
 # Admin page
 
-`/admin` is the steward's operations page. It answers three questions from what the nightly machinery already
+`/admin` is the steward's operations page. It answers three questions from what the nightly already
 wrote (is the record current, did last night's pass work, which platform-data decisions wait for the steward) and
 carries two triggers: Run daily now and a backup. The steward's company page, `/admin/facts/<security_id>`, holds the
 share-count and cash/burn decisions. Only a steward reaches either: the header shows the Admin tab to a steward only,
 the app renders a "stewards only" page to anyone else (`App.tsx`), and every `/admin/*` route is mounted behind
-`require_super_admin` (`app/main.py`; `tests/app/test_auth_gate.py` treats every `/admin` path as a steward path).
-Read this doc before you add a panel, a status field or an admin route. What each nightly monitor flags, and why, is
+`require_super_admin` (`app/main.py`; `tests/app/test_auth_gate.py`).
+Read it before adding a panel, status field or admin route. What each nightly monitor flags, and why, is
 in [FEED_MONITORS](FEED_MONITORS.md); this doc covers what the page shows and what each control does.
 
 ## Code
@@ -26,7 +26,7 @@ in [FEED_MONITORS](FEED_MONITORS.md); this doc covers what the page shows and wh
 ### Rules of the page
 
 - **Reads write nothing** (`test_admin_reads_write_NOTHING` in `tests/app/test_admin_api.py`). They read the run
-  artifacts under `data/`, the backup directory and a few tables. No model is called anywhere on the page.
+  artifacts under `data/`, the backup directory and a few tables. No model is called on the page.
 - **Triggers fire on a click only,** never on a load or a poll.
 - **Every write is a steward's decision on platform data:** an append-only row naming its author, with an exact
   undo that refuses (409) when the value it would restore has moved since. These routes act on the data tenant,
@@ -149,24 +149,26 @@ row to the state before. A decision counts from when it was made, on the public 
 
 ### Splits
 
-The split list, filled from Massive.com and each company's SEC filing
-(`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings"). Massive.com's label (forward split, reverse split or
-stock dividend) is evidence only.
+The split list, from Massive.com and SEC filings (`admin_splits.py`; [FILINGS](FILINGS.md), "Split filings").
+Massive.com's label is evidence only. Any split names filings calling it off (settings `split_calloff_*`);
+`split_calloff_demote` (off): one stating its ratio by its first session sends it to review. Turned off again, open
+system rows are re-decided: settle those first.
 
-- **Needs review** (loud, the only loud list): a split one source cannot settle, the SEC passage beside
-  Massive.com's row: confirm a source's values, or reject. When neither is right (POM's ADR termination: 10 ADSs
-  -> 3 shares), confirm cited values: ratio, first session, required https URL, optional note. Unless overridden,
-  the server refuses a factor outside the tape tolerance of that session's stored step (first-served bars, never a
-  Massive.com fill), or a session with no bar; the version records the URL and any override.
+- **Needs review** (the only loud list): a split one source cannot settle, the SEC passage beside
+  Massive.com's row: confirm a source's values, or reject. When neither is right (POM: 10 ADSs -> 3 shares),
+  confirm (or, for a jump or filing below, add) cited values: ratio, first session, required https URL, optional
+  note. Unless overridden, the server refuses a factor outside the tape tolerance of the session's first-served step
+  (never a Massive.com fill) or no bar, recording URL and override.
 - **Auto-confirmed, announced and set aside** (quiet; set-aside ones grayed). Revoke any confirmed split; Restore
   undoes a reject or revoke. An automatic set-aside (a distribution, [FILINGS](FILINGS.md)) restores to
   review; no run touches it after.
-- **Split-shaped jumps with no split listed** (quiet): jumps the split-night hold released that no source lists.
-  Dismiss (a real move) and its undo are display only; the hold never reads them.
+- **Split-shaped jumps with no split listed** (quiet): jumps the split-night hold released.
+- **Unplaced split filings** (quiet): the nightly's or long-window check's, each beside its nearest listed split.
+  Dismiss a jump (a real move) or filing (not a split): display only, undoable.
 
-Every action appends one version naming the steward and the version acted on, so a stale card is refused (409).
+Every action appends one version naming the steward and the version acted on (stale cards: 409).
 A confirm lifts the split-night hold next night; the price leg and repair tool keep stored tapes on the list's
-scale. Nothing here sends a push.
+scale. Nothing here pushes.
 
 ### Data flags
 
@@ -183,7 +185,7 @@ job's newest artifact. Shown once the queue has held a name.
 - **Failed** (loud, with Retry): a name whose history legs failed every allowed attempt. Retry requeues it with its
   checkpoint kept (409 not failed, 404 not queued).
 - **Stalled** (loud): names waiting and no run finished for `onboard_stalled_after_h`, so the sidecar's onboarding
-  loop is not running. A day that hit its cap reads as quietly paused instead.
+  loop is not running. A day at its cap reads as quietly paused.
 - Waiting, loading and recently loaded names (quiet), each with its checkpoint; a name no live card holds is parked
   (`parked: true` on its row in the API and in `get_admin_onboarding` / `get_onboarding`).
 
@@ -228,11 +230,11 @@ crash page goes out. A lost job never spins; the run history is the authority. A
 
 Back up now (`POST /admin/backup`) starts a read-only `pg_dump` as a background job (202; 409 while one runs); the
 list (`GET /admin/backups`) and the last snapshot's age are reads. Schedule, retention and format:
-[CRON_SIDECAR](CRON_SIDECAR.md), "Backups". Restore is CLI-only: the `backup-restore` skill.
+[CRON_SIDECAR](CRON_SIDECAR.md), "Backups".
 
 ## Contracts
 
-Wire shapes: `backend/openapi.json`. Every route below is steward-only; ten sit under `/admin/splits` and twelve
+Wire shapes: `backend/openapi.json`. Every route below is steward-only; fourteen sit under `/admin/splits` and twelve
 under `/admin/platform-values`.
 
 | Route | Panel | What it does |
@@ -252,12 +254,11 @@ under `/admin/platform-values`.
 | `POST /admin/insider-amendments/decisions/{decision_id}/revoke` | Insider amendments | undo a decision |
 | `GET /admin/insider-holds` | Held insider rows | the buckets |
 | `POST /admin/insider-holds/{hold_id}/approve`, `/dismiss`; `POST /admin/insider-holds/decisions/{decision_id}/revoke` | Held insider rows | date, dismiss, undo |
-| `GET /admin/splits` | Splits | the list and the unlisted jumps |
+| `GET /admin/splits` | Splits | the list, unlisted jumps, unplaced filings |
 | `POST /admin/splits/{version_id}/confirm`, `/reject`, `/revoke`, `/restore` | Splits | decide a split; undo |
-| `GET /admin/splits/{version_id}/tape-step`, `/tape` | Splits | a session's step, beside an entered ratio; the bars around it |
-| `POST /admin/splits/{version_id}/confirm-values` | Splits | confirm with cited values; undo is revoke |
-| `POST /admin/splits/jumps/{security_id}/{step_date}/dismiss` | Splits | dismiss a jump |
-| `POST /admin/splits/jumps/dismissals/{dismissal_id}/undo` | Splits | undo a dismissal |
+| `GET /admin/splits/{version_id}/tape-step`, `/tape`, `/securities/{security_id}/tape-step` | Splits | a session's step beside an entered ratio; nearby bars |
+| `POST /admin/splits/{version_id}/confirm-values`, `POST /admin/splits` | Splits | confirm or add with cited values; revoke undoes |
+| `POST /admin/splits/jumps/{security_id}/{step_date}/dismiss`, `/unplaced/{security_id}/{accession}/dismiss`, `/jumps/dismissals/{dismissal_id}/undo`, `/unplaced/dismissals/{dismissal_id}/undo` | Splits | dismiss; undo |
 | `GET /admin/onboarding`, `POST /admin/onboarding/{security_id}/retry` | Onboarding | the queue; retry a failed name |
 | `GET /admin/platform-values/queue` | Shared facts | the queue |
 | `GET /admin/platform-values/awaiting` | none (API only) | flagged candidates waiting, newest first |

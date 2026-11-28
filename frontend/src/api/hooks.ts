@@ -2498,9 +2498,15 @@ export type AdminSplitListEntryOut = components["schemas"]["AdminSplitListEntryO
 // first session beside the entered factor (the read the form shows)
 export type AdminSplitConfirmValuesIn = components["schemas"]["AdminSplitConfirmValuesIn"];
 export type AdminSplitTapeStepOut = components["schemas"]["AdminSplitTapeStepOut"];
+// F2-2 — a split no source lists, added by the steward from a filing or a jump (the write's body)
+export type AdminSplitAddIn = components["schemas"]["AdminSplitAddIn"];
 // S5 — a split-shaped price jump the split-night hold released that no source listed (the operator's
 // "is this real?"); read with the list, no write of its own
 export type AdminSplitJumpOut = components["schemas"]["AdminSplitJumpOut"];
+// F1-5 — an SEC filing about a split the list could not place, and the run it was read from (read with the list;
+// its writes are the steward's Dismiss and Undo below)
+export type AdminSplitUnplacedOut = components["schemas"]["AdminSplitUnplacedOut"];
+export type AdminSplitUnplacedRunOut = components["schemas"]["AdminSplitUnplacedRunOut"];
 
 export function useSplitList() {
   return useQuery({
@@ -2590,30 +2596,51 @@ export function useConfirmSplitValues() {
 }
 
 // The stored tape's STEP at a first session (each bar as first served), beside the factor of the ratio entered
-// (both sides or neither) — the same check confirm-values makes, read while the steward types. A read: never
-// stored, fired only once a first session is entered (`args` null = the form has none yet).
+// (both sides or neither) — the same check confirm-values and add make, read while the steward types. A read: never
+// stored, fired only once a first session is entered (`args` null = the form has none yet). The target is a split
+// version already on the list (`{ versionId }`: confirm with other values) or a security with no split listed at that
+// session yet (`{ securityId }`: Add this split...); both answer the same shape.
+export type SplitTapeTarget = { versionId: string } | { securityId: string };
+
 export function useSplitTapeStep(
-  versionId: string,
+  target: SplitTapeTarget,
   args: { firstSession: string; ratioFrom?: string; ratioTo?: string } | null,
 ) {
   return useQuery({
-    queryKey: ["admin-split-tape-step", versionId, args] as const,
+    queryKey: ["admin-split-tape-step", target, args] as const,
     enabled: args !== null,
     retry: false,
     queryFn: async () => {
-      const { data, error } = await api.GET("/admin/splits/{version_id}/tape-step", {
-        params: {
-          path: { version_id: versionId },
-          query: {
-            first_session: args?.firstSession ?? "",
-            ratio_from: args?.ratioFrom,
-            ratio_to: args?.ratioTo,
-          },
-        },
-      });
+      const query = {
+        first_session: args?.firstSession ?? "",
+        ratio_from: args?.ratioFrom,
+        ratio_to: args?.ratioTo,
+      };
+      const { data, error } =
+        "securityId" in target
+          ? await api.GET("/admin/splits/securities/{security_id}/tape-step", {
+              params: { path: { security_id: target.securityId }, query },
+            })
+          : await api.GET("/admin/splits/{version_id}/tape-step", {
+              params: { path: { version_id: target.versionId }, query },
+            });
       if (error) throw error;
       return data;
     },
+  });
+}
+
+// ADD a split no source lists (F2-2), from exactly one signal on the panel: a split filing not placed (`from_accession`)
+// or a split-shaped jump nobody dismissed (`from_jump`, its step date). The steward's ratio, first session and the
+// https document that states them; the server re-reads the stored tape at that session and answers 409 outside the
+// tolerance unless `override_tape`, and 409 for a duplicate (a split already keyed on that session, or a live one of the
+// same ratio within 45 days) — its sentence is the error the form shows. A write only on the steward's click, never
+// retried; undone by Revoke (Reject while announced).
+export function useAddSplit() {
+  return useSplitAction(async (body: AdminSplitAddIn) => {
+    const { data, error } = await api.POST("/admin/splits", { body });
+    if (error) throw error;
+    return data;
   });
 }
 
@@ -2667,6 +2694,32 @@ export function useDismissJump() {
 export function useUndoJumpDismissal() {
   return useSplitAction(async (vars: { dismissalId: string }) => {
     const { data, error } = await api.POST("/admin/splits/jumps/dismissals/{dismissal_id}/undo", {
+      params: { path: { dismissal_id: vars.dismissalId } },
+      body: {},
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// DISMISS an unplaced split filing (F1-5): the steward says it is not a split to list. Display only — no split, hold
+// or call reads it. The reason is optional (the server stores its own when none is sent). Inverse:
+// useUndoUnplacedDismissal.
+export function useDismissUnplaced() {
+  return useSplitAction(async (vars: { securityId: string; accession: string; reason?: string }) => {
+    const { data, error } = await api.POST("/admin/splits/unplaced/{security_id}/{accession}/dismiss", {
+      params: { path: { security_id: vars.securityId, accession: vars.accession } },
+      body: vars.reason?.trim() ? { reason: vars.reason.trim() } : {},
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO a filing's dismissal — it is back on the unplaced list.
+export function useUndoUnplacedDismissal() {
+  return useSplitAction(async (vars: { dismissalId: string }) => {
+    const { data, error } = await api.POST("/admin/splits/unplaced/dismissals/{dismissal_id}/undo", {
       params: { path: { dismissal_id: vars.dismissalId } },
       body: {},
     });

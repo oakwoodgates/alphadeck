@@ -61,6 +61,7 @@ from pipeline.backfill_splits import (
     Member,
     SecReader,
     append_planned,
+    calloff_demote_forms,
     distribution_cap,
     distribution_label_overrides_abstain,
     match_polygon,
@@ -290,6 +291,7 @@ def _fill_one(
         asof=asof,
         distribution_max_factor=distribution_cap(),  # D2, as the backfill and the nightly decide
         label_overrides_abstain=distribution_label_overrides_abstain(),  # W6-2, beside it
+        demote_forms=calloff_demote_forms(),  # F10's demote (off unless split_calloff_demote), beside them
     )
     conn.rollback()
     c.polygon_splits = len(planned)

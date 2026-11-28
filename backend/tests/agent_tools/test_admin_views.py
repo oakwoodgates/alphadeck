@@ -76,6 +76,11 @@ def test_the_default_splits_reply_is_the_counts_and_the_needs_review_rows_in_the
             "extractor_abstained": 1,
             "one_source": 1,
         },
+        # F1-4: the filings the list could not place; on_list = listed_near cites it or states its ratio (TK01)
+        "unplaced": 2,
+        "unplaced_dismissed": 1,
+        "unplaced_on_list": 1,
+        "called_off": 0,  # F10: no filing calls a listed split off on this list
     }
     assert [r["review_reason"] for r in reply["needs_review"]] == [
         "sources_differ",
@@ -202,6 +207,180 @@ def test_an_open_row_carries_the_first_bar_and_the_share_count_a_confirm_rescale
     assert entry["first_bar"] == "2025-03-14" and entry["shares_rescaled"]["count"] == 13_524_682.0
 
 
+SAME_BRIEF = {"effective_date", "label", "status", "same_ratio", "cites_filing", "days_from"}
+
+
+def test_an_open_row_carries_the_listed_splits_of_its_ratio_near_it_when_stated():
+    """F8-3: a needs-review or announced row carries the API's ``same_ratio_listed`` (the other splits on the list of
+    its exact ratio within 180 days, nearest first) when stated, each entry brief (no version id or key date), copied
+    in the API's order, never derived; a row the API states none for carries no key. section=one carries it whole.
+    """
+    body = afx.splits()
+    near = afx.same_ratio_near(4, "needs_review", effective_date="2027-03-01", days_from=119)
+    body["announced"][0]["same_ratio_listed"] = [near]
+    api = FakeApi(splits=body)
+    first, second, third = ok(api, "get_splits")["needs_review"]
+    assert first["same_ratio_listed"] == [
+        {
+            "effective_date": "2026-06-01",
+            "label": "1-for-10",
+            "status": "confirmed",
+            "same_ratio": True,
+            "cites_filing": False,
+            "days_from": -154,
+        }
+    ]
+    assert "same_ratio_listed" not in second and "same_ratio_listed" not in third
+    (announced,) = ok(api, "get_splits", section="announced")["announced"]
+    assert announced["same_ratio_listed"] == [{k: near[k] for k in SAME_BRIEF}]
+    for section in ("confirmed", "set_aside"):
+        assert all(
+            "same_ratio_listed" not in r for r in ok(api, "get_splits", section=section)[section]
+        )
+    entry = ok(api, "get_splits", section="one", t="TK01")["entries"][0]
+    assert entry["same_ratio_listed"] == body["needs_review"][0]["same_ratio_listed"]  # whole
+    assert entry["same_ratio_listed"][0]["version_id"] == body["confirmed"][1]["version_id"]
+
+
+def test_a_forty_row_list_naming_two_splits_of_its_ratio_on_every_row_fits_the_budget():
+    """F8-3: the default reply stays within the budget when every open row names the most the API names (two), and
+    the cursor reads on from the first row it left out."""
+    body = afx.splits(extra_needs_review=37, extra_same_ratio=True)
+    api = FakeApi(splits=body)
+    reply = ok(api, "get_splits")
+    shown = len(reply["needs_review"])
+    assert 1 <= shown < 40 and size(reply) <= BUDGET
+    assert reply["next_cursor"] == shown and reply["next_cursor_for"] == "needs_review"
+    assert all(len(r["same_ratio_listed"]) == 2 for r in reply["needs_review"][3:])
+    more = ok(api, "get_splits", section="needs_review", cursor=shown)
+    assert more["needs_review"][0]["ticker"] == body["needs_review"][shown]["ticker"]
+
+
+# --- F10: the filings that call a listed split off (``called_off``) -------------------------------------------
+
+CALLOFF_BRIEF = {
+    "accession",
+    "form",
+    "filed",
+    "kind",
+    "ratio_label",
+    "same_ratio",
+    "days_from",
+    "source",
+    "seen_on",
+    "passage",
+    "passage_chars",
+}
+CALLOFF_ENTRY = {"ticker", "name", "key_date", "effective_date", "label", "status", "called_off"}
+
+
+def test_the_default_reply_counts_and_lists_every_split_a_filing_calls_off_in_any_bucket():
+    """F10: the default reply counts the entries the API names a call-off for (``counts.called_off``, any bucket)
+    and lists them in the API's bucket order, each with its call-offs in the API's order (its ratio first), each a
+    brief: the passage cut at 300 with its full length, no URL or document. A needs-review row carries its own; a
+    row without carries no key; a list with none counts 0 and lists none."""
+    body = afx.splits(called_off=True)
+    reply = ok(FakeApi(splits=body), "get_splits")
+    assert reply["counts"]["called_off"] == 3
+    assert [(e["ticker"], e["status"]) for e in reply["called_off"]] == [
+        ("TK02", "needs_review"),
+        ("TK05", "confirmed"),
+        ("TK07", "rejected"),
+    ]
+    assert all(set(e) == CALLOFF_ENTRY for e in reply["called_off"])
+    two, five, _ = reply["called_off"]
+    listed = body["confirmed"][0]["called_off"]
+    assert [c["accession"] for c in five["called_off"]] == [c["accession"] for c in listed]
+    first = five["called_off"][0]
+    assert set(first) == CALLOFF_BRIEF
+    assert (first["kind"], first["ratio_label"], first["same_ratio"], first["days_from"]) == (
+        "decision",
+        "1-for-10",
+        True,
+        -1,
+    )
+    assert first["passage"] == listed[0]["passage"][:300]
+    assert first["passage_chars"] == afx.CALLOFF_PASSAGE_CHARS
+    assert (five["effective_date"], five["label"]) == ("2026-11-02", "1-for-10")
+    (vote,) = two["called_off"]
+    assert (vote["kind"], vote["ratio_label"], vote["same_ratio"], vote["source"]) == (
+        "failed_vote",
+        None,
+        None,
+        "check",
+    )
+    rows = {r["ticker"]: r for r in reply["needs_review"]}
+    assert rows["TK02"]["called_off"] == two["called_off"]
+    assert "called_off" not in rows["TK01"] and "called_off" not in rows["TK03"]
+    plain = ok(FakeApi(), "get_splits")
+    assert plain["counts"]["called_off"] == 0 and plain["called_off"] == []
+    assert all("called_off" not in r for r in plain["needs_review"])
+
+
+def test_a_row_in_any_bucket_carries_its_call_offs_brief_and_section_one_carries_them_whole():
+    """F10: every bucket section's row carries the API's ``called_off`` as briefs when stated (any status, unlike
+    ``same_ratio_listed``); section=one carries it whole (URL, document, the passage uncut)."""
+    body = afx.splits(called_off=True)
+    api = FakeApi(splits=body)
+    pages = {s: ok(api, "get_splits", section=s)[s] for s in afx.SPLIT_BUCKETS}
+    named = {
+        s: {r["ticker"]: len(r.get("called_off") or []) for r in rows} for s, rows in pages.items()
+    }
+    assert named == {
+        "needs_review": {"TK01": 0, "TK02": 1, "TK03": 0},
+        "announced": {"TK04": 0},
+        "confirmed": {"TK05": 2, "TK01": 0, "TK06": 0},
+        "set_aside": {"TK07": 1},
+    }
+    briefs = [c for rows in pages.values() for r in rows for c in r.get("called_off", [])]
+    assert len(briefs) == 4 and all(set(c) == CALLOFF_BRIEF for c in briefs)
+    assert all(
+        ("called_off" in r) == (r["ticker"] in ("TK02", "TK05", "TK07"))
+        for rows in pages.values()
+        for r in rows
+    )
+    assert pages["set_aside"][0]["called_off"][0]["same_ratio"] is False
+    (entry,) = ok(api, "get_splits", section="one", t="TK05")["entries"]
+    assert entry["called_off"] == body["confirmed"][0]["called_off"]  # whole
+    assert entry["called_off"][0]["url"] and len(entry["called_off"][0]["passage"]) == 450
+
+
+@pytest.mark.parametrize("extra", [0, 4, 8, 37])
+def test_the_default_reply_keeps_every_call_off_while_it_cuts_needs_review_rows_and_unplaced_filings(
+    extra,
+):
+    """F10: the call-off list rides the default reply whole: the unplaced briefs are dropped and the needs-review rows
+    cut (each open row naming two splits of its ratio) before it is, so the call-off of a row the cut left out is
+    still shown and counted."""
+    body = afx.splits(
+        extra_needs_review=extra, extra_unplaced=5, extra_same_ratio=True, called_off=True
+    )
+    reply = ok(FakeApi(splits=body), "get_splits")
+    assert size(reply) <= BUDGET
+    tickers = ["TK02", *([body["needs_review"][-1]["ticker"]] if extra else []), "TK05", "TK07"]
+    assert reply["counts"]["called_off"] == len(tickers)
+    assert [e["ticker"] for e in reply["called_off"]] == tickers
+    if extra == 37:
+        assert reply["next_cursor_for"] == "needs_review" and reply["unplaced"] == []
+        assert tickers[1] not in {r["ticker"] for r in reply["needs_review"]}
+
+
+def test_a_call_off_list_too_long_for_the_reply_is_cut_last_and_counted_whole():
+    """F10: when a filing calls off every row of a forty-row list, the needs-review rows are cut to one first, then
+    the call-off list to what room is left: the reply still fits, counts every one and its cursor is the
+    needs-review list's."""
+    body = afx.splits(extra_needs_review=37, extra_same_ratio=True, called_off=True)
+    for k, row in enumerate(body["needs_review"][3:]):
+        row["called_off"] = [afx.called_off_row(20 + k, "2026-10-31", days_from=-2)]
+    body = afx.split_list(body)
+    reply = ok(FakeApi(splits=body), "get_splits")
+    assert size(reply) <= BUDGET and len(reply["needs_review"]) == 1
+    assert reply["counts"]["called_off"] == 40 and 0 < len(reply["called_off"]) < 40
+    assert (reply["next_cursor_for"], reply["next_cursor"]) == ("needs_review", 1)
+    listed = [e["ticker"] for b in afx.SPLIT_BUCKETS for e in body[b] if e["called_off"]]
+    assert [e["ticker"] for e in reply["called_off"]] == listed[: len(reply["called_off"])]
+
+
 def test_a_bucket_section_continues_at_its_cursor():
     reply = ok(FakeApi(), "get_splits", section="confirmed", cursor=1)
     assert [r["ticker"] for r in reply["confirmed"]] == ["TK01", "TK06"]
@@ -216,6 +395,188 @@ def test_the_jumps_section_pages_unlisted_then_dismissed_together():
     assert reply["totals"] == {"unlisted": 1, "dismissed": 1}
     second = ok(FakeApi(), "get_splits", section="jumps", cursor=1)
     assert second["unlisted"] == [] and [j["ticker"] for j in second["dismissed"]] == ["TK06"]
+
+
+# --- F1-4: the split filings the list could not place (``unplaced``) -------------------------------------------
+
+UNPLACED_BRIEF = {
+    "ticker",
+    "name",
+    "accession",
+    "form",
+    "filed",
+    "reason",
+    "ratio_label",
+    "source",
+    "seen_on",
+    "listed_near",
+    "passage",
+    "passage_chars",
+}
+
+
+def test_the_default_reply_carries_the_first_unplaced_filings_as_briefs_newest_filing_first():
+    """F1-4: the default reply lists the undismissed unplaced filings in the API's order (newest filing first), each
+    a brief: the passage cut at 300 with its full length, ``listed_near`` without its version id, no URL; the
+    dismissed one is counted, not listed."""
+    api = FakeApi()
+    reply = ok(api, "get_splits")
+    rows = reply["unplaced"]
+    assert [(r["ticker"], r["filed"]) for r in rows] == [
+        ("TK09", "2026-10-30"),
+        ("TK01", "2026-10-25"),
+    ]
+    assert all(set(r) == UNPLACED_BRIEF for r in rows)
+    nine, one = rows
+    full = afx.splits()["unplaced"][0]["passage"]
+    assert nine["passage"] == full[:300] and nine["passage_chars"] == afx.UNPLACED_PASSAGE_CHARS
+    assert (nine["ratio_label"], nine["reason"], nine["listed_near"]) == (
+        "1-for-20",
+        "ratio but no date",
+        None,
+    )
+    assert one["source"] == "check" and one["seen_on"] == "2026-11-01"
+    assert one["listed_near"] == {
+        "effective_date": "2026-11-02",
+        "label": "1-for-10",
+        "status": "needs_review",
+        "same_ratio": True,
+        "cites_filing": False,
+        "days_from": 8,
+    }
+    assert reply["next_cursor"] is None and reply["sections"]["unplaced"] is None
+    assert [p for _, p, _ in api.requests] == ["/admin/splits"]
+
+
+def test_the_default_reply_shows_five_unplaced_filings_and_counts_them_all():
+    reply = ok(FakeApi(splits=afx.splits(extra_unplaced=5)), "get_splits")
+    assert reply["counts"]["unplaced"] == 7 and reply["counts"]["unplaced_on_list"] == 1
+    assert [r["ticker"] for r in reply["unplaced"]] == ["TK09", "TK01", "TK30", "TK31", "TK32"]
+    # a head of the list, not a budget cut: section=unplaced reads on
+    assert reply["next_cursor"] is None
+
+
+def test_an_unplaced_error_is_copied():
+    body = afx.splits()
+    body["unplaced_error"] = "OSError: the newest run artifact is unreadable"
+    reply = ok(FakeApi(splits=body), "get_splits")
+    assert reply["unplaced_error"] == "OSError: the newest run artifact is unreadable"
+
+
+def test_unplaced_on_list_counts_a_filing_the_list_cites_or_lists_at_its_ratio_and_nothing_else():
+    body = afx.splits()
+    near = body["unplaced"][1]["listed_near"]
+    # another ratio, near: not on the list
+    body["unplaced"][0]["listed_near"] = {**near, "same_ratio": False, "days_from": 3}
+    assert ok(FakeApi(splits=body), "get_splits")["counts"]["unplaced_on_list"] == 1
+    body["unplaced"][0]["listed_near"] = {**near, "same_ratio": None, "cites_filing": True}
+    assert ok(FakeApi(splits=body), "get_splits")["counts"]["unplaced_on_list"] == 2
+
+
+@pytest.mark.parametrize("extra", range(0, 12))
+def test_the_default_reply_drops_unplaced_filings_before_any_needs_review_row(extra):
+    """F1-4: the quiet unplaced list is cut first: a reply that shows any unplaced filing shows every needs-review
+    row, and when the needs-review list itself is cut no unplaced filing is shown and the cursor is the loud
+    list's. A partial unplaced cut names section=unplaced's cursor."""
+    body = afx.splits(extra_needs_review=extra, extra_unplaced=5)
+    reply = ok(FakeApi(splits=body), "get_splits")
+    shown = len(reply["unplaced"])
+    whole = len(reply["needs_review"]) == len(body["needs_review"])
+    assert whole or shown == 0
+    if not whole:
+        assert reply["next_cursor_for"] == "needs_review"
+        assert reply["next_cursor"] == len(reply["needs_review"])
+    elif shown < 5:
+        assert (reply["next_cursor_for"], reply["next_cursor"]) == ("unplaced", shown)
+        more = ok(FakeApi(splits=body), "get_splits", section="unplaced", cursor=shown)
+        assert more["unplaced"][0]["accession"] == body["unplaced"][shown]["accession"]
+    else:
+        assert reply["next_cursor"] is None
+    assert size(reply) <= BUDGET
+
+
+def test_the_unplaced_trim_cuts_partway_on_some_list_and_drops_all_on_a_long_one():
+    """The parametrized invariant above is not vacuous: some needs-review length cuts the unplaced briefs partway,
+    and a forty-row list shows none."""
+    partial = [
+        k
+        for k in range(0, 12)
+        if 0
+        < len(ok(FakeApi(splits=afx.splits(k, extra_unplaced=5)), "get_splits")["unplaced"])
+        < 5
+    ]
+    assert partial
+    reply = ok(FakeApi(splits=afx.splits(extra_needs_review=37, extra_unplaced=5)), "get_splits")
+    assert reply["unplaced"] == [] and reply["counts"]["unplaced"] == 7
+
+
+def test_the_unplaced_section_pages_the_listed_then_the_dismissed_filings_with_one_cursor():
+    api = FakeApi()
+    reply = ok(api, "get_splits", section="unplaced")
+    assert reply["section"] == "unplaced"
+    assert reply["totals"] == {"unplaced": 2, "unplaced_dismissed": 1}
+    assert [r["ticker"] for r in reply["unplaced"]] == ["TK09", "TK01"]
+    (gone,) = reply["unplaced_dismissed"]
+    assert gone["ticker"] == "TK05" and gone["dismissed_at"] == "2026-11-04T16:00:00Z"
+    assert len(gone["dismissed_reason"]) == 120 and gone["listed_near"]["days_from"] == 23
+    assert set(gone) == UNPLACED_BRIEF | {"dismissed_at", "dismissed_reason"}
+    assert all(set(r) == UNPLACED_BRIEF for r in reply["unplaced"])
+    second = ok(api, "get_splits", section="unplaced", cursor=2)
+    assert second["unplaced"] == []
+    assert [r["ticker"] for r in second["unplaced_dismissed"]] == ["TK05"]
+    assert [p for _, p, _ in api.requests] == ["/admin/splits", "/admin/splits"]
+
+
+def test_a_long_unplaced_list_pages_within_the_budget_and_every_filing_reads_once():
+    body = afx.splits(extra_unplaced=30)
+    api = FakeApi(splits=body)
+    seen: list[str] = []
+    cursor, calls = 0, 0
+    while True:
+        reply = ok(api, "get_splits", section="unplaced", cursor=cursor)
+        seen += [r["accession"] for r in reply["unplaced"] + reply["unplaced_dismissed"]]
+        calls += 1
+        if reply["next_cursor"] is None:
+            break
+        assert reply["next_cursor_for"] == "unplaced" and reply["next_cursor"] > cursor
+        cursor = reply["next_cursor"]
+        assert calls < 20
+    assert calls > 1
+    assert seen == [r["accession"] for r in body["unplaced"] + body["unplaced_dismissed"]]
+
+
+def test_one_carries_the_tickers_unplaced_filings_in_full_dismissed_ones_too():
+    body = afx.splits()
+    one = ok(FakeApi(splits=body), "get_splits", section="one", t="tk01")
+    assert one["found"] == 2 and one["totals"]["unplaced"] == 1
+    (row,) = one["unplaced"]
+    listed = body["unplaced"][1]
+    assert row["url"] == listed["url"] and row["document"] == listed["document"]
+    assert row["passage"] == listed["passage"]
+    assert row["passage_chars"] == afx.UNPLACED_PASSAGE_CHARS
+    assert row["listed_near"] == listed["listed_near"]  # whole, its version id included
+    gone = ok(FakeApi(splits=body), "get_splits", section="one", t="TK05")["unplaced"]
+    assert [r["dismissal_id"] for r in gone] == [body["unplaced_dismissed"][0]["dismissal_id"]]
+    only = ok(FakeApi(splits=body), "get_splits", section="one", t="TK09")
+    assert only["found"] == 0 and only["entries"] == [] and len(only["unplaced"]) == 1
+
+
+def test_the_get_splits_description_names_the_unplaced_section():
+    async def go():
+        client = ApiClient("http://127.0.0.1:8001", transport=FakeApi().transport())
+        reset = CURRENT_PRINCIPAL.set(STEWARD)
+        try:
+            async with Client(server_mod.build_server(lambda: client)) as session:
+                return {t.name: t for t in (await session.list_tools()).tools}["get_splits"]
+        finally:
+            CURRENT_PRINCIPAL.reset(reset)
+            await client.aclose()
+
+    tool = asyncio.run(go())
+    assert "section=unplaced" in tool.description and "listed_near" in tool.description
+    assert "same_ratio_listed" in tool.description  # F8-3
+    assert "called_off" in tool.description  # F10
+    assert "unplaced" in tool.input_schema["properties"]["section"]["description"]
 
 
 def test_one_reads_every_entry_and_jump_of_a_ticker_in_full_across_buckets():
@@ -360,7 +721,7 @@ def test_one_with_many_open_entries_reads_at_most_three_tapes_a_call_and_pages_w
         (
             {"section": "bogus"},
             "Unknown section 'bogus'; `get_splits` has: needs_review, announced, confirmed, set_aside, "
-            "jumps, one.",
+            "jumps, unplaced, one.",
         ),
     ],
 )
@@ -649,8 +1010,14 @@ def test_an_empty_split_list_renders_zero_counts_and_an_empty_page():
         "dismissed_jumps": 0,
         "total": 0,
         "needs_review_by_reason": {"sources_differ": 0, "extractor_abstained": 0, "one_source": 0},
+        "unplaced": 0,
+        "unplaced_dismissed": 0,
+        "unplaced_on_list": 0,
+        "called_off": 0,
     }
     assert reply["needs_review"] == [] and reply["jumps"] == [] and reply["next_cursor"] is None
+    assert reply["called_off"] == []
+    assert reply["unplaced"] == [] and "unplaced_error" not in reply
     page = ok(api, "get_splits", section="needs_review")
     assert page["needs_review"] == [] and page["total"] == 0
     jumps = ok(api, "get_splits", section="jumps")

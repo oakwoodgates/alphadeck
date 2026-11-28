@@ -1,6 +1,6 @@
 """Synthetic API payloads for the steward tools (``GET /admin/splits``, its tape window and ``GET /admin/status``).
 
-Every name is synthetic (``TK01``..``TK08``, ``Company 01``..); no card, company or ticker from the live store. Each
+Every name is synthetic (``TK01``.., ``Company 01``..); no card, company or ticker from the live store. Each
 payload is built as a dict, VALIDATED through the API's own wire model (so a fixture cannot drift from the contract) and
 dumped to JSON exactly as FastAPI serves it.
 """
@@ -19,10 +19,17 @@ from tests.agent_tools.fixtures import text, uid
 
 ASOF = "2026-11-06"
 PASSAGE_CHARS = 700  # over the brief row's 300-character cut and under the full row's 1,500
+UNPLACED_PASSAGE_CHARS = 500  # F1-4: an unplaced filing's passage (the run cuts it at 600)
+CALLOFF_PASSAGE_CHARS = 450  # F10: a call-off's passage (the run cuts it at 600)
 
 
 def _dump(model: Any, payload: Any) -> Any:
     return model.model_validate(payload).model_dump(mode="json")
+
+
+def split_list(body: dict[str, Any]) -> dict[str, Any]:
+    """A changed split-list body validated again through the API's wire model (``AdminSplitListOut``)."""
+    return _dump(AdminSplitListOut, body)
 
 
 def _sec(n: int, *, abstain: str | None = None) -> dict[str, Any]:
@@ -143,10 +150,140 @@ def _jump(n: int, *, dismissed: bool = False, after: int = 3) -> dict[str, Any]:
     }
 
 
-def splits(extra_needs_review: int = 0) -> dict[str, Any]:
+def _near(n: int, status: str, *, days_from: int, same_ratio: bool | None) -> dict[str, Any]:
+    """F1-4: ``listed_near`` naming ``_entry(n, status)`` (first session 2026-11-02), as the API states it."""
+    return {
+        "version_id": uid("split-version", n, status),
+        "key_date": f"2026-11-0{n % 9 + 1}",
+        "effective_date": "2026-11-02",
+        "label": "1-for-10",
+        "status": status,
+        "same_ratio": same_ratio,
+        "cites_filing": False,
+        "days_from": days_from,
+    }
+
+
+def same_ratio_near(
+    n: int, status: str, *, effective_date: str, days_from: int, cites_filing: bool = False
+) -> dict[str, Any]:
+    """F8-3: one entry of an open row's ``same_ratio_listed`` as the API states it: another split of company ``n`` on
+    the list, of the same 1-for-10, its first session ``days_from`` days from the open row's (the version id is
+    ``_entry(n, status)``'s)."""
+    return {
+        "version_id": uid("split-version", n, status),
+        "key_date": effective_date,
+        "effective_date": effective_date,
+        "label": "1-for-10",
+        "status": status,
+        "same_ratio": True,
+        "cites_filing": cites_filing,
+        "days_from": days_from,
+    }
+
+
+def called_off_row(
+    n: int,
+    filed: str,
+    *,
+    days_from: int,
+    seq: int = 0,
+    kind: str = "decision",
+    ratio_label: str | None = "1-for-10",
+    same_ratio: bool | None = True,
+    source: str = "nightly",
+    seen_on: str = "2026-11-05",
+) -> dict[str, Any]:
+    """F10: one filing that calls company ``n``'s listed split off (``AdminSplitCalledOffOut``) as the API states
+    it: filed ``days_from`` days from the split's first session, stating ``ratio_label`` (``None``: no ratio, so
+    ``same_ratio`` is null too), a 450-character passage (over the brief's 300-character cut)."""
+    ref = f"0003{n:06d}-26-{40 + seq:06d}"
+    return {
+        "accession": ref,
+        "form": "8-K",
+        "filed": filed,
+        "url": f"https://www.sec.gov/Archives/edgar/data/{n + 1000}/{ref.replace('-', '')}/{ref}-index.htm",
+        "kind": kind,
+        "ratio_label": ratio_label,
+        "same_ratio": None if ratio_label is None else same_ratio,
+        "days_from": days_from,
+        "document": f"{ref}.txt",
+        "passage": text(CALLOFF_PASSAGE_CHARS, n + seq),
+        "source": source,
+        "seen_on": seen_on,
+    }
+
+
+def unplaced_row(
+    n: int, filed: str, *, dismissed: bool = False, ratio: bool = True, **over: Any
+) -> dict[str, Any]:
+    """F1-4: one SEC filing about a split the list could not place (``AdminSplitUnplacedOut``), company ``n``: a
+    500-character passage (over the brief's 300-character cut, under the full row's 1,500), a stated 1-for-20
+    unless ``ratio`` is false, no split on the list near it unless ``listed_near`` is given."""
+    ref = f"0002{n:06d}-26-000030"
+    return {
+        "security_id": uid("split-sec", n),
+        "ticker": f"TK{n:02d}",
+        "name": f"Company {n:02d}",
+        "accession": ref,
+        "form": "8-K",
+        "filed": filed,
+        "url": f"https://www.sec.gov/Archives/edgar/data/{n + 1000}/{ref.replace('-', '')}/{ref}-index.htm",
+        "reason": "ratio but no date" if ratio else "only an authorized range",
+        "document": f"{ref}.txt",
+        "passage": text(UNPLACED_PASSAGE_CHARS, n),
+        "ratio_from": "1" if ratio else None,
+        "ratio_to": "20" if ratio else None,
+        "ratio_label": "1-for-20" if ratio else None,
+        "source": "nightly",
+        "seen_on": "2026-11-05",
+        "listed_near": None,
+        "dismissal_id": uid("filing-dismissal", n) if dismissed else None,
+        "dismissed_at": "2026-11-04T16:00:00Z" if dismissed else None,
+        "dismissed_reason": ("Not a split: " + text(160, n)) if dismissed else None,
+        **over,
+    }
+
+
+def unplaced(extra: int = 0) -> list[dict[str, Any]]:
+    """The unplaced filings still listed, newest filing first: TK09 (1-for-20, nothing on the list near it), TK01
+    (a 6-K from the long-window check stating 1-for-10, the needs-review TK01 split 8 days later) and ``extra``
+    more (TK30 on, older filings)."""
+    rows = [
+        unplaced_row(9, "2026-10-30"),
+        unplaced_row(
+            1,
+            "2026-10-25",
+            form="6-K",
+            ratio_to="10",
+            ratio_label="1-for-10",
+            reason="no date",
+            source="check",
+            seen_on="2026-11-01",
+            listed_near=_near(1, "needs_review", days_from=8, same_ratio=True),
+        ),
+    ]
+    start = date(2026, 10, 20)
+    rows += [unplaced_row(30 + k, (start - timedelta(days=k)).isoformat()) for k in range(extra)]
+    return rows
+
+
+def splits(
+    extra_needs_review: int = 0,
+    extra_unplaced: int = 0,
+    extra_same_ratio: bool = False,
+    called_off: bool = False,
+) -> dict[str, Any]:
     """The split list: 3 needs-review (TK01 two options; TK02 the extractor abstained; TK03 Massive.com only),
     1 announced (TK04), 3 confirmed (TK05, TK01 again, TK06), 1 set aside (TK07, with a long note and a restore
-    target), 1 unlisted jump (TK08, three bars after) and 1 dismissed jump (TK06)."""
+    target), 1 unlisted jump (TK08, three bars after) and 1 dismissed jump (TK06); F1-4: 2 unplaced filings
+    (``unplaced``) and 1 the steward dismissed (TK05's authorized range, near its confirmed split). F8-3: the open
+    TK01 names TK01's confirmed 1-for-10 of 06-01, 154 days before it (``same_ratio_listed``); with
+    ``extra_same_ratio`` every extra needs-review row names two (the most the API names). F10: with ``called_off``
+    filings call off the needs-review TK02 (a failed vote stating no ratio, from the long-window check), the confirmed
+    TK05 (an 8-K stating its 1-for-10 the day before its first session, then one stating 1-for-20), the rejected TK07
+    (a 1-for-20) and the last extra needs-review row, when any (its 1-for-10); the announced TK04 has none.
+    """
     needs = [
         needs_review_row(
             1,
@@ -156,6 +293,9 @@ def splits(extra_needs_review: int = 0) -> dict[str, Any]:
             ],
             actions=["confirm_sec", "confirm_polygon", "reject"],
             review_reason="sources_differ",
+            same_ratio_listed=[
+                same_ratio_near(1, "confirmed", effective_date="2026-06-01", days_from=-154)
+            ],
         ),
         needs_review_row(
             2,
@@ -165,7 +305,32 @@ def splits(extra_needs_review: int = 0) -> dict[str, Any]:
         ),
         needs_review_row(3, sec=None),
     ]
-    needs += [needs_review_row(20 + k) for k in range(extra_needs_review)]
+
+    def two(n: int) -> list[dict[str, Any]]:
+        return [
+            same_ratio_near(n, "confirmed", effective_date="2026-07-15", days_from=-110),
+            same_ratio_near(n, "rejected", effective_date="2026-12-20", days_from=48),
+        ]
+
+    needs += [
+        needs_review_row(20 + k, **({"same_ratio_listed": two(20 + k)} if extra_same_ratio else {}))
+        for k in range(extra_needs_review)
+    ]
+    if called_off:
+        needs[1]["called_off"] = [
+            called_off_row(
+                2,
+                "2026-10-30",
+                days_from=-3,
+                kind="failed_vote",
+                ratio_label=None,
+                source="check",
+                seen_on="2026-11-01",
+            )
+        ]
+        if extra_needs_review:
+            last = 20 + extra_needs_review - 1
+            needs[-1]["called_off"] = [called_off_row(last, "2026-10-31", days_from=-2)]
     set_aside = _entry(
         7,
         "rejected",
@@ -179,14 +344,58 @@ def splits(extra_needs_review: int = 0) -> dict[str, Any]:
         "announced": [_entry(4, "announced", decided_by="auto: SEC + Massive.com", **HINTS)],
         "confirmed": [
             _entry(5, "confirmed", confirmed_via="auto"),
-            _entry(1, "confirmed", key_date="2026-06-01", confirmed_via="auto"),
+            _entry(
+                1,
+                "confirmed",
+                key_date="2026-06-01",
+                effective_date="2026-06-01",
+                valid_from="2026-06-01",
+                confirmed_via="auto",
+            ),
             _entry(6, "confirmed", confirmed_via="auto"),
         ],
         "set_aside": [set_aside],
         "unlisted_jumps": [_jump(8)],
         "dismissed_jumps": [_jump(6, dismissed=True, after=1)],
         "unlisted_jumps_error": None,
+        "unplaced": unplaced(extra_unplaced),
+        "unplaced_dismissed": [
+            unplaced_row(
+                5,
+                "2026-10-10",
+                dismissed=True,
+                ratio=False,
+                listed_near=_near(5, "confirmed", days_from=23, same_ratio=None),
+            )
+        ],
+        "unplaced_runs": [
+            {
+                "source": "nightly",
+                "asof": "2026-11-05",
+                "started_at": "2026-11-06T03:30:00Z",
+                "sec_days": None,
+                "rows": 2 + extra_unplaced,
+            },
+            {
+                "source": "check",
+                "asof": "2026-11-01",
+                "started_at": "2026-11-01T15:00:00Z",
+                "sec_days": 800,
+                "rows": 1,
+            },
+        ],
+        "unplaced_error": None,
     }
+    if called_off:
+        body["confirmed"][0]["called_off"] = [  # its ratio first, as the API orders them
+            called_off_row(5, "2026-11-01", days_from=-1),
+            called_off_row(
+                5, "2026-10-29", days_from=-4, seq=1, ratio_label="1-for-20", same_ratio=False
+            ),
+        ]
+        set_aside["called_off"] = [
+            called_off_row(7, "2026-10-28", days_from=-5, ratio_label="1-for-20", same_ratio=False)
+        ]
     body["total"] = sum(
         len(body[b]) for b in ("needs_review", "announced", "confirmed", "set_aside")
     )

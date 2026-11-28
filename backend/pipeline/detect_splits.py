@@ -34,7 +34,12 @@ an SEC-only candidate (``domain.splits.decide_sec_only``); then the tape. Each f
 6-K restating an old split never becomes a new candidate at its old date), knowing the company's splits already
 CONFIRMED on the list (``backfill_splits.known_for``: a ratio equal to one, stated as done, is that past split's
 whatever its age). A filing that mentions a split the list cannot place (no ratio, no date, an extractor abstain)
-is listed on the run artifact (``unplaced``), never dropped silently (#9).
+is listed on the run artifact (``unplaced``) with its link, passage and any ratio, never dropped silently (#9).
+The CLI's ``--record`` keeps a long-window run's list the same way (``pipeline/split_unplaced.py``, the one
+reader of both). F8-2 (decision D-F8b, dark: ``split_sec_restate_days``, 0 = off): a later filing restating a
+candidate's ratio within that many days joins it, the latest filing's date supersedes, and such a candidate is never
+put to the tape. F3b (dark: ``split_legal_date_next_session``, False = off): an SEC-only candidate's legal date that
+is no session is planned on the next session, and the tape is read there.
 
 THE PLAN against the stored list (``plan_against``): a split is found by S1's ``match_stored``. A new one is
 appended. A stored one is appended to ONLY when the system wrote its newest version, it is still OPEN
@@ -43,8 +48,23 @@ is_auto_set_aside``: a confirming filing that arrives later still confirms it, a
 back to review), tonight's evidence covers every source it already carries (a source missing tonight — Massive.com
 off, a filing unread — never downgrades it), and the content changed: a second source arrived, the tape confirmed
 it, an announced split's first session came (announced -> confirmed), or D2 set it aside. A confirmed split, one
-the operator rejected or revoked, and anything the operator decided (a restore included), is never touched; when
-tonight's evidence differs from such a split it is listed on the artifact (``kept``), not written.
+the operator rejected or revoked, and anything the operator decided (a restore included), is never touched (one
+exception: F10's demote, below); when tonight's evidence differs from such a split it is listed on the artifact
+(``kept``), not written. A later decision tonight about a split an earlier one claimed is no news when it states the
+same ratio and first session; one stating others is another filing's, never dropped silently: listed on ``kept``
+and, on a split new tonight, named on its note. It decides nothing.
+
+THE CALL-OFFS (F10): every filing a company's check read (any window, placed or not) whose text calls a split off
+(``SecEvidence.calloff``, the split reader's) is listed on the run artifact (``calloffs``, ``CallOffFiling``) and on
+a ``--record``; the one reader (``pipeline/split_unplaced.py``) serves them for the warning, which matches them
+against the list when it is read (``domain.split_calloffs``, under ``calloff_rule``: the ``split_calloff_*``
+settings). After the per-company checks the nightly matches tonight's rows the same way (``check_called_off``):
+each listed split a filing calls off is one report line, and a new one pages once. Nothing else here decides on
+them, but THE DEMOTE (``split_calloff_demote``, shipped OFF; ``backfill_splits.calloff_demote_forms``): on, a
+decision a filing read for it calls off by the demote's rule (``domain.split_calloffs.refuse_called_off``: the same
+stated ratio, filed by its first session) is ``needs_review`` (after ``decide_polygon_group``, each ``with_tape``
+and the late ``decide``), and a live split the system listed gets ONE needs-review version (``CALLED_OFF``); the
+steward's are never touched.
 
 WHERE IT RUNS (``pipeline/ingest_thesis._ingest_one``): per company, right after its 8-K and 13D legs and
 BEFORE its price leg — so a split filed today, with a second source, is on the list before that company's
@@ -56,6 +76,7 @@ name its ingest or the night its record.
     python -m pipeline.detect_splits                       # dry run over the basket union (read-only)
     python -m pipeline.detect_splits --apply               # append (holds the call-of-record lock)
     python -m pipeline.detect_splits --sec-days 90 --polygon-days 90 --ticker BTOC --no-live
+    python -m pipeline.detect_splits --sec-days 800 --polygon-days 800 --record   # keep its unplaced list
 """
 
 from __future__ import annotations
@@ -64,9 +85,9 @@ import argparse
 import logging
 import sys
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from time import perf_counter
@@ -76,9 +97,15 @@ from uuid import UUID
 import psycopg
 
 from domain.market_time import market_today, market_tz
+from domain.settings import get_settings
+from domain.split_calloffs import CalloffRule, called_off, demoting, refuse_called_off
 from domain.splits import (
     AUTO_VIA_LABELS,
+    LIVE_STATUSES,
     PAST_RATIO_ONLY,
+    SET_ASIDE,
+    SOURCE_POLYGON,
+    SOURCE_SEC,
     STATUS_ANNOUNCED,
     STATUS_NEEDS_REVIEW,
     STATUS_REJECTED,
@@ -91,6 +118,7 @@ from domain.splits import (
     decide_sec_only,
     ratio_label,
     related,
+    restated,
     same_ratio,
     with_tape,
 )
@@ -103,6 +131,7 @@ from pipeline.backfill_splits import (
     SecReader,
     _conflicting,
     _group,
+    calloff_demote_forms,
     confirmed_of,
     confirmed_splits,
     decide_polygon_group,
@@ -115,6 +144,7 @@ from pipeline.backfill_splits import (
 from repositories import split_repo
 from repositories.split_repo import (
     ACTION_DETECT,
+    AUTHOR_BACKFILL,
     AUTHOR_DETECT,
     AUTHOR_OPERATOR,
     SplitVersion,
@@ -140,8 +170,16 @@ TAPE_PRIOR_MAX_DAYS = 14
 APPEND = "append"
 UNCHANGED = "unchanged"
 KEPT = "kept"
+# F10: why a live split the system listed gets a needs-review version (``plan_against``, the demote switch on)
+CALLED_OFF = "called off"
+# why a later decision tonight about a split an earlier one claimed is KEPT: the same values (no news, never on the
+# artifact's ``kept``), or other values (another filing's: on ``kept``, and on a new split's note)
+ALREADY_PLANNED = "already planned tonight"
+ANOTHER_FILING = "another filing tonight states other values"
 
 EXIT_REFUSED = 2
+# an unplaced filing's passage on the run artifact (and a check's record) is cut to this many characters
+UNPLACED_PASSAGE_MAX = 600
 
 
 # --- the tape ----------------------------------------------------------------------------------------------
@@ -256,9 +294,15 @@ def tape_window(
 # --- one company -------------------------------------------------------------------------------------------
 
 
+def _decimal_text(v: Decimal | None) -> str | None:
+    return None if v is None else format(Decimal(v).normalize(), "f")
+
+
 @dataclass(frozen=True)
 class Unplaced:
-    """An SEC filing that talks about a split the list could not place (no ratio, no date, an abstain)."""
+    """An SEC filing that talks about a split the list could not place (no ratio, no date, an abstain), with
+    what the extractor read from it (``SecEvidence``): the filing index link, the document and passage it
+    located, the ratio when one is stated, and why it abstained or what the date said."""
 
     security_id: UUID
     ticker: str | None
@@ -266,8 +310,16 @@ class Unplaced:
     form: str
     filed: date
     reason: str
+    url: str | None = None
+    document: str | None = None
+    passage: str | None = None
+    ratio_from: Decimal | None = None
+    ratio_to: Decimal | None = None
+    abstain_reason: str | None = None
+    date_note: str | None = None
 
     def to_json(self) -> dict:
+        """The artifact row (a reader uses ``.get``: a row written before the evidence keys reads null)."""
         return {
             "security_id": str(self.security_id),
             "ticker": self.ticker,
@@ -275,6 +327,13 @@ class Unplaced:
             "form": self.form,
             "filed": self.filed.isoformat(),
             "reason": self.reason,
+            "url": self.url,
+            "document": self.document,
+            "passage": (self.passage or "")[:UNPLACED_PASSAGE_MAX] or None,
+            "ratio_from": _decimal_text(self.ratio_from),
+            "ratio_to": _decimal_text(self.ratio_to),
+            "abstain_reason": self.abstain_reason,
+            "date_note": self.date_note,
         }
 
 
@@ -288,10 +347,45 @@ class SecurityDetection:
     unplaced: list[Unplaced] = field(default_factory=list)
     filings_read: int = 0
     filings_unread: int = 0
+    # F10: every filing the check read, once each (``_read_once``): what the demote matches after the late decide
+    read: list[SecEvidence] = field(default_factory=list)
 
 
 # an abstain that is no news: a filing restating a PAST split (LGHL's interim results) or with no ratio at all
 _NOT_NEWS = (PAST_RATIO_ONLY,)
+
+
+def sec_restate_days() -> int:
+    """F8-2 (decision D-F8b, dark): the days within which a later SEC filing restating a split's ratio joins its
+    SEC-only candidate (``domain.splits.cluster_sec``; the setting ``split_sec_restate_days``, 0 = off). Read once a
+    pass beside ``distribution_cap`` and passed down: the pure rule reads no settings."""
+    return get_settings().split_sec_restate_days
+
+
+def legal_date_next_session() -> bool:
+    """F3b (dark): does an SEC-only candidate's LEGAL date that is no session give way to the next session
+    (``domain.splits.decide_sec_only``; the setting ``split_legal_date_next_session``, False = off)? Read once a
+    pass beside ``sec_restate_days`` and passed down: the pure rule reads no settings."""
+    return get_settings().split_legal_date_next_session
+
+
+def calloff_rule() -> CalloffRule:
+    """F10: THE one builder of the call-off rule (``domain.split_calloffs.CalloffRule``): which filings call off a
+    listed split, from the settings ``split_calloff_forms``, ``split_calloff_after_days`` and
+    ``split_calloff_ratio``. Each caller reads it once (``GET /admin/splits`` once a read; the nightly once a pass,
+    in ``check_called_off``) and passes it down: the one matcher reads no settings."""
+    s = get_settings()
+    return CalloffRule(
+        forms=tuple(s.split_calloff_forms.split(",")),
+        after_days=s.split_calloff_after_days,
+        ratio=s.split_calloff_ratio,
+    )
+
+
+def calloff_warn() -> bool:
+    """F10: is the call-off warning on (the setting ``split_calloff_warn``; True = on, the shipped default)? Read
+    beside ``calloff_rule``."""
+    return get_settings().split_calloff_warn
 
 
 def detect_security(
@@ -305,12 +399,20 @@ def detect_security(
     distribution_max_factor: Decimal | None,
     label_overrides_abstain: bool,
     confirmed: tuple[ConfirmedSplit, ...] | None = None,
+    restate_days: int = 0,
+    next_session: bool = False,
+    demote_forms: tuple[str, ...] | None = None,
 ) -> SecurityDetection:
     """Every split tonight's evidence states for ONE company (the module docstring). Reads only.
     ``distribution_max_factor``: D2's bound (``backfill_splits.distribution_cap``); ``label_overrides_abstain``:
     W6-2's label rule (``backfill_splits.distribution_label_overrides_abstain``). ``confirmed``: the company's
     splits confirmed on the list (``backfill_splits.confirmed_of``; read here when not given) — every filing is
-    read knowing them."""
+    read knowing them. ``restate_days``: F8-2's rule (``sec_restate_days``; 0 = off): a candidate its filings
+    restate with dates more than two sessions apart is never put to the tape. ``next_session``: F3b's rule
+    (``legal_date_next_session``; False = off): a legal date that is no session is planned on the next session.
+    ``demote_forms``: F10's demote (``backfill_splits.calloff_demote_forms``; ``None`` = off): every decision, after
+    the tape, goes through ``domain.split_calloffs.refuse_called_off`` over the filings read for it.
+    """
     out = SecurityDetection(member=m)
     if confirmed is None:
         confirmed = confirmed_splits(conn, m)
@@ -325,6 +427,7 @@ def detect_security(
             distribution_max_factor=distribution_max_factor,
             label_overrides_abstain=label_overrides_abstain,
             confirmed=confirmed,
+            demote_forms=demote_forms,
         )
         d = g.decision
         absorbed.update(s.accession for s in g.read if related(s, group[0]))
@@ -344,6 +447,8 @@ def detect_security(
                     conn, tenant_id=m.tenant_id, security_id=m.security_id, session=d.effective_date
                 ),
             )
+        if demote_forms is not None:
+            d = refuse_called_off(d, [*g.read, *g.wide_read], demote_forms)
         out.decisions.append(d)
     # the SEC side on its own: the split filings filed in the lookback that no Massive.com row explains
     refs = reader.refs(conn, m, sec_since, asof)
@@ -352,16 +457,20 @@ def detect_security(
     seen = reader.read_here
     out.filings_read = sum(1 for a in seen if reader.evidence[a] is not None)
     out.filings_unread = sum(1 for a in seen if reader.evidence[a] is None)
+    out.read = _read_once(reader)
     fresh = [s for s in read if s.accession not in absorbed]
-    for g in cluster_sec(fresh):
-        d = decide_sec_only(g, asof=asof)
-        if d.effective_date <= asof:
+    for g in cluster_sec(fresh, restate_days=restate_days):
+        d = decide_sec_only(g, asof=asof, restate_days=restate_days, next_session=next_session)
+        # F8-2: the tape never picks between the company's own dates (``restated``: never true at 0)
+        if d.effective_date <= asof and not restated(g, restate_days=restate_days):
             d = with_tape(
                 d,
                 tape_at(
                     conn, tenant_id=m.tenant_id, security_id=m.security_id, session=d.effective_date
                 ),
             )
+        if demote_forms is not None:
+            d = refuse_called_off(d, read, demote_forms)
         out.decisions.append(d)
     for s in fresh:
         if s.has_ratio and s.effective_date is not None:
@@ -371,7 +480,23 @@ def detect_security(
         why = s.abstain_reason or s.date_note or "no first session stated"
         if s.has_ratio:
             why = f"{ratio_label(s.ratio_from, s.ratio_to)} stated, but {why}"  # type: ignore[arg-type]
-        out.unplaced.append(Unplaced(m.security_id, m.ticker, s.accession, s.form, s.filed, why))
+        out.unplaced.append(
+            Unplaced(
+                m.security_id,
+                m.ticker,
+                s.accession,
+                s.form,
+                s.filed,
+                why,
+                url=s.url,
+                document=s.document,
+                passage=s.passage,
+                ratio_from=s.ratio_from,
+                ratio_to=s.ratio_to,
+                abstain_reason=s.abstain_reason,
+                date_note=s.date_note,
+            )
+        )
     return out
 
 
@@ -460,10 +585,26 @@ def _material(d: SplitDecision, v: SplitVersion) -> bool:
     return _TAPE_MARK in d.note and _TAPE_MARK not in (v.note or "")
 
 
-def _same_values(d: SplitDecision, v: SplitVersion) -> bool:
-    """Does tonight's decision state what the stored split already holds (ratio exactly, first session)?"""
+def _same_values(d: SplitDecision, v: SplitVersion | SplitDecision) -> bool:
+    """Does tonight's decision state what the stored split (or an earlier decision tonight) holds: the ratio
+    exactly, the first session?"""
     return d.effective_date == v.effective_date and same_ratio(
         d.ratio_from, d.ratio_to, v.ratio_from, v.ratio_to
+    )
+
+
+def _demoted_live(
+    d: SplitDecision, v: SplitVersion, read: Sequence[SecEvidence], forms: tuple[str, ...]
+) -> bool:
+    """F10, THE ONE EXCEPTION to "a confirmed split is never touched": a live split the SYSTEM listed (``confirmed``
+    / ``announced``, by the backfill or the nightly; never the steward's) whose decision tonight a filing it read
+    calls off by the demote's rule (``domain.split_calloffs.demoting``: refused, so ``needs_review``). PURE.
+    """
+    return (
+        v.author in (AUTHOR_BACKFILL, AUTHOR_DETECT)
+        and v.status in LIVE_STATUSES
+        and d.status == STATUS_NEEDS_REVIEW
+        and bool(demoting(d, read, forms))
     )
 
 
@@ -474,6 +615,7 @@ def plan_against(
     asof: date,
     distribution_max_factor: Decimal | None,
     label_overrides_abstain: bool,
+    demote_forms: tuple[str, ...] | None = None,
 ) -> list[Planned]:
     """Each decision against the stored list (the module docstring's rule). Pure: no I/O.
 
@@ -481,9 +623,15 @@ def plan_against(
     8-K, filed weeks after the split — FDCT's came 47 days later, outside S1's window) is decided against the
     Massive.com row the stored split already carries, by S1's own ``decide`` (with D2's ``distribution_max_factor``
     and W6-2's ``label_overrides_abstain``) — so the two sources still meet.
+
+    ``demote_forms`` (F10, ``backfill_splits.calloff_demote_forms``; ``None`` = off): that decision too goes through
+    ``domain.split_calloffs.refuse_called_off`` over the filings the check read (``SecurityDetection.read``), and a
+    live system row tonight's refused decision is about is open to ONE version (``_demoted_live``, ``CALLED_OFF``);
+    a source it carries that is missing tonight still keeps it as it is.
     """
     vs = list(stored)
-    claimed: set[date] = set()
+    # each split a decision tonight claimed -> where that decision's plan is in ``out``
+    claimed: dict[date, int] = {}
     out: list[Planned] = []
     for d in detection.decisions:
         v = match_stored(d, vs)
@@ -491,7 +639,7 @@ def plan_against(
             out.append(Planned(detection.member, d, None, APPEND, "new"))
             # a later decision about the same (new) split matches this one, never lists it twice
             vs.append(_as_version(detection.member, d))
-            claimed.add(d.key_date)
+            claimed[d.key_date] = len(out) - 1
             continue
         if d.polygon is None and d.sec is not None and d.sec.has_ratio:
             poly = _stored_polygon(v)
@@ -503,11 +651,24 @@ def plan_against(
                     distribution_max_factor=distribution_max_factor,
                     label_overrides_abstain=label_overrides_abstain,
                 )
+        if demote_forms is not None:
+            d = refuse_called_off(d, detection.read, demote_forms)
         d = replace(d, key_date=v.key_date)
         if v.key_date in claimed:
-            out.append(Planned(detection.member, d, v, KEPT, "already planned tonight"))
+            # an earlier decision tonight claimed this split: the same values are no news; other values are
+            # another filing's, never dropped silently. It decides nothing: the split keeps the first decision's
+            # values, and a listed one is never re-versioned for it (a note alone is not ``_material``).
+            i = claimed[v.key_date]
+            first = out[i]
+            if _same_values(d, first.decision):
+                out.append(Planned(detection.member, d, v, KEPT, ALREADY_PLANNED))
+                continue
+            if first.action == APPEND and first.stored is None:
+                note = f"{first.decision.note} {_another_says(d, first.decision)}"
+                out[i] = replace(first, decision=replace(first.decision, note=note))
+            out.append(Planned(detection.member, d, v, KEPT, ANOTHER_FILING))
             continue
-        claimed.add(v.key_date)
+        claimed[v.key_date] = len(out)
         if content_of(decision_values(d)) == v.content():
             out.append(Planned(detection.member, d, v, UNCHANGED))
             continue
@@ -518,15 +679,18 @@ def plan_against(
             STATUS_NEEDS_REVIEW,
             STATUS_ANNOUNCED,
         ) or split_repo.is_auto_set_aside(v)
+        demoted = demote_forms is not None and _demoted_live(d, v, detection.read, demote_forms)
         if v.author == AUTHOR_OPERATOR:
             why = "the operator's decision stands"
-        elif not still_open:
+        elif not (still_open or demoted):
             why = f"{v.status}: settled, the operator's to change"
         elif (v.polygon_id and d.polygon is None) or (v.sec_accession and d.sec is None):
             why = "a source the listed split carries is missing tonight"
         if why is None:
             if _material(d, v):
-                out.append(Planned(detection.member, d, v, APPEND, "updated"))
+                out.append(
+                    Planned(detection.member, d, v, APPEND, CALLED_OFF if demoted else "updated")
+                )
             else:
                 # only the note's wording differs (another path phrased the same evidence): not a version
                 out.append(Planned(detection.member, d, v, UNCHANGED, "same evidence"))
@@ -536,6 +700,29 @@ def plan_against(
         else:
             out.append(Planned(detection.member, d, v, KEPT, why))
     return out
+
+
+def _another_says(d: SplitDecision, planned: SplitDecision) -> str:
+    """What a split new tonight gains on its note for another decision tonight stating other values: that filing
+    (or Massive.com row) and what it states, in the notes' words. Evidence text: no call reads a split's note.
+    """
+    what = (
+        ""
+        if same_ratio(d.ratio_from, d.ratio_to, planned.ratio_from, planned.ratio_to)
+        else f"a {ratio_label(d.ratio_from, d.ratio_to)}, "
+    )
+    s = d.sec
+    if s is None or d.value_source == SOURCE_POLYGON:
+        return f"Another Massive.com row states {what}first session {d.effective_date.isoformat()}."
+    when = (
+        "the effective date"
+        if d.value_source == SOURCE_SEC and s.date_kind != "trading"
+        else "first session"
+    )
+    return (
+        f"Another SEC filing ({s.form} {s.accession}, filed {s.filed.isoformat()}) states {what}{when} "
+        f"{d.effective_date.isoformat()}."
+    )
 
 
 def _as_version(m: Member, d: SplitDecision) -> SplitVersion:
@@ -569,7 +756,7 @@ class Detected:
     status: str
     confirmed_via: str | None
     sources: str
-    verb: str  # "new" | "updated"
+    verb: str  # "new" | "updated" | CALLED_OFF
     note: str
 
     def to_json(self) -> dict:
@@ -593,8 +780,199 @@ class Detected:
             STATUS_NEEDS_REVIEW: "needs review",
             STATUS_REJECTED: "set aside as a distribution",  # D2: the only status a system writes as rejected
         }.get(self.status, self.status)
-        again = "; updated" if self.verb == "updated" else ""
+        again = f"; {self.verb}" if self.verb in ("updated", CALLED_OFF) else ""
         return f"{who} {self.label} {what} ({self.sources}{again})"
+
+
+@dataclass(frozen=True)
+class CallOffFiling:
+    """F10: a filing read tonight whose text calls a split off (``SecEvidence.calloff``), placed or not: one row of
+    the run artifact's ``calloffs`` (and of a check's record). Evidence only: the warning matches it against the list
+    when the list is read (``pipeline.split_unplaced``, the one reader; ``domain.split_calloffs``, the one matcher).
+    ``kind``, the ratio, ``document`` and ``passage`` are the call-off's own (``domain.splits.CallOff``: the one
+    ratio its call-off sentences state, else none), never the filing's reading."""
+
+    security_id: UUID
+    ticker: str | None
+    accession: str
+    form: str
+    filed: date
+    kind: str
+    url: str | None = None
+    ratio_from: Decimal | None = None
+    ratio_to: Decimal | None = None
+    document: str | None = None
+    passage: str | None = None
+
+    @classmethod
+    def of(cls, m: Member, s: SecEvidence) -> CallOffFiling:
+        """The row of filing ``s``, read for company ``m``; ``s`` carries a call-off."""
+        c = s.calloff
+        if c is None:
+            raise ValueError(f"{s.accession} carries no call-off")
+        return cls(
+            security_id=m.security_id,
+            ticker=m.ticker,
+            accession=s.accession,
+            form=s.form,
+            filed=s.filed,
+            kind=c.kind,
+            url=s.url or None,
+            ratio_from=c.ratio_from,
+            ratio_to=c.ratio_to,
+            document=c.document,
+            passage=c.passage or None,
+        )
+
+    def to_json(self) -> dict:
+        """The artifact row (``pipeline.split_unplaced.CALLOFF_KEYS``; the passage cut like an unplaced one's)."""
+        return {
+            "security_id": str(self.security_id),
+            "ticker": self.ticker,
+            "accession": self.accession,
+            "form": self.form,
+            "filed": self.filed.isoformat(),
+            "url": self.url,
+            "kind": self.kind,
+            "ratio_from": _decimal_text(self.ratio_from),
+            "ratio_to": _decimal_text(self.ratio_to),
+            "document": self.document,
+            "passage": (self.passage or "")[:UNPLACED_PASSAGE_MAX] or None,
+        }
+
+
+def calloffs_read(m: Member, reader: SecReader) -> list[CallOffFiling]:
+    """The call-off rows of one company's check: each filing ``reader`` read for it (``read_here``: the Massive.com
+    rows' windows, the wide forms and the SEC lookback alike) whose reading carries a call-off, placed, absorbed or
+    unplaced; each accession once (a second reading, knowing a confirmed split, is the same filing), in accession
+    order. A read, nothing else."""
+    out: dict[str, CallOffFiling] = {}
+    for key in sorted(reader.read_here):
+        s = reader.evidence.get(key)
+        if s is not None and s.calloff is not None and s.accession not in out:
+            out[s.accession] = CallOffFiling.of(m, s)
+    return list(out.values())
+
+
+def _read_once(reader: SecReader) -> list[SecEvidence]:
+    """Each filing ``reader`` read for one company, once (its first reading in key order: a second one, knowing a
+    confirmed split, is the same filing), in accession order (``SecurityDetection.read``). A read, nothing else.
+    """
+    out: dict[str, SecEvidence] = {}
+    for key in sorted(reader.read_here):
+        s = reader.evidence.get(key)
+        if s is not None:
+            out.setdefault(s.accession, s)
+    return [out[a] for a in sorted(out)]
+
+
+@dataclass(frozen=True)
+class CalledOffSplit:
+    """F10: a listed split (the list's newest version, live or open) that a filing the nightly read calls off, by
+    the one matcher (``called_off_splits``): one row of the run artifact's ``split_detect.called_off``, one report
+    line, and the page while it is new. ``ratio``, ``status`` and ``first_session`` are the LISTED split's; ``accession``,
+    ``form`` and ``filed`` the filing's. Display only: nothing is decided on it."""
+
+    security_id: UUID
+    ticker: str | None
+    key_date: date
+    first_session: date
+    ratio: str
+    status: str
+    accession: str
+    form: str
+    filed: date
+
+    @property
+    def key(self) -> str:
+        """The page-once key (``cron_run_log.previous_called_off``): the listed split and the filing, never its
+        status, so a later decision on the split (a revoke, a demote) is no new page."""
+        return f"{self.security_id}:{self.key_date.isoformat()}:{self.accession}"
+
+    @property
+    def label(self) -> str:
+        """THE words: the report line's, the page's and the Admin run row's (they cannot drift)."""
+        who = self.ticker or str(self.security_id)
+        return (
+            f"{who} {self.ratio} ({self.status.replace('_', ' ')}, first session "
+            f"{self.first_session.isoformat()}): called off by {self.form} {self.accession} "
+            f"(filed {self.filed.isoformat()})"
+        )
+
+    def to_json(self) -> dict:
+        """The artifact row (``called_off_keys_of`` / ``called_off_new_labels_of`` read it back)."""
+        return {
+            "key": self.key,
+            "security_id": str(self.security_id),
+            "ticker": self.ticker,
+            "key_date": self.key_date.isoformat(),
+            "first_session": self.first_session.isoformat(),
+            "ratio": self.ratio,
+            "status": self.status,
+            "accession": self.accession,
+            "form": self.form,
+            "filed": self.filed.isoformat(),
+            "label": self.label,
+        }
+
+
+def listed_calloffs(
+    v: SplitVersion, filings: Sequence[SecEvidence], *, rule: CalloffRule
+) -> list[SecEvidence]:
+    """THE one matcher (``domain.split_calloffs.called_off``) against the listed split ``v`` (any status): its ratio
+    and first session, announced on its SEC filing's date, else the day it was listed (a Massive.com-only split).
+    The one mapping of a listed split onto the matcher: the nightly (``called_off_splits``) and ``GET
+    /admin/splits`` (``app/routers/admin_splits.called_off_for``) both call it. PURE.
+    """
+    return called_off(
+        filings,
+        ratio_from=v.ratio_from,
+        ratio_to=v.ratio_to,
+        first_session=v.effective_date,
+        announced_on=v.sec_filed or v.valid_from,
+        rule=rule,
+    )
+
+
+def called_off_splits(
+    calloffs: Iterable[CallOffFiling], versions: Iterable[SplitVersion], *, rule: CalloffRule
+) -> list[CalledOffSplit]:
+    """The listed splits still live or open among ``versions`` (confirmed, announced, needs review) that the
+    call-off rows ``calloffs`` call off under ``rule``. A split the steward rejected or revoked
+    (``domain.splits.SET_ASIDE``) is settled: never reported or paged (the panel still names it, any status). One
+    row per (split, filing), each split matched against its own company's rows only, each row read back through the
+    artifact row (``CallOffFiling.to_json``, ``split_unplaced.calloff_evidence``) exactly as ``GET /admin/splits``
+    reads it, so the page and the panel agree. By ticker, then the split's key date; one split's filings in the
+    matcher's order (its ratio stated first). PURE."""
+    # lazy: split_unplaced reads the run artifacts
+    from pipeline.split_unplaced import calloff_evidence
+
+    by_security: dict[UUID, dict[str, CallOffFiling]] = defaultdict(dict)
+    for c in calloffs:
+        by_security[c.security_id].setdefault(c.accession, c)
+    out: list[CalledOffSplit] = []
+    for v in versions:
+        own = by_security.get(v.security_id)
+        if not own or v.status in SET_ASIDE:
+            continue
+        evidence = [calloff_evidence(c.to_json()) for c in own.values()]
+        for s in listed_calloffs(v, evidence, rule=rule):
+            c = own[s.accession]
+            out.append(
+                CalledOffSplit(
+                    security_id=v.security_id,
+                    ticker=v.ticker or c.ticker,
+                    key_date=v.key_date,
+                    first_session=v.effective_date,
+                    ratio=ratio_label(v.ratio_from, v.ratio_to),
+                    status=v.status,
+                    accession=c.accession,
+                    form=c.form,
+                    filed=c.filed,
+                )
+            )
+    # stable: a split's filings keep the matcher's order
+    return sorted(out, key=lambda x: (x.ticker or "", str(x.security_id), x.key_date))
 
 
 @dataclass
@@ -612,9 +990,17 @@ class SplitDetection:
     filings_unread: int = 0
     appended: list[Detected] = field(default_factory=list)
     unplaced: list[Unplaced] = field(default_factory=list)
+    # F10: the filings read with call-off wording, placed or not (``calloffs_read``)
+    calloffs: list[CallOffFiling] = field(default_factory=list)
     kept: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     duration_s: float = 0.0
+    # F10: the nightly's call-off check (``check_called_off``): did it run (a live pass, the warning on), the listed
+    # splits tonight's rows call off, those absent from the last checked pass (what pages, once), and why it failed
+    called_off_evaluated: bool = False
+    called_off: list[CalledOffSplit] = field(default_factory=list)
+    called_off_new: list[CalledOffSplit] = field(default_factory=list)
+    called_off_error: str | None = None
 
     def payload(self) -> dict:
         """The run artifact's ``split_detect`` block (readers use ``.get``: an older artifact lacks it)."""
@@ -630,16 +1016,70 @@ class SplitDetection:
                 "filings_unread": self.filings_unread,
                 "appended": [a.to_json() for a in self.appended],
                 "unplaced": [u.to_json() for u in self.unplaced],
+                **self.calloffs_payload(),
+                **self.called_off_payload(),
                 "kept": list(self.kept),
                 "errors": list(self.errors),
                 "duration_s": round(self.duration_s, 3),
             }
         }
 
+    def calloffs_payload(self) -> dict:
+        """F10: ``{"calloffs": [rows]}``, beside ``unplaced`` on the run artifact and on a check's record, or
+        ``{}`` when no filing read carried a call-off: the block is then byte for byte what it was before (a reader
+        uses ``.get``: absent reads as none)."""
+        return {"calloffs": [c.to_json() for c in self.calloffs]} if self.calloffs else {}
+
+    def called_off_payload(self) -> dict:
+        """F10: the call-off check's keys, beside ``calloffs``, or ``{}`` when it did not run (a ``--no-live`` pass,
+        the warning off): the block is then what the detection wrote, and a reader (``.get``) reads it unchecked —
+        never a baseline. A failed check writes its error with ``called_off_evaluated`` false."""
+        if not self.called_off_evaluated and self.called_off_error is None:
+            return {}
+        return {
+            "called_off_evaluated": self.called_off_evaluated,
+            "called_off_error": self.called_off_error,
+            "called_off": [c.to_json() for c in self.called_off],
+            "called_off_new": [c.to_json() for c in self.called_off_new],
+        }
+
+    @property
+    def called_off_new_labels(self) -> tuple[str, ...]:
+        """What pages (``HealthEvent.split_called_off_new``): the new call-offs' labels."""
+        return tuple(c.label for c in self.called_off_new)
+
+    def called_off_lines(self) -> list[str]:
+        """F10: the call-off check's report lines: each NEW one LOUD (an uppercase header, one line each), the
+        known ones ONE quiet line, a failed check LOUD; nothing when none is called off or it did not run.
+        """
+        if self.called_off_error:
+            return [
+                f"SPLIT CALL-OFF CHECK FAILED — {self.called_off_error} (tonight's call-off filings were not "
+                "matched to the list)"
+            ]
+        if not self.called_off_evaluated or not self.called_off:
+            return []
+        lines: list[str] = []
+        if self.called_off_new:
+            lines.append(
+                "SPLITS CALLED OFF — NEW: a filing read tonight calls off a listed split (nothing was decided "
+                "on it; Admin Splits panel):"
+            )
+            lines.extend(f"  {c.label}" for c in self.called_off_new)
+        fresh = {c.key for c in self.called_off_new}
+        known = [c for c in self.called_off if c.key not in fresh]
+        if known:
+            lines.append(
+                f"{len(known)} listed split(s) still called off by a filing, already told (Admin Splits "
+                f"panel): {'; '.join(c.label for c in known)}"
+            )
+        return lines
+
     def report_lines(self) -> list[str]:
         """ONE quiet line on a normal night (nothing at all when nothing ran and nothing is off): the new
         list rows, the review count, the unplaced count; a separate line when Massive.com is off or failed, and
-        one per fault. Never a page (#7) — a needs-review split shows on the Admin "Splits" panel.
+        one per fault. Never a page (#7) — a needs-review split shows on the Admin "Splits" panel. F10: then the
+        call-off check's lines (``called_off_lines``), the one part that pages, once, through the health page.
         """
         if not self.evaluated:
             return []
@@ -666,6 +1106,7 @@ class SplitDetection:
             + (f", {self.filings_unread} unread" if self.filings_unread else "")
         )
         lines.extend(f"  splits ERROR: {e}" for e in self.errors)
+        lines.extend(self.called_off_lines())
         return lines
 
 
@@ -699,6 +1140,12 @@ class SplitDetector:
         self.distribution_max_factor = distribution_cap()
         # W6-2's label rule, read beside it
         self.label_overrides_abstain = distribution_label_overrides_abstain()
+        # F8-2's restate rule (days; 0 = off, the shipped default), read beside them
+        self.sec_restate_days = sec_restate_days()
+        # F3b's next-session rule (False = off, the shipped default), read beside it
+        self.legal_date_next_session = legal_date_next_session()
+        # F10's demote: the forms whose call-off demotes a split (``None`` = off, the shipped default), beside it
+        self.calloff_demote_forms = calloff_demote_forms()
         self.planned: list[Planned] = []
         self.detections: list[SecurityDetection] = []
 
@@ -780,22 +1227,27 @@ class SplitDetector:
                 distribution_max_factor=self.distribution_max_factor,
                 label_overrides_abstain=self.label_overrides_abstain,
                 confirmed=confirmed_of(stored),
+                restate_days=self.sec_restate_days,
+                next_session=self.legal_date_next_session,
+                demote_forms=self.calloff_demote_forms,
             )
             self.detections.append(det)
             self.result.checked += 1
             self.result.filings_read += det.filings_read
             self.result.filings_unread += det.filings_unread
             self.result.unplaced.extend(det.unplaced)
+            self.result.calloffs.extend(calloffs_read(m, reader))
             plan = plan_against(
                 det,
                 stored,
                 asof=self.asof,
                 distribution_max_factor=self.distribution_max_factor,
                 label_overrides_abstain=self.label_overrides_abstain,
+                demote_forms=self.calloff_demote_forms,
             )
             self.planned.extend(plan)
             for p in plan:
-                if p.action == KEPT and p.reason != "already planned tonight":
+                if p.action == KEPT and p.reason != ALREADY_PLANNED:
                     self.result.kept.append(
                         {
                             "security_id": str(sec.id),
@@ -853,6 +1305,87 @@ class SplitDetector:
             f"{getattr(sec, 'ticker', None) or getattr(sec, 'id', '?')}: {type(exc).__name__}: {msg}"
         )
         _log.warning("split detection failed for %s: %s", getattr(sec, "ticker", None), msg)
+
+
+# --- F10: the nightly's call-off check, after the per-company checks ------------------------------------------
+
+
+def check_called_off(
+    result: SplitDetection,
+    *,
+    allow_live: bool,
+    tenant_id: UUID,
+    connect: Callable[[], psycopg.Connection],
+    previous: Callable[[], set[str] | None],
+) -> SplitDetection:
+    """F10: tonight's call-off rows (``result.calloffs``) against the list's newest versions of their companies, by
+    the one matcher under the rule the settings set (``called_off_splits``, ``calloff_rule``), and the matches whose
+    key is absent from the last checked pass (``previous``: ``cron_run_log.previous_called_off``; ``None`` = none
+    checked yet, so every match is new) — what pages, once. Sets the ``called_off*`` fields on ``result``, returns
+    it.
+
+    Nothing runs (no line, no page, nothing on the artifact) on a ``--no-live`` pass, on a detection that did not
+    run, or with the warning off (``split_calloff_warn``). A night that read no call-off opens no connection.
+    FAIL-OPEN for the pass, LOUD for the operator: the settings read, the read-only connection and the baseline
+    read sit in ONE try, so any fault (a partial settings stub, the database) is ``called_off_error``, one loud
+    report line, never an exception into the cron. Display only: nothing is decided on a match.
+    """
+    if not allow_live or not result.evaluated:
+        return result
+    try:
+        if not calloff_warn():
+            return result
+        rule = calloff_rule()
+        found: list[CalledOffSplit] = []
+        if result.calloffs:
+            conn = connect()
+            try:
+                conn.read_only = True  # the check reads; structurally it cannot write a row
+                versions = split_repo.latest_versions(
+                    conn,
+                    tenant_id=tenant_id,
+                    security_ids=sorted({c.security_id for c in result.calloffs}),
+                )
+                conn.rollback()  # end the read-only transaction; nothing to keep
+            finally:
+                conn.close()
+            found = called_off_splits(result.calloffs, versions, rule=rule)
+        prior = previous() if found else set()
+    except Exception as e:  # noqa: BLE001 — a check fault is reported, never a failed pass
+        msg = " ".join(str(e).split())[:200]
+        result.called_off_error = f"{type(e).__name__}: {msg}" if msg else type(e).__name__
+        return result
+    result.called_off_evaluated = True
+    result.called_off = found
+    result.called_off_new = [c for c in found if prior is None or c.key not in prior]
+    return result
+
+
+def called_off_keys_of(doc: Mapping) -> set[str]:
+    """The keys of every listed split one artifact's check found called off (``split_detect.called_off``): what the
+    next pass diffs against. WHICH artifact is the baseline is ``cron_run_log.previous_called_off``'s rule.
+    Fail-open: a malformed row is skipped."""
+    block = doc.get("split_detect")
+    if not isinstance(block, Mapping):
+        return set()
+    return {
+        str(r["key"])
+        for r in block.get("called_off") or []
+        if isinstance(r, Mapping) and r.get("key")
+    }
+
+
+def called_off_new_labels_of(doc: Mapping) -> tuple[str, ...]:
+    """The labels one artifact's check paged (``split_detect.called_off_new``): the Admin history re-derives the
+    run's page from these. ``()`` for an artifact without them; a malformed row is skipped."""
+    block = doc.get("split_detect")
+    if not isinstance(block, Mapping):
+        return ()
+    return tuple(
+        str(r["label"])
+        for r in block.get("called_off_new") or []
+        if isinstance(r, Mapping) and r.get("label")
+    )
 
 
 def former_tickers(conn: psycopg.Connection) -> dict[UUID, tuple[str, ...]]:
@@ -972,12 +1505,27 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--no-live", action="store_true", help="caches only (no SEC / Massive.com request)"
     )
+    p.add_argument(
+        "--record",
+        action="store_true",
+        help="keep this run's unplaced filings in data/split_unplaced, read beside the nightly's (the whole "
+        "basket union only, so not with --ticker)",
+    )
     args = p.parse_args(argv)
+    if args.record and args.ticker:
+        print(
+            "REFUSED: --record keeps the whole basket's unplaced list; a --ticker run would replace it with "
+            "part of one (nothing was written)"
+        )
+        raise SystemExit(EXIT_REFUSED)
     asof = args.asof or market_today()
     if asof > market_today():
         print(f"REFUSED: --asof {asof.isoformat()} is in the future (nothing was written)")
         raise SystemExit(EXIT_REFUSED)
     mode = "APPLY" if args.apply else "DRY-RUN (read-only connection; nothing written)"
+    if args.record:
+        mode = mode.replace("nothing written", "no database write")
+        mode += " · RECORD (its unplaced filings go to data/split_unplaced)"
     print(
         f"detect_splits · {mode} · asof {asof.isoformat()} · SEC {args.sec_days}d · Massive.com {args.polygon_days}d"
     )
@@ -988,6 +1536,7 @@ def main(argv: list[str] | None = None) -> None:
             f"detect_splits: ALREADY RUNNING — {exc}. Nothing was written (exit {EXIT_ALREADY_RUNNING})"
         )
         raise SystemExit(EXIT_ALREADY_RUNNING) from None
+    started_at = datetime.now(timezone.utc)
     try:
         detector = SplitDetector.start(
             asof=asof,
@@ -1006,7 +1555,20 @@ def main(argv: list[str] | None = None) -> None:
     finally:
         if lock is not None:
             lock.release()
+    finished_at = datetime.now(timezone.utc)
     print_plan(detector)
+    if args.record:
+        from pipeline.split_unplaced import record_check
+
+        path = record_check(
+            detector.result,
+            started_at=started_at,
+            finished_at=finished_at,
+            asof=asof,
+            sec_days=args.sec_days,
+            polygon_days=args.polygon_days,
+        )
+        print(f"recorded {len(detector.result.unplaced)} unplaced filing(s): {path}")
 
 
 if __name__ == "__main__":

@@ -307,3 +307,11 @@ SCOPE_OF["platform_value_decision"] = Scope.DATA
 # company's share count and cash/burn, the gate's "since its last attempt") carries the data tenant's id.
 SCOPE_OF["platform_extraction_attempt"] = Scope.DATA
 # --- end V2 W3a block ----------------------------------------------------------------------------------------
+
+
+# --- Framework completion F1-2: the steward's split-filing dismissals (migration 0218) ------------------------
+# Additive block. ``split_filing_dismissal`` (the steward's append-only dismiss / undo of a split filing the
+# nightly could not place; display only, never a call input) carries the data tenant's id, like
+# ``split_jump_dismissal``.
+SCOPE_OF["split_filing_dismissal"] = Scope.DATA
+# --- end F1-2 block ------------------------------------------------------------------------------------------

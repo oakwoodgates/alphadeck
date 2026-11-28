@@ -33,6 +33,10 @@ hand-written or edited; the only change is TRIMMING, and the source's spelling i
 - `tape_2026-10-22.json` — S4: EVERY stored version (close, volume, `recorded_at`) of the price bars around the
   GAME / NXL / VRME / MDCX / FDCT splits, read from a read-only copy of prod on 2026-10-22, untouched — the
   tape-confirmation tests read each bar's FIRST-served version from it, exactly as the detector does.
+- `unplaced/nightly_2026-11-25.json` — F1-1: prod's 2026-11-25 nightly run artifact (`data/cron_runs`, cron
+  `code_sha` 6ecc8802), cut to its run identity and its `split_detect` block: `unplaced` keeps 5 of its 65 rows
+  (WLDS, META, EVGN, TURB, SPRC), `appended`, `kept` and `errors` are emptied. Rows written before an unplaced
+  filing carried its evidence (no `url`, `passage` or ratio).
 
 The table's LAST SEVEN rows (ELBM … LGHL) were added from the 2026-10-20 dev backfill: each was copied from
 the dev EDGAR cache (the text the backfill read) and trimmed the same way — filings the first extractor sent to
@@ -228,5 +232,5 @@ extractor). Each is a split prod lists, abstained by PR-C's ADS rule:
 
 | accession | filer | form | what it states / why it is here |
 |---|---|---|---|
-| 0001178913-25-000177 | BLRX | 6-K | an investor letter: "change the ratio of our American Depositary Shares to ordinary shares, from 15 ordinary shares per ADS to 600 ordinary shares per ADS. This is equivalent to a 1-for-40 reverse stock split" — the equating sentence is the ADS change itself (read: ADS ratio change abstain; now 40 -> 1, no date: "will go into effect on" is no date cue) |
+| 0001178913-25-000177 | BLRX | 6-K | an investor letter: "change the ratio of our American Depositary Shares to ordinary shares, from 15 ordinary shares per ADS to 600 ordinary shares per ADS. This is equivalent to a 1-for-40 reverse stock split" — the equating sentence is the ADS change itself (read: ADS ratio change abstain; now 40 -> 1, legal 2025-01-30: "will go into effect on" is a legal cue since 2026-11-27) |
 | 0001213900-26-051029 | TDTH | 6-K | the ADS ratio "from … one (1) ADS to eight (8) Class B ordinary shares to … one (1) ADS to two hundred and forty (240)" beside "Effective April 24, 2026, the Company effected a 1-for-30 reverse share split" — the ADS change's own factor (30) is the split's (read: ADS ratio change abstain; now 30 -> 1, legal 2026-04-24) |

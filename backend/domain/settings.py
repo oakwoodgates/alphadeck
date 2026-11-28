@@ -681,6 +681,57 @@ class Settings(BaseSettings):
     # extractor abstained; GPUS 2024-12-13); a filing that states it still keeps it for review. False = W2-3's rule
     # exactly. ALPHADECK_SPLIT_DISTRIBUTION_LABEL_OVERRIDES_ABSTAIN, injected into both services like the two above.
     split_distribution_label_overrides_abstain: bool = True
+    # F8-2 (decision D-F8b, framework completion 2026-11-27): a later SEC filing of the same exact ratio, filed within
+    # this many days of an SEC-only candidate's newest filing, joins that candidate even when its date is more than
+    # two sessions away, and the latest filing's date supersedes (``domain.splits.cluster_sec`` / ``decide_sec_only``;
+    # the nightly detector reads it once a pass, the pure rule reads none). CHRN's 8-K moved its first session from
+    # 05-27 to 06-02 a day later. Ships DARK: 0 = off (S4's clustering exactly); 30 is the operator's to turn on, from
+    # the ON-vs-OFF evidence. ALPHADECK_SPLIT_SEC_RESTATE_DAYS, injected into both services like the three above.
+    split_sec_restate_days: int = Field(default=0, ge=0)
+    # F3b (framework completion 2026-11-27): an SEC-only split whose chosen filing states only a LEGAL effective date
+    # that is no session (a weekend, an NYSE full-day closure) is planned on the NEXT session (key date and first
+    # session; ``domain.splits.decide_sec_only``; the nightly detector reads it once a pass, the pure rule reads
+    # none). SKYA's 8-K states Sunday 2025-04-27; it first traded Monday 04-28. A trading date is never moved. Ships
+    # DARK: False = the date as stated; turning it on is the operator's. ALPHADECK_SPLIT_LEGAL_DATE_NEXT_SESSION,
+    # injected into both services like the four above.
+    split_legal_date_next_session: bool = False
+    # F10 (framework completion 2026-11-28): a filing that CALLS OFF a listed split ("would not be effecting the
+    # reverse stock split", a failed vote) is named beside it on the Admin list (``GET /admin/splits``'s
+    # ``called_off``), matched when the list is read by the one matcher (``domain.split_calloffs``) under the rule
+    # ``pipeline.detect_splits.calloff_rule`` builds from these (the pure matcher reads none). It counts when filed
+    # on one of ``split_calloff_forms`` (comma-separated, exact form names) from the split's announcement to its
+    # first session + ``split_calloff_after_days``, stating any ratio or none (``split_calloff_ratio`` ``any``, R1)
+    # or exactly the listed one (``same``, R2). MEASURED over 37,812 cached split filings (2024-26): R1 on 8-K / 6-K
+    # within 30 days flags AIRI's 1-for-5 (called off the day before its first session) and one false warning;
+    # 10 of the 12 other real call-offs state no ratio. Display only. Ships ON; ``split_calloff_warn=false`` turns
+    # it off. ALPHADECK_SPLIT_CALLOFF_WARN / _FORMS / _AFTER_DAYS / _RATIO, injected into both services like the
+    # five above.
+    split_calloff_warn: bool = True
+    split_calloff_forms: str = "8-K,8-K/A,6-K,6-K/A"
+    split_calloff_after_days: int = Field(default=30, ge=0)
+    split_calloff_ratio: Literal["any", "same"] = "any"
+    # F10 P9: THE DEMOTE. On, an announced or confirmed split a filing calls off by the demote's fixed rule (the same
+    # stated ratio, filed from its announcement to its first session, on ``split_calloff_forms``:
+    # ``domain.split_calloffs.demote_rule``) is decided ``needs_review`` instead, the note naming the filing, and one
+    # needs-review version is appended over such a split the system listed live (never the steward's): the backfill,
+    # the newcomer fill and the nightly detector read it once a run (``backfill_splits.calloff_demote_forms``). Ships
+    # OFF; turning it on is the operator's. Turned off again, open system rows are re-decided (and re-confirm): settle
+    # the demoted ones first. ALPHADECK_SPLIT_CALLOFF_DEMOTE, injected into both services beside the four above.
+    split_calloff_demote: bool = False
+
+    @field_validator("split_calloff_forms", mode="before")
+    @classmethod
+    def _calloff_forms_are_named(cls, v: object) -> object:
+        """Each form trimmed and upper-cased (EDGAR's names: ``8-K``, ``6-K/A``), blanks dropped; none at all fails at
+        load (``split_calloff_warn=false`` is the off switch), never a silent default."""
+        if not isinstance(v, str):
+            return v
+        forms = [f.strip().upper() for f in v.split(",") if f.strip()]
+        if not forms:
+            raise ValueError(
+                "name at least one form (split_calloff_warn=false turns the warning off)"
+            )
+        return ",".join(forms)
 
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These two are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL; an LLM

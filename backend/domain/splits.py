@@ -49,7 +49,7 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Any
 
-from domain.trading_days import is_scheduled_day
+from domain.trading_days import is_scheduled_day, next_scheduled_day, why_not_a_session
 
 STATUS_ANNOUNCED = "announced"
 STATUS_CONFIRMED = "confirmed"
@@ -112,9 +112,31 @@ class PolygonEvidence:
 
 
 @dataclass(frozen=True)
+class CallOff:
+    """F10: wording in one filing that calls a split off (``ingest/edgar/split_calloff`` reads it): ``kind`` is
+    the reader's (``decision`` = the company will not effect it, ``failed_vote`` = the holders did not approve
+    it); ``ratio_from``/``ratio_to`` = the ONE distinct ratio its call-off sentences state, else ``None``; the
+    passage and the document it was read in. Evidence beside the filing's reading, never a reading: no rule in
+    this module reads it, and ``domain.split_calloffs`` matches it against a listed split.
+    """
+
+    kind: str
+    ratio_from: Decimal | None = None
+    ratio_to: Decimal | None = None
+    passage: str = ""
+    document: str | None = None
+
+    @property
+    def has_ratio(self) -> bool:
+        return self.ratio_from is not None and self.ratio_to is not None
+
+
+@dataclass(frozen=True)
 class SecEvidence:
     """One SEC filing and what the extractor read from it. ``ratio_from``/``ratio_to`` are ``None`` when it
-    abstained (``abstain_reason``); ``about_a_split`` = it mentioned a split ratio at all."""
+    abstained (``abstain_reason``); ``about_a_split`` = it mentioned a split ratio at all. ``calloff`` (F10) =
+    the call-off wording it carries, ``None`` = none (and then the filing is exactly what it was before F10).
+    """
 
     accession: str
     form: str
@@ -129,6 +151,7 @@ class SecEvidence:
     abstain_reason: str | None = None
     date_note: str | None = None
     about_a_split: bool = False
+    calloff: CallOff | None = None
 
     @property
     def has_ratio(self) -> bool:
@@ -760,10 +783,17 @@ def related(s: SecEvidence, polygon: PolygonEvidence) -> bool:
     )
 
 
-def cluster_sec(filings: Sequence[SecEvidence]) -> list[list[SecEvidence]]:
+def cluster_sec(
+    filings: Sequence[SecEvidence], *, restate_days: int = 0
+) -> list[list[SecEvidence]]:
     """SEC filings that state a ratio AND a date, grouped into one candidate split each: the same exact ratio
     and dates within ``SESSION_TOLERANCE`` sessions of the group's first (an 8-K announcing it and another
-    restating it). Ordered by first filing."""
+    restating it). Ordered by first filing.
+
+    F8-2 (decision D-F8b, dark): with ``restate_days`` above 0 (the setting ``split_sec_restate_days``, read by the
+    caller), a filing no group takes by its date joins the same-ratio group whose NEWEST filing is at most that
+    many days older: a later filing restating the split with another date (CHRN's 8-K moving its first session
+    from 05-27 to 06-02 a day later). A date match still wins. 0 = the rule above exactly."""
     groups: list[list[SecEvidence]] = []
     for s in sorted(
         (s for s in filings if s.has_ratio and s.effective_date is not None),
@@ -777,28 +807,99 @@ def cluster_sec(filings: Sequence[SecEvidence]) -> list[list[SecEvidence]]:
                 g.append(s)
                 break
         else:
-            groups.append([s])
+            joined = _restating(s, groups, restate_days) if restate_days > 0 else None
+            if joined is not None:
+                joined.append(s)
+            else:
+                groups.append([s])
     return groups
 
 
-def decide_sec_only(group: Sequence[SecEvidence], *, asof: date) -> SplitDecision:
+def _restating(
+    s: SecEvidence, groups: list[list[SecEvidence]], restate_days: int
+) -> list[SecEvidence] | None:
+    """The same-ratio group whose newest filing is at most ``restate_days`` before ``s`` (the most recent such
+    group), or ``None``. ``s`` is never older than any grouped filing (``cluster_sec`` reads by filing date).
+    """
+    near = [
+        g
+        for g in groups
+        if same_ratio(s.ratio_from, s.ratio_to, g[0].ratio_from, g[0].ratio_to)  # type: ignore[arg-type]
+        and (s.filed - max(x.filed for x in g)).days <= restate_days
+    ]
+    return max(near, key=lambda g: max(x.filed for x in g), default=None)
+
+
+def restated(group: Sequence[SecEvidence], *, restate_days: int) -> bool:
+    """F8-2: is this SEC-only candidate one split its filings state with dates more than ``SESSION_TOLERANCE``
+    sessions apart, with the restate rule on (``restate_days`` above 0)? Its latest filing then supersedes
+    (``decide_sec_only``), and the caller never puts it to the tape: the tape never picks the company's date.
+    """
+    if restate_days <= 0:
+        return False
+    dates = sorted({s.effective_date for s in group if s.effective_date is not None})
+    return len(dates) > 1 and abs(session_distance(dates[0], dates[-1])) > SESSION_TOLERANCE
+
+
+def _restated_said(group: Sequence[SecEvidence], chosen: SecEvidence) -> str:
+    """Every filing's date, oldest filing first, and the rule that picked ``chosen``."""
+    each = "; ".join(
+        f"{s.form} {s.accession} (filed {s.filed.isoformat()}) "
+        f"{'first session' if s.date_kind == 'trading' else 'effective'} {s.effective_date.isoformat()}"  # type: ignore[union-attr]
+        for s in sorted(group, key=lambda s: (s.filed, s.accession))
+    )
+    kept = (
+        "the latest stating the first session is kept"
+        if chosen.date_kind == "trading"
+        else "the latest effective date is kept"
+    )
+    return f" They state different dates: {each}. A later filing restating the split supersedes: {kept}."
+
+
+def decide_sec_only(
+    group: Sequence[SecEvidence],
+    *,
+    asof: date,
+    restate_days: int = 0,
+    next_session: bool = False,
+) -> SplitDecision:
     """The verdict for one SEC-only candidate (``cluster_sec``): ``needs_review`` — one source never confirms
     a split (S1's rule) — carrying the SEC values: the first TRADING session one of the filings states, else
     the earliest filing's legal date. ``with_tape`` may then confirm it. ``valid_from`` = the earliest filing.
+
+    F8-2 (dark): with ``restate_days`` above 0, a candidate whose dates sit more than ``SESSION_TOLERANCE`` sessions
+    apart (``restated``) carries the LATEST filing's trading session (else its latest legal date), and its note
+    names every filing's date. 0 = as above exactly.
+
+    F3b (dark; the setting ``split_legal_date_next_session``, read by the caller): with ``next_session``, a chosen
+    LEGAL date that is no session (a weekend, an NYSE full-day closure: ``domain.trading_days``) gives way to the
+    next session as the key date and first session (SKYA's Sunday 2025-04-27 -> Monday 04-28), and the note says
+    why. A trading date is never moved; the SEC evidence keeps the stated date, ``valid_from`` stays as above.
+    False = as above exactly.
     """
+    later = restated(group, restate_days=restate_days)
     trading = [s for s in group if s.date_kind == "trading"]
     pool = trading or list(group)
-    chosen = min(pool, key=lambda s: (s.filed, s.accession))
+    chosen = (max if later else min)(pool, key=lambda s: (s.filed, s.accession))
     first = min(group, key=lambda s: (s.filed, s.accession))
     dates = sorted({s.effective_date for s in pool if s.effective_date is not None})
     note = f"SEC only: {_sec_said(chosen)}; no Massive.com row lists this split (tonight's pull)."
     if len(group) > 1:
         note += f" {len(group)} SEC filings state it."
-    if len(dates) > 1:
+    if later:
+        note += _restated_said(group, chosen)
+    elif len(dates) > 1:
         note += " They state different dates: " + ", ".join(d.isoformat() for d in dates) + "."
-    if chosen.date_kind != "trading":
+    stated: date = chosen.effective_date  # type: ignore[assignment]
+    eff = stated
+    if next_session and chosen.date_kind == "legal" and not is_scheduled_day(stated):
+        eff = next_scheduled_day(stated)
+        note += (
+            f" The stated effective date {stated.isoformat()} is {why_not_a_session(stated)}: the first session"
+            f" is the next one, {eff.isoformat()}, at the earliest."
+        )
+    elif chosen.date_kind != "trading":
         note += " A legal effective date: the first session may be a session later."
-    eff: date = chosen.effective_date  # type: ignore[assignment]
     if eff > asof:
         note += f" Takes effect {eff.isoformat()}."
     return SplitDecision(
@@ -809,7 +910,7 @@ def decide_sec_only(group: Sequence[SecEvidence], *, asof: date) -> SplitDecisio
         status=STATUS_NEEDS_REVIEW,
         confirmed_via=None,
         value_source=SOURCE_SEC,
-        valid_from=min(first.filed, eff),
+        valid_from=min(first.filed, stated),
         polygon=None,
         sec=chosen,
         note=note,

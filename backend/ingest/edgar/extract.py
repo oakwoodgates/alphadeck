@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
 
-from domain.burn_pace import YtdPace, pace_caveat, pace_segment
+from domain.burn_pace import YtdPace, money, pace_caveat, pace_segment
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 from domain.settings import get_settings
@@ -1076,6 +1076,42 @@ def _detect_one_time(
     )
 
 
+def _cash_positive_quarter(
+    text: str, ref: str, raw: str | None, concept: str, burn: float, ytd: YtdPace
+) -> _OneTime:
+    """F7 (R1, ``cfg.one_time_cash_positive_quarter``, off by default): the quarter generated cash (``burn`` <= 0)
+    while its year to date burned. An inflow booked in net income (a milestone in revenue, a tax credit in other
+    income) moves no reconciliation line, so ``_detect_one_time`` cannot see it; the figures already read can. The
+    passage sits on the year to date's operating-cash-flow line as printed (on its tagged fact, given ``raw``), else on
+    the first mention of operating activities.
+    """
+    ocf = -ytd.burn_usd  # the year to date's operating cash flow as tagged (negative when burning)
+    contexts = inline_xbrl.read_contexts(raw) if raw else None
+    hit = (
+        _tagged_figure(raw, contexts, text, concept, ocf, ytd.start, ytd.end)
+        if raw and contexts
+        else None
+    ) or _printed_figure(text, ocf)
+    passage = (
+        _line_passage(text, ref, *hit)
+        if hit is not None
+        else _locate(text, ref, "cash-flow", ["operating activities", "cash flows"])
+        or LocatedPassage(
+            kind="cash-flow",
+            source_ref=ref,
+            anchor="operating cash flow",
+            excerpt="… the quarter generated cash while the year to date burned — review the income statement for "
+            "a one-time inflow …",
+        )
+    )
+    return _OneTime(
+        [passage],
+        f"possible-one-time: the quarter generated {money(burn)} while the year to date burned "
+        f"{money(ytd.quarterly_burn_usd)} a quarter; an inflow booked in net income (a milestone, a grant, a tax "
+        "credit, a sale) moves no reconciliation line — check the income statement",
+    )
+
+
 def _ytd_line(facts: dict, concept: str, ytd_start: str, end: str) -> float | None:
     return _value_for_period(facts, concept, ytd_start, end)
 
@@ -1575,7 +1611,8 @@ def _cash_burn(
     had the offered quarter's own lines to read (``_one_time_runs``; a derived quarter's lines derived like it).
     ``raw`` (W1-4): the values filing's raw document, where a one-time line's passage is found by its tagged fact,
     and where a counted investment tagged only in a deferred-tax table is found (``_outside_statements``,
-    ``investments-unconfirmed``).
+    ``investments-unconfirmed``). ``cfg.one_time_cash_positive_quarter`` (F7, off): a quarter that generated cash
+    against a burning year-to-date pace is ``possible-one-time`` too (``_cash_positive_quarter``).
     """
     cash_pick = _pick_instant(facts, _CASH)
     cash_at = None if cash_pick is None else (cash_pick[0], cash_pick[1])
@@ -1724,6 +1761,19 @@ def _cash_burn(
         if ytd is not None:
             asofs.append(pace_segment(ytd))
             caveat = pace_caveat(cash_usd, burn, ytd.quarterly_burn_usd, cfg)
+            # F7 (R1): a quarter that generated cash against a burning year to date is possible-one-time too, ahead of
+            # A2 below (which reads ``flags``). The dial ships OFF, so D3 holds until the user turns it on; the caveat
+            # above is the same either way.
+            if cfg.one_time_cash_positive_quarter and burn <= 0 < ytd.quarterly_burn_usd:
+                cp = _cash_positive_quarter(tenq_text, ref, raw, q.concept, burn, ytd)
+                if "possible-one-time" not in flags:
+                    flags.append("possible-one-time")
+                passages.extend(
+                    p
+                    for p in cp.passages
+                    if p.offset is None or all(o.offset != p.offset for o in passages)
+                )
+                checks.append(cp.stated)
     if cash_at is None:
         # a burn column but NO cash instant — runway can't compute; offer the burn, name the miss
         flags.append("no-cash-instant")

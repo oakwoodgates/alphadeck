@@ -14,6 +14,20 @@ with cited values (``value_source`` ``steward``) carries the API's ``cited_url``
 An open entry (needs review, announced) carries the API's ``first_bar`` (the first stored bar: a split on or before it
 adjusts no tape) and ``shares_rescaled`` (the share count a confirm puts on the new scale) in every reply, when stated.
 The brief ``polygon`` block carries Massive.com's ``adjustment_type`` label when the API states one (W6-1).
+F1-4: ``unplaced`` is the API's SEC filings about a split the list could not place (newest filing first), each with
+``listed_near`` (the split on the list it most likely concerns, as the API states it) and the steward's standing
+dismissal, if any. The default reply counts them (``unplaced_on_list``: ``listed_near`` cites the filing or states its
+ratio) and briefs the first ``UNPLACED_SHOWN``, dropped before any needs-review row when the reply is too large;
+``section=unplaced`` pages the listed then the dismissed ones; ``one`` adds the ticker's, in full.
+F8-3: an open entry carries the API's ``same_ratio_listed`` when stated (the other splits on the list of its exact
+ratio within 180 days of its first session, nearest first, at most two), each brief like ``listed_near`` in every
+reply but ``one``, which carries it whole: display only, which one went ahead is the steward's.
+F10: an entry of any status carries the API's ``called_off`` when stated (the filings that call its split off, those
+stating its ratio first), each brief like an unplaced filing (no URL or document) in every reply but ``one``, which
+carries it whole. The default reply counts those entries (``counts.called_off``) and lists them in the API's bucket
+order (``called_off``: each entry's names beside its briefs), kept whole while the needs-review rows are cut (cut
+itself only once those are at one row and the jumps at none, so the reply never fails on it): display only, whether
+the split stands is the steward's.
 """
 
 from __future__ import annotations
@@ -29,6 +43,7 @@ SECTIONS = (
     ("confirmed", None),
     ("set_aside", None),
     ("jumps", None),
+    ("unplaced", None),
     ("one", "t"),
 )
 BUCKETS = ("needs_review", "announced", "confirmed", "set_aside")
@@ -46,6 +61,7 @@ PASSAGE_FULL = 1_500
 NOTE_BRIEF = 200
 REASON_BRIEF = 120
 JUMPS_SHOWN = 5
+UNPLACED_SHOWN = 5
 
 SEC_BRIEF_KEYS = ("form", "filed", "date_kind", "effective_date", "ratio_label", "abstain_reason")
 ENTRY_BRIEF_KEYS = (
@@ -69,6 +85,34 @@ JUMP_BRIEF_KEYS = (
     "label",
     "sessions_since",
 )
+UNPLACED_BRIEF_KEYS = (
+    "ticker",
+    "name",
+    "accession",
+    "form",
+    "filed",
+    "reason",
+    "ratio_label",
+    "source",
+    "seen_on",
+)
+# the brief ``listed_near`` (and each brief ``same_ratio_listed`` entry, F8-3): the version id and key date ride
+# section=one's full row only
+NEAR_BRIEF_KEYS = ("effective_date", "label", "status", "same_ratio", "cites_filing", "days_from")
+# F10: a brief ``called_off`` entry (the passage cut beside its length; the URL and document ride section=one), and
+# the names of an entry the default reply lists it under
+CALLED_OFF_BRIEF_KEYS = (
+    "accession",
+    "form",
+    "filed",
+    "kind",
+    "ratio_label",
+    "same_ratio",
+    "days_from",
+    "source",
+    "seen_on",
+)
+CALLED_OFF_ENTRY_KEYS = ("ticker", "name", "key_date", "effective_date", "label", "status")
 # W2-8: what a confirm would touch, as the API states it on an open entry (copied when stated, never derived)
 HINT_KEYS = ("first_bar", "shares_rescaled")
 
@@ -84,6 +128,15 @@ def _passage(sec: dict[str, Any], limit: int) -> dict[str, Any]:
         "passage": None if text is None else text[:limit],
         "passage_chars": None if text is None else len(text),
     }
+
+
+def _brief_called_off(c: dict[str, Any]) -> dict[str, Any]:
+    return {**{k: c.get(k) for k in CALLED_OFF_BRIEF_KEYS}, **_passage(c, PASSAGE_BRIEF)}
+
+
+def _called_off(e: dict[str, Any]) -> list[dict[str, Any]]:
+    """The entry's ``called_off`` as briefs, in the API's order (``[]`` when it states none)."""
+    return [_brief_called_off(c) for c in e.get("called_off") or []]
 
 
 def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
@@ -112,6 +165,14 @@ def _brief_entry(e: dict[str, Any], bucket: str) -> dict[str, Any]:
         out["cited_url"] = e.get("cited_url")
         out["tape_override"] = e.get("tape_override")
     out.update(_hints(e))
+    # F8-3: the other listed splits of its exact ratio near it, as the API states them (an open entry, when any)
+    same = e.get("same_ratio_listed")
+    if same:
+        out["same_ratio_listed"] = [{k: s.get(k) for k in NEAR_BRIEF_KEYS} for s in same]
+    # F10: the filings that call its split off, as the API states them (any status, when any)
+    called = _called_off(e)
+    if called:
+        out["called_off"] = called
     if bucket == "set_aside":
         out["restore_to"] = e.get("restore_to")
         note = e.get("note")
@@ -136,6 +197,48 @@ def _brief_jump(j: dict[str, Any]) -> dict[str, Any]:
         reason = j.get("dismissed_reason")
         out["dismissed_reason"] = None if reason is None else reason[:REASON_BRIEF]
     return out
+
+
+def _brief_unplaced(u: dict[str, Any]) -> dict[str, Any]:
+    out = {k: u.get(k) for k in UNPLACED_BRIEF_KEYS}
+    near = u.get("listed_near")
+    out["listed_near"] = None if near is None else {k: near.get(k) for k in NEAR_BRIEF_KEYS}
+    out.update(_passage(u, PASSAGE_BRIEF))
+    if u.get("dismissed_at") is not None or u.get("dismissal_id") is not None:
+        out["dismissed_at"] = u.get("dismissed_at")
+        reason = u.get("dismissed_reason")
+        out["dismissed_reason"] = None if reason is None else reason[:REASON_BRIEF]
+    return out
+
+
+def _full_unplaced(u: dict[str, Any]) -> dict[str, Any]:
+    return {**u, **_passage(u, PASSAGE_FULL)}
+
+
+def _on_list(u: dict[str, Any]) -> bool:
+    """The API's ``listed_near`` cites this filing or is the exact ratio it states (copied flags, never derived)."""
+    near = u.get("listed_near") or {}
+    return bool(near.get("cites_filing")) or near.get("same_ratio") is True
+
+
+def _fit_default(reply: dict[str, Any]) -> dict[str, Any]:
+    """The default reply within the budget, the quiet unplaced briefs cut first: the needs-review rows and the jumps
+    are fitted without them (their cursor as before); only when every one of those fits do the unplaced briefs take
+    what room is left (a cut names ``unplaced``, the cursor section=unplaced continues from). F10: the
+    ``called_off`` list rides whole while those are cut, and is cut last (``counts.called_off`` counts it whole;
+    the bucket sections carry each row's), so a long one never fails the reply."""
+    loud = fit(
+        {**reply, "unplaced": []},
+        BUDGET,
+        [
+            TrimRule(("needs_review",), min_keep=1, hint="section=needs_review"),
+            TrimRule(("jumps",), min_keep=0, hint="section=jumps"),
+            TrimRule(("called_off",), min_keep=0, hint="section=needs_review"),
+        ],
+    )
+    if loud["next_cursor"] is not None or not reply["unplaced"]:
+        return loud
+    return fit(reply, BUDGET, [TrimRule(("unplaced",), min_keep=0, hint="section=unplaced")])
 
 
 def _matches(ticker: str, e: dict[str, Any]) -> bool:
@@ -165,8 +268,12 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
     lists = {b: payload.get(b) or [] for b in BUCKETS}
     unlisted = payload.get("unlisted_jumps") or []
     dismissed = payload.get("dismissed_jumps") or []
+    unplaced = payload.get("unplaced") or []
+    unplaced_gone = payload.get("unplaced_dismissed") or []
     reply = header(req)
     if req.section is None:
+        # F10: every entry the API names a call-off for, any bucket, in the API's order
+        called = [e for rows in lists.values() for e in rows if e.get("called_off")]
         reply["counts"] = {
             **{b: len(rows) for b, rows in lists.items()},
             "unlisted_jumps": len(unlisted),
@@ -176,20 +283,24 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
                 r: sum(1 for e in lists["needs_review"] if e.get("review_reason") == r)
                 for r in REASONS
             },
+            "unplaced": len(unplaced),
+            "unplaced_dismissed": len(unplaced_gone),
+            "unplaced_on_list": sum(1 for u in unplaced if _on_list(u)),
+            "called_off": len(called),
         }
         if payload.get("unlisted_jumps_error") is not None:
             reply["unlisted_jumps_error"] = payload.get("unlisted_jumps_error")
+        if payload.get("unplaced_error") is not None:
+            reply["unplaced_error"] = payload.get("unplaced_error")
         reply["needs_review"] = [_brief_entry(e, "needs_review") for e in lists["needs_review"]]
         reply["jumps"] = [_brief_jump(j) for j in unlisted[:JUMPS_SHOWN]]
+        reply["unplaced"] = [_brief_unplaced(u) for u in unplaced[:UNPLACED_SHOWN]]
+        reply["called_off"] = [
+            {**{k: e.get(k) for k in CALLED_OFF_ENTRY_KEYS}, "called_off": _called_off(e)}
+            for e in called
+        ]
         reply["sections"] = dict(SECTIONS)
-        return fit(
-            reply,
-            BUDGET,
-            [
-                TrimRule(("needs_review",), min_keep=1, hint="section=needs_review"),
-                TrimRule(("jumps",), min_keep=0, hint="section=jumps"),
-            ],
-        )
+        return _fit_default(reply)
     if req.section in BUCKETS:
         rows = lists[req.section]
         if req.reason is not None:
@@ -215,12 +326,33 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
             req.cursor,
             "jumps",
         )
+    if req.section == "unplaced":
+        reply["section"] = "unplaced"
+        return paged(
+            reply,
+            [
+                ("unplaced", [_brief_unplaced(u) for u in unplaced]),
+                ("unplaced_dismissed", [_brief_unplaced(u) for u in unplaced_gone]),
+            ],
+            req.cursor,
+            "unplaced",
+        )
     if req.section == "one":
         ticker = (req.t or "").strip().upper()
         entries = [_full_entry(e) for rows in lists.values() for e in rows if _matches(ticker, e)]
         jumps = [j for j in [*unlisted, *dismissed] if (j.get("ticker") or "").upper() == ticker]
+        filings = [
+            _full_unplaced(u)
+            for u in [*unplaced, *unplaced_gone]
+            if (u.get("ticker") or "").upper() == ticker
+        ]
         reply["section"] = "one"
         reply["t"] = req.t
         reply["found"] = len(entries)
-        return paged(reply, [("entries", entries), ("jumps", jumps)], req.cursor, "one")
+        return paged(
+            reply,
+            [("entries", entries), ("jumps", jumps), ("unplaced", filings)],
+            req.cursor,
+            "one",
+        )
     raise ViewError(f"Unknown section {req.section!r}.")

@@ -1,7 +1,9 @@
 """The ``splits-review`` prompt's call plan, run through the in-process MCP SDK client against a fake API as a steward
-(``/auth/me`` answers ``super_admin``, so ``stdio_principal`` learns the ``steward`` scope): ``get_splits`` once, then
-``section="one"`` for the needs-review names, then ``section="jumps"`` because the default reply counted an unlisted
-jump. At most 5 calls and 24,000 characters in all, on the synthetic list. A plain caller is not offered the prompt.
+(``/auth/me`` answers ``super_admin``, so ``stdio_principal`` learns the ``steward`` scope): ``get_splits`` once, the
+sources_differ read, then ``section="unplaced"`` from the briefs shown (the default reply shows 5 of 7 unplaced
+filings, so this read takes the extractor_abstained read's place), ``section="one"`` for the named ticker, then
+``section="jumps"`` because the default reply counted an unlisted jump. At most 5 calls and 24,000 characters in all,
+on the synthetic list. A plain caller is not offered the prompt.
 """
 
 from __future__ import annotations
@@ -12,10 +14,11 @@ import pytest
 
 pytest.importorskip("mcp")
 
+from tests.agent_tools import admin_fixtures as afx  # noqa: E402
 from tests.agent_tools.fake_api import FakeApi  # noqa: E402
 from tests.agent_tools.mcp_session import run_in_process  # noqa: E402
 
-MAX_CALLS = 5  # one list read + at most 3 names + the jumps call; the fixture needs 4
+MAX_CALLS = 5  # one list read + at most 3 names + the jumps call; the fixture needs 5
 MAX_CHARS = 24_000
 ROOT = Path(__file__).resolve().parents[2]
 PROMPT_FILE = ROOT / "agent_tools" / "prompts" / "splits-review.md"
@@ -23,7 +26,7 @@ PROMPT_FILE = ROOT / "agent_tools" / "prompts" / "splits-review.md"
 
 def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characters():
     spent: list[tuple[str, int]] = []
-    api = FakeApi(me_role="super_admin")
+    api = FakeApi(me_role="super_admin", splits=afx.splits(extra_unplaced=5))  # 7 unplaced filings
 
     async def steps(session):
         listed = {p.name for p in (await session.list_prompts()).prompts}
@@ -37,24 +40,29 @@ def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characte
 
         default = await read()  # 1
         differ = await read(section="needs_review", reason="sources_differ")  # 2
-        abstained = await read(section="needs_review", reason="extractor_abstained")  # 3
+        # 3: counts.unplaced exceeds the briefs shown, so the unplaced read replaces the extractor_abstained one
+        assert default["counts"]["unplaced"] > len(default["unplaced"])
+        unplaced = await read(section="unplaced", cursor=len(default["unplaced"]))
         one = await read(
             section="one", t="TK01"
-        )  # 4: the named name (fewer `one` reads: both reasons ran)
+        )  # 4: the named name (fewer `one` reads: two reads before it)
         jumps = await read(section="jumps")  # 5: the default reply counted an unlisted jump
         return (
             listed,
             prompt.messages[0].content.text,
             default,
             differ,
-            abstained,
+            unplaced,
             one,
             jumps,
         )
 
-    listed, prompt, default, differ, abstained, one, jumps = run_in_process(api, steps)
+    listed, prompt, default, differ, unplaced, one, jumps = run_in_process(api, steps)
     assert "splits-review" in listed
     assert prompt.startswith("Splits review, starting with TK01: ") and "{{" not in prompt
+    assert 'section="unplaced"' in prompt and "listed_near" in prompt
+    assert "same_ratio_listed" in prompt  # F8-3
+    assert "called_off" in prompt  # F10
     assert len(PROMPT_FILE.read_text(encoding="utf-8")) <= 2_000 and len(prompt) <= 2_000
     assert len(spent) <= MAX_CALLS, spent
     assert sum(chars for _, chars in spent) <= MAX_CHARS, spent
@@ -89,9 +97,53 @@ def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characte
         f"/admin/splits/{tk01}/tape",
         "/admin/splits",
     ]
-    assert abstained["needs_review"][0]["sec"]["abstain_reason"] == "two ratios in the passage"
-    assert abstained["needs_review"][0]["review_reason"] == "extractor_abstained"
+    # the unplaced read continues after the default reply's five briefs: the last two listed, then the dismissed one
+    assert [r["ticker"] for r in default["unplaced"]] == ["TK09", "TK01", "TK30", "TK31", "TK32"]
+    assert [r["ticker"] for r in unplaced["unplaced"]] == ["TK33", "TK34"]
+    assert [r["ticker"] for r in unplaced["unplaced_dismissed"]] == ["TK05"]
+    assert default["unplaced"][1]["listed_near"]["same_ratio"] is True
+    # F8-3: the open TK01 names the listed split of its ratio near it in the default reply already
+    assert default["needs_review"][0]["same_ratio_listed"][0]["days_from"] == -154
     assert [j["ticker"] for j in jumps["unlisted"]] == ["TK08"]
+
+
+def test_the_report_lists_every_called_off_row_the_default_read_carries():
+    """F10: the recipe reports the default reply's called_off rows, any status, as their own item (once, not under a
+    needs-review name), and that one read carries them: a confirmed split a filing called off (TK05) beside a
+    needs-review (TK02) and a rejected one (TK07), each with its status and its filing. The recipe stays within
+    2,000 characters raw and rendered, with and without a ticker."""
+    api = FakeApi(me_role="super_admin", splits=afx.splits(called_off=True))
+
+    async def steps(session):
+        named = await session.get_prompt("splits-review", {"t": "TK01"})
+        bare = await session.get_prompt("splits-review", {})
+        default = await session.call_tool("get_splits", {})
+        assert not default.is_error, default.content[0].text
+        return (
+            named.messages[0].content.text,
+            bare.messages[0].content.text,
+            default.structured_content,
+        )
+
+    prompt, bare, default = run_in_process(api, steps)
+    raw = PROMPT_FILE.read_text(encoding="utf-8")
+    assert max(len(raw), len(prompt), len(bare)) <= 2_000
+    report = next(line for line in prompt.splitlines() if line.startswith("Report"))
+    items = [s for s in report.split(". ") if "called_off" in s]
+    assert len(items) == 1, items  # its own item, once
+    (item,) = items
+    assert item.startswith("List every called_off row") and "needs-review" not in item
+    assert "status" in item and "filing" in item
+    assert default["counts"]["called_off"] == 3
+    assert [(e["ticker"], e["status"]) for e in default["called_off"]] == [
+        ("TK02", "needs_review"),
+        ("TK05", "confirmed"),
+        ("TK07", "rejected"),
+    ]
+    five = default["called_off"][1]
+    assert (five["label"], five["effective_date"]) == ("1-for-10", "2026-11-02")
+    filing = five["called_off"][0]
+    assert (filing["form"], filing["kind"], filing["days_from"]) == ("8-K", "decision", -1)
 
 
 def test_a_plain_stdio_caller_is_not_offered_the_prompt_or_the_tools():

@@ -566,3 +566,300 @@ def test_a_rerun_whose_only_difference_is_the_label_is_unchanged(db):
         bf.plan_against_stored([p], {sid: [v]})
         assert (p.action, p.changed, p.stored.id) == (bf.UNCHANGED, (), v.id)
     assert _n(db) == 2
+
+
+# --- F2-1: the steward ADDS a split no source lists (migration 0219, framework completion) -----------------------
+
+ADD_URL = "https://example.test/vrm/8-k"
+VRM_8K = "0001193125-25-000195"
+VRM_REASON = "1-for-5 reverse split stated, but no first-session or effective date stated"
+VRM_SESSION = date(2025, 1, 15)
+ADDED = "Added by the steward: no source lists this split."
+
+
+def _filing(**over) -> dict:
+    """An unplaced filing as the router copies it from the unplaced read: VRM's 8-K, filed 2025-01-02, stating a
+    1-for-5 reverse split with no date."""
+    return {
+        "accession": VRM_8K,
+        "form": "8-K",
+        "filed": date(2025, 1, 2),
+        "url": "https://www.sec.gov/Archives/edgar/data/1580864/000119312525000195/",
+        "document": "d913424d8k.htm",
+        "passage": "a 1-for-5 reverse stock split of the Company's common stock",
+        "ratio_from": Decimal(5),
+        "ratio_to": Decimal(1),
+        "reason": VRM_REASON,
+        **over,
+    }
+
+
+def _jump(**over) -> dict:
+    """A released split-shaped jump as the router copies it from the \"is this real?\" list."""
+    return {"step_date": VRM_SESSION, "step": 4.87, **over}
+
+
+def _add(db, sid, **over):
+    kw = {
+        "tenant_id": DEFAULT_TENANT_ID,
+        "security_id": sid,
+        "ratio_from": Decimal(5),
+        "ratio_to": Decimal(1),
+        "first_session": VRM_SESSION,
+        "cited_url": ADD_URL,
+        "note": None,
+        "tape_why": None,
+        "override_tape": False,
+        "today": ASOF,
+        "near_days": 45,
+        "source_filing": _filing(),
+    }
+    kw.update(over)
+    return split_repo.add_steward(db, **kw)
+
+
+def _listed(db, sid, key: date, ratio_from, ratio_to, *, status=STATUS_CONFIRMED, effective=None):
+    """One split on the list, as the nightly wrote it. Commits."""
+    v = split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=key,
+        values={
+            "effective_date": effective or key,
+            "ratio_from": ratio_from,
+            "ratio_to": ratio_to,
+            "status": status,
+            "confirmed_via": "auto:sec+polygon" if status == STATUS_CONFIRMED else None,
+            "value_source": "sec",
+            "valid_from": key,
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    return v
+
+
+def test_an_added_split_carries_the_stewards_cited_values_and_the_filing_it_came_from(db):
+    sid = _security(db, "VRM")
+    v = _add(db, sid)
+    db.commit()
+    assert (v.status, v.confirmed_via, v.value_source, v.author, v.action) == (
+        STATUS_CONFIRMED,  # its first session is past
+        VIA_OPERATOR,
+        split_repo.SOURCE_STEWARD,
+        "operator",
+        split_repo.ACTION_ADD,
+    )
+    assert split_repo.ACTION_ADD == "add"
+    assert (v.key_date, v.effective_date, v.ratio_from, v.ratio_to, v.price_factor) == (
+        VRM_SESSION,
+        VRM_SESSION,
+        Decimal(5),
+        Decimal(1),
+        5,
+    )
+    assert (v.cited_url, v.tape_override) == (ADD_URL, False)
+    f = _filing()
+    assert (v.sec_accession, v.sec_form, v.sec_filed, v.sec_url, v.sec_document, v.sec_passage) == (
+        VRM_8K,
+        "8-K",
+        date(2025, 1, 2),
+        f["url"],
+        f["document"],
+        f["passage"],
+    )
+    assert (v.sec_ratio_from, v.sec_ratio_to, v.sec_abstain_reason) == (5, 1, VRM_REASON)
+    assert (v.sec_effective_date, v.sec_date_kind, v.polygon_id, v.polygon_split_from) == (
+        None,
+    ) * 4
+    assert v.note == f"{ADDED} From 8-K {VRM_8K} filed 2025-01-02: {VRM_REASON}."
+    # the filing states the same exact ratio: the split is public from the filing's day, never later
+    assert v.valid_from == date(2025, 1, 2)
+    assert split_repo.allowed_actions(v) == ["revoke"]
+    assert _n(db) == 1
+
+
+def test_an_added_split_whose_first_session_is_ahead_is_announced(db):
+    sid = _security(db, "VRM")
+    v = _add(db, sid, today=date(2025, 1, 14), note="the 8-K/A's own words")
+    db.commit()
+    assert (v.status, v.confirmed_via, v.value_source, v.note) == (
+        STATUS_ANNOUNCED,
+        VIA_OPERATOR,
+        "steward",
+        "the 8-K/A's own words",  # the steward's note, when given
+    )
+    assert split_repo.allowed_actions(v) == ["reject"]
+
+
+def test_an_added_split_needs_the_tape_or_an_override(db):
+    sid = _security(db, "VRM")
+    why = "no stored bar on 2025-01-15 (with one in the 14 days before it) to read"
+    with pytest.raises(SplitConflict, match="no stored bar on 2025-01-15"):
+        _add(db, sid, tape_why=why)
+    db.rollback()
+    assert _n(db) == 0
+    v = _add(db, sid, tape_why=why, override_tape=True)
+    db.commit()
+    assert (v.status, v.tape_override) == (STATUS_CONFIRMED, True)
+
+
+@pytest.mark.parametrize(
+    "over,valid_from",
+    [
+        ({}, date(2025, 1, 2)),  # the filing states the same ratio, filed before: its filing day
+        # the same exact ratio written another way (10 -> 2 == 5 -> 1)
+        ({"source_filing": _filing(ratio_from=Decimal(10), ratio_to=Decimal(2))}, date(2025, 1, 2)),
+        # the same ratio, filed AFTER the first session (a filing about a past split): the first session
+        ({"source_filing": _filing(filed=date(2025, 1, 20))}, VRM_SESSION),
+        # another ratio than the steward's: the first session (never early)
+        ({"source_filing": _filing(ratio_from=Decimal(4))}, VRM_SESSION),
+        # no ratio stated
+        ({"source_filing": _filing(ratio_from=None, ratio_to=None)}, VRM_SESSION),
+        # from a jump: the first session
+        ({"source_filing": None, "source_jump": _jump()}, VRM_SESSION),
+    ],
+)
+def test_an_added_splits_valid_from_is_never_early(db, over, valid_from):
+    sid = _security(db, "VRM")
+    v = _add(db, sid, **over)
+    db.commit()
+    assert v.valid_from == valid_from
+
+
+def test_an_add_from_a_jump_names_the_jump_and_carries_no_filing(db):
+    sid = _security(db, "VRM")
+    v = _add(db, sid, source_filing=None, source_jump=_jump())
+    db.commit()
+    assert v.note == f"{ADDED} From the split-shaped jump on 2025-01-15, x4.87."
+    assert (v.sec_accession, v.sec_ratio_from, v.sec_abstain_reason, v.polygon_id) == (None,) * 4
+    assert (v.status, v.value_source, v.action) == (STATUS_CONFIRMED, "steward", "add")
+
+
+def test_an_add_refuses_a_split_already_on_the_list(db):
+    """The duplicate guard (D-F2b): any version keyed on the first session, a live split whose first session it is,
+    or a LIVE split of the same exact ratio within ``near_days`` (the nightly's own merge window) — so a later system
+    decision lands on the steward's row, never on a twin. Each refusal writes nothing."""
+    sid = _security(db, "VRM")
+    rejected = _listed(db, sid, VRM_SESSION, 1, 2, status=STATUS_NEEDS_REVIEW)
+    split_repo.reject(db, rejected.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    n = _n(db)
+    with pytest.raises(SplitConflict, match="already keyed on 2025-01-15"):
+        _add(db, sid)  # a rejected split keyed on that day: act on it instead
+    db.rollback()
+    other = _security(db, "VRM2")
+    # a live split re-dated onto the first session (keyed a day earlier)
+    _listed(db, other, date(2025, 1, 14), 1, 2, status=STATUS_NEEDS_REVIEW, effective=VRM_SESSION)
+    with pytest.raises(SplitConflict, match="already listed on 2025-01-15"):
+        _add(db, other)
+    db.rollback()
+    third = _security(db, "VRM3")
+    _listed(db, third, date(2025, 2, 28), 10, 2)  # 1-for-5 again, 44 days later
+    with pytest.raises(SplitConflict, match="1-for-5 reverse split.*2025-02-28"):
+        _add(db, third)
+    db.rollback()
+    assert _n(db) == n + 2  # the two seeded splits only
+
+
+def test_the_duplicate_guard_reads_live_splits_of_the_same_ratio_within_the_window_only(db):
+    sid = _security(db, "VRM")
+    _listed(db, sid, date(2025, 3, 2), 5, 1)  # the same ratio, 46 days later
+    _listed(db, sid, date(2025, 1, 30), 1, 2)  # another ratio, 15 days later
+    rejected = _listed(db, sid, date(2025, 1, 20), 5, 1, status=STATUS_NEEDS_REVIEW)
+    split_repo.reject(db, rejected.id, tenant_id=DEFAULT_TENANT_ID)  # the same ratio, set aside
+    db.commit()
+    v = _add(db, sid)
+    db.commit()
+    assert v.status == STATUS_CONFIRMED and v.action == "add"
+
+
+def test_an_add_refuses_bad_values_and_an_unknown_security(db):
+    sid = _security(db, "VRM")
+    for over, err, match in (
+        ({"ratio_to": Decimal(5)}, ValueError, "not a split ratio"),
+        ({"ratio_from": Decimal(0)}, ValueError, "not a split ratio"),
+        ({"cited_url": ""}, ValueError, "cited URL"),
+        ({"source_jump": _jump()}, ValueError, "exactly one"),  # both a filing and a jump
+        ({"source_filing": None}, ValueError, "exactly one"),  # neither: no bare add (D-F2a)
+        ({"security_id": uuid.uuid4()}, LookupError, "no security"),
+    ):
+        with pytest.raises(err, match=match):
+            _add(db, sid, **over)
+        db.rollback()
+    new_workspace(db, "split-add-test", workspace_id=OTHER_TENANT)
+    theirs = _security(db, "VRM", tenant=OTHER_TENANT)
+    with pytest.raises(LookupError, match="no security"):
+        _add(db, theirs)  # another tenant's security, named on the data tenant
+    db.rollback()
+    assert _n(db) == 0
+
+
+def test_an_added_split_is_undone_and_returned_by_the_existing_verbs(db):
+    sid = _security(db, "VRM")
+    v = _add(db, sid)
+    db.commit()
+    r = split_repo.revoke(db, v.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert (r.status, split_repo.prior_status(db, r)) == (STATUS_REVOKED, STATUS_CONFIRMED)
+    back = split_repo.restore(db, r.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert back.content() == v.content()  # the cited values, the URL and the filing come back
+    other = _security(db, "VRM2")
+    a = _add(db, other, today=date(2025, 1, 10))
+    db.commit()
+    rj = split_repo.reject(db, a.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert (
+        not split_repo.is_auto_set_aside(rj) and split_repo.prior_status(db, rj) == STATUS_ANNOUNCED
+    )
+    again = split_repo.restore(db, rj.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert again.status == STATUS_ANNOUNCED and again.content() == a.content()
+    assert _n(db) == 6  # every verb one version; nothing updated, nothing deleted
+
+
+def test_the_nightly_and_the_backfill_never_list_a_twin_of_an_added_split(db):
+    """A later SEC-only decision of the same ratio within the nightly's 45-day window lands on the steward's row:
+    KEPT (other values) or UNCHANGED (the same), never a second row; the backfill keeps it as the operator's.
+    """
+    from domain.splits import SecEvidence, decide_sec_only
+    from pipeline import backfill_splits as bf
+    from pipeline import detect_splits as ds
+
+    sid = _security(db, "VRM")
+    added = _add(db, sid)
+    db.commit()
+    stored = split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID, security_ids=[sid])
+    m = bf.Member(DEFAULT_TENANT_ID, sid, "VRM", None, None)
+    for first, action in ((date(2025, 1, 27), ds.KEPT), (VRM_SESSION, ds.UNCHANGED)):
+        later = SecEvidence(
+            accession="0001193125-25-009999",
+            form="8-K",
+            filed=date(2025, 1, 20),
+            url="https://www.sec.gov/Archives/edgar/data/1580864/000119312525009999/",
+            ratio_from=Decimal(5),
+            ratio_to=Decimal(1),
+            effective_date=first,
+            date_kind="trading",
+            passage="a 1-for-5 reverse stock split",
+        )
+        tonight = decide_sec_only([later], asof=date(2025, 1, 21))
+        (p,) = ds.plan_against(
+            ds.SecurityDetection(member=m, decisions=[tonight]),
+            stored,
+            asof=date(2025, 1, 21),
+            distribution_max_factor=None,
+            label_overrides_abstain=False,
+        )
+        assert (p.action, p.stored.id, p.reason) == (
+            action,
+            added.id,
+            "the operator's decision stands",
+        )
+        planned = bf.PlannedSplit(member=m, decision=tonight, stored=None, action=bf.APPEND)
+        bf.plan_against_stored([planned], {sid: stored})
+        assert (planned.action, planned.stored.id) == (bf.OPERATOR_KEPT, added.id)
+    assert _n(db) == 1

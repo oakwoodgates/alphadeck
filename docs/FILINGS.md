@@ -29,8 +29,7 @@ and when it became public is in [DATA_SOURCES](DATA_SOURCES.md); what fires from
 
 **What every filing leg shares.** Each leg enumerates from the company's own submissions JSON, one cached read
 the legs share, so the 8-K, 13D/G and index legs cost no extra enumeration request; a filing document is fetched
-once into the immutable `forms/` cache. Only the `filings.recent` window is read ([DATA_SOURCES known
-limits](DATA_SOURCES.md#known-limits)). Rows are append-only (`no_update` triggers); `recorded_at` is the
+once into the immutable `forms/` cache. Rows are append-only (`no_update` triggers); `recorded_at` is the
 database's `now()`; `valid_from` is the filing's public date. Everything is stored and policy is applied on
 read, so a 13G, an 8-K item outside the detector cut or a succession report stays on the tape for a later reader
 without a re-ingest (invariant 9). Every fact table here is platform data in the data tenant.
@@ -212,30 +211,32 @@ in `domain/config.py`).
 
 ## Split filings
 
-The split list (`security_split`) confirms a split only when two independent sources agree exactly on ratio and
-first session (`domain/splits.decide`); the company's own filing is one source, Massive.com's split reference
-the other. The filings read: 8-Ks under items 3.03 and 5.03 (the charter amendment) and 7.01 and 8.01 (a split
-with no charter amendment), 6-Ks and Reg A forms (`backfill_splits.SPLIT_8K_ITEMS`, `SEC_FORMS`). Each is fetched
-once as its full submission and read by the deterministic extractor `ingest/edgar/split_filing.py`, which keeps
-the located passage verbatim.
+The split list (`security_split`) confirms a split only when two independent sources, the company's own filing
+and Massive.com's split reference, agree exactly on ratio and first session (`domain/splits.decide`). The filings
+read: 8-Ks under items 3.03 and 5.03 (a charter amendment) and 7.01 and 8.01 (without
+one), 6-Ks and Reg A forms (`backfill_splits.SPLIT_8K_ITEMS`, `SEC_FORMS`). Each is read once, as its full
+submission, by the deterministic extractor `ingest/edgar/split_filing.py`, keeping the located passage verbatim.
 
 - **Screens.** A date more than `HISTORICAL_GAP_DAYS` before the filing is a past split's, never this
   filing's. A 6-K or charter 8-K goes through the restatement screen (`extract_split_screened`), which only
-  removes readings, so a report restating an old split never lists it as new. Each filing is read knowing the
-  company's splits already confirmed on the list (`backfill_splits.known_for`): a ratio equal to one, stated as
-  done, is that past split's whatever its age.
+  removes readings: a report restating an old split never lists it as new. Each filing is read knowing the
+  company's confirmed splits (`backfill_splits.known_for`): a ratio equal to one, stated as done, is that past
+  split's whatever its age.
 - **The wide-form reader.** A Massive.com split with no agreeing filing in its window gets one more look at the
   company's periodic reports, ADR registrations, prospectuses and information statements around its first
-  session (`WIDE_FORMS`; a periodic report from its primary document only). It is a confirmation search, never
-  run nightly for every company.
+  session (`WIDE_FORMS`; a periodic report's primary document only): a confirmation search, never nightly for
+  every company.
 - **Distributions.** A forward split under x1.5 that only Massive.com lists, with no filing in its window
   stating it or mentioning a split, is set aside as a distribution (`distribution_reason`; settings
   `split_distribution_auto_set_aside`, `split_distribution_max_factor`). A wide form can still confirm it. So
   is one Massive.com labels a stock dividend whose filing mentions a split without a ratio
   (`split_distribution_label_overrides_abstain`); a filing that states it still sends it to review.
-- **Who runs it.** `pipeline/detect_splits.py` checks each company nightly inside its ingest, before its price
-  leg; the stored price tape can confirm a split one documentary source states, never alone.
-  `pipeline/split_history.py` gives a company that joins a basket its history from the onboarding job.
+- **Demote** (`split_calloff_demote`, off): a call-off stating the ratio, filed by the first session, sends a split
+  to review.
+- **Who runs it.** `pipeline/detect_splits.py` runs in each company's nightly ingest, before its price leg; the
+  stored tape confirms a split only beside one documentary source. Unplaced filings go on the run artifact with
+  link, passage and ratio (`--record` keeps a long-window run's), as does one contradicting that night's plan
+  (and a new row's note). `pipeline/split_history.py` backfills an onboarding company's splits;
   `pipeline.backfill_splits` is the operator's CLI. Nothing a steward decided is overwritten; the steward reviews
   the list on Admin ("Splits").
 
@@ -251,7 +252,6 @@ out of the replay mirror (`db.bitemporal.DISPLAY_ONLY_FACT_TABLES`), and its fai
 
 - `fact_insider_txn`, `insider_amendment*`, `insider_txn_hold*`, `fact_corporate_event`, `fact_activist_stake` and
   `fact_filing_index` are append-only; a correction is a new version or an append-only decision stamped `now()`.
-  Nothing here deletes a row.
 - One read seam (`ResolutionInputs.resolve`) for Postgres and the replay mirror; the parity tests under
   `tests/replay/` (`test_pit_insider_amendments.py`, `test_pit_joint_reports.py`,
   `test_pit_internal_transfers.py`) hold them row for row.

@@ -13,6 +13,10 @@ change: every candidate here was a FLAG and stays one.
 - ``ytd-derived-across-filings``: with no earlier year to date of the same start, one of the same tag whose start is
   at most ``ExtractorConfig.ytd_start_slack_days`` away is subtracted (FUBO's 10-K year starts 2025-09-28, its 10-Qs' 2025-10-01).
   A wider start gap (AMSC's mis-tagged 2026-01-01, 90 days off) or another tag (KULR) stays ``ytd-raw``.
+- A quarter that generated cash against a burning year to date (F7, behind
+  ``ExtractorConfig.one_time_cash_positive_quarter``, which ships OFF): with the dial on it is ``possible-one-time``
+  too, on the operating cash flow's printed year-to-date line (XNCR's milestone quarter and LEXX's tax-credit
+  quarter, from ``../cash_guards/``). Off, nothing changes.
 
 The fixture candidates are read with W1-AUTO's A6 dial off (``_W14``): with it on FEIM's aggregate working-capital line
 is routine and only its second line trips (``test_extract_auto_cases.py``).
@@ -32,6 +36,7 @@ from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from ingest.edgar import extract as ex
 from ingest.edgar.converts import clean_filing_text
 from platform_values.machine import plan
+from tests.ingest.test_extract_cash_guards import _cash
 
 _FX = Path(__file__).resolve().parent.parent / "fixtures" / "sec_extractor" / "burn_flags"
 # W1-4's behaviour: the aggregate working-capital line can trip ``possible-one-time`` (W1-AUTO's A6 off)
@@ -347,3 +352,140 @@ def test_tier_and_machine_plan_are_unchanged_on_every_fixture(ticker, raw):
     assert c.tier is Tier.FLAG
     p = plan(ExtractionResult(facts=[c]), "cash_burn", today=date(2026, 11, 25))
     assert p.kind == "flag"
+
+
+# --- a cash-positive quarter against a burning year to date (F7; the dial ships OFF) ------------------------------
+#
+# The line rule above reads only reconciliation lines, so an inflow booked in net income (a milestone in revenue, a tax
+# credit in other income) trips nothing. ``ExtractorConfig.one_time_cash_positive_quarter`` (R1) also flags a quarter
+# that generated cash while its year to date burned. Turning it on reverses operator decision D3 for this shape (the
+# pace is a visible caveat, never a queued flag): it ships off, and the pace caveat is the same either way.
+
+
+def _on() -> ExtractorConfig:
+    return ExtractorConfig(one_time_cash_positive_quarter=True)
+
+
+_DAY = date(2026, 11, 25)
+
+
+def _r1(quarter: str, pace: str) -> str:
+    return (
+        f"possible-one-time: the quarter generated {quarter} while the year to date burned {pace} a quarter; an "
+        "inflow booked in net income (a milestone, a grant, a tax credit, a sale) moves no reconciliation line — "
+        "check the income statement"
+    )
+
+
+def _plan_kind(f: ExtractedFact) -> str:
+    return plan(ExtractionResult(facts=[f]), "cash_burn", today=_DAY).kind
+
+
+def test_the_cash_positive_quarter_dial_ships_off():
+    assert ExtractorConfig().one_time_cash_positive_quarter is False
+
+
+def test_xncr_milestone_quarter_is_possible_one_time_with_the_dial_on():
+    """XNCR's 10-Q 0001326732-26-000063: third-quarter operating cash flow +2,642K against nine months -120,644K (about
+    40.5M a quarter burned). The 25.0M Astellas milestone is revenue, tagged only as a dimensioned fact: no
+    reconciliation line moves. With the dial on the applied AUTO value is a FLAG; the sentence names both figures and
+    the passage sits on the printed nine-month line. The pace caveat is the one it was."""
+    off, on = _cash("XNCR"), _cash("XNCR", _on())
+    assert (off.tier, off.flags) == (Tier.AUTO, [])
+    assert (on.tier, on.flags) == (Tier.FLAG, ["possible-one-time"])
+    assert (on.cash_usd, on.quarterly_burn_usd, on.ytd_quarterly_burn_usd) == (
+        555_690_000,
+        -2_642_000,
+        40_501_122,
+    )
+    assert _r1("$2.6M", "$40.5M") in on.note
+    (only,) = _one_time_passages(on)
+    assert only.anchor == "Net cash used in operating activities (120,644)"
+    assert on.pace_caveat == off.pace_caveat
+    assert on.pace_caveat == (
+        "Last quarter was cash-positive ($2.6M), but the year to date burned $40.5M a quarter: about 41.2 months of "
+        "runway at that pace."
+    )
+    assert (_plan_kind(off), _plan_kind(on)) == ("auto", "flag")
+
+
+def test_lexx_tax_credit_quarter_is_possible_one_time_with_the_dial_on():
+    """LEXX's 10-K 0001640334-26-001880: the fourth quarter is the year -3,739,757 minus nine months -4,782,990 =
+    +1,043,233 generated, against a year burning about 938K a quarter. The 2,464,313 R&D tax credit sits in other
+    income under a custom tag. Already a FLAG (``investments-unconfirmed``); the dial adds its flag beside it.
+    """
+    off, on = _cash("LEXX"), _cash("LEXX", _on())
+    assert (off.tier, off.flags) == (Tier.FLAG, ["investments-unconfirmed"])
+    assert on.tier is Tier.FLAG
+    assert sorted(on.flags) == ["investments-unconfirmed", "possible-one-time"]
+    assert (on.cash_usd, on.quarterly_burn_usd, on.ytd_quarterly_burn_usd) == (
+        4_737_396,
+        -1_043_233,
+        938_150,
+    )
+    assert _r1("$1.0M", "$938.1K") in on.note
+    (only,) = _one_time_passages(on)
+    assert only.anchor == "Net cash used in operating activities $(3,739,757)"
+    assert on.pace_caveat == off.pace_caveat
+
+
+_STATEMENT = (
+    "Cash flows from operating activities: Net loss ( 45,000 ) Net cash used in operating activities ( 30,000 ) "
+    "( 52,000 )"
+)
+
+
+def _derived(ytd: float, prior: float, cfg: ExtractorConfig, **lines: float) -> ExtractedFact:
+    """A derived third quarter: nine months ``ytd`` minus six months ``prior`` of operating cash flow (positive =
+    generated); ``lines`` are reconciliation lines tagged for the quarter itself."""
+    facts = _facts(
+        [_dur("2026-01-01", "2026-09-30", ytd), _dur("2026-01-01", "2026-06-30", prior)],
+        {c: [_dur("2026-06-30", "2026-09-30", v)] for c, v in lines.items()},
+    )
+    return ex._cash_burn(facts, _STATEMENT, "https://x/10q.htm", date(2026, 9, 30), cfg)
+
+
+def test_a_cash_positive_quarter_against_a_burning_year_is_flagged_on_the_printed_line():
+    """Nine months -30M, six months -40M: the quarter generated 10M while the year burned about 10.1M a quarter."""
+    c = _derived(-30e6, -40e6, _on())
+    assert (c.tier, c.flags, c.quarterly_burn_usd) == (Tier.FLAG, ["possible-one-time"], -10e6)
+    assert _r1("$10.0M", "$10.1M") in c.note
+    (only,) = _one_time_passages(c)
+    assert only.anchor == "Net cash used in operating activities (30,000)"
+
+
+@pytest.mark.parametrize(
+    "ytd, prior, burn",
+    [
+        pytest.param(30e6, 20e6, -10e6, id="both-generated-cash"),  # no runway, nothing to flag
+        pytest.param(-60e6, -30e6, 30e6, id="both-burned"),
+        # the quarter burned against a cash-generating year to date: the pace caveat's other case
+        pytest.param(10e6, 30e6, 20e6, id="burning-quarter-cash-positive-year"),
+    ],
+)
+def test_only_a_cash_positive_quarter_against_a_burning_year_is_flagged(ytd, prior, burn):
+    c = _derived(ytd, prior, _on())
+    assert (c.tier, c.flags, c.quarterly_burn_usd) == (Tier.AUTO, [], burn)
+
+
+def test_a_first_fiscal_quarter_has_no_pace_and_no_flag():
+    """A native first quarter has no separate year to date, so no pace to burn against."""
+    facts = _facts([_dur("2026-07-01", "2026-09-30", 5e6)])
+    c = ex._cash_burn(facts, _STATEMENT, "https://x/10q.htm", date(2026, 9, 30), _on())
+    assert c.ytd_quarterly_burn_usd is None
+    assert (c.tier, c.flags) == (Tier.AUTO, [])
+
+
+def test_a_quarter_the_line_rule_already_flagged_names_both_reasons_once():
+    c = _derived(-30e6, -40e6, _on(), IncreaseDecreaseInAccruedLiabilities=9e6)
+    assert c.flags == ["possible-one-time"]
+    assert "possible-one-time: IncreaseDecreaseInAccruedLiabilities $9.0M" in c.note
+    assert _r1("$10.0M", "$10.1M") in c.note
+
+
+def test_with_the_dial_off_the_shape_is_applied_as_before_with_its_pace_caveat():
+    off = _derived(-30e6, -40e6, ExtractorConfig())
+    assert (off.tier, off.flags) == (Tier.AUTO, [])
+    assert "moves no reconciliation line" not in off.note
+    assert (off.pace_caveat or "").startswith("Last quarter was cash-positive")
+    assert off.pace_caveat == _derived(-30e6, -40e6, _on()).pace_caveat

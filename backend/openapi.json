@@ -4200,7 +4200,7 @@
           "admin"
         ],
         "summary": "List Splits",
-        "description": "Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:\nneeds review (loud), announced / confirmed / rejected-or-revoked (quiet) \u2014 and the split-shaped price jumps\non basket names that no source listed, after the split-night hold released them (the operator's \"is this\nreal?\"). Read-only.",
+        "description": "Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:\nneeds review (loud), announced / confirmed / rejected-or-revoked (quiet) \u2014 the split-shaped price jumps\non basket names that no source listed, after the split-night hold released them (the operator's \"is this\nreal?\"), and the SEC filings about a split the list could not place, each with the listed split nearest it.\nEach split awaiting review or announced names the listed splits of its exact ratio near it; any split names the\nfilings that call it off. Read-only.",
         "operationId": "list_splits_admin_splits_get",
         "responses": {
           "200": {
@@ -4209,6 +4209,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AdminSplitListOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Add Split",
+        "description": "ADD a split NO source lists, with the steward's cited values (framework completion F2-1): ``ratio_from`` ->\n``ratio_to``, ``first_session`` and the ``cited_url`` of the document that states them become a new split on the\nlist (``action`` ``add``, ``value_source`` ``steward``; ``confirmed``, or ``announced`` while the first session is\nahead). It starts from exactly one signal: ``from_accession`` (a filing on the current unplaced list, its\nevidence copied by the server) or ``from_jump`` (a jump on the current \"is this real?\" list). The server reads the\nstored tape's step at ``first_session`` as first served and refuses a factor outside the tape tolerance, or a\nsession with no bar, unless ``override_tape`` (stored as ``tape_override``). Undo with ``POST\n/admin/splits/{version_id}/revoke`` (``/reject`` while announced). **404** unknown security, **409** the filing\nor jump is not listed or was dismissed / a split is already keyed or listed on that session / a live split of the\nsame ratio is listed within 45 days / the tape does not support the values, **422** not exactly one signal, a bad\nratio, date, URL or accession.",
+        "operationId": "add_split_admin_splits_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminSplitAddIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitListEntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -4287,6 +4327,100 @@
               "type": "string",
               "format": "uuid",
               "title": "Version Id"
+            }
+          },
+          {
+            "name": "first_session",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "the first session at the new price",
+              "title": "First Session"
+            },
+            "description": "the first session at the new price"
+          },
+          {
+            "name": "ratio_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,6}(\\.\\d{1,10})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "old shares (decimal text)",
+              "title": "Ratio From"
+            },
+            "description": "old shares (decimal text)"
+          },
+          {
+            "name": "ratio_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,6}(\\.\\d{1,10})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "new shares (decimal text)",
+              "title": "Ratio To"
+            },
+            "description": "new shares (decimal text)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitTapeStepOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/securities/{security_id}/tape-step": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Security Tape Step",
+        "description": "The stored tape's STEP at ``first_session`` for a security with no split listed there yet, each bar as first\nserved, beside the factor ``ratio_from`` -> ``ratio_to`` the steward entered (both or neither): what ``POST\n/admin/splits`` checks, the same reading as ``GET /admin/splits/{version_id}/tape-step``. **404** unknown\nsecurity, **422** one side of the ratio only. Read-only.",
+        "operationId": "security_tape_step_admin_splits_securities__security_id__tape_step_get",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
             }
           },
           {
@@ -4698,6 +4832,140 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AdminSplitJumpOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/unplaced/{security_id}/{accession}/dismiss": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Dismiss Unplaced",
+        "description": "DISMISS an unplaced split filing \u2014 the steward says it is NOT A SPLIT TO LIST (author ``operator:dismiss``,\nappend-only). It leaves ``unplaced`` and is listed under ``unplaced_dismissed``; display only (no split,\nhold or call changes). Undo with ``POST /admin/splits/unplaced/dismissals/{dismissal_id}/undo``. **404** the\nfiling is not on the unplaced list, **409** already dismissed, **422** a malformed accession.",
+        "operationId": "dismiss_unplaced_admin_splits_unplaced__security_id___accession__dismiss_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "accession",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{10}-\\d{2}-\\d{6}$",
+              "description": "the filing's SEC accession number",
+              "title": "Accession"
+            },
+            "description": "the filing's SEC accession number"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminSplitJumpReasonIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitUnplacedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/unplaced/dismissals/{dismissal_id}/undo": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Undo Unplaced Dismissal",
+        "description": "UNDO a filing's dismissal (author ``operator:undo``, append-only): the filing is back on ``unplaced``.\n**404** unknown dismissal, or its filing is no longer on the unplaced list (nothing written), **409** already\nundone.",
+        "operationId": "undo_unplaced_dismissal_admin_splits_unplaced_dismissals__dismissal_id__undo_post",
+        "parameters": [
+          {
+            "name": "dismissal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dismissal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminSplitJumpReasonIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitUnplacedOut"
                 }
               }
             }
@@ -12528,6 +12796,14 @@
             "title": "Split Defects New",
             "default": []
           },
+          "split_called_off_new": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Split Called Off New",
+            "default": []
+          },
           "pass_total_s": {
             "anyOf": [
               {
@@ -12580,7 +12856,7 @@
           "catch_up"
         ],
         "title": "AdminRunOut",
-        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches_completed == 0`` on a live run over the theses it processed \u2014 O5 \u2014 or, on an artifact\nthat recorded the ratio floor, fewer than that floor of its EDGAR-eligible companies with fresh SEC\ndata), withheld calls, thesis errors, and a failed BENCHMARK refresh (the shared SPY/IWM tape\n``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults used to reach stdout only) surface on\nevery row \u2014 a bad run can never hide behind a green history. The benchmark counts live on the artifact\nfor exactly that reason; a row written before they existed reads clean, never broken. ``mode`` is\n``\"live\" | \"no-live\"`` (the R2 recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC\nISO). ``catch_up`` = a ``--catch-up`` pass (the sidecar's boot / late-wake catch-up); an artifact\nwritten before the key existed reads ``False``.\n\nO5 \u2014 ``edgar_fetches`` is the EDGAR pulls the pass ATTEMPTED; ``edgar_fetches_completed`` the ones that\nreturned data, which is what the freeze verdict reads (an empty User-Agent once made 255 attempts and\n0 completions, and the attempt count read healthy). ``null`` on an artifact written before O5: that row\nkeeps the verdict it was paged under (attempts, with a catch-up exempt wholesale).\n\nPhase 1B (each ``null`` / empty on an artifact written before it existed \u2014 never an alarm by absence):\n``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env\nfingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) \u2014 a failed check is a ``problems`` line\nand makes ``healthy`` false; ``name_errors_new`` are the ``\"<ticker> (<leg>)\"`` labels of names whose\ningest leg started failing that night (O1 \u2014 a ``problems`` line with the benign marker: the thesis\nstill recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass\nbefore.\n\n``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the\nnight already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact\nwritten before M2.\n\n``split_defects_new`` (T4) are the labels of the split-basis defects that pass flagged as NEW\n(``\"<ticker> <kind> x<factor> (<date>)\"`` \u2014 a ``problems`` line with the benign marker: a vendor tape\ndefect, flag only).\n\nX5 (measurement only, from the artifact's ``timings`` block \u2014 ``pipeline/pass_timings.py``):\n``pass_total_s`` is the WHOLE pass's wall time, the legs after the per-thesis loop included (unlike\n``duration_s``, which ends with the loop); ``top_leg`` / ``top_leg_s`` name the leg it spent the most\ntime in (``other`` = time no named leg claimed). All ``null`` on an artifact written before X5."
+        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches_completed == 0`` on a live run over the theses it processed \u2014 O5 \u2014 or, on an artifact\nthat recorded the ratio floor, fewer than that floor of its EDGAR-eligible companies with fresh SEC\ndata), withheld calls, thesis errors, and a failed BENCHMARK refresh (the shared SPY/IWM tape\n``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults used to reach stdout only) surface on\nevery row \u2014 a bad run can never hide behind a green history. The benchmark counts live on the artifact\nfor exactly that reason; a row written before they existed reads clean, never broken. ``mode`` is\n``\"live\" | \"no-live\"`` (the R2 recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC\nISO). ``catch_up`` = a ``--catch-up`` pass (the sidecar's boot / late-wake catch-up); an artifact\nwritten before the key existed reads ``False``.\n\nO5 \u2014 ``edgar_fetches`` is the EDGAR pulls the pass ATTEMPTED; ``edgar_fetches_completed`` the ones that\nreturned data, which is what the freeze verdict reads (an empty User-Agent once made 255 attempts and\n0 completions, and the attempt count read healthy). ``null`` on an artifact written before O5: that row\nkeeps the verdict it was paged under (attempts, with a catch-up exempt wholesale).\n\nPhase 1B (each ``null`` / empty on an artifact written before it existed \u2014 never an alarm by absence):\n``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env\nfingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) \u2014 a failed check is a ``problems`` line\nand makes ``healthy`` false; ``name_errors_new`` are the ``\"<ticker> (<leg>)\"`` labels of names whose\ningest leg started failing that night (O1 \u2014 a ``problems`` line with the benign marker: the thesis\nstill recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass\nbefore.\n\n``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the\nnight already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact\nwritten before M2.\n\n``split_defects_new`` (T4) are the labels of the split-basis defects that pass flagged as NEW\n(``\"<ticker> <kind> x<factor> (<date>)\"`` \u2014 a ``problems`` line with the benign marker: a vendor tape\ndefect, flag only).\n\n``split_called_off_new`` (F10) are the labels of the listed splits that a filing the pass read NEWLY called\noff (``\"<ticker> <ratio> (<status>, first session <date>): called off by <form> <accession> (filed <date>)\"``\n\u2014 a ``problems`` line with the benign marker: display only, the steward settles it on the Splits panel); empty\non a run written before it.\n\nX5 (measurement only, from the artifact's ``timings`` block \u2014 ``pipeline/pass_timings.py``):\n``pass_total_s`` is the WHOLE pass's wall time, the legs after the per-thesis loop included (unlike\n``duration_s``, which ends with the loop); ``top_leg`` / ``top_leg_s`` name the leg it spent the most\ntime in (``other`` = time no named leg claimed). All ``null`` on an artifact written before X5."
       },
       "AdminRunsOut": {
         "properties": {
@@ -12596,6 +12872,201 @@
         "type": "object",
         "title": "AdminRunsOut",
         "description": "The run history \u2014 parsed run-of-record artifacts, newest first. An unreadable artifact is\nSKIPPED fail-open (a corrupt night never blanks the history)."
+      },
+      "AdminSplitAddIn": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ratio_from": {
+            "type": "string",
+            "pattern": "^\\d{1,6}(\\.\\d{1,10})?$",
+            "title": "Ratio From"
+          },
+          "ratio_to": {
+            "type": "string",
+            "pattern": "^\\d{1,6}(\\.\\d{1,10})?$",
+            "title": "Ratio To"
+          },
+          "first_session": {
+            "type": "string",
+            "format": "date",
+            "title": "First Session"
+          },
+          "cited_url": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Cited Url"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "override_tape": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Tape"
+          },
+          "from_accession": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{10}-\\d{2}-\\d{6}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Accession"
+          },
+          "from_jump": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Jump"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ratio_from",
+          "ratio_to",
+          "first_session",
+          "cited_url"
+        ],
+        "title": "AdminSplitAddIn",
+        "description": "A split NO source lists, added by the steward (framework completion F2-1) with cited values: ``security_id``,\n``ratio_from`` old shares -> ``ratio_to`` new shares (decimal text, above 0 and at most 100,000, never equal),\n``first_session`` = the first session at the new price, ``cited_url`` = the https URL of the document that\nstates them (required), ``note`` (optional). It starts from exactly one signal: ``from_accession`` = an SEC\nfiling on the current unplaced list (its evidence is read by the server, never sent), or ``from_jump`` = the\nstep date of a split-shaped jump on the current \"is this real?\" list. ``override_tape`` = add although the stored\ntape's step at that session sits outside the tolerance of the entered factor, or no bar can be read (the server\nchecks it either way: ``GET /admin/splits/securities/{security_id}/tape-step``)."
+      },
+      "AdminSplitCalledOffOut": {
+        "properties": {
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "ratio_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio Label"
+          },
+          "same_ratio": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same Ratio"
+          },
+          "days_from": {
+            "type": "integer",
+            "title": "Days From"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document"
+          },
+          "passage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passage"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "nightly",
+              "check"
+            ],
+            "title": "Source"
+          },
+          "seen_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Seen On"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accession",
+          "form",
+          "filed",
+          "kind",
+          "ratio_label",
+          "same_ratio",
+          "days_from",
+          "document",
+          "passage",
+          "source",
+          "seen_on"
+        ],
+        "title": "AdminSplitCalledOffOut",
+        "description": "A filing that CALLS OFF a listed split (framework completion F10): it says the split will not go ahead (\"would\nnot be effecting the reverse stock split\") or that its vote failed, as the nightly's newest run (``source``\n``nightly``) or the long-window check's newest record (``check``) read it; ``seen_on`` = the day that run read.\nMatched when the list is read, by the one matcher (``domain.split_calloffs``) under the ``split_calloff_*``\nsettings: filed on one of their forms, from the split's announcement to its first session plus their days, any\nratio or only the same one. ``kind`` = ``decision`` (the company says it will not effect it) or ``failed_vote``;\n``ratio_label`` = the ratio the call-off states (``null``: none); ``same_ratio`` = it is the split's exact ratio\n(``null`` when none is stated); ``days_from`` = its filing date minus the split's first session, signed; ``url``\n= the filing index; ``document`` / ``passage`` = the located call-off passage, verbatim. Display only."
       },
       "AdminSplitConfirmValuesIn": {
         "properties": {
@@ -13106,6 +13577,34 @@
                 "type": "null"
               }
             ]
+          },
+          "same_ratio_listed": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AdminSplitListedNearOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same Ratio Listed"
+          },
+          "called_off": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AdminSplitCalledOffOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called Off"
           }
         },
         "type": "object",
@@ -13128,7 +13627,7 @@
           "valid_from"
         ],
         "title": "AdminSplitListEntryOut",
-        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3): ``cited_url`` is the\ndocument that states them, ``tape_override`` whether the steward confirmed past the stored tape's step (both\n``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on\nthe list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before\nit adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or\nnone dated before the first session)."
+        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.\n``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state\ndifferent values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states\nboth a ratio and a date). ``value_source`` ``steward`` = the steward's own cited values (D3; ``action`` ``add``: a\nsplit the steward added that no source lists): ``cited_url`` is the document that states them, ``tape_override``\nwhether the steward confirmed or added past the stored tape's step (both\n``null`` on every other split). ``first_bar`` / ``shares_rescaled`` (W2-8; a needs-review or announced split on\nthe list read, ``null`` elsewhere) = the security's first stored bar (a split whose first session is on or before\nit adjusts no stored bar) and the share count a confirm would put on the new scale (``null``: none on file, or\nnone dated before the first session). ``same_ratio_listed`` (F8-3; a needs-review or announced split on the list\nread, ``null`` elsewhere and when none) = the other splits on the list of its exact ratio whose first session is\nwithin 180 days of its own, nearest first, at most two; display only, nothing merges them. ``called_off`` (F10;\nany status, ``null`` when none, or with the warning off) = the filings that call it off, those stating its ratio\nfirst; display only."
       },
       "AdminSplitListOptionOut": {
         "properties": {
@@ -13228,11 +13727,43 @@
             },
             "type": "array",
             "title": "Dismissed Jumps"
+          },
+          "unplaced": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitUnplacedOut"
+            },
+            "type": "array",
+            "title": "Unplaced"
+          },
+          "unplaced_dismissed": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitUnplacedOut"
+            },
+            "type": "array",
+            "title": "Unplaced Dismissed"
+          },
+          "unplaced_runs": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitUnplacedRunOut"
+            },
+            "type": "array",
+            "title": "Unplaced Runs"
+          },
+          "unplaced_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unplaced Error"
           }
         },
         "type": "object",
         "title": "AdminSplitListOut",
-        "description": "The \"Splits\" panel. ``needs_review`` is the one LOUD list (one source could not settle it);\n``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``\n(rejected / revoked \u2014 kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.\n``unlisted_jumps`` (S5) \u2014 split-shaped jumps on basket names that the split-night hold has released and no\nsource ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).\n``dismissed_jumps`` \u2014 the ones the operator dismissed as a real move (still listed, behind the panel's\n\"dismissed\" filter; each undoable)."
+        "description": "The \"Splits\" panel. ``needs_review`` is the one LOUD list (one source could not settle it);\n``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``\n(rejected / revoked \u2014 kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.\n``unlisted_jumps`` (S5) \u2014 split-shaped jumps on basket names that the split-night hold has released and no\nsource ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).\n``dismissed_jumps`` \u2014 the ones the operator dismissed as a real move (still listed, behind the panel's\n\"dismissed\" filter; each undoable). ``unplaced`` \u2014 SEC filings about a split the list could not place, newest\nfiling first; ``unplaced_dismissed`` \u2014 the ones the steward dismissed (each undoable); ``unplaced_runs`` \u2014 the\nruns they were read from; ``unplaced_error`` when that read failed or passed over an unreadable file (shown,\nnever hidden; a failed read names no call-off)."
       },
       "AdminSplitListPolygonOut": {
         "properties": {
@@ -13451,6 +13982,65 @@
         ],
         "title": "AdminSplitListSecOut",
         "description": "The SEC filing behind a split: the extractor's reading and the LOCATED passage, verbatim.\n``date_kind`` = ``trading`` (the filing states the first session) or ``legal`` (a legal effective date);\n``abstain_reason`` = why no single ratio was read."
+      },
+      "AdminSplitListedNearOut": {
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Version Id"
+          },
+          "key_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Key Date"
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "same_ratio": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same Ratio"
+          },
+          "cites_filing": {
+            "type": "boolean",
+            "title": "Cites Filing"
+          },
+          "days_from": {
+            "type": "integer",
+            "title": "Days From"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version_id",
+          "key_date",
+          "effective_date",
+          "label",
+          "status",
+          "same_ratio",
+          "cites_filing",
+          "days_from"
+        ],
+        "title": "AdminSplitListedNearOut",
+        "description": "The split on the list nearest a filing or a split (display only; no decision reads it): its NEWEST version,\nany status. ``label`` = its ratio in words; ``same_ratio`` = it is the exact ratio the filing (or the split)\nstates (``null`` when the filing states none); ``cites_filing`` = its SEC filing IS this filing (beside a split:\nthat split's own SEC filing); ``days_from`` = its first session minus the reference date (an unplaced filing's\nfiling date, or a split's first session), signed."
       },
       "AdminSplitOut": {
         "properties": {
@@ -13886,6 +14476,252 @@
         ],
         "title": "AdminSplitTapeStepOut",
         "description": "The stored tape at a first session, beside the factor the steward entered (D3) \u2014 what the confirm-values\nroute checks. Each bar is read as the vendor FIRST served it (``pipeline.detect_splits.tape_at``: the bar on\n``first_session`` and the stored bar before it, at most 14 days back). ``step`` = close / prior close;\n``volume_ratio`` = volume / prior volume. ``price_factor`` = old / new shares of the entered ratio (``null``\nwhen none was entered); ``step_low`` .. ``step_high`` = the steps ``tolerance`` (``domain.splits.\nTAPE_TOLERANCE``, in ln, either direction) accepts around it. ``within_tolerance`` = the step sits inside\n(``null`` with no ratio, ``false`` when no bar can be read); ``reason`` says why not. A read."
+      },
+      "AdminSplitUnplacedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document"
+          },
+          "passage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passage"
+          },
+          "ratio_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio From"
+          },
+          "ratio_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio To"
+          },
+          "ratio_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio Label"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "nightly",
+              "check"
+            ],
+            "title": "Source"
+          },
+          "seen_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Seen On"
+          },
+          "listed_near": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminSplitListedNearOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dismissal_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissal Id"
+          },
+          "dismissed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed At"
+          },
+          "dismissed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "accession",
+          "form",
+          "filed",
+          "reason",
+          "document",
+          "passage",
+          "ratio_from",
+          "ratio_to",
+          "ratio_label",
+          "source",
+          "seen_on",
+          "dismissal_id",
+          "dismissed_at",
+          "dismissed_reason"
+        ],
+        "title": "AdminSplitUnplacedOut",
+        "description": "An SEC filing about a split the list could not place (no ratio, no date, an extractor abstain), as the\nnightly's newest run (``source`` ``nightly``) or the long-window check's newest record (``check``) lists it;\n``seen_on`` = the day that run read. ``url`` = the filing index (built from the company's CIK when the run's row\ncarries none); ``document`` / ``passage`` = the located document and passage, verbatim; ``ratio_from`` ->\n``ratio_to`` = the ratio it states, when one; ``reason`` = why it was not placed. ``listed_near`` = the split on\nthe list it most likely talks about: the one citing it, else the nearest of its exact ratio, else the nearest\nwithin 120 days of its filing (``null``: none). ``dismissal_id`` / ``dismissed_at`` / ``dismissed_reason`` = the\nsteward's standing dismissal (\"not a split to list\"), when one stands: undo it with ``POST\n/admin/splits/unplaced/dismissals/{dismissal_id}/undo``. Display only."
+      },
+      "AdminSplitUnplacedRunOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "nightly",
+              "check"
+            ],
+            "title": "Source"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "sec_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sec Days"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "calloffs": {
+            "type": "integer",
+            "title": "Calloffs",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "asof",
+          "started_at",
+          "sec_days",
+          "rows"
+        ],
+        "title": "AdminSplitUnplacedRunOut",
+        "description": "A run the unplaced filings were read from: the nightly's newest (``source`` ``nightly``; ``sec_days``\n``null``: the nightly's own window) or the long-window check's newest record (``check``). ``asof`` = the night\nor day it read; ``rows`` = how many filings it listed, dismissed ones included; ``calloffs`` = how many filings it\nread with call-off wording (F10)."
       },
       "AdminStaleTapeOut": {
         "properties": {

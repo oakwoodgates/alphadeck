@@ -8,8 +8,10 @@ from __future__ import annotations
 import gzip
 import importlib.util
 import json
+import re
 import sys
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -165,3 +167,540 @@ def test_a_ratio_or_a_date_gained_is_classed_so(replay):
         == "date added"
     )
     assert replay.classify(abstain, _reading())[0] == "abstain->ratio"
+
+
+# --- --accept-listed: an abstain -> ratio equal to a split prod lists (framework-completion F4) --------------------
+
+_NFT = "0001213900-26-053864"  # a 6-K the real reader abstains on (NFT Ltd, CIK 1958713, filed 2026-05-08)
+_ARTL = "0001640334-26-001421"  # Artelo's 8-K (CIK 1621221): the real reader reads its 1-for-9
+_NFT_CIK = "1958713"
+_FILED = date(2026, 5, 8)
+_LISTED = {
+    _NFT_CIK: [["40", "1", "2026-05-12"]]
+}  # first session four days after the NFT 6-K was filed
+
+
+def _reads(ratio=("40", "1"), when=None, kind="trading", tolerance=None):
+    """A reader module that reads ``ratio`` (dated ``when``) out of any filing, as ``_MORE_CONFIDENT`` does."""
+    dated = f", effective_date=date.fromisoformat({when!r}), date_kind={kind!r}" if when else ""
+    const = f"KNOWN_DATE_TOLERANCE_DAYS = {tolerance}\n\n" if tolerance is not None else ""
+    return f"""
+from datetime import date
+from decimal import Decimal
+
+from ingest.edgar.split_filing import (
+    FilingDocument,
+    KnownSplit,
+    SplitExtraction,
+    submission_documents,
+)
+
+{const}
+def extract_split(documents, *, filed=None, wide=False, known=()):
+    return SplitExtraction(
+        ratio_from=Decimal({ratio[0]!r}), ratio_to=Decimal({ratio[1]!r}){dated}
+    )
+
+
+extract_split_screened = extract_split
+"""
+
+
+def _gate(
+    replay,
+    tmp_path,
+    new,
+    *flags,
+    known=None,
+    old=None,
+    accessions=(_NFT,),
+    strip_cik=False,
+    index=None,
+    guard=(),
+    where="run",
+):
+    """One replay of the fixture filings, OLD (the real reader, or the module text ``old``) against NEW (module
+    text); returns ``(exit code, changes, summary)``. ``strip_cik`` takes the CIK out of the SGML headers.
+    """
+    root = tmp_path / where
+    root.mkdir()
+    forms = _forms(root, *accessions)
+    if strip_cik:
+        for path in forms.rglob("*.txt"):
+            path.write_bytes(
+                re.sub(rb"[ \t]*CENTRAL INDEX KEY:[^\r\n]*\r?\n", b"", path.read_bytes())
+            )
+    (root / "new.py").write_text(new, encoding="utf-8")
+    reader = _READER
+    if old is not None:
+        reader = root / "old.py"
+        reader.write_text(old, encoding="utf-8")
+    out = root / "out"
+    argv = ["--old", str(reader), "--new", str(root / "new.py"), "--forms", str(forms)]
+    if known is not None:
+        (root / "known.json").write_text(json.dumps(known), encoding="utf-8")
+        argv += ["--known", str(root / "known.json")]
+    if index is not None:
+        (root / "index.csv").write_text(index, encoding="utf-8")
+        argv += ["--index", str(root / "index.csv")]
+    if guard:
+        (root / "guard.txt").write_text("\n".join(guard) + "\n", encoding="utf-8")
+        argv += ["--guard", str(root / "guard.txt")]
+    code = replay.main([*argv, *flags, "--out", str(out)])
+    lines = (out / "changes.jsonl").read_text(encoding="utf-8").splitlines()
+    return code, [json.loads(c) for c in lines], (out / "summary.txt").read_text(encoding="utf-8")
+
+
+def test_accept_listed_passes_an_abstain_to_a_listed_ratio(replay, tmp_path):
+    """The NFT 6-K abstains on the old reader and reads 40 -> 1 on the new, undated; prod lists 40 -> 1 four days
+    after the filing. Without the flag the same run fails, as it always has."""
+    code, changes, summary = _gate(
+        replay, tmp_path, _reads(), "--accept-listed", known=_LISTED, where="on"
+    )
+    assert code == 0
+    (change,) = changes
+    assert (change["class"], change["guard"]) == ("abstain->ratio", False)
+    assert change["listed"] == {
+        "from": "40",
+        "to": "1",
+        "first_session": "2026-05-12",
+        "days": 4,
+        "dated": False,
+    }
+    assert (
+        "abstain->ratio: 1" in summary and "of which 1 equal a listed split (accepted)" in summary
+    )
+    assert "ratio-bearing date changes (each needs a verdict): 0" in summary
+    assert summary.splitlines()[-1].startswith("PASS")
+
+    code, changes, summary = _gate(replay, tmp_path, _reads(), known=_LISTED, where="off")
+    assert code == 1
+    assert "listed" not in changes[0]
+    assert "listed split" not in summary and summary.splitlines()[-1].startswith("FAIL")
+
+
+def test_a_reading_that_is_not_listed_fails_either_way(replay, tmp_path):
+    """KWESST's shape: the new reader reads 21 -> 1 where the old abstained, and prod lists 9 -> 1: no human has
+    said it is real, so the gate keeps failing it."""
+    reads = _reads(("21", "1"), when="2026-05-10")
+    listed = {_NFT_CIK: [["9", "1", "2026-05-10"]]}
+    for flags, where in (((), "off"), (("--accept-listed",), "on")):
+        code, changes, summary = _gate(replay, tmp_path, reads, *flags, known=listed, where=where)
+        assert code == 1
+        assert summary.splitlines()[-1].startswith("FAIL")
+    assert changes[0]["listed"] is None
+    assert "NOT LISTED" in summary and "21->1 is not a listed split" in summary
+    assert "of which 0 equal a listed split (accepted)" in summary
+
+
+@pytest.mark.parametrize(
+    ("when", "days", "ok"),
+    [
+        ("2026-05-12", 0, True),
+        ("2026-05-22", 10, True),
+        ("2026-05-02", 10, True),
+        ("2026-05-24", 12, False),
+        ("2026-04-30", 12, False),
+    ],
+)
+def test_a_dated_reading_must_be_within_ten_days_of_the_listed_first_session(
+    replay, tmp_path, when, days, ok
+):
+    code, changes, summary = _gate(
+        replay, tmp_path, _reads(when=when), "--accept-listed", known=_LISTED
+    )
+    assert code == (0 if ok else 1)
+    if ok:
+        assert changes[0]["listed"]["days"] == days and changes[0]["listed"]["dated"] is True
+    else:
+        assert changes[0]["listed"] is None
+        assert f"{days} days from the listed 40->1 first session 2026-05-12" in summary
+
+
+def test_the_date_window_is_a_setting_that_defaults_to_the_readers_tolerance(replay, tmp_path):
+    wide = ("--accept-listed", "--listed-date-days", "12")
+    assert (
+        _gate(replay, tmp_path, _reads(when="2026-05-24"), *wide, known=_LISTED, where="a")[0] == 0
+    )
+    # four days off: the new reader's own KNOWN_DATE_TOLERANCE_DAYS (3 here) is the default window
+    four_off = _reads(when="2026-05-16", tolerance=3)
+    assert _gate(replay, tmp_path, four_off, "--accept-listed", known=_LISTED, where="b")[0] == 1
+    flags = ("--accept-listed", "--listed-date-days", "4")
+    assert _gate(replay, tmp_path, four_off, *flags, known=_LISTED, where="c")[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("offset", "ok"),
+    [(9, True), (120, True), (-120, True), (121, False), (130, False), (-130, False)],
+)
+def test_an_undated_reading_must_be_filed_within_120_days_of_the_listed_first_session(
+    replay, tmp_path, offset, ok
+):
+    listed = {_NFT_CIK: [["40", "1", (_FILED + timedelta(days=offset)).isoformat()]]}
+    code, changes, summary = _gate(replay, tmp_path, _reads(), "--accept-listed", known=listed)
+    assert code == (0 if ok else 1)
+    assert (changes[0]["listed"] is not None) is ok
+    if not ok:
+        assert f"undated, filed {abs(offset)} days from the listed 40->1 first session" in summary
+
+
+def test_the_undated_window_is_a_setting(replay, tmp_path):
+    listed = {_NFT_CIK: [["40", "1", (_FILED + timedelta(days=130)).isoformat()]]}
+    flags = ("--accept-listed", "--listed-undated-days", "130")
+    assert _gate(replay, tmp_path, _reads(), *flags, known=listed)[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("ratio", "listed", "ok"),
+    [
+        (("40", "1"), ["40", "1"], True),
+        (("80", "2"), ["40", "1"], True),  # the same fraction
+        (("1.5", "1"), ["3", "2"], True),
+        (("40", "1"), ["30", "1"], False),  # another ratio
+        (("40", "1"), ["1", "40"], False),  # the other orientation
+    ],
+)
+def test_the_ratio_must_equal_a_listed_one_as_an_exact_fraction(
+    replay, tmp_path, ratio, listed, ok
+):
+    known = {_NFT_CIK: [[*listed, "2026-05-12"]]}
+    code, changes, _ = _gate(replay, tmp_path, _reads(ratio), "--accept-listed", known=known)
+    assert code == (0 if ok else 1)
+    assert (changes[0]["listed"] is not None) is ok
+
+
+def test_no_cik_means_not_listed_unless_the_index_has_one(replay, tmp_path):
+    code, changes, summary = _gate(
+        replay, tmp_path, _reads(), "--accept-listed", known=_LISTED, strip_cik=True, where="a"
+    )
+    assert code == 1 and changes[0]["listed"] is None
+    assert "NOT LISTED" in summary and "no CIK" in summary
+    # --index column 5 supplies it (the header says nothing)
+    index = f"accession,form,filed,items,cik\n{_NFT},6-K,2026-05-08,,{_NFT_CIK}\n"
+    code, changes, _ = _gate(
+        replay,
+        tmp_path,
+        _reads(),
+        "--accept-listed",
+        known=_LISTED,
+        strip_cik=True,
+        index=index,
+        where="b",
+    )
+    assert code == 0 and changes[0]["listed"]["from"] == "40"
+
+
+def test_a_cik_prod_lists_no_split_for_is_not_listed(replay, tmp_path):
+    code, changes, summary = _gate(
+        replay, tmp_path, _reads(), "--accept-listed", known={"999": [["40", "1", "2026-05-12"]]}
+    )
+    assert code == 1 and changes[0]["listed"] is None
+    assert f"no listed splits for CIK {_NFT_CIK}" in summary
+
+
+def test_a_guard_hit_equal_to_a_listed_split_still_fails_and_is_labelled(replay, tmp_path):
+    """Almonty: its filing is behind a confirmed split, so its changed reading stays a hit a human reads, even
+    when the new reading equals what the list holds."""
+    flags = ("--accept-listed",)
+    code, changes, summary = _gate(replay, tmp_path, _reads(), *flags, known=_LISTED, guard=[_NFT])
+    assert code == 1
+    (change,) = changes
+    assert change["guard"] is True and change["listed"]["first_session"] == "2026-05-12"
+    assert (
+        f"HIT {_NFT}: abstain->ratio (= the listed split 40->1, first session 2026-05-12)"
+        in summary
+    )
+    assert "of which 0 equal a listed split (accepted)" in summary
+    assert summary.splitlines()[-1].startswith("FAIL")
+
+
+def test_only_an_abstain_to_a_ratio_is_ever_accepted(replay, tmp_path):
+    """ARTL's 1-for-9 read as 7 -> 1 is a ratio changed, and stays a failure although prod lists a 7 -> 1 for the
+    CIK; the NFT 6-K beside it is accepted."""
+    listed = {_NFT_CIK: [["7", "1", "2026-05-12"]], "1621221": [["7", "1", "2026-08-31"]]}
+    code, changes, summary = _gate(
+        replay,
+        tmp_path,
+        _reads(("7", "1")),
+        "--accept-listed",
+        known=listed,
+        accessions=(_ARTL, _NFT),
+    )
+    by_key = {c["key"]: c for c in changes}
+    assert by_key[_ARTL]["class"] == "ratio changed" and by_key[_ARTL]["listed"] is None
+    assert by_key[_NFT]["class"] == "abstain->ratio" and by_key[_NFT]["listed"] is not None
+    assert code == 1
+    assert "FAIL: abstain->ratio 0 (+1 listed, accepted), ratio changed 1" in summary
+
+
+def test_a_ratio_bearing_date_change_is_counted_for_a_verdict_and_does_not_fail(replay, tmp_path):
+    code, changes, summary = _gate(
+        replay,
+        tmp_path,
+        _reads(when="2026-05-13"),
+        "--accept-listed",
+        known=_LISTED,
+        old=_reads(when="2026-05-12"),
+    )
+    assert code == 0
+    assert [c["class"] for c in changes] == ["date changed"] and changes[0]["listed"] is None
+    assert "ratio-bearing date changes (each needs a verdict): 1" in summary
+
+
+def test_accept_listed_needs_known(replay, tmp_path, capsys):
+    argv = ["--old", str(_READER), "--new", str(_READER), "--forms", str(tmp_path)]
+    assert replay.main([*argv, "--out", str(tmp_path / "out"), "--accept-listed"]) == 2
+    assert "--accept-listed needs --known" in capsys.readouterr().err
+
+
+def test_the_nearest_of_two_listed_splits_of_one_ratio_is_the_match(replay):
+    """Two 1-for-20s (Beyond Air had two): the reading matches the one it sits next to."""
+    known = {
+        "7": [
+            (Decimal(20), Decimal(1), date(2025, 7, 14), None),
+            (Decimal(20), Decimal(1), date(2026, 3, 2), "0001-26-000001"),
+        ]
+    }
+    dated = _reading(ratio=("20", "1"), when="2026-03-04")
+    got, why = replay.match_listed("7", date(2026, 3, 9), dated, known)
+    assert (got["first_session"], got["days"], got["dated"], why) == ("2026-03-02", 2, True, "")
+    undated = _reading(ratio=("20", "1"), when=None, kind=None)
+    got, _ = replay.match_listed("7", date(2025, 7, 1), undated, known)
+    assert (got["first_session"], got["days"], got["dated"]) == ("2025-07-14", 13, False)
+    assert replay.match_listed("7", None, undated, known)[0] is None  # no filing date, no window
+
+
+# --- call-offs: the reader's ``calloff`` and ``--old-calloff`` (framework-completion F10 P0) -----------------------
+
+_CALLOFF = {
+    "kind": "decision",
+    "ratio_from": "5",
+    "ratio_to": "1",
+    "passage": "would not be effecting the reverse stock split",
+    "document": "8-K",
+}
+_OLD_CALLOFF = """
+def read_sentence(text):
+    return "failed_vote"
+"""
+
+
+def _calls_off(today=None, ratio=("9", "1"), reason=None):
+    """A reader module that reads ``ratio`` (or abstains with ``reason``) out of any filing, and attaches a call-off
+    when its ``split_calloff.read_sentence`` returns a kind (``today``: what that call-off reader returns). It
+    reads call-offs through that module attribute, as ``split_filing`` reads ``ingest.edgar.split_calloff`` (the
+    F10 plan, 2(c)), so ``--old-calloff`` can swap it."""
+    if ratio:
+        read = f"ratio_from=Decimal({ratio[0]!r}), ratio_to=Decimal({ratio[1]!r})"
+    else:
+        read = f"abstain_reason={reason!r}"
+    passage = _CALLOFF["passage"]
+    return f"""
+import types
+from dataclasses import dataclass
+from decimal import Decimal
+
+from ingest.edgar.split_filing import (
+    FilingDocument,
+    KnownSplit,
+    SplitExtraction,
+    submission_documents,
+)
+
+split_calloff = types.SimpleNamespace(read_sentence=lambda text: {today!r})
+
+
+@dataclass(frozen=True)
+class CallOff:
+    kind: str
+    ratio_from: Decimal | None
+    ratio_to: Decimal | None
+    passage: str
+    document: str | None
+
+
+@dataclass(frozen=True)
+class Reading(SplitExtraction):
+    calloff: CallOff | None = None
+
+
+def extract_split(documents, *, filed=None, wide=False, known=()):
+    kind = split_calloff.read_sentence(documents[0].raw)
+    calloff = None
+    if kind is not None:
+        calloff = CallOff(kind, Decimal(5), Decimal(1), {passage!r}, "8-K")
+    return Reading({read}, calloff=calloff)
+
+
+extract_split_screened = extract_split
+"""
+
+
+def test_a_call_off_the_new_reader_carries_is_written_and_classed_call_off_only(replay, tmp_path):
+    """Both sides read 9 -> 1; the new one carries a call-off. ``changes.jsonl`` carries it, classed ``call-off
+    only``: report only, never a failure, and no guard hit on a guard accession."""
+    code, changes, summary = _gate(
+        replay,
+        tmp_path,
+        _calls_off("decision"),
+        old=_reads(("9", "1")),
+        accessions=(_ARTL, _NFT),
+        guard=[_ARTL],
+    )
+    assert code == 0
+    assert [(c["key"], c["class"], c["fields"], c["guard"]) for c in changes] == [
+        (_NFT, "call-off only", ["calloff"], False),
+        (_ARTL, "call-off only", ["calloff"], False),
+    ]
+    for change in changes:
+        assert "calloff" not in change["old"] and change["new"]["calloff"] == _CALLOFF
+    assert "  call-off only: 2 (restated 2)" in summary
+    assert "call-off moved (any class; report only): 2" in summary
+    assert f"text only on a guard accession: {_ARTL}: call-off only" in summary
+    assert (
+        summary.splitlines()[-1] == "PASS: abstain->ratio 0, ratio changed 0, error 0, guard hits 0"
+    )
+    assert "call-off only" not in replay.FAIL_CLASSES
+
+
+def test_a_reading_set_aside_for_its_call_off_keeps_the_more_material_class(replay, tmp_path):
+    """AIRI's shape: the old reader reads 5 -> 1, the new one abstains on the call-off it carries. The class is
+    ``ratio->abstain`` (not a failure); the summary still counts the call-off."""
+    new = _calls_off("decision", ratio=None, reason="called off: decision (5->1 stated)")
+    code, changes, summary = _gate(replay, tmp_path, new, old=_reads(("5", "1")))
+    assert code == 0
+    (change,) = changes
+    assert change["class"] == "ratio->abstain" and "calloff" in change["fields"]
+    assert change["new"]["calloff"] == _CALLOFF
+    assert "call-off moved (any class; report only): 1" in summary
+
+
+def test_old_calloff_swaps_the_old_readers_call_off_reader(replay, tmp_path):
+    """A wording-only change: one reader file on both sides, the OLD side reading call-offs through the old
+    ``split_calloff.py``. Without the flag the two sides are one."""
+    forms = _forms(tmp_path, _NFT)
+    reader = tmp_path / "reader.py"
+    reader.write_text(_calls_off(), encoding="utf-8")
+    old_calloff = tmp_path / "old_calloff.py"
+    old_calloff.write_text(_OLD_CALLOFF, encoding="utf-8")
+    argv = ["--old", str(reader), "--new", str(reader), "--forms", str(forms)]
+
+    def run(*flags, where):
+        out = tmp_path / where
+        code = replay.main([*argv, *flags, "--out", str(out)])
+        lines = (out / "changes.jsonl").read_text(encoding="utf-8").splitlines()
+        return (
+            code,
+            [json.loads(c) for c in lines],
+            (out / "summary.txt").read_text(encoding="utf-8"),
+        )
+
+    code, changes, summary = run("--old-calloff", str(old_calloff), where="swapped")
+    assert code == 0
+    (change,) = changes
+    assert (change["class"], change["fields"]) == ("call-off only", ["calloff"])
+    assert change["old"]["calloff"]["kind"] == "failed_vote" and "calloff" not in change["new"]
+    assert f"--old-calloff: the old reader reads call-offs through {old_calloff}" in summary
+
+    code, changes, summary = run(where="plain")
+    assert (code, changes) == (0, []) and "--old-calloff" not in summary
+
+
+def test_old_calloff_is_a_no_op_on_a_reader_with_no_call_off_reader(replay, tmp_path):
+    old_calloff = tmp_path / "old_calloff.py"
+    old_calloff.write_text(_OLD_CALLOFF, encoding="utf-8")
+    flags = ("--old-calloff", str(old_calloff))
+    code, changes, summary = _gate(replay, tmp_path, _reads(), *flags, old=_reads())
+    assert (code, changes) == (0, [])
+    assert (
+        f"--old-calloff: the old reader has no split_calloff; nothing swapped ({old_calloff})"
+        in summary
+    )
+    argv = ["--old", str(_READER), "--new", str(_READER), "--forms", str(tmp_path)]
+    missing = ("--old-calloff", str(tmp_path / "missing.py"))
+    assert replay.main([*argv, *missing, "--out", str(tmp_path / "out")]) == 2
+
+
+def test_a_call_off_is_classed_below_a_reason_and_above_text(replay):
+    calloff = {
+        "kind": "failed_vote",
+        "ratio_from": None,
+        "ratio_to": None,
+        "passage": "p",
+        "document": None,
+    }
+    carried = {**_reading(), "calloff": calloff}
+    assert replay.classify(_reading(), carried) == ("call-off only", ["calloff"])  # gained
+    assert replay.classify(carried, _reading()) == ("call-off only", ["calloff"])  # dropped
+    other = {**carried, "calloff": {**calloff, "kind": "decision"}}
+    assert replay.classify(carried, other) == ("call-off only", ["calloff"])
+    assert replay.classify(_reading(), {**carried, "passage": "q"})[0] == "call-off only"
+    assert replay.classify(_reading(), {**carried, "date_note": "a note"})[0] == "reason only"
+    abstain = _reading(ratio=None, when=None, kind=None, reason="called off")
+    assert replay.classify(_reading(), {**abstain, "calloff": calloff})[0] == "ratio->abstain"
+
+
+def _todays(ratio):
+    return {
+        "ratio_from": ratio,
+        "ratio_to": "1",
+        "effective_date": "2026-05-12",
+        "date_kind": "trading",
+        "abstain_reason": None,
+        "date_note": None,
+        "document": None,
+        "passage": "",
+        "mentions": [],
+    }
+
+
+def test_with_no_call_off_and_no_swap_the_output_is_todays(replay, tmp_path):
+    """Neither side carries a call-off and ``--old-calloff`` is not given: ``changes.jsonl``, ``readings.jsonl``
+    and ``summary.txt`` are what the gate wrote before it read call-offs (key order included)."""
+    code, _, summary = _gate(
+        replay,
+        tmp_path,
+        _reads(("21", "1"), when="2026-05-12"),
+        "--all-readings",
+        old=_reads(when="2026-05-12"),
+        accessions=(_ARTL, _NFT),
+        guard=[_ARTL],
+    )
+    assert code == 1
+    filings = [
+        (_NFT, "6-K", "2026-05-08", None, False),
+        (_ARTL, "8-K", "2026-08-27", ["3.03", "5.03", "7.01", "9.01"], True),
+    ]
+    want_changes, want_readings = [], []
+    for acc, form, filed, items, guard in filings:
+        head = {
+            "key": acc,
+            "path": "-",
+            "accession": acc,
+            "form": form,
+            "filed": filed,
+            "items": items,
+        }
+        head = {**head, "screen": "restated", "known": 0, "class": "ratio changed"}
+        both = {"old": _todays("40"), "new": _todays("21")}
+        want_changes.append({**head, "fields": ["ratio_from"], "guard": guard, **both})
+        want_readings.append({**head, **both})
+    out = tmp_path / "run" / "out"
+    for name, want in (("changes.jsonl", want_changes), ("readings.jsonl", want_readings)):
+        got = []
+        for line in (out / name).read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            assert json.dumps(row) == line
+            got.append(json.dumps({**row, "path": "-"}))
+        assert got == [json.dumps(w) for w in want], name
+    assert summary == (
+        "files found: 2; read: 2 (unindexed, read bare: 0)\n"
+        "read per screen: restated 2\n"
+        "skipped: none\n"
+        "changed readings: 2\n"
+        "  ratio changed: 2 (restated 2)\n"
+        "guard accessions: 1; guard hits: 1\n"
+        f"  HIT {_ARTL}: ratio changed\n"
+        "errors: 0\n"
+        "FAIL: abstain->ratio 0, ratio changed 2, error 0, guard hits 1\n"
+    )
