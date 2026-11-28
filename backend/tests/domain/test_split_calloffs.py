@@ -20,15 +20,28 @@ from pathlib import Path
 
 import pytest
 
+from domain import split_calloffs
 from domain.split_calloffs import (
+    CALLED_OFF_PASSAGE_MAX,
     RATIO_ANY,
     RATIO_SAME,
     CalloffRule,
     called_off,
     calls_off,
     demote_rule,
+    demoting,
+    refuse_called_off,
+    states_ratio,
 )
 from domain.splits import (
+    STATUS_ANNOUNCED,
+    STATUS_CONFIRMED,
+    STATUS_NEEDS_REVIEW,
+    STATUS_REJECTED,
+    STATUS_REVOKED,
+    VIA_AUTO,
+    VIA_POLYGON_TAPE,
+    VIA_SEC_TAPE,
     CallOff,
     PolygonEvidence,
     SecEvidence,
@@ -163,6 +176,43 @@ def test_one_side_of_a_ratio_is_no_stated_ratio():
     assert not s.calloff.has_ratio
     assert calls_off(s, **AIRI, rule=WARN)
     assert not calls_off(s, **AIRI, rule=SAME)
+
+
+def test_states_ratio_is_the_one_exact_ratio_test():
+    """Does a call-off state exactly the listed ratio (as fractions)? Public: the matcher's own ``same`` test, and
+    the one any other reader of a call-off's ratio asks (one place per concern)."""
+    c = airi_8k().calloff
+    assert states_ratio(c, Decimal(5), Decimal(1))
+    assert states_ratio(c, Decimal(10), Decimal(2))  # 10 -> 2 is 5 -> 1
+    assert not states_ratio(c, Decimal("5.01"), Decimal(1))
+    assert not states_ratio(c, Decimal(10), Decimal(1))
+    assert not states_ratio(
+        replace(c, ratio_to=None), Decimal(5), Decimal(1)
+    )  # one side is no ratio
+    assert not states_ratio(
+        atch_8k().calloff, Decimal(60), Decimal(1)
+    )  # the failed vote states none
+    assert not states_ratio(None, Decimal(5), Decimal(1))  # no call-off at all
+
+
+def test_the_matcher_reads_the_ratio_through_states_ratio(monkeypatch):
+    asked: list[tuple] = []
+    real = split_calloffs.states_ratio
+
+    def spy(c, ratio_from, ratio_to):
+        asked.append((c, ratio_from, ratio_to))
+        return real(c, ratio_from, ratio_to)
+
+    monkeypatch.setattr(split_calloffs, "states_ratio", spy)
+    s = airi_8k()
+    assert calls_off(s, **AIRI, rule=SAME)
+    assert asked == [(s.calloff, Decimal(5), Decimal(1))]
+    asked.clear()
+    assert called_off([s], **AIRI, rule=WARN) == [
+        s
+    ]  # ``any`` matches without it; the order reads it
+    assert asked == [(s.calloff, Decimal(5), Decimal(1))]
+    assert not hasattr(split_calloffs, "_states_ratio")  # one name for the one test
 
 
 # --- the window, the forms, the call-off itself -----------------------------------------------------------
@@ -350,3 +400,178 @@ def test_no_split_rule_reads_the_call_off():
         prior_served_before=True,
     )
     assert bare(with_tape(d_marked, tape)) == with_tape(d_plain, tape)
+
+
+# --- P9: the demote at decision time (``refuse_called_off``; the switch, ``split_calloff_demote``, is the caller's) --
+#
+# The same matcher under ``demote_rule``: a decision that would be announced or confirmed goes to review when a filing
+# read for it calls it off (the same stated ratio, filed from its announcement to its first session). Its note names
+# the filing. Nothing else in the decision moves.
+
+AIRI_ROW = PolygonEvidence(
+    id="E-AIRI-2026-11-20",
+    ticker="AIRI",
+    execution_date=date(2026, 11, 20),
+    split_from=Decimal(5),
+    split_to=Decimal(1),
+    adjustment_type="reverse_split",
+)
+ATCH_ROW = PolygonEvidence(
+    id="E-ATCH-2025-01-02",
+    ticker="ATCH",
+    execution_date=date(2025, 1, 2),
+    split_from=Decimal(60),
+    split_to=Decimal(1),
+    adjustment_type="reverse_split",
+)
+# a stated 1-for-5 step on falling volume on AIRI's first session (an input, not AIRI's tape: it never stepped)
+STEP_TAPE = TapeEvidence(
+    session=date(2026, 11, 20),
+    prior=date(2026, 11, 19),
+    prior_close=2.0,
+    close=10.0,
+    prior_volume=1000.0,
+    volume=300.0,
+    prior_served_before=True,
+)
+
+
+def airi_announcing(**kw) -> SecEvidence:
+    """AIRI's 8-K announcing the 1-for-5, first trading session 2026-11-20 (``test_no_split_rule_reads_the_call_off``)."""
+    s = SecEvidence(
+        accession="0001213900-26-118055",
+        form="8-K",
+        filed=date(2026, 11, 10),
+        url=URL,
+        ratio_from=Decimal(5),
+        ratio_to=Decimal(1),
+        effective_date=date(2026, 11, 20),
+        date_kind="trading",
+        about_a_split=True,
+    )
+    return replace(s, **kw)
+
+
+def _cut(passage: str) -> str:
+    return passage[: CALLED_OFF_PASSAGE_MAX - 1].rstrip() + "\u2026"
+
+
+AIRI_CALLED_OFF = (
+    f"Called off: 8-K 0001213900-26-122096 (filed 2026-11-19) \u2014 {_cut(AIRI_PASSAGE)}"
+)
+
+
+def _only_review_moved(refused, d) -> bool:
+    """Nothing but the status, the confirmation and the note moved; the note only gained the call-off."""
+    rest = replace(refused, status=d.status, confirmed_via=d.confirmed_via, note=d.note)
+    return (
+        rest == d
+        and refused.status == STATUS_NEEDS_REVIEW
+        and refused.confirmed_via is None
+        and refused.note.startswith(d.note + " ")
+    )
+
+
+def test_the_airi_shape_decided_on_its_first_session_night_goes_to_review_with_the_call_off_named():
+    read = [airi_announcing(), airi_8k()]
+    d = decide(AIRI_ROW, read, asof=date(2026, 11, 20))
+    assert (d.status, d.confirmed_via, d.sec) == (STATUS_CONFIRMED, VIA_AUTO, read[0])  # today
+    refused = refuse_called_off(d, read, FORMS)
+    assert _only_review_moved(refused, d)
+    assert refused.note == f"{d.note} {AIRI_CALLED_OFF}"
+    assert len(_cut(AIRI_PASSAGE)) == CALLED_OFF_PASSAGE_MAX == 200
+    # the night it was filed, before its first session: announced, refused the same way
+    early = decide(AIRI_ROW, read, asof=date(2026, 11, 19))
+    assert early.status == STATUS_ANNOUNCED
+    assert refuse_called_off(early, read, FORMS).note == f"{early.note} {AIRI_CALLED_OFF}"
+    assert _only_review_moved(refuse_called_off(early, read, FORMS), early)
+
+
+def test_the_atch_shape_is_never_refused():
+    """A failed vote stating no ratio, filed six days after the first session: confirmed it stays."""
+    s = atch_8k()
+    d = decide(ATCH_ROW, [s], asof=date(2025, 1, 8))
+    assert (d.status, d.sec) == (STATUS_CONFIRMED, s)
+    assert refuse_called_off(d, [s], FORMS) is d
+    # the listed ratio stated, but filed after the first session: still never
+    same = with_calloff_ratio(s, 60, 1)
+    listed = decide(ATCH_ROW, [same], asof=date(2025, 1, 8))
+    assert listed.status == STATUS_CONFIRMED
+    assert refuse_called_off(listed, [same], FORMS) is listed
+
+
+def test_the_tape_routes_are_refused_too():
+    """Massive.com + tape (the call-off is the row's only filing, an abstain) and SEC + tape (the announcing 8-K's
+    first trading session): each confirmed by the tape today, each refused."""
+    poly_only = decide(AIRI_ROW, [airi_8k()], asof=date(2026, 11, 20))
+    assert (poly_only.status, poly_only.sec) == (STATUS_NEEDS_REVIEW, airi_8k())
+    by_tape = with_tape(poly_only, STEP_TAPE)
+    assert (by_tape.status, by_tape.confirmed_via) == (STATUS_CONFIRMED, VIA_POLYGON_TAPE)
+    refused = refuse_called_off(by_tape, [airi_8k()], FORMS)
+    assert _only_review_moved(refused, by_tape) and refused.note.endswith(AIRI_CALLED_OFF)
+    sec_only = with_tape(decide_sec_only([airi_announcing()], asof=date(2026, 11, 20)), STEP_TAPE)
+    assert (sec_only.status, sec_only.confirmed_via) == (STATUS_CONFIRMED, VIA_SEC_TAPE)
+    refused = refuse_called_off(sec_only, [airi_announcing(), airi_8k()], FORMS)
+    assert _only_review_moved(refused, sec_only) and refused.note.endswith(AIRI_CALLED_OFF)
+
+
+def test_only_a_live_decision_a_filing_calls_off_is_refused():
+    read = [airi_announcing(), airi_8k()]
+    d = decide(AIRI_ROW, read, asof=date(2026, 11, 20))
+    for status in (STATUS_NEEDS_REVIEW, STATUS_REJECTED, STATUS_REVOKED):
+        settled = replace(d, status=status, confirmed_via=None)
+        assert refuse_called_off(settled, read, FORMS) is settled
+    # no call-off read, another ratio called off, one filed after the first session, a form the caller left out
+    for filings, forms in (
+        ([airi_announcing()], FORMS),
+        ([airi_announcing(), with_calloff_ratio(airi_8k(), 10, 1)], FORMS),
+        ([airi_announcing(), airi_8k(filed=date(2026, 11, 21))], FORMS),
+        ([airi_announcing(), with_calloff_ratio(airi_8k(), None, None)], FORMS),
+        (read, ("6-K",)),
+    ):
+        assert refuse_called_off(d, filings, forms) is d
+
+
+def test_the_demote_is_the_one_matcher_under_the_demote_rule(monkeypatch):
+    """Never a second matcher: ``refuse_called_off`` asks ``called_off`` under ``demote_rule(forms)``, the decision
+    mapped as its listed row will be (its ratio and first session, announced on its SEC filing's date, else its
+    ``valid_from``; ``pipeline.detect_splits.listed_calloffs``)."""
+    asked: list[dict] = []
+    real = split_calloffs.called_off
+
+    def spy(filings, **kw):
+        asked.append(kw)
+        return real(filings, **kw)
+
+    monkeypatch.setattr(split_calloffs, "called_off", spy)
+    read = [airi_announcing(), airi_8k()]
+    d = decide(AIRI_ROW, read, asof=date(2026, 11, 20))
+    assert demoting(d, read, FORMS) == [airi_8k()]
+    assert refuse_called_off(d, read, FORMS).status == STATUS_NEEDS_REVIEW
+    rule = dict(ratio_from=Decimal(5), ratio_to=Decimal(1), first_session=date(2026, 11, 20))
+    assert asked == [{**rule, "announced_on": date(2026, 11, 10), "rule": DEMOTE}] * 2
+    asked.clear()
+    no_sec = replace(d, sec=None, valid_from=date(2026, 11, 18))
+    assert demoting(no_sec, read, FORMS) == [airi_8k()]
+    assert asked == [{**rule, "announced_on": date(2026, 11, 18), "rule": DEMOTE}]
+
+
+def test_the_note_names_the_earliest_call_off_and_cuts_its_passage():
+    read = [
+        airi_announcing(),
+        airi_8k(),
+        airi_8k(accession="0001213900-26-120000", filed=date(2026, 11, 12)),
+    ]
+    d = decide(AIRI_ROW, read, asof=date(2026, 11, 20))
+    refused = refuse_called_off(d, read, FORMS)
+    assert refused.note.endswith(
+        f"Called off: 8-K 0001213900-26-120000 (filed 2026-11-12) \u2014 {_cut(AIRI_PASSAGE)}"
+    )
+    short = airi_8k(calloff=replace(airi_8k().calloff, passage="  would not be\n effecting  it "))
+    assert refuse_called_off(d, [short], FORMS).note.endswith(
+        "Called off: 8-K 0001213900-26-122096 (filed 2026-11-19) \u2014 would not be effecting it"
+    )
+    bare = airi_8k(calloff=replace(airi_8k().calloff, passage=""))
+    assert refuse_called_off(d, [bare], FORMS).note.endswith(
+        "Called off: 8-K 0001213900-26-122096 (filed 2026-11-19)."
+    )
