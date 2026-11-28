@@ -62,6 +62,7 @@ def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characte
     assert prompt.startswith("Splits review, starting with TK01: ") and "{{" not in prompt
     assert 'section="unplaced"' in prompt and "listed_near" in prompt
     assert "same_ratio_listed" in prompt  # F8-3
+    assert "called_off" in prompt  # F10
     assert len(PROMPT_FILE.read_text(encoding="utf-8")) <= 2_000 and len(prompt) <= 2_000
     assert len(spent) <= MAX_CALLS, spent
     assert sum(chars for _, chars in spent) <= MAX_CHARS, spent
