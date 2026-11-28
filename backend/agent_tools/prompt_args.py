@@ -120,7 +120,7 @@ PROMPTS: tuple[PromptSpec, ...] = (
         "splits-review",
         "The split list for the steward to settle: each needs-review split's two sources side by side, the "
         "located passage, the matching confirm option; then the announced splits, the unlisted jumps and the "
-        "split filings the list could not place. Steward scope.",
+        "split filings the list could not place, and every listed split a filing calls off. Steward scope.",
         (("t", False, None),),
         derived={"t_clause": lambda v: f", starting with {v['t']}" if v["t"] else ""},
         scope="steward",
