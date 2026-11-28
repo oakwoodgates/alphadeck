@@ -3,7 +3,7 @@ out, with every word it reads in ``WORDING``.
 
 The sentences are the filings' own, MEASURED 2026-11-28 on prod's cache
 (``docs/temp/framework-completion-evidence/f10-measure``: ``hits_table.md`` and ``c2_sample.md`` name them,
-``cls_full.jsonl`` holds the full sentence the measurement classified), except the two marked "constructed".
+``cls_full.jsonl`` holds the full sentence the measurement classified), except those marked "constructed".
 """
 
 from __future__ import annotations
@@ -418,11 +418,12 @@ def test_the_logic_holds_no_pattern_of_its_own() -> None:
         ), ast.unparse(call)
 
 
-# Every C1 / C3 sentence of ``hits_table.md`` (30, 28 distinct) but KNWN's, with the kind and pattern the
-# measurement's ``classify.py`` read (C1 = decision, C3 = failed_vote; its first cue of the strongest class). Real
-# call-offs and noise alike: which filings count is the caller's (forms, documents, the window), not the sentence
-# reader's. KNWN's (0001654954-25-001790 EX-99.1 #1, noise: a meeting cancelled for a split already effective) is
-# the one the module reads otherwise, under ``completed_split``: ``KNWN`` above.
+# Every C1 / C3 sentence of ``hits_table.md`` (30, 28 distinct) but KNWN's and ``SET_ASIDE``'s, with the kind and
+# pattern the measurement's ``classify.py`` read (C1 = decision, C3 = failed_vote; its first cue of the strongest
+# class). Real call-offs and noise alike: which filings count is the caller's (forms, documents, the window), not the
+# sentence reader's. KNWN's (0001654954-25-001790 EX-99.1 #1, noise: a meeting cancelled for a split already
+# effective) is read otherwise under ``completed_split`` (``KNWN`` above), the ``SET_ASIDE`` rows under the guard
+# each names.
 MEASURED = (
     (
         "0001104659-25-001831 8-K #30 / 0001104659-25-009894 424B3 #2790",
@@ -487,19 +488,6 @@ MEASURED = (
         ),
     ),
     (
-        "0001104659-25-018262 EX-99.1 #248",
-        "failed_vote",
-        "not_approved",
-        (
-            "Before reverse After Reverse Split stock split 1-for-10 1-for- 100 1-for- 200 "
-            "Ordinary Shares Authorized (assuming Proposal Five, Six and Seven are not approved) "
-            "500,000,000 50,000,000 5,000,000 2 ,500,000 Ordinary Shares Authorized (assuming "
-            "Proposal Five, Six and Seven are approved) 15,000,000,000 1,500,000,000 150,000,000 "
-            "75,000,000 Par Value per Ordinary Share (assuming Proposal Five, Six and Seven are "
-            "not approved) $ 0."
-        ),
-    ),
-    (
         "0001104659-25-123594 EX-99.1 #4",
         "decision",
         "neg_passive",
@@ -518,15 +506,6 @@ MEASURED = (
         (
             "As a result, the Company does not intend to effect the reverse stock split as "
             "approved by the stockholders at the Special Meeting."
-        ),
-    ),
-    (
-        "0001104659-26-044467 HTML #1428",
-        "decision",
-        "neg_passive",
-        (
-            "As of the date of this filing, the reverse stock split authorized at the April 11, "
-            "2025 special meeting had not been effected."
         ),
     ),
     (
@@ -590,26 +569,6 @@ MEASURED = (
         ),
     ),
     (
-        "0001213900-26-050939 HTML #493 / 0001213900-26-050939 HTML #839",
-        "decision",
-        "neg_passive",
-        (
-            "The only remaining item not yet effected is the share consolidation, for which the "
-            "shareholders authorized the board of directors to determine the specific "
-            "consolidation ratio (within the approved range) and the effective date, and which "
-            "has not yet been implemented as of the date of this annual report."
-        ),
-    ),
-    (
-        "0001213900-26-050939 HTML #1752",
-        "decision",
-        "neg_passive",
-        (
-            "The authorized share consolidation has been approved but has not yet been "
-            "implemented as of the date of this annual report."
-        ),
-    ),
-    (
         "0001213900-26-122096 8-K #2",
         "decision",
         "neg_active",
@@ -639,16 +598,6 @@ MEASURED = (
         ),
     ),
     (
-        "0001214659-26-010549 HTML #304",
-        "decision",
-        "neg_passive",
-        (
-            "Because the reverse stock split had not become effective as of the date these "
-            "condensed consolidated financial statements were issued, the share and per-share "
-            "amounts presented herein have not been adjusted to reflect the reverse stock split."
-        ),
-    ),
-    (
         "0001437749-25-027524 EX-99.1 #324",
         "decision",
         "neg_active",
@@ -667,21 +616,6 @@ MEASURED = (
             "action, Principal Market approval, DTC process, Transfer Agent process or other "
             "ministerial or administrative action has not been obtained, completed or effected."
         ),
-    ),
-    (
-        "0001493152-24-038695 EX-99.1 #5",
-        "decision",
-        "neg_active",
-        (
-            "Please note that we have not implemented the reverse stock split that was approved "
-            "in July,” continued Mr. Hayes."
-        ),
-    ),
-    (
-        "0001493152-25-018461 EX-99.1 #112",
-        "decision",
-        "neg_passive",
-        "Such reverse split was not implemented to date.",
     ),
     (
         "0001628280-26-048496 EX-99.1 #9",
@@ -727,7 +661,190 @@ def test_every_measured_definite_sentence_reads_as_measured(
     assert cue is not None and (cue.kind, cue.pattern) == (kind, pattern)
 
 
-def test_the_measured_rows_and_knwn_are_the_whole_table() -> None:
-    labels = [part for m in MEASURED for part in m[0].split(" / ")]
-    assert len(labels) + 1 == 30 and len(MEASURED) + 1 == 28
+# The ``hits_table.md`` rows (all noise) that F10 P4's prod-cache replay found read as call-offs
+# (``docs/temp/split-reader-misreads-evidence/f10p4/summary.md``), with the guard that now sets each aside and the
+# kind and pattern the measurement read: a STATUS of a split not yet done (``not_yet_done``: "had not been effected",
+# "has not yet been implemented as of the date", "had not become effective as of the date", "have not implemented",
+# "was not implemented to date") and a proxy table's conditional ASSUMPTION ("assuming Proposal Five, Six and Seven
+# are not approved", ``assumption``). Each text is the measurement's; the six P4 names are its call-off passages
+# byte for byte (#1752, the same 20-F's, only the measurement read).
+SET_ASIDE = (
+    (
+        "0001104659-25-018262 EX-99.1 #248",
+        "assumption",
+        "failed_vote",
+        "not_approved",
+        (
+            "Before reverse After Reverse Split stock split 1-for-10 1-for- 100 1-for- 200 "
+            "Ordinary Shares Authorized (assuming Proposal Five, Six and Seven are not approved) "
+            "500,000,000 50,000,000 5,000,000 2 ,500,000 Ordinary Shares Authorized (assuming "
+            "Proposal Five, Six and Seven are approved) 15,000,000,000 1,500,000,000 150,000,000 "
+            "75,000,000 Par Value per Ordinary Share (assuming Proposal Five, Six and Seven are "
+            "not approved) $ 0."
+        ),
+    ),
+    (
+        "0001104659-26-044467 HTML #1428",
+        "not_yet_done",
+        "decision",
+        "neg_passive",
+        (
+            "As of the date of this filing, the reverse stock split authorized at the April 11, "
+            "2025 special meeting had not been effected."
+        ),
+    ),
+    (
+        "0001213900-26-050939 HTML #493 / 0001213900-26-050939 HTML #839",
+        "not_yet_done",
+        "decision",
+        "neg_passive",
+        (
+            "The only remaining item not yet effected is the share consolidation, for which the "
+            "shareholders authorized the board of directors to determine the specific "
+            "consolidation ratio (within the approved range) and the effective date, and which "
+            "has not yet been implemented as of the date of this annual report."
+        ),
+    ),
+    (
+        "0001213900-26-050939 HTML #1752",
+        "not_yet_done",
+        "decision",
+        "neg_passive",
+        (
+            "The authorized share consolidation has been approved but has not yet been "
+            "implemented as of the date of this annual report."
+        ),
+    ),
+    (
+        "0001214659-26-010549 HTML #304",
+        "not_yet_done",
+        "decision",
+        "neg_passive",
+        (
+            "Because the reverse stock split had not become effective as of the date these "
+            "condensed consolidated financial statements were issued, the share and per-share "
+            "amounts presented herein have not been adjusted to reflect the reverse stock split."
+        ),
+    ),
+    (
+        "0001493152-24-038695 EX-99.1 #5",
+        "not_yet_done",
+        "decision",
+        "neg_active",
+        (
+            "Please note that we have not implemented the reverse stock split that was approved "
+            "in July,” continued Mr. Hayes."
+        ),
+    ),
+    (
+        "0001493152-25-018461 EX-99.1 #112",
+        "not_yet_done",
+        "decision",
+        "neg_passive",
+        "Such reverse split was not implemented to date.",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("guard", "kind", "pattern", "text"),
+    [s[1:] for s in SET_ASIDE],
+    ids=[s[0] for s in SET_ASIDE],
+)
+def test_a_status_of_a_split_not_yet_done_or_an_assumption_is_no_call_off(
+    guard: str, kind: str, pattern: str, text: str
+) -> None:
+    assert read_sentence(text) is None
+    cue = read_sentence(text, _without_guard(guard))
+    assert cue is not None and (cue.kind, cue.pattern) == (kind, pattern)
+
+
+# constructed: one per status form and assumption cue the measured sentences above do not show, each read as a
+# call-off without its guard
+NOT_YET_CONSTRUCTED = (
+    (
+        "not_yet_done",
+        "decision",
+        "neg_passive",
+        "The reverse stock split was not effected as of March 31, 2026.",
+    ),
+    (
+        "not_yet_done",
+        "decision",
+        "neg_active",
+        "The Company did not effect the reverse stock split as of the date of this annual report.",
+    ),
+    (
+        "assumption",
+        "failed_vote",
+        "did_not_receive",
+        "Assuming the Reverse Split Proposal does not receive the requisite vote, the number of "
+        "authorized shares stays at 500,000,000.",
+    ),
+    (
+        "assumption",
+        "failed_vote",
+        "failed",
+        "The table below assumes that the Reverse Split Proposal failed to pass.",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("guard", "kind", "pattern", "text"),
+    NOT_YET_CONSTRUCTED,
+    ids=[f"{c[0]}-{c[2]}" for c in NOT_YET_CONSTRUCTED],
+)
+def test_each_status_form_and_assumption_cue_is_set_aside_by_its_guard(
+    guard: str, kind: str, pattern: str, text: str
+) -> None:
+    assert read_sentence(text) is None
+    cue = read_sentence(text, _without_guard(guard))
+    assert cue is not None and (cue.kind, cue.pattern) == (kind, pattern)
+
+
+# constructed controls: a decision dated "as of" (the date before the cue, the verb future) and a failed vote
+# beside a past "assumed" (no conditional) stay read; the real "which was not implemented" (CNTM, a past
+# authority the board then terminated) is in MEASURED and stays read too
+STAYS_READ = (
+    (
+        "decision",
+        "neg_active",
+        "As of the date of this report, the Board has determined that the Company will not effect "
+        "the reverse stock split.",
+    ),
+    (
+        "failed_vote",
+        "not_approved",
+        "The Reverse Stock Split Proposal, which assumed a 1-for-10 ratio, was not approved.",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("kind", "pattern", "text"), STAYS_READ, ids=["dated-decision", "assumed-past"]
+)
+def test_a_dated_decision_and_a_past_assumed_stay_read(kind: str, pattern: str, text: str) -> None:
+    cue = read_sentence(text)
+    assert cue is not None and (cue.kind, cue.pattern) == (kind, pattern)
+
+
+def test_the_status_guard_reaches_the_negations_and_the_assumption_guard_the_failed_votes() -> None:
+    """``not_yet_done`` rides on the two patterns whose cue is a negated execution verb (``neg_active``,
+    ``neg_passive``): a decision's other forms (``will no longer``, ``does not intend``, ``decided not to``) state
+    no status. ``assumption`` rides on every failed-vote pattern."""
+
+    def carried(guard: str) -> list[str]:
+        return [
+            name for _, patterns in WORDING.kinds for name, _, guards in patterns if guard in guards
+        ]
+
+    assert carried("not_yet_done") == ["neg_active", "neg_passive"]
+    assert carried("assumption") == ["not_approved", "did_not_receive", "failed"]
+
+
+def test_the_measured_rows_set_aside_and_knwn_are_the_whole_table() -> None:
+    labels = [part for m in (*MEASURED, *SET_ASIDE) for part in m[0].split(" / ")]
+    assert len(labels) + 1 == 30 and len(MEASURED) + len(SET_ASIDE) + 1 == 28
+    assert len(SET_ASIDE) == 7 and len(MEASURED) == 20
     assert not any(label.startswith("0001654954-25-001790") for label in labels)
