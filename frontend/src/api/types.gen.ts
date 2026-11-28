@@ -6147,6 +6147,11 @@ export interface components {
          *     (``"<ticker> <kind> x<factor> (<date>)"`` — a ``problems`` line with the benign marker: a vendor tape
          *     defect, flag only).
          *
+         *     ``split_called_off_new`` (F10) are the labels of the listed splits that a filing the pass read NEWLY called
+         *     off (``"<ticker> <ratio> (<status>, first session <date>): called off by <form> <accession> (filed <date>)"``
+         *     — a ``problems`` line with the benign marker: display only, the steward settles it on the Splits panel); empty
+         *     on a run written before it.
+         *
          *     X5 (measurement only, from the artifact's ``timings`` block — ``pipeline/pass_timings.py``):
          *     ``pass_total_s`` is the WHOLE pass's wall time, the legs after the per-thesis loop included (unlike
          *     ``duration_s``, which ends with the loop); ``top_leg`` / ``top_leg_s`` name the leg it spent the most
@@ -6223,6 +6228,11 @@ export interface components {
              * @default []
              */
             split_defects_new: string[];
+            /**
+             * Split Called Off New
+             * @default []
+             */
+            split_called_off_new: string[];
             /** Pass Total S */
             pass_total_s?: number | null;
             /** Top Leg */

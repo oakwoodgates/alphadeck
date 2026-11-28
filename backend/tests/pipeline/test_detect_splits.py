@@ -8,14 +8,15 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from db.bitemporal import append_fact
-from db.session import DEFAULT_TENANT_ID
+from db.session import DEFAULT_TENANT_ID, connect
 from domain.settings import get_settings
 from domain.split_calloffs import CalloffRule
 from domain.splits import (
@@ -44,6 +45,7 @@ from pipeline import ingest_thesis as IT
 from pipeline import split_unplaced as su
 from repositories import split_repo
 from tests.pipeline.test_ingest_thesis import _make_thesis, _patch
+from tests.pipeline.test_split_unplaced import AIRI_8K, _airi
 from tests.split_801_fixtures import (
     AIRE_8KA,
     AIRE_CIK,
@@ -641,6 +643,304 @@ def test_the_calloff_rule_and_the_warning_switch_are_read_from_the_settings(monk
         assert ds.calloff_warn() is False
     finally:
         get_settings.cache_clear()
+
+
+# --- F10 P8: the nightly names each listed split a filing calls off, and pages a new one once -----------------
+
+AIRI_FIRST = date(2026, 11, 20)
+AIRI_ANNOUNCED = date(2026, 11, 10)  # the 8-K that stated the 1-for-5
+# THE words: the report line's, the page's and the Admin run row's, for AIRI's shape
+AIRI_PAGE = (
+    "AIRI 1-for-5 reverse split (confirmed, first session 2026-11-20): called off by 8-K "
+    "0001213900-26-122096 (filed 2026-11-19)"
+)
+
+
+@pytest.fixture
+def calloff_defaults(monkeypatch):
+    """The call-off settings at their shipped defaults (the warning on, 8-K/6-K, 30 days, any ratio)."""
+    for var in _CALLOFF_VARS:
+        monkeypatch.delenv(var, raising=False)
+    get_settings.cache_clear()
+    yield monkeypatch
+    get_settings.cache_clear()
+
+
+def _listed_company(db, ticker: str, *, status: str = STATUS_CONFIRMED) -> uuid.UUID:
+    """A company whose list holds a 1-for-5 first trading 11-20, announced by an 8-K filed 11-10 (AIRI's shape)."""
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, date(2020, 1, 1)),
+        )
+    db.commit()
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=AIRI_FIRST,
+        values={
+            "effective_date": AIRI_FIRST,
+            "ratio_from": 5,
+            "ratio_to": 1,
+            "status": status,
+            "confirmed_via": "auto:sec+polygon" if status == STATUS_CONFIRMED else None,
+            "value_source": "sec",
+            "sec_accession": "0000000000-26-000010",  # a stand-in for the filing the listed split cites
+            "sec_filed": AIRI_ANNOUNCED,
+            "valid_from": AIRI_FIRST,
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    return sid
+
+
+def _set_aside(db, sid: uuid.UUID, how: str) -> None:
+    """The steward's ``revoke`` (a confirmed split) or ``reject`` (an open one) of the company's one listed split, as
+    the Splits panel writes it."""
+    (v,) = split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID, security_ids=[sid])
+    getattr(split_repo, how)(db, v.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+
+
+def _version(
+    sid: uuid.UUID, *, ticker: str = "AIRI", sec_filed: date | None = AIRI_ANNOUNCED
+) -> split_repo.SplitVersion:
+    """AIRI's listed 1-for-5 as the list's newest version, in memory (the pure match reads no database)."""
+    return split_repo.SplitVersion(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=sid,
+        key_date=AIRI_FIRST,
+        effective_date=AIRI_FIRST,
+        ratio_from=Decimal(5),
+        ratio_to=Decimal(1),
+        price_factor=Decimal(5),
+        status=STATUS_CONFIRMED,
+        value_source="sec",
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+        sec_filed=sec_filed,
+        valid_from=AIRI_FIRST,
+        recorded_at=datetime(2026, 11, 21, 3, 30, tzinfo=timezone.utc),
+        ticker=ticker,
+    )
+
+
+def _det(*calloffs: ds.CallOffFiling) -> ds.SplitDetection:
+    """A night's detection (Massive.com on, so its report is the one summary line) that read ``calloffs``."""
+    return ds.SplitDetection(evaluated=True, polygon="on", calloffs=list(calloffs))
+
+
+def _check(det: ds.SplitDetection, *, previous=lambda: None, connect=connect, allow_live=True):
+    return ds.check_called_off(
+        det,
+        allow_live=allow_live,
+        tenant_id=DEFAULT_TENANT_ID,
+        connect=connect,
+        previous=previous,
+    )
+
+
+def test_the_nightly_names_the_listed_split_a_filing_calls_off_and_a_second_night_is_silent(
+    db, calloff_defaults
+):
+    """AIRI's shape: the confirmed 1-for-5 (first session 11-20, announced 11-10) and tonight's call-off row for its
+    8-K 0001213900-26-122096 (filed 11-19). The check names it, in THE words, keyed
+    ``security_id:key_date:accession``; it is new against an empty baseline (what pages). Another company's split
+    of the same ratio and session is not named. The next night the same call-off is known: no new one (nothing
+    pages), one quiet line. A read: one read-only connection, nothing written."""
+    sid = _listed_company(db, "AIRI")
+    _listed_company(db, "PBK")
+    opened: list[int] = []
+
+    def _connect():
+        opened.append(1)
+        return connect()
+
+    det = _det(_airi(security_id=sid))
+    n = split_repo.count_rows(db)
+    assert _check(det, connect=_connect) is det
+    assert det.called_off_evaluated is True and det.called_off_error is None
+    (c,) = det.called_off
+    assert c.key == f"{sid}:2026-11-20:{AIRI_8K}"
+    assert c.label == AIRI_PAGE
+    assert det.called_off_new == [c] and det.called_off_new_labels == (AIRI_PAGE,)
+    assert len(opened) == 1 and split_repo.count_rows(db) == n
+    lines = det.report_lines()
+    assert lines[1].startswith("SPLITS CALLED OFF — NEW:") and lines[2:] == [f"  {AIRI_PAGE}"]
+
+    again = _det(_airi(security_id=sid))
+    _check(again, previous=lambda: {c.key})
+    assert again.called_off == [c] and again.called_off_new == []
+    assert again.called_off_new_labels == ()
+    (quiet,) = again.report_lines()[1:]
+    assert quiet == (
+        f"1 listed split(s) still called off by a filing, already told (Admin Splits panel): {AIRI_PAGE}"
+    )
+
+
+def test_a_calloff_of_a_split_the_steward_revoked_or_rejected_is_settled_no_line_no_page(
+    db, calloff_defaults
+):
+    """Only a live or open split (confirmed, announced, needs review) is reported and paged. One the steward revoked
+    (AIRI's cancelled split) or rejected is settled, so a call-off of it is no line and no page, even with no
+    baseline yet (the first nightly after a deploy). An announced and a needs-review split are named. The panel's
+    ``called_off`` still names a set-aside split (display, any status: the API tests)."""
+    revoked = _listed_company(db, "AIRI")
+    _set_aside(db, revoked, "revoke")
+    rejected = _listed_company(db, "RJCT", status=STATUS_NEEDS_REVIEW)
+    _set_aside(db, rejected, "reject")
+    settled = _det(_airi(security_id=revoked), _airi(security_id=rejected, ticker="RJCT"))
+    _check(settled)
+    assert settled.called_off_evaluated is True and settled.called_off_error is None
+    assert settled.called_off == [] and settled.called_off_new_labels == ()
+    assert len(settled.report_lines()) == 1  # the summary line alone
+
+    announced = _listed_company(db, "ANNC", status=STATUS_ANNOUNCED)
+    review = _listed_company(db, "RVW", status=STATUS_NEEDS_REVIEW)
+    det = _det(
+        _airi(security_id=announced, ticker="ANNC"),
+        _airi(security_id=review, ticker="RVW"),
+        _airi(security_id=revoked),
+    )
+    _check(det)
+    assert [(c.ticker, c.status) for c in det.called_off_new] == [
+        ("ANNC", STATUS_ANNOUNCED),
+        ("RVW", STATUS_NEEDS_REVIEW),
+    ]
+    assert not any(line.startswith("  AIRI") for line in det.report_lines())
+
+
+def test_the_match_is_the_one_matcher_under_the_rule_the_settings_set(calloff_defaults):
+    """The nightly matches through ``domain.split_calloffs`` under ``calloff_rule``: a call-off stating another
+    ratio is named under ``any`` (the default, after the one stating the listed ratio) and not under ``same``; one
+    filed past the first session plus the days is not; a Massive.com-only split (no SEC filing) is announced on the
+    day it was listed; another company's split is never matched."""
+    sid = uuid.uuid4()
+    v = _version(sid)
+    same = _airi(security_id=sid)
+    other_ratio = _airi(security_id=sid, accession="0001213900-26-122097", ratio_from=Decimal(10))
+    late = _airi(security_id=sid, accession="0001213900-26-130000", filed=date(2026, 12, 21))
+    rows = [other_ratio, late, same]
+    got = ds.called_off_splits(rows, [v], rule=ds.calloff_rule())
+    assert [c.accession for c in got] == [AIRI_8K, "0001213900-26-122097"]
+    assert {(c.ratio, c.status, c.first_session) for c in got} == {
+        (
+            "1-for-5 reverse split",
+            STATUS_CONFIRMED,
+            AIRI_FIRST,
+        )  # the LISTED split's, never the filing's
+    }
+    calloff_defaults.setenv("ALPHADECK_SPLIT_CALLOFF_RATIO", "same")
+    get_settings.cache_clear()
+    assert [c.accession for c in ds.called_off_splits(rows, [v], rule=ds.calloff_rule())] == [
+        AIRI_8K
+    ]
+    massive_only = _version(
+        sid, sec_filed=None
+    )  # announced 11-20, so a call-off filed 11-19 is before it
+    assert ds.called_off_splits([same], [massive_only], rule=ds.calloff_rule()) == []
+    assert ds.called_off_splits([_airi()], [_version(uuid.uuid4())], rule=ds.calloff_rule()) == []
+
+
+def test_with_the_warning_off_or_on_a_no_live_pass_nothing_is_checked(calloff_defaults):
+    """``split_calloff_warn`` false, or a ``--no-live`` pass: no connection, no line, no page, and the artifact
+    block is exactly what the detection wrote (not evaluated: never a baseline)."""
+
+    def boom():
+        raise AssertionError("no connection may be opened")
+
+    for allow_live, warn in ((True, "false"), (False, "true")):
+        calloff_defaults.setenv("ALPHADECK_SPLIT_CALLOFF_WARN", warn)
+        get_settings.cache_clear()
+        det = _det(_airi())
+        before = (json.loads(json.dumps(det.payload())), det.report_lines())
+        _check(det, connect=boom, allow_live=allow_live, previous=boom)
+        assert det.called_off_evaluated is False and det.called_off_error is None
+        assert det.called_off == [] and det.called_off_new_labels == ()
+        assert (json.loads(json.dumps(det.payload())), det.report_lines()) == before
+        assert (
+            list(det.payload()["split_detect"]) == BLOCK_KEYS[:10] + ["calloffs"] + BLOCK_KEYS[10:]
+        )
+
+
+def test_a_settings_fault_or_a_database_fault_is_one_loud_line_never_a_failed_pass(
+    calloff_defaults,
+):
+    """The settings are read inside the check's own fail-open try, BEFORE its connection: a partial settings stub
+    (the daily tests stub them) is a recorded fault and no connection; a connect fault likewise. Either is one loud
+    report line and rides the artifact, never as a baseline."""
+    opened: list[int] = []
+
+    def _connect():
+        opened.append(1)
+        raise RuntimeError("could not connect")
+
+    with calloff_defaults.context() as m:
+        m.setattr(ds, "get_settings", lambda: SimpleNamespace(cron_run_at="22:30"))
+        det = _det(_airi())
+        _check(det, connect=_connect)
+    assert det.called_off_error.startswith("AttributeError") and opened == []
+    assert det.called_off_evaluated is False and det.called_off == []
+    assert det.report_lines()[-1].startswith("SPLIT CALL-OFF CHECK FAILED — AttributeError")
+    block = det.payload()["split_detect"]
+    assert (
+        block["called_off_evaluated"] is False and block["called_off_error"] == det.called_off_error
+    )
+
+    det = _det(_airi())
+    _check(det, connect=_connect)
+    assert det.called_off_error == "RuntimeError: could not connect" and opened == [1]
+
+
+def test_the_artifact_carries_every_calloff_and_what_paged_and_a_quiet_night_opens_nothing(
+    db, calloff_defaults
+):
+    """The block's call-off keys (``called_off_evaluated``, ``called_off_error``, ``called_off``, ``called_off_new``:
+    each row its key, its fields and THE label), read back by ``called_off_keys_of`` (the next pass's baseline) and
+    ``called_off_new_labels_of`` (the Admin run row's page). A night that read no call-off is evaluated, opens no
+    connection and lists none (a baseline that saw it gone)."""
+    sid = _listed_company(db, "AIRI")
+    det = _det(_airi(security_id=sid))
+    _check(det)
+    doc = json.loads(json.dumps(det.payload()))
+    block = doc["split_detect"]
+    assert list(block)[10:15] == [
+        "calloffs",
+        "called_off_evaluated",
+        "called_off_error",
+        "called_off",
+        "called_off_new",
+    ]
+    row = {
+        "key": f"{sid}:2026-11-20:{AIRI_8K}",
+        "security_id": str(sid),
+        "ticker": "AIRI",
+        "key_date": "2026-11-20",
+        "first_session": "2026-11-20",
+        "ratio": "1-for-5 reverse split",
+        "status": "confirmed",
+        "accession": AIRI_8K,
+        "form": "8-K",
+        "filed": "2026-11-19",
+        "label": AIRI_PAGE,
+    }
+    assert block["called_off"] == [row] and block["called_off_new"] == [row]
+    assert ds.called_off_keys_of(doc) == {row["key"]}
+    assert ds.called_off_new_labels_of(doc) == (AIRI_PAGE,)
+    assert ds.called_off_keys_of({}) == set() and ds.called_off_new_labels_of({}) == ()
+
+    def boom():
+        raise AssertionError("a night with no call-off opens no connection")
+
+    quiet = _det()
+    _check(quiet, connect=boom, previous=boom)
+    assert quiet.called_off_evaluated is True and quiet.called_off == []
+    assert quiet.payload()["split_detect"]["called_off"] == [] and len(quiet.report_lines()) == 1
 
 
 def test_the_public_clock_reads_a_detected_split_from_its_own_publication(db, tmp_path):

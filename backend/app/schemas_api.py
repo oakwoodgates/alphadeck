@@ -2337,6 +2337,11 @@ class AdminRunOut(BaseModel):
     (``"<ticker> <kind> x<factor> (<date>)"`` — a ``problems`` line with the benign marker: a vendor tape
     defect, flag only).
 
+    ``split_called_off_new`` (F10) are the labels of the listed splits that a filing the pass read NEWLY called
+    off (``"<ticker> <ratio> (<status>, first session <date>): called off by <form> <accession> (filed <date>)"``
+    — a ``problems`` line with the benign marker: display only, the steward settles it on the Splits panel); empty
+    on a run written before it.
+
     X5 (measurement only, from the artifact's ``timings`` block — ``pipeline/pass_timings.py``):
     ``pass_total_s`` is the WHOLE pass's wall time, the legs after the per-thesis loop included (unlike
     ``duration_s``, which ends with the loop); ``top_leg`` / ``top_leg_s`` name the leg it spent the most
@@ -2368,6 +2373,7 @@ class AdminRunOut(BaseModel):
     name_errors_known: int = 0
     skipped: int = 0
     split_defects_new: list[str] = []
+    split_called_off_new: list[str] = []
     pass_total_s: float | None = None
     top_leg: str | None = None
     top_leg_s: float | None = None

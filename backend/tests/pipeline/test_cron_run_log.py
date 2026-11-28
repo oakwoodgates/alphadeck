@@ -1086,6 +1086,79 @@ def test_previous_ingest_skips_NONE_before_any_evaluated_pass_then_the_INVENTORY
     assert previous_ingest_skips(base_dir=tmp_path) == want
 
 
+# --- F10 P8: the split call-offs' baseline, the split-basis one's twin; a catch-up is never in it -----------------
+
+
+def _called_off(ticker: str = "AIRI", accession: str = "0001213900-26-122096"):
+    from pipeline.detect_splits import CalledOffSplit
+
+    return CalledOffSplit(
+        security_id=uuid4(),
+        ticker=ticker,
+        key_date=date(2026, 11, 20),
+        first_session=date(2026, 11, 20),
+        ratio="1-for-5 reverse split",
+        status="confirmed",
+        accession=accession,
+        form="8-K",
+        filed=date(2026, 11, 19),
+    )
+
+
+def test_previous_called_off_is_the_newest_live_finished_checked_pass_and_NEVER_a_catch_up(
+    tmp_path,
+):
+    """``previous_called_off``: None until a pass CHECKED; then the newest LIVE, FINISHED pass whose call-off check
+    ran. Every newer artifact below is one the diff must skip: the warning off (the detection ran, the check did
+    not), a failed check, a --no-live pass, a --catch-up (its detector checked only the theses it processed, so it
+    lacks the skipped ones' call-offs, and as the baseline the next full pass would page them again) and a pass
+    still running (M1). A newer full pass that saw none IS the baseline: a call-off seen gone pages when it
+    returns."""
+    from pipeline.cron_run_log import previous_called_off
+    from pipeline.detect_splits import SplitDetection
+
+    a, b = _called_off(), _called_off("PBK", "0001493152-26-052687")
+
+    def _write(hour: int, det: SplitDetection, *, allow_live: bool = True, catch_up: bool = False):
+        assert write_cron_run_log(
+            [_thesis_result(recorded=True)],
+            asof=date(2026, 11, 24),
+            allow_live=allow_live,
+            catch_up=catch_up,
+            started_at=_utc(2026, 11, 25, hour, 30),
+            finished_at=_utc(2026, 11, 25, hour, 40),
+            base_dir=tmp_path,
+            split_detect=det,
+        )
+
+    def _checked(*rows, error: str | None = None) -> SplitDetection:
+        return SplitDetection(
+            evaluated=True,
+            called_off_evaluated=error is None,
+            called_off_error=error,
+            called_off=list(rows),
+            called_off_new=list(rows),
+        )
+
+    assert previous_called_off(base_dir=tmp_path) is None
+    _write(0, SplitDetection(evaluated=True))  # written before F10: never checked
+    assert previous_called_off(base_dir=tmp_path) is None
+    _write(1, _checked(a, b))  # the baseline
+    _write(2, SplitDetection(evaluated=True))  # the warning off
+    _write(3, _checked(error="OperationalError: server closed the connection"))
+    _write(4, _checked(), allow_live=False)
+    _write(5, _checked(), catch_up=True)
+    assert write_run_start(
+        asof=date(2026, 11, 24),
+        allow_live=True,
+        started_at=_utc(2026, 11, 25, 6, 30),
+        base_dir=tmp_path,
+    )
+    assert previous_called_off(base_dir=tmp_path) == {a.key, b.key}
+    _write(7, _checked())
+    assert previous_called_off(base_dir=tmp_path) == set()
+
+
 def test_the_skip_block_on_the_artifact_counts_known_new_and_the_delta(tmp_path):
     from pipeline.ingest_skips import diff_skips
 

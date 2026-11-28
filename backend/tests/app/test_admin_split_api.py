@@ -25,7 +25,7 @@ def _tr(**kw) -> ThesisRunResult:
     return ThesisRunResult(thesis_id=uuid.uuid4(), name="T", **kw)
 
 
-def _artifact(*, at: datetime, split: SplitScan | None, allow_live: bool = True):
+def _artifact(*, at: datetime, split: SplitScan | None, allow_live: bool = True, split_detect=None):
     path = write_cron_run_log(
         [_tr(recorded=True, edgar_fetches=88)],
         asof=_MON,
@@ -33,6 +33,7 @@ def _artifact(*, at: datetime, split: SplitScan | None, allow_live: bool = True)
         started_at=at,
         finished_at=at + timedelta(minutes=2),
         split=split,
+        split_detect=split_detect,
     )
     assert path is not None
     return path
@@ -133,6 +134,46 @@ def test_a_NEW_split_defect_pages_on_the_run_row_but_the_cron_stays_HEALTHY(
     assert "split" not in body["cron"]["detail"]
 
 
+def test_a_NEW_split_calloff_pages_on_the_run_row_but_the_cron_stays_HEALTHY(
+    client, db, monkeypatch, cron_runs_dir
+):
+    """F10 P8: a listed split a filing NEWLY calls off is a benign line on the run row that paged it, re-derived
+    from the artifact's ``split_detect.called_off_new`` in the page's own words, and the one-word cron verdict stays
+    about the cron. A run written before F10 carries none."""
+    from pipeline.detect_splits import SplitDetection
+    from tests.pipeline.test_cron_run_log import _called_off
+
+    monkeypatch.setattr(daily, "ingest_thesis", lambda *a, **k: [])
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO thesis (id, tenant_id, name, narrative) VALUES (%s, %s, 'T', 'n')",
+            (uuid.uuid4(), DEFAULT_TENANT_ID),
+        )
+    db.commit()
+    daily.run_daily(db, asof=_MON, allow_live=True)  # edge = Monday (current)
+    c = _called_off()
+    _artifact(
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        split=SplitScan(evaluated=True, window_days=430),
+        split_detect=SplitDetection(
+            evaluated=True, called_off_evaluated=True, called_off=[c], called_off_new=[c]
+        ),
+    )
+    monkeypatch.setattr(admin, "_now", lambda: datetime(2026, 7, 20, 23, 0))
+
+    body = client.get("/admin/status").json()
+
+    assert body["last_run"]["healthy"] is False  # the assessor DID page…
+    assert body["last_run"]["split_called_off_new"] == [c.label]
+    assert [p for p in body["last_run"]["problems"] if "called off" in p] == [
+        f"1 listed split(s) NEWLY called off by a filing: {c.label} — nothing was decided on it; settle "
+        "it on the Admin Splits panel, not an error in this run"
+    ]
+    assert body["cron"]["status"] == "healthy"  # …and the verdict stays about the cron
+    assert "called off" not in body["cron"]["detail"]
+    assert client.get("/admin/runs").json()["runs"][0]["split_called_off_new"] == [c.label]
+
+
 def test_status_split_panel_is_NULL_until_a_pass_has_SCANNED(client, cron_runs_dir):
     _artifact(at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc), split=None)  # not evaluated
     _artifact(  # a cache-only pass never scans, and never counts even if it claimed to
@@ -173,6 +214,7 @@ def test_a_PRE_T4_artifact_still_parses_and_carries_no_split_line(client, cron_r
 
     assert body["split_defects"] is None  # never scanned — the quiet state, not an alarm
     assert run["split_defects_new"] == [] and not any("split" in p for p in run["problems"])
+    assert run["split_called_off_new"] == []
 
 
 def test_the_panel_reads_a_PARTIAL_catch_up_the_same_pass_the_next_diff_reads(
