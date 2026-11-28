@@ -92,7 +92,8 @@ and answer `asof: null`.
 
 **Admin reads.** The steward's five tools read one Admin panel each, live and undated, over the panel's own GET
 (`views/admin/`): `get_splits` (Admin > Splits; `section=unplaced` pages the split filings the list could not place,
-each with the listed split it most likely concerns), `get_admin_status`, `get_shared_facts` (Admin > Shared facts:
+each with the listed split it most likely concerns; `called_off` names the filings that call a listed split off),
+`get_admin_status`, `get_shared_facts` (Admin > Shared facts:
 the queue, and `section=company` with `t` for the company page, `fact` narrowing it to one value),
 `get_insider_holds` (Admin > Held insider rows, bucketed as the panel is; `section=one` with `t` reads a ticker's
 rows in full) and `get_admin_onboarding` (Admin > Onboarding, failed names first: `get_onboarding`'s view of the

@@ -62,6 +62,7 @@ def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characte
     assert prompt.startswith("Splits review, starting with TK01: ") and "{{" not in prompt
     assert 'section="unplaced"' in prompt and "listed_near" in prompt
     assert "same_ratio_listed" in prompt  # F8-3
+    assert "called_off" in prompt  # F10
     assert len(PROMPT_FILE.read_text(encoding="utf-8")) <= 2_000 and len(prompt) <= 2_000
     assert len(spent) <= MAX_CALLS, spent
     assert sum(chars for _, chars in spent) <= MAX_CHARS, spent
@@ -104,6 +105,45 @@ def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characte
     # F8-3: the open TK01 names the listed split of its ratio near it in the default reply already
     assert default["needs_review"][0]["same_ratio_listed"][0]["days_from"] == -154
     assert [j["ticker"] for j in jumps["unlisted"]] == ["TK08"]
+
+
+def test_the_report_lists_every_called_off_row_the_default_read_carries():
+    """F10: the recipe reports the default reply's called_off rows, any status, as their own item (once, not under a
+    needs-review name), and that one read carries them: a confirmed split a filing called off (TK05) beside a
+    needs-review (TK02) and a rejected one (TK07), each with its status and its filing. The recipe stays within
+    2,000 characters raw and rendered, with and without a ticker."""
+    api = FakeApi(me_role="super_admin", splits=afx.splits(called_off=True))
+
+    async def steps(session):
+        named = await session.get_prompt("splits-review", {"t": "TK01"})
+        bare = await session.get_prompt("splits-review", {})
+        default = await session.call_tool("get_splits", {})
+        assert not default.is_error, default.content[0].text
+        return (
+            named.messages[0].content.text,
+            bare.messages[0].content.text,
+            default.structured_content,
+        )
+
+    prompt, bare, default = run_in_process(api, steps)
+    raw = PROMPT_FILE.read_text(encoding="utf-8")
+    assert max(len(raw), len(prompt), len(bare)) <= 2_000
+    report = next(line for line in prompt.splitlines() if line.startswith("Report"))
+    items = [s for s in report.split(". ") if "called_off" in s]
+    assert len(items) == 1, items  # its own item, once
+    (item,) = items
+    assert item.startswith("List every called_off row") and "needs-review" not in item
+    assert "status" in item and "filing" in item
+    assert default["counts"]["called_off"] == 3
+    assert [(e["ticker"], e["status"]) for e in default["called_off"]] == [
+        ("TK02", "needs_review"),
+        ("TK05", "confirmed"),
+        ("TK07", "rejected"),
+    ]
+    five = default["called_off"][1]
+    assert (five["label"], five["effective_date"]) == ("1-for-10", "2026-11-02")
+    filing = five["called_off"][0]
+    assert (filing["form"], filing["kind"], filing["days_from"]) == ("8-K", "decision", -1)
 
 
 def test_a_plain_stdio_caller_is_not_offered_the_prompt_or_the_tools():
