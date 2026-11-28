@@ -15,8 +15,12 @@ A cue counts only within ``near`` characters of a split named in the same senten
 guards: modal or conditional words before it in its own clause ("may", "if", "unless", "whether", "risk" …: a
 board MAY abandon a split, IF it is not approved), a condition right after it ("will not become effective until
 …"), an object that is ANY split rather than this one (a covenant: "will not effect any reverse split"), an
-object that is shares or another instrument (fractional shares, warrants, notes), and, for a decision to
-abandon, an object that is no split, meeting, proposal or amendment.
+object that is shares or another instrument (fractional shares, warrants, notes), for a decision to abandon,
+an object that is no split, meeting, proposal or amendment, and, for a cue whose object need not be the split (a
+meeting, a proposal, an authorization, or none), a split the sentence states as already done: KNWN's “decision to
+cancel the Special Meeting comes after the Company announced a 1 for 40 reverse stock split …, which became
+effective February 19, 2025” calls nothing off, while SENS's “decision to cancel the Special Meeting” for a split
+it then did not do is a call-off.
 
 **Not read.** A POSTPONEMENT or adjournment ("elected to delay the effectiveness of the reverse stock split",
 PBM; "adjourning that meeting indefinitely", WETO), a recorded decision: as a trigger it only added wrong flags
@@ -27,6 +31,9 @@ MEASURED 2026-11-28 on prod's cache (37,812 8-K / 6-K accessions, 2024-26,
 ``docs/temp/framework-completion-evidence/f10-measure``): the patterns and guards are its ``classify.py``'s,
 which read 26 decision and 4 failed-vote sentences in 23 accessions (13 real call-offs, the rest restated
 history, status lines and contract terms); of 50 random sentences it read as boilerplate, none was a call-off.
+One guard came after it (F10 P1b), ``completed_split``: of those 30 it sets aside KNWN's alone (noise), and of the
+measurement's 9,317 candidate and 7,977 sweep sentences nothing else
+(``docs/temp/framework-completion-evidence/f10-p1b``).
 
 **All the wording is in ``WORDING``**, data only (str, int and tuples); the logic below it reads nothing else,
 and ``read_sentence`` takes the wording as a parameter. Changing what is read is an edit to the block, never to
@@ -64,6 +71,7 @@ class CalloffWording:
     shares_reach: int
     split_object: str
     split_object_reach: int
+    completed_split: str
 
 
 # ======================================== WORDING (data only) ========================================
@@ -116,14 +124,14 @@ WORDING = CalloffWording(
                     r"\b(?:decided|determined|elected|resolved|chose|concluded|opted|decision)\s+"
                     r"(?:\w+\s+){0,4}?not\s+to\s+(?:effect|implement|proceed|pursue|move|go|complete|"
                     r"consummate|undertake|seek|file|carry|seek)",
-                    ("modal_before",),
+                    ("modal_before", "completed_split"),
                 ),
                 (
                     "decided_to_abandon",
                     r"\b(?:decided|determined|elected|resolved|chose|agreed|concluded|opted|decision|"
                     r"approved)\s+(?:\w+\s+){0,2}?to\s+(?:abandon|withdraw|cancel|terminate|rescind|revoke|"
                     r"discontinue|forgo|forego|call\s+off)",
-                    ("modal_before", "split_object"),
+                    ("modal_before", "split_object", "completed_split"),
                 ),
                 (
                     "perfect_passive",
@@ -131,7 +139,7 @@ WORDING = CalloffWording(
                     r"\b(?:has|have|had|was|were|is|are|been|being|will\s+be|would\s+be|shall\s+be)\s+"
                     r"(?:been\s+|now\s+|formally\s+|officially\s+|hereby\s+)?(?:abandoned|cancell?ed|withdrawn|"
                     r"terminated|rescinded|revoked|discontinued|called\s+off)\b",
-                    ("modal_before", "shares_object"),
+                    ("modal_before", "shares_object", "completed_split"),
                 ),
                 (
                     "active_past",
@@ -140,7 +148,7 @@ WORDING = CalloffWording(
                     r"(?:the\s+|its\s+|our\s+|such\s+|their\s+)?(?:previously\s+(?:announced|approved|disclosed)\s+|"
                     r"proposed\s+|planned\s+|contemplated\s+)?(?:[\w\"“”()-]+\s+){0,4}?"
                     r"(?:split|consolidation|proposal|meeting)",
-                    ("modal_before", "shares_object"),
+                    ("modal_before", "shares_object", "completed_split"),
                 ),
                 (
                     "not_intend",
@@ -153,20 +161,20 @@ WORDING = CalloffWording(
                     "no_longer",
                     r"\bno\s+longer\s+(?:intends?|plans?|expects?|anticipates?|seeks?|seeking|pursu\w+|"
                     r"proceed\w*|consider\w*|wish\w*|contemplat\w*|going\s+to|be\s+effect\w*|be\s+implement\w*)",
-                    ("modal_before",),
+                    ("modal_before", "completed_split"),
                 ),
                 (
                     "noun",
                     r"\b(?:abandonment|cancell?ation|withdrawal|termination|rescission|revocation)\s+of\s+"
                     r"(?:the\s+|its\s+|our\s+|such\s+)?(?:proposed\s+|planned\s+|previously\s+announced\s+|"
                     r"contemplated\s+)?(?:[\w\"“”()-]+\s+){0,3}?(?:split|consolidation|proposal)",
-                    ("modal_before", "shares_object"),
+                    ("modal_before", "shares_object", "completed_split"),
                 ),
                 (
                     "expired",
                     r"\b(?:authori[sz]ation|approval|authority)\b[^.;]{0,60}?\b(?:has|have|had)?\s*"
                     r"(?:since\s+|now\s+)?(?:expired|lapsed)\b",
-                    ("modal_before",),
+                    ("modal_before", "completed_split"),
                 ),
             ),
         ),
@@ -229,6 +237,14 @@ WORDING = CalloffWording(
     # guard split_object: what is abandoned must be named in the split_object_reach characters after the cue
     split_object=r"split|consolidation|meeting|proposal|amendment",
     split_object_reach=60,
+    # guard completed_split: anywhere in the sentence, a split followed in its clause (150 characters, no ";") by
+    # words that say it is already done; only on the patterns whose object need not be the split itself (a meeting
+    # cancelled after the split took effect calls nothing off). The forms are affirmative and adjacent: "was not
+    # effected" or "had not become effective" is no completion
+    completed_split=(
+        r"\b(?:split|consolidation)\b[^;]{0,150}?\b(?:became\s+effective|(?:has|had)\s+become\s+effective|"
+        r"took\s+effect|(?:was|were)\s+(?:effected|effective|completed)|(?:has|had)\s+been\s+(?:effected|completed))\b"
+    ),
 )
 # ===================================== end of WORDING; logic below =====================================
 
@@ -243,7 +259,14 @@ class CallOffCue:
     span: tuple[int, int]
 
 
-_GUARDS = ("modal_before", "condition_after", "generic_object", "shares_object", "split_object")
+_GUARDS = (
+    "modal_before",
+    "condition_after",
+    "generic_object",
+    "shares_object",
+    "split_object",
+    "completed_split",
+)
 
 
 @dataclass(frozen=True)
@@ -264,6 +287,7 @@ class _Reader:
     generic_object: re.Pattern[str]
     shares_object: re.Pattern[str]
     split_object: re.Pattern[str]
+    completed_split: re.Pattern[str]
 
 
 def _rx(source: str) -> re.Pattern[str]:
@@ -302,6 +326,7 @@ def _reader(wording: CalloffWording) -> _Reader:
         generic_object=_rx(wording.generic_object),
         shares_object=_rx(wording.shares_object),
         split_object=_rx(wording.split_object),
+        completed_split=_rx(wording.completed_split),
     )
 
 
@@ -329,6 +354,8 @@ def _set_aside(r: _Reader, w: CalloffWording, cue: _Cue, text: str, m: re.Match[
     if "shares_object" in cue.guards:
         if r.shares_object.search(text[max(0, a - w.shares_back) : z][-w.shares_reach :]):
             return True
+    if "completed_split" in cue.guards and r.completed_split.search(text):
+        return True
     return "split_object" in cue.guards and not r.split_object.search(
         text[z : z + w.split_object_reach]
     )
